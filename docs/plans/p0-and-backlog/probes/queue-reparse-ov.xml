@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="4" time="1.958" timestamp="2026-09-23T06:28:03.580307+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_queue_metadata_ownership" name="test_reparse_only_current_execution_clears_confirmation_marker[before]" time="0.588"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f783ef88c20&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f783f087230&gt;
+phase = 'before'
+
+    @pytest.mark.parametrize("phase", ["before", "during", "success", "failure"])
+    async def test_reparse_only_current_execution_clears_confirmation_marker(db_session, monkeypatch, phase):
+        from app.database import async_session_factory
+        from app.models.channel import Channel
+        from app.models.file_resource import FileResource
+        from app.utils.time import utcnow
+    
+        channel = Channel(name="Reparse", type="rss_feed", url="https://example.invalid", field_mapping={})
+        db_session.add(channel)
+        await db_session.flush()
+        marker = utcnow()
+        resource = FileResource(channel_id=channel.id, guid="reparse", title_raw="Synthetic",
+                                torrent_url="magnet:?xt=synthetic", confirmation_ignored_at=marker)
+        db_session.add(resource)
+        await db_session.commit()
+        resource_id, channel_id = resource.id, channel.id
+        expired = phase == "before"
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired reparse")
+    
+        async def process(*args, **kwargs):
+            nonlocal expired
+            expired = phase == "during"
+            if phase == "failure":
+                raise RuntimeError("Metadata unavailable")
+    
+        process_mock = AsyncMock(side_effect=process)
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.services.fetch_service._process_resource_metadata", process_mock)
+        payload = {"resource_id": resource_id, "channel_id": channel_id}
+        if phase in {"before", "during"}:
+&gt;           with pytest.raises(task_queue.ExecutionOwnershipLostError):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_queue_metadata_ownership.py:45: Failed</failure></testcase><testcase classname="tests.unit.test_queue_metadata_ownership" name="test_reparse_only_current_execution_clears_confirmation_marker[during]" time="0.427"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f782bb6da70&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f782bb317b0&gt;
+phase = 'during'
+
+    @pytest.mark.parametrize("phase", ["before", "during", "success", "failure"])
+    async def test_reparse_only_current_execution_clears_confirmation_marker(db_session, monkeypatch, phase):
+        from app.database import async_session_factory
+        from app.models.channel import Channel
+        from app.models.file_resource import FileResource
+        from app.utils.time import utcnow
+    
+        channel = Channel(name="Reparse", type="rss_feed", url="https://example.invalid", field_mapping={})
+        db_session.add(channel)
+        await db_session.flush()
+        marker = utcnow()
+        resource = FileResource(channel_id=channel.id, guid="reparse", title_raw="Synthetic",
+                                torrent_url="magnet:?xt=synthetic", confirmation_ignored_at=marker)
+        db_session.add(resource)
+        await db_session.commit()
+        resource_id, channel_id = resource.id, channel.id
+        expired = phase == "before"
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired reparse")
+    
+        async def process(*args, **kwargs):
+            nonlocal expired
+            expired = phase == "during"
+            if phase == "failure":
+                raise RuntimeError("Metadata unavailable")
+    
+        process_mock = AsyncMock(side_effect=process)
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.services.fetch_service._process_resource_metadata", process_mock)
+        payload = {"resource_id": resource_id, "channel_id": channel_id}
+        if phase in {"before", "during"}:
+&gt;           with pytest.raises(task_queue.ExecutionOwnershipLostError):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_queue_metadata_ownership.py:45: Failed</failure></testcase><testcase classname="tests.unit.test_queue_metadata_ownership" name="test_reparse_only_current_execution_clears_confirmation_marker[success]" time="0.418" /><testcase classname="tests.unit.test_queue_metadata_ownership" name="test_reparse_only_current_execution_clears_confirmation_marker[failure]" time="0.424" /></testsuite></testsuites>

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -962,9 +962,32 @@ async def resolve_magnet_metadata(
                          "error": {"code": "VALIDATION_ERROR", "message": str(e)}},
             )
 
-    resource.magnet_resolve_trackers = custom_trackers
-    resource.magnet_resolve_attempts = 0
-    resource.magnet_resolve_error = None
+    # The identity-map read can predate another worker's claim. Reset only
+    # the observed generation, never a replacement attempt or active claim.
+    result = await db.execute(
+        update(FileResource)
+        .where(
+            FileResource.id == resource_id,
+            FileResource.magnet_resolve_attempt_id == resource.magnet_resolve_attempt_id,
+            FileResource.magnet_resolve_status == resource.magnet_resolve_status,
+            FileResource.torrent_url == resource.torrent_url,
+        )
+        .values(
+            magnet_resolve_trackers=custom_trackers,
+            magnet_resolve_attempt_id=None,
+            magnet_resolve_attempts=0,
+            magnet_resolve_error=None,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    if not result.rowcount:
+        await db.rollback()
+        return JSONResponse(
+            status_code=409,
+            content={"success": False, "data": None,
+                     "error": {"code": "INVALID_STATE",
+                               "message": "Magnet resolution changed; reload before retrying"}},
+        )
     # Commit BEFORE enqueuing: the job's status claim runs in its own session
     # and must see the reset counters.
     await db.commit()
@@ -976,7 +999,7 @@ async def resolve_magnet_metadata(
             "error": None,
             "attempts": 0,
             "updated_at": resource.magnet_resolve_updated_at,
-            "trackers": resource.magnet_resolve_trackers,
+            "trackers": custom_trackers,
         }
     })
 

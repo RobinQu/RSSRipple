@@ -1,0 +1,31 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________________ test_expired_queue_owner_cannot_move_files __________________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f1e73dff380>
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1392/test_expired_queue_owner_canno0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f1e732788a0>
+
+    async def test_expired_queue_owner_cannot_move_files(db_session, tmp_path, monkeypatch):
+        plan, downloads = await _planned_series_plan(db_session, tmp_path)
+        source = downloads / "Show.S01/ep04.mkv"
+        original = source.read_bytes()
+    
+        async def lost():
+            raise task_queue.ExecutionOwnershipLostError("Queue owner expired before organize")
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", lost)
+>       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_queue_organize_ownership.py:20: Failed
+=============================== warnings summary ===============================
+tests/unit/test_queue_organize_ownership.py::test_expired_queue_owner_cannot_move_files
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_queue_organize_ownership.py::test_expired_queue_owner_cannot_move_files
+1 failed, 1 warning in 0.81s

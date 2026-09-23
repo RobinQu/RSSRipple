@@ -1,0 +1,51 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______________ test_reconcile_loss_stops_after_first_shadow_table ______________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f5aa8c53a10>
+sample_series = <app.models.series.TVSeries object at 0x7f5aa8990050>
+sample_movie = <app.models.movie.Movie object at 0x7f5aa89916a0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f5aa8c55810>
+
+    async def test_reconcile_loss_stops_after_first_shadow_table(db_session, sample_series, sample_movie, monkeypatch):
+        import pytest
+        from sqlalchemy import text
+    
+        from app.services import fts, scheduler, task_queue
+    
+        await db_session.commit()
+        await backfill_fts_if_empty(db_session)
+        engine = fts._get_fts_engine()
+        async with engine.begin() as conn:
+            await conn.execute(text("DELETE FROM tv_series_fts"))
+            await conn.execute(text("DELETE FROM movie_fts"))
+        expired = False
+        writes = []
+        write = fts._shadow_write
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired after first table")
+    
+        async def write_then_expire(statements):
+            nonlocal expired
+            await write(statements)
+            writes.append(statements)
+            expired = True
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr(fts, "_shadow_write", write_then_expire)
+>       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_fts.py:315: Failed
+=============================== warnings summary ===============================
+tests/unit/test_fts.py::test_reconcile_loss_stops_after_first_shadow_table
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_fts.py::test_reconcile_loss_stops_after_first_shadow_table
+1 failed, 38 deselected, 1 warning in 0.72s

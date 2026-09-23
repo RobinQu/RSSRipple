@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import and_, delete, or_, select
+from sqlalchemy import and_, delete, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -237,6 +237,30 @@ async def create_and_submit_task(
 
     Shared by agent dispatch and manual creation (``POST /tasks``).
     """
+    from app.services.task_queue import current_job_identity, require_execution_ownership
+
+    await require_execution_ownership()
+    identity = current_job_identity()
+    reservation = None
+    payload = resolve_torrent_payload(resource)
+    if identity is not None:
+        from app.services.download_dispatch import operation_key, payload_digest, reserve_dispatch
+
+        parameters = {
+            "resource_id": resource.id, "agent_id": agent_id,
+            "downloader_id": downloader.id, "download_dir": download_dir,
+            "payload_digest": payload_digest(payload),
+        }
+        reservation = await reserve_dispatch(
+            db.bind, operation_key(identity, resource.id, agent_id), parameters, job_identity=identity,
+        )
+        existing = await db.get(DownloadTask, reservation.task_id)
+        if existing is not None:
+            return existing
+        if reservation.settled:
+            raise ValueError("Queued download task was removed; refusing to recreate it")
+        # Reservation can wait on another writer; recheck before starting RPC.
+        await require_execution_ownership()
     task = DownloadTask(
         agent_id=agent_id,
         file_resource_id=resource.id,
@@ -245,7 +269,8 @@ async def create_and_submit_task(
         status="pending",
         max_retries=settings.max_retry_count,
     )
-    db.add(task)
+    if reservation is None:
+        db.add(task)
     # NOTE: no flush before the RPC on purpose. Flushing would emit the INSERT
     # and acquire the SQLite write lock for the whole duration of the
     # downloader call (up to ``transmission_timeout`` seconds), stalling all
@@ -257,7 +282,7 @@ async def create_and_submit_task(
     try:
         result = await asyncio.wait_for(
             wrapper.add_torrent(
-                resolve_torrent_payload(resource),
+                payload,
                 download_dir=task.download_dir,
             ),
             timeout=settings.transmission_timeout,
@@ -270,6 +295,19 @@ async def create_and_submit_task(
         task.status = "error"
         task.error_message = str(e)[:2000]
 
+    # The remote call may outlive this execution's lease. Leave the durable
+    # reservation available for the replacement instead of settling stale output.
+    await require_execution_ownership()
+    if reservation is not None:
+        from app.services.download_dispatch import persist_dispatch_result
+
+        return await persist_dispatch_result(db, reservation, {
+            "agent_id": agent_id, "file_resource_id": resource.id,
+            "downloader_id": downloader.id, "download_dir": download_dir,
+            "status": task.status, "max_retries": task.max_retries,
+            "transmission_torrent_id": task.transmission_torrent_id,
+            "confirmed_at": task.confirmed_at, "error_message": task.error_message,
+        })
     await db.flush()
     return task
 
@@ -503,6 +541,9 @@ async def create_pending_decision(
             selectinload(FileResource.series), selectinload(FileResource.movie),
         ))).all())
         picked_id, reason_txt = await _suggest_pick(agent, proposed, key)
+    from app.services.task_queue import require_execution_ownership
+
+    await require_execution_ownership()
     return await persist_choice(
         db, agent_id=agent.id, decision_key=decision_key, decision_scope=scope,
         candidate_ids=candidate_ids, proposed_ids=proposed_ids,
@@ -801,7 +842,9 @@ async def process_resources(
     """
     result = RunResult()
     from app.services.resource_coverage import load_batch_coverage
+    from app.services.task_queue import ExecutionOwnershipLostError, require_execution_ownership
 
+    await require_execution_ownership()
     await load_batch_coverage(db, resources)
 
     rule_set = _build_rule_set(agent)
@@ -934,6 +977,7 @@ async def process_resources(
         await db.commit()
     guard_options = {"consumption_snapshot": consumption_snapshot} if consumption_snapshot is not None else {}
     for key, cands in candidates_by_key.items():
+        await require_execution_ownership()
         try:
             if autocommit:
                 from app.database import retry_on_lock
@@ -941,7 +985,16 @@ async def process_resources(
                 async def write_candidate():
                     async with AsyncSession(bind=db.bind, expire_on_commit=False) as unit_db:
                         async with unit_db.begin():
-                            return await _process_candidate_group(agent, key, cands, unit_db, **guard_options)
+                            if unit_db.get_bind().dialect.name == "sqlite":
+                                # A logical Session transaction alone does not
+                                # make Turso start BEGIN before a SAVEPOINT.
+                                # Releasing that first savepoint must not commit
+                                # the choice before our outer ownership check.
+                                await unit_db.execute(text("BEGIN"))
+                            await require_execution_ownership()
+                            pending = await _process_candidate_group(agent, key, cands, unit_db, **guard_options)
+                            await require_execution_ownership()
+                            return pending
 
                 if agent.conflict_resolution == "ask" and len(cands) >= 2:
                     # This branch only persists a choice; it cannot send a
@@ -954,10 +1007,13 @@ async def process_resources(
                 # Keep that state visible and isolate only the candidate writes.
                 async with db.begin_nested():
                     pending = await _process_candidate_group(agent, key, cands, db, **guard_options)
+                    await require_execution_ownership()
             if pending:
                 result.pending_decisions += 1
             else:
                 result.dispatched += 1
+        except ExecutionOwnershipLostError:
+            raise
         except Exception as e:
             from app.database import _is_retryable_lock_error
 
@@ -970,6 +1026,7 @@ async def process_resources(
             logger.exception("Failed to process candidates for %s: %s", key, e)
             result.errors.append(str(e))
 
+    await require_execution_ownership()
     await _retire_legacy_resource_confirmation_decisions(agent, db)
 
     result.suggestions = list(suggestions.values())

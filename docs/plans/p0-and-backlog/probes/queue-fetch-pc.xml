@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="1.104" timestamp="2026-09-23T06:37:35.624592+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_fetch_service.TestFetchChannelResources" name="test_expired_backfill_cannot_finalize_channel[False]" time="0.518"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">self = &lt;tests.unit.test_fetch_service.TestFetchChannelResources object at 0x7fa1bfc0d810&gt;
+db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fa1bf6cbcb0&gt;
+channel = &lt;app.models.channel.Channel object at 0x7fa1bf8001a0&gt;
+fake_queue = &lt;MagicMock id='140332679304528'&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7fa1bfc53490&gt;
+raises_loss = False
+
+    @pytest.mark.parametrize("raises_loss", [False, True])
+    async def test_expired_backfill_cannot_finalize_channel(self, db_session, channel, fake_queue, monkeypatch, raises_loss):
+        from app.database import async_session_factory
+        from app.services import task_queue
+    
+        channel_id = channel.id
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired during backfill")
+    
+        async def backfill(*args, **kwargs):
+            nonlocal expired
+            expired = True
+            if raises_loss:
+                raise task_queue.ExecutionOwnershipLostError("Backfill lost ownership")
+            return 0
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr(fs, "_parse_feed_sync", lambda _: _mock_feed([]))
+        monkeypatch.setattr(fs, "_backfill_unmatched_resources", backfill)
+&gt;       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_fetch_service.py:135: Failed</failure></testcase><testcase classname="tests.unit.test_fetch_service.TestFetchChannelResources" name="test_expired_backfill_cannot_finalize_channel[True]" time="0.392"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">self = &lt;tests.unit.test_fetch_service.TestFetchChannelResources object at 0x7fa1bfc0d950&gt;
+db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fa1bf95efd0&gt;
+channel = &lt;app.models.channel.Channel object at 0x7fa1bf95f250&gt;
+fake_queue = &lt;MagicMock id='140332678033968'&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7fa1bf9ffb50&gt;
+raises_loss = True
+
+    @pytest.mark.parametrize("raises_loss", [False, True])
+    async def test_expired_backfill_cannot_finalize_channel(self, db_session, channel, fake_queue, monkeypatch, raises_loss):
+        from app.database import async_session_factory
+        from app.services import task_queue
+    
+        channel_id = channel.id
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired during backfill")
+    
+        async def backfill(*args, **kwargs):
+            nonlocal expired
+            expired = True
+            if raises_loss:
+                raise task_queue.ExecutionOwnershipLostError("Backfill lost ownership")
+            return 0
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr(fs, "_parse_feed_sync", lambda _: _mock_feed([]))
+        monkeypatch.setattr(fs, "_backfill_unmatched_resources", backfill)
+&gt;       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_fetch_service.py:135: Failed</failure></testcase></testsuite></testsuites>

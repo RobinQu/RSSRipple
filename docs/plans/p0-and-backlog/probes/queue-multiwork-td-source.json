@@ -1,0 +1,9 @@
+{
+  "script": "docs/plans/p0-and-backlog/probes/queue_multiwork_lock_probe.py",
+  "sha256": "c7b8a89d44c9cf83411b479acfa88c9948b15de508a043fb27227fd651c0a459",
+  "runtime_manifest": "queue-final-sn-source.json",
+  "exit_code": 0,
+  "cleanup_exit_code": 0,
+  "cases": 2,
+  "boundary": "Actual inspection then explicit resource row lock; pg_blocking_pids confirms competing update waits; recorded torrent, synthetic provider replies"
+}

@@ -677,7 +677,10 @@ async def _execute_plan_owned(db, plan_id: str) -> OrganizePlan:
     执行失败（前置门禁/冲突/校验）计划落 failed + error_message，不抛异常
     ——failed 是可重试的正常终态。
     """
+    from app.services.task_queue import require_execution_ownership
+
     async with _executor_lock:
+        await require_execution_ownership()
         plan = await db.get(OrganizePlan, plan_id, populate_existing=True)
         if plan is None:
             raise OrganizeError(f"计划不存在：{plan_id}")
@@ -765,6 +768,7 @@ async def _execute_plan_owned(db, plan_id: str) -> OrganizePlan:
         except (VolumeResolutionError, PlanError) as e:
             raise OrganizeError(str(e)) from e
 
+        await require_execution_ownership()
         if not await reserve_revision(
             db, plan, expected_revision=plan.revision,
             config_revision=None if plan.status == "running" else plan.config_revision,
@@ -832,8 +836,8 @@ async def _execute_plan_owned(db, plan_id: str) -> OrganizePlan:
                    {"status": "failed", "error": outcome.error})
         await db.commit()
 
-    # 锁外：任务清理/恢复做种与媒体服务器刷新均为 best-effort，失败只记日志
-    # 不改写计划状态
+    # 进程内执行锁已释放；execute_plan 的计划文件锁仍覆盖以下收尾。
+    # 任务清理/恢复做种与媒体服务器刷新为 best-effort，不改写计划状态。
     if outcome.ok:
         if download_task_id:
             try:

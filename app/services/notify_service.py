@@ -23,9 +23,11 @@ import uuid
 from datetime import datetime, timedelta
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.config import settings
 from app.models.agent import Agent
@@ -258,6 +260,9 @@ async def _build_snapshot(
     failure) — the payload then carries no ``files`` and the consumer falls
     back to scanning the download directory itself.
     """
+    from app.services.task_queue import require_execution_ownership
+
+    await require_execution_ownership()
     agent = await db.get(Agent, task.agent_id) if task.agent_id else None
     resource = await _load_resource(db, task.file_resource_id)
 
@@ -268,6 +273,7 @@ async def _build_snapshot(
             from app.clients.downloader import get_downloader_client
 
             wrapper = get_downloader_client(downloader)
+            await require_execution_ownership()
             # Stop seeding before the consumer moves the files (best-effort).
             try:
                 await wrapper.pause_torrent(task.transmission_torrent_id)
@@ -276,6 +282,7 @@ async def _build_snapshot(
                     "[notify] pause torrent %s failed: %s",
                     task.transmission_torrent_id, e,
                 )
+            await require_execution_ownership()
             try:
                 torrent_info = await wrapper.get_torrent_files(
                     task.transmission_torrent_id
@@ -285,6 +292,7 @@ async def _build_snapshot(
                     "[notify] file listing for torrent %s unavailable: %s",
                     task.transmission_torrent_id, e,
                 )
+    await require_execution_ownership()
     if resource is not None and torrent_info is not None:
         files = torrent_info.get("files") or []
         if files:
@@ -436,10 +444,10 @@ async def deliver_due_deliveries(db) -> dict:
 
     Deliveries run concurrently (bounded by ``_DELIVERY_CONCURRENCY``); each
     delivery commits individually so one failure never rolls back another,
-    and the DB write lock is never held across an HTTP call. Row mutation +
-    commit are serialized through ``commit_lock``: an AsyncSession is not
-    re-entrant, and mutating one row while another delivery's flush is in
-    flight would get those changes silently discarded.
+    and the DB write lock is never held across an HTTP call. Conditional
+    writes use fresh sessions and retry only transient database conflicts.
+    ``commit_lock`` serializes writes and synchronization of the caller's
+    loaded rows; HTTP remains concurrent.
     """
     now = utcnow()
     stmt = (
@@ -459,14 +467,39 @@ async def deliver_due_deliveries(db) -> dict:
         .limit(_DELIVERY_BATCH)
     )
     due = (await db.execute(stmt)).scalars().all()
+    # Release the read transaction before independent, retryable writes.
+    await db.commit()
     stats = {"delivered": 0, "failed": 0, "skipped": 0}
     semaphore = asyncio.Semaphore(_DELIVERY_CONCURRENCY)
     commit_lock = asyncio.Lock()
 
+    from app.services.task_queue import require_execution_ownership
+
     async def _deliver_one(d: WebhookDelivery) -> None:
         async with semaphore:
+            await require_execution_ownership()
             webhook = d.webhook
             if webhook is None or not webhook.enabled:
+                stats["skipped"] += 1
+                return
+            # A short committed claim fences completion, without a DB lock
+            # spanning HTTP. A later attempt or snapshot reset rotates it.
+            token = str(uuid.uuid4())
+            async with commit_lock:
+                acquired = await _commit_delivery_update(db,
+                    update(WebhookDelivery)
+                    .where(
+                        WebhookDelivery.id == d.id,
+                        WebhookDelivery.status == "pending",
+                        WebhookDelivery.attempt_token == d.attempt_token,
+                    )
+                    .values(attempt_token=token)
+                    .returning(WebhookDelivery.id)
+                    .execution_options(synchronize_session="fetch")
+                )
+                if acquired:
+                    set_committed_value(d, "attempt_token", token)
+            if not acquired:
                 stats["skipped"] += 1
                 return
             error: Exception | None = None
@@ -486,33 +519,75 @@ async def deliver_due_deliveries(db) -> dict:
                 except Exception as e:
                     error = e
             async with commit_lock:
+                await require_execution_ownership()
                 if error is None:
-                    # HTTP 2xx, or mock webhook (payload inspection only —
-                    # no HTTP call at all).
-                    d.status = "done"
-                    d.delivered_at = utcnow()
-                    d.error_message = None
-                    stats["delivered"] += 1
+                    values = dict(status="done", delivered_at=utcnow(), error_message=None)
+                    outcome = "delivered"
                 else:
-                    d.attempt_count += 1
-                    if d.attempt_count >= settings.notify_max_attempts:
-                        d.status = "failed"
-                        d.error_message = (
-                            f"webhook 投递失败（已达最大重试次数）: {error}"[:2000]
+                    attempts = d.attempt_count + 1
+                    values = dict(attempt_count=attempts)
+                    if attempts >= settings.notify_max_attempts:
+                        values.update(
+                            status="failed",
+                            error_message=f"webhook 投递失败（已达最大重试次数）: {error}"[:2000],
                         )
-                        stats["failed"] += 1
+                        outcome = "failed"
                     else:
-                        d.next_attempt_at = utcnow() + backoff_delay(
-                            d.attempt_count
+                        values.update(
+                            next_attempt_at=utcnow() + backoff_delay(attempts),
+                            error_message=f"webhook 投递失败，将退避重试: {error}"[:2000],
                         )
-                        d.error_message = (
-                            f"webhook 投递失败，将退避重试: {error}"[:2000]
-                        )
-                        stats["skipped"] += 1
-                await db.commit()
+                        outcome = "skipped"
+                accepted = await _commit_delivery_update(db,
+                    update(WebhookDelivery)
+                    .where(
+                        WebhookDelivery.id == d.id,
+                        WebhookDelivery.status == "pending",
+                        WebhookDelivery.attempt_token == token,
+                    )
+                    .values(**values)
+                    .returning(WebhookDelivery.id)
+                    .execution_options(synchronize_session="fetch")
+                )
+                if accepted:
+                    for field, value in values.items():
+                        set_committed_value(d, field, value)
+                stats[outcome if accepted else "skipped"] += 1
 
-    await asyncio.gather(*(_deliver_one(d) for d in due))
+    # Do not return the shared session while another delivery is still using
+    # it. Ownership/DB errors must propagate only after in-flight work ends.
+    outcomes = await asyncio.gather(*(_deliver_one(d) for d in due), return_exceptions=True)
+    for outcome in outcomes:
+        if isinstance(outcome, BaseException):
+            raise outcome
     return stats
+
+
+async def _commit_delivery_update(db, statement) -> bool:
+    """Retry only a short conditional write, never its preceding HTTP call."""
+    from app.database import retry_on_lock
+
+    bind = db.bind.engine if isinstance(db.bind, AsyncConnection) else db.bind
+
+    async def attempt():
+        async with AsyncSession(bind=bind) as writer:
+            async with writer.begin():
+                result = await writer.execute(statement)
+                accepted = result.scalar_one_or_none() is not None
+            return accepted
+
+    return await retry_on_lock(attempt)
+
+
+async def _invalidate_delivery_attempts(db, notification_id: str) -> None:
+    # Fan-out can have inserted rows after an ORM relationship was loaded.
+    # Invalidate the durable set, including pending deliveries of old payloads.
+    await db.execute(
+        update(WebhookDelivery)
+        .where(WebhookDelivery.notification_id == notification_id)
+        .values(attempt_token=str(uuid.uuid4()))
+        .execution_options(synchronize_session="fetch")
+    )
 
 
 async def regenerate_notifications(
@@ -574,6 +649,7 @@ async def regenerate_notifications(
             if not has_torrent_snapshot:
                 continue  # keep the old snapshot rather than degrade it
             existing.payload = payload
+            await _invalidate_delivery_attempts(db, existing.id)
             now = utcnow()
             for d in existing.deliveries:
                 if d.status != "pending":
@@ -606,6 +682,9 @@ async def regenerate_resource_notifications(db, resource_id: str) -> dict:
     safe fallback when downloader RPC is unavailable: only metadata and
     associations are refreshed, while the established manifest is retained.
     """
+    from app.services.task_queue import require_execution_ownership
+
+    await require_execution_ownership()
     tasks = (await db.execute(
         select(DownloadTask).where(
             DownloadTask.file_resource_id == resource_id,
@@ -614,6 +693,7 @@ async def regenerate_resource_notifications(db, resource_id: str) -> dict:
     )).scalars().all()
     touched: list[DownloadNotification] = []
     for task in tasks:
+        await require_execution_ownership()
         notification = (await db.execute(
             select(DownloadNotification)
             .where(DownloadNotification.download_task_id == task.id)
@@ -638,12 +718,16 @@ async def regenerate_resource_notifications(db, resource_id: str) -> dict:
                     "files": old_files,
                 },
             )
+        await require_execution_ownership()
         notification.payload = payload
+        await _invalidate_delivery_attempts(db, notification.id)
         touched.append(notification)
+    await require_execution_ownership()
     await db.commit()
     if touched:
         from app.services.organize_service import plan_for_notifications
 
+        await require_execution_ownership()
         await plan_for_notifications(db, touched)
     return {"regenerated": len(touched)}
 
@@ -679,6 +763,7 @@ async def reset_deliveries_for_retry(
         stmt = stmt.where(DownloadNotification.id == notification_id)
     rows = (await db.execute(stmt)).scalars().all()
     for d in rows:
+        d.attempt_token = str(uuid.uuid4())
         d.status = "pending"
         d.attempt_count = 0
         d.next_attempt_at = utcnow()

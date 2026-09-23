@@ -1,0 +1,285 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________________ test_queue_and_metadata_concurrency[agent] __________________
+
+tmp_path = PosixPath('/tmp/rssripple-v14-agent-os-tests/test_queue_and_metadata_concur0')
+mode = 'agent'
+
+    @pytest.mark.parametrize("mode", ["kill", "pause", "metadata", "agent"])
+    async def test_queue_and_metadata_concurrency(tmp_path, mode):
+        admin_url = os.environ.get("QUEUE_RECOVERY_POSTGRES_URL")
+        redis_url = os.environ.get("QUEUE_RECOVERY_REDIS_URL")
+        if not admin_url or not redis_url:
+            if os.environ.get("QUEUE_RECOVERY_REQUIRED") == "1":
+                pytest.fail("Queue recovery gate requires dedicated PostgreSQL and Redis")
+            pytest.skip("Run the isolated integration gate for real queue recovery")
+        name = "queue_recovery_" + uuid.uuid4().hex
+        parts = urlsplit(admin_url)
+        assert parts.path == "/queue_recovery", "Refuse a non-test admin database"
+        admin = await asyncpg.connect(admin_url)
+        try:
+            await admin.execute(f'CREATE DATABASE "{name}"')
+            output = tmp_path / "recovery.json"
+            db_url = urlunsplit(parts._replace(scheme="postgresql+asyncpg", path="/" + name))
+            redis_parts = urlsplit(redis_url)
+            child_redis = urlunsplit(redis_parts._replace(path="/0" if mode == "kill" else "/1"))
+            env = dict(
+                os.environ,
+                QUEUE_RECOVERY_DATABASE_URL=db_url,
+                QUEUE_RECOVERY_REDIS_URL=child_redis,
+                QUEUE_RECOVERY_MODE=mode,
+                QUEUE_RECOVERY_RESULT=str(output),
+            )
+    
+            def run_driver():
+                module = {"metadata": "metadata_driver", "agent": "agent_driver"}.get(mode, "notification_driver")
+                with subprocess.Popen(
+                    [sys.executable, "-m", "tests.integration.queue_recovery." + module],
+                    cwd=Path(__file__).resolve().parents[3],
+                    env=env,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    start_new_session=True,
+                ) as process:
+                    try:
+                        stdout, stderr = process.communicate(timeout=90)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(process.pid, signal.SIGKILL)
+                        stdout, stderr = process.communicate()
+                        raise AssertionError("Recovery driver timed out\n" + stdout + stderr) from None
+                    return subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
+    
+            result = await asyncio.to_thread(run_driver)
+            (tmp_path / "worker.log").write_text(result.stdout + result.stderr)
+>           assert result.returncode == 0, result.stdout + result.stderr
+E           AssertionError: Traceback (most recent call last):
+E               File "asyncpg/protocol/prepared_stmt.pyx", line 175, in asyncpg.protocol.protocol.PreparedStatementState._encode_bind_msg
+E               File "asyncpg/protocol/codecs/base.pyx", line 251, in asyncpg.protocol.protocol.Codec.encode
+E               File "asyncpg/protocol/codecs/base.pyx", line 153, in asyncpg.protocol.protocol.Codec.encode_scalar
+E               File "asyncpg/pgproto/codecs/datetime.pyx", line 152, in asyncpg.pgproto.pgproto.timestamp_encode
+E             TypeError: can't subtract offset-naive and offset-aware datetimes
+E             
+E             The above exception was the direct cause of the following exception:
+E             
+E             Traceback (most recent call last):
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 550, in _prepare_and_execute
+E                 self._rows = deque(await prepared_stmt.fetch(*parameters))
+E                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py", line 177, in fetch
+E                 data = await self.__bind_execute(args, 0, timeout)
+E                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py", line 268, in __bind_execute
+E                 data, status, _ = await self.__do_execute(
+E                                   ^^^^^^^^^^^^^^^^^^^^^^^^
+E                     lambda protocol: protocol.bind_execute(
+E                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E                         self._state, args, '', limit, True, timeout))
+E                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py", line 257, in __do_execute
+E                 return await executor(protocol)
+E                        ^^^^^^^^^^^^^^^^^^^^^^^^
+E               File "asyncpg/protocol/protocol.pyx", line 184, in bind_execute
+E               File "asyncpg/protocol/prepared_stmt.pyx", line 204, in asyncpg.protocol.protocol.PreparedStatementState._encode_bind_msg
+E             asyncpg.exceptions.DataError: invalid input for query argument $34: datetime.datetime(2026, 9, 23, 6, 23, 3,... (can't subtract offset-naive and offset-aware datetimes)
+E             
+E             The above exception was the direct cause of the following exception:
+E             
+E             Traceback (most recent call last):
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 2127, in _exec_insertmany_context
+E                 dialect.do_execute(
+E                 ~~~~~~~~~~~~~~~~~~^
+E                     cursor,
+E                     ^^^^^^^
+E                 ...<2 lines>...
+E                     context,
+E                     ^^^^^^^^
+E                 )
+E                 ^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py", line 952, in do_execute
+E                 cursor.execute(statement, parameters)
+E                 ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 585, in execute
+E                 self._adapt_connection.await_(
+E                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+E                     self._prepare_and_execute(operation, parameters)
+E                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E                 )
+E                 ^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 132, in await_only
+E                 return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+E                        ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 196, in greenlet_spawn
+E                 value = await result
+E                         ^^^^^^^^^^^^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 563, in _prepare_and_execute
+E                 self._handle_exception(error)
+E                 ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 513, in _handle_exception
+E                 self._adapt_connection._handle_exception(error)
+E                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 797, in _handle_exception
+E                 raise translated_error from error
+E             sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.Error: <class 'asyncpg.exceptions.DataError'>: invalid input for query argument $34: datetime.datetime(2026, 9, 23, 6, 23, 3,... (can't subtract offset-naive and offset-aware datetimes)
+E             
+E             The above exception was the direct cause of the following exception:
+E             
+E             Traceback (most recent call last):
+E               File "<frozen runpy>", line 198, in _run_module_as_main
+E               File "<frozen runpy>", line 88, in _run_code
+E               File "/tmp/rssripple-v14-dispatch-lx/tests/integration/queue_recovery/agent_driver.py", line 69, in <module>
+E                 asyncio.run(main())
+E                 ~~~~~~~~~~~^^^^^^^^
+E               File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 195, in run
+E                 return runner.run(main)
+E                        ~~~~~~~~~~^^^^^^
+E               File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 118, in run
+E                 return self._loop.run_until_complete(task)
+E                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+E               File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 719, in run_until_complete
+E                 return future.result()
+E                        ~~~~~~~~~~~~~^^
+E               File "/tmp/rssripple-v14-dispatch-lx/tests/integration/queue_recovery/agent_driver.py", line 57, in main
+E                 await test_queue_loss_during_suggestion_does_not_persist_choice(
+E                     db, channel, downloader, series, patcher, mode, phase,
+E                 )
+E               File "/tmp/rssripple-v14-dispatch-lx/tests/unit/test_agent_service.py", line 2597, in test_queue_loss_during_suggestion_does_not_persist_choice
+E                 await db_session.commit()
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/ext/asyncio/session.py", line 999, in commit
+E                 await greenlet_spawn(self.sync_session.commit)
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 203, in greenlet_spawn
+E                 result = context.switch(value)
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py", line 2035, in commit
+E                 trans.commit(_to_root=True)
+E                 ~~~~~~~~~~~~^^^^^^^^^^^^^^^
+E               File "<string>", line 2, in commit
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/state_changes.py", line 137, in _go
+E                 ret_value = fn(self, *arg, **kw)
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py", line 1316, in commit
+E                 self._prepare_impl()
+E                 ~~~~~~~~~~~~~~~~~~^^
+E               File "<string>", line 2, in _prepare_impl
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/state_changes.py", line 137, in _go
+E                 ret_value = fn(self, *arg, **kw)
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py", line 1290, in _prepare_impl
+E                 self.session.flush()
+E                 ~~~~~~~~~~~~~~~~~~^^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py", line 4353, in flush
+E                 self._flush(objects)
+E                 ~~~~~~~~~~~^^^^^^^^^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py", line 4488, in _flush
+E                 with util.safe_reraise():
+E                      ~~~~~~~~~~~~~~~~~^^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/langhelpers.py", line 122, in __exit__
+E                 raise exc_value.with_traceback(exc_tb)
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py", line 4449, in _flush
+E                 flush_context.execute()
+E                 ~~~~~~~~~~~~~~~~~~~~~^^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/unitofwork.py", line 465, in execute
+E                 rec.execute(self)
+E                 ~~~~~~~~~~~^^^^^^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/unitofwork.py", line 641, in execute
+E                 util.preloaded.orm_persistence.save_obj(
+E                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+E                     self.mapper,
+E                     ^^^^^^^^^^^^
+E                     uow.states_for_mapper_hierarchy(self.mapper, False, False),
+E                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E                     uow,
+E                     ^^^^
+E                 )
+E                 ^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/persistence.py", line 94, in save_obj
+E                 _emit_insert_statements(
+E                 ~~~~~~~~~~~~~~~~~~~~~~~^
+E                     base_mapper,
+E                     ^^^^^^^^^^^^
+E                 ...<3 lines>...
+E                     insert,
+E                     ^^^^^^^
+E                 )
+E                 ^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/persistence.py", line 1144, in _emit_insert_statements
+E                 result = connection.execute(
+E                     statement, multiparams, execution_options=execution_options
+E                 )
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1421, in execute
+E                 return meth(
+E                     self,
+E                     distilled_parameters,
+E                     execution_options or NO_OPTIONS,
+E                 )
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+E                 return connection._execute_clauseelement(
+E                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+E                     self, distilled_params, execution_options
+E                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E                 )
+E                 ^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1643, in _execute_clauseelement
+E                 ret = self._execute_context(
+E                     dialect,
+E                 ...<8 lines>...
+E                     cache_hit=cache_hit,
+E                 )
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1846, in _execute_context
+E                 return self._exec_insertmany_context(dialect, context)
+E                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 2135, in _exec_insertmany_context
+E                 self._handle_dbapi_exception(
+E                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+E                     e,
+E                     ^^
+E                 ...<4 lines>...
+E                     is_sub_exec=True,
+E                     ^^^^^^^^^^^^^^^^^
+E                 )
+E                 ^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 2365, in _handle_dbapi_exception
+E                 raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 2127, in _exec_insertmany_context
+E                 dialect.do_execute(
+E                 ~~~~~~~~~~~~~~~~~~^
+E                     cursor,
+E                     ^^^^^^^
+E                 ...<2 lines>...
+E                     context,
+E                     ^^^^^^^^
+E                 )
+E                 ^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py", line 952, in do_execute
+E                 cursor.execute(statement, parameters)
+E                 ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 585, in execute
+E                 self._adapt_connection.await_(
+E                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+E                     self._prepare_and_execute(operation, parameters)
+E                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E                 )
+E                 ^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 132, in await_only
+E                 return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+E                        ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 196, in greenlet_spawn
+E                 value = await result
+E                         ^^^^^^^^^^^^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 563, in _prepare_and_execute
+E                 self._handle_exception(error)
+E                 ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 513, in _handle_exception
+E                 self._adapt_connection._handle_exception(error)
+E                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+E               File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 797, in _handle_exception
+E                 raise translated_error from error
+E             sqlalchemy.exc.DBAPIError: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.DataError'>: invalid input for query argument $34: datetime.datetime(2026, 9, 23, 6, 23, 3,... (can't subtract offset-naive and offset-aware datetimes)
+E             [SQL: INSERT INTO file_resources (id, channel_id, guid, title_raw, title_cn, title_en, search_title, subtitle_group, subtitle_groups_source, episode, season, title_year, is_batch, episode_start, episode_end, batch_scope, absolute_episode, episode_confidenc ... 1836 characters truncated ... WITHOUT TIME ZONE) RETURNING file_resources.created_at, file_resources.updated_at, file_resources.id]
+E             [parameters: ('b874ec1c-4a53-48d2-b6d8-7f1ea20accce', '045aa068-f6b9-4008-a008-e0f6b9bf4853', '5fe50b38-4fd1-4b56-98dd-0e094b39ba72', '[G] Title - 01 [1080p]', None, None, 'Title', 'G', None, 1, 1, None, False, None, None, None, None, None, '1080p', None, 'HEVC', 'AAC', None, 'MKV', 1000000000, 'magnet:?xt=urn:btih:abc', None, None, None, 0, None, None, None, datetime.datetime(2026, 9, 23, 6, 23, 3, 86574, tzinfo=datetime.timezone.utc), 'e04e2923-7a48-49ee-92bf-afb3d97e4454', None, None, None, None, 0, None, None, None, '3001bae9-f8a7-4ded-93a0-fb0eb47207e0', '045aa068-f6b9-4008-a008-e0f6b9bf4853', 'f19810f5-a6b9-427f-b440-1ccc4208ab5c', '[G] Title - 01 [1080p]', None, None, 'Title', 'G', None, 1, 1, None, False, None, None, None, None, None, '1080p', None, 'HEVC', 'AAC', None, 'MKV', 1000000000, 'magnet:?xt=urn:btih:abc', None, None, None, 0, None, None, None, datetime.datetime(2026, 9, 23, 6, 23, 3, 86690, tzinfo=datetime.timezone.utc), 'e04e2923-7a48-49ee-92bf-afb3d97e4454', None, None, None, None, 0, None, None, None)]
+E             (Background on this error at: https://sqlalche.me/e/20/dbapi)
+E             
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['/workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python', '-m', 'tests.integration.queue_...454\', None, None, None, None, 0, None, None, None)]\n(Background on this error at: https://sqlalche.me/e/20/dbapi)\n').returncode
+
+tests/integration/queue_recovery/test_notification_recovery.py:64: AssertionError
+=========================== short test summary info ============================
+FAILED tests/integration/queue_recovery/test_notification_recovery.py::test_queue_and_metadata_concurrency[agent]
+1 failed, 3 deselected in 2.15s

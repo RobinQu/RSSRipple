@@ -1,0 +1,67 @@
+...F                                                                     [100%]
+=================================== FAILURES ===================================
+_ test_queue_loss_during_suggestion_does_not_persist_choice[flushed_choice-True] _
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f4571d236f0>
+channel = <app.models.channel.Channel object at 0x7f4571d23360>
+downloader = <app.models.downloader.DownloaderInstance object at 0x7f4571d23ce0>
+series = <app.models.series.TVSeries object at 0x7f4571eefed0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f4571ae51d0>
+autocommit = True, phase = 'flushed_choice'
+
+    @pytest.mark.parametrize("autocommit", [False, True])
+    @pytest.mark.parametrize("phase", ["suggestion", "flushed_choice"])
+    async def test_queue_loss_during_suggestion_does_not_persist_choice(
+        db_session, channel, downloader, series, monkeypatch, autocommit, phase,
+    ):
+        from app.services import decision_store, task_queue
+    
+        agent = Agent(id=_uuid(), name="suggestion loss", channel_id=channel.id,
+                      downloader_id=downloader.id, status="active",
+                      scope_channel_wide=True, conflict_resolution="ask")
+        resources = [_make_resource(channel.id, series_id=series.id, episode=1) for _ in range(2)]
+        db_session.add_all([agent, *resources])
+        await db_session.commit()
+        await db_session.refresh(agent)
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired during suggestion")
+    
+        async def suggest(*args):
+            nonlocal expired
+            expired = phase == "suggestion"
+            return resources[0].id, "synthetic suggestion"
+    
+        persist = decision_store.persist_choice
+    
+        async def persist_then_expire(*args, **kwargs):
+            nonlocal expired
+            choice = await persist(*args, **kwargs)
+            expired = True
+            return choice
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.services.agent_service._suggest_pick", suggest)
+        if phase == "flushed_choice":
+            monkeypatch.setattr(decision_store, "persist_choice", persist_then_expire)
+        with pytest.raises(task_queue.ExecutionOwnershipLostError):
+            await process_resources(agent, resources, db_session, autocommit=autocommit)
+        assert expired
+>       assert (await db_session.scalars(select(PendingDecision))).all() == []
+E       assert [<app.models....7f4571d611d0>] == []
+E         
+E         Left contains one more item: <app.models.pending_decision.PendingDecision object at 0x7f4571d611d0>
+E         Use -v to get more diff
+
+tests/unit/test_agent_service.py:2625: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_agent_service.py::test_queue_loss_during_suggestion_does_not_persist_choice[suggestion-False]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_agent_service.py::test_queue_loss_during_suggestion_does_not_persist_choice[flushed_choice-True]
+1 failed, 3 passed, 112 deselected, 1 warning in 2.16s

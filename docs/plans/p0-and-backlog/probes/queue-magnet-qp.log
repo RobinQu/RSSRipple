@@ -1,0 +1,218 @@
+......F................................................................. [ 96%]
+...                                                                      [100%]
+=================================== FAILURES ===================================
+_________________ test_stale_manual_retry_preserves_new_claim __________________
+
+self = <sqlalchemy.engine.base.Connection object at 0x7faac9c996d0>
+dialect = <app.db_turso_dialect.CompatAioTursoDialect object at 0x7faac9113c50>
+constructor = <bound method DefaultExecutionContext._init_compiled of <class 'sqlalchemy.dialects.sqlite.aiosqlite.SQLiteExecutionContext_aiosqlite'>>
+statement = <sqlalchemy.dialects.sqlite.base.SQLiteCompiler object at 0x7faacb04be50>
+parameters = [{'pk_1': 'a35cdd69-7555-4a69-ae14-cc15a0c6357b'}]
+execution_options = immutabledict({'_sa_orm_load_options': default_load_options(_refresh_state=<sqlalchemy.orm.state.InstanceState object at 0x7faac9d244d0>), '_result_disable_adapt_to_context': True})
+args = (<sqlalchemy.dialects.sqlite.base.SQLiteCompiler object at 0x7faacb04be50>, [{'pk_1': 'a35cdd69-7555-4a69-ae14-cc15a0c...chemy.sql.selectable.Select object at 0x7faac9183e30>, [AnnotatedBindParameter('pk_1', None, type_=String(length=36))])
+kw = {'cache_hit': <CacheStats.CACHE_MISS: 1>}
+
+    def _execute_context(
+        self,
+        dialect: Dialect,
+        constructor: Callable[..., ExecutionContext],
+        statement: Union[str, Compiled],
+        parameters: Optional[_AnyMultiExecuteParams],
+        execution_options: _ExecuteOptions,
+        *args: Any,
+        **kw: Any,
+    ) -> CursorResult[Any]:
+        """Create an :class:`.ExecutionContext` and execute, returning
+        a :class:`_engine.CursorResult`."""
+    
+        if execution_options:
+            yp = execution_options.get("yield_per", None)
+            if yp:
+                execution_options = execution_options.union(
+                    {"stream_results": True, "max_row_buffer": yp}
+                )
+        try:
+            conn = self._dbapi_connection
+            if conn is None:
+                conn = self._revalidate_connection()
+    
+>           context = constructor(
+                dialect, self, conn, execution_options, *args, **kw
+            )
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1817: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:1438: in _init_compiled
+    self.cursor = self.create_cursor()
+                  ^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:1777: in create_cursor
+    return self.create_default_cursor()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:1783: in create_default_cursor
+    return self._dbapi_connection.cursor()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:1494: in cursor
+    return self.dbapi_connection.cursor(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:353: in cursor
+    return self._cursor_cls(self)
+           ^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:153: in __init__
+    self._cursor = self._aenter_cursor(cursor)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:159: in _aenter_cursor
+    return self.await_(cursor.__aenter__())  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+awaitable = <coroutine object Cursor.__aenter__ at 0x7faac9c99840>
+
+    def await_only(awaitable: Awaitable[_T]) -> _T:
+        """Awaits an async function in a sync method.
+    
+        The sync method must be inside a :func:`greenlet_spawn` context.
+        :func:`await_only` calls cannot be nested.
+    
+        :param awaitable: The coroutine to call.
+    
+        """
+        # this is called in the context greenlet while running fn
+        current = getcurrent()
+        if not getattr(current, "__sqlalchemy_greenlet_provider__", False):
+            _safe_cancel_awaitable(awaitable)
+    
+>           raise exc.MissingGreenlet(
+                "greenlet_spawn has not been called; can't call await_only() "
+                "here. Was IO attempted in an unexpected place?"
+            )
+E           sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place? (Background on this error at: https://sqlalche.me/e/20/xd2s)
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:123: MissingGreenlet
+
+The above exception was the direct cause of the following exception:
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7faac90a7bb0>
+sample_channel = <app.models.channel.Channel object at 0x7faac9dd2fd0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7faac9d33c80>
+
+    async def test_stale_manual_retry_preserves_new_claim(db_session, sample_channel, monkeypatch):
+        from app.api.v1.resources import resolve_magnet_metadata
+        from app.database import async_session_factory
+        from app.models.file_resource import FileResource
+    
+        monkeypatch.setattr(mr, "lt", _fake_lt())
+        enqueue = AsyncMock()
+        monkeypatch.setattr(mr, "enqueue_resolution", enqueue)
+        resource = await _make_magnet_resource(db_session, sample_channel.id, magnet_resolve_status="failed")
+        new_attempt = str(uuid.uuid4())
+        async with async_session_factory() as other:
+            row = await other.get(FileResource, resource.id)
+            row.magnet_resolve_status = "pending"
+            row.magnet_resolve_attempt_id = new_attempt
+            row.magnet_resolve_attempts = 2
+            await other.commit()
+        assert resource.magnet_resolve_status == "failed", "exercise the stale identity-map read"
+        response = await resolve_magnet_metadata(resource.id, db=db_session)
+        assert response.status_code == 409
+        enqueue.assert_not_awaited()
+        async with async_session_factory() as observer:
+>           saved = await observer.get(FileResource, resource.id)
+                                                     ^^^^^^^^^^^
+
+tests/unit/test_magnet_resolve.py:248: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/attributes.py:569: in __get__
+    return self.impl.get(state, dict_)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/attributes.py:1096: in get
+    value = self._fire_loader_callables(state, key, passive)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/attributes.py:1126: in _fire_loader_callables
+    return state._load_expired(state, passive)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/state.py:828: in _load_expired
+    self.manager.expired_attribute_loader(self, toload, passive)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/loading.py:1674: in load_scalar_attributes
+    result = load_on_ident(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/loading.py:510: in load_on_ident
+    return load_on_pk_identity(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/loading.py:695: in load_on_pk_identity
+    session.execute(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:2373: in execute
+    return self._execute_internal(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:2271: in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/context.py:306: in orm_execute_statement
+    result = conn.execute(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1421: in execute
+    return meth(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/sql/elements.py:526: in _execute_on_connection
+    return connection._execute_clauseelement(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1643: in _execute_clauseelement
+    ret = self._execute_context(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1823: in _execute_context
+    self._handle_dbapi_exception(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:2365: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1817: in _execute_context
+    context = constructor(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:1438: in _init_compiled
+    self.cursor = self.create_cursor()
+                  ^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:1777: in create_cursor
+    return self.create_default_cursor()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:1783: in create_default_cursor
+    return self._dbapi_connection.cursor()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py:1494: in cursor
+    return self.dbapi_connection.cursor(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:353: in cursor
+    return self._cursor_cls(self)
+           ^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:153: in __init__
+    self._cursor = self._aenter_cursor(cursor)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:159: in _aenter_cursor
+    return self.await_(cursor.__aenter__())  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+awaitable = <coroutine object Cursor.__aenter__ at 0x7faac9c99840>
+
+    def await_only(awaitable: Awaitable[_T]) -> _T:
+        """Awaits an async function in a sync method.
+    
+        The sync method must be inside a :func:`greenlet_spawn` context.
+        :func:`await_only` calls cannot be nested.
+    
+        :param awaitable: The coroutine to call.
+    
+        """
+        # this is called in the context greenlet while running fn
+        current = getcurrent()
+        if not getattr(current, "__sqlalchemy_greenlet_provider__", False):
+            _safe_cancel_awaitable(awaitable)
+    
+>           raise exc.MissingGreenlet(
+                "greenlet_spawn has not been called; can't call await_only() "
+                "here. Was IO attempted in an unexpected place?"
+            )
+E           sqlalchemy.exc.StatementError: (sqlalchemy.exc.MissingGreenlet) greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place?
+E           [SQL: SELECT file_resources.id AS file_resources_id, file_resources.channel_id AS file_resources_channel_id, file_resources.guid AS file_resources_guid, file_resources.title_raw AS file_resources_title_raw, file_resources.title_cn AS file_resources_title_cn, file_resources.title_en AS file_resources_title_en, file_resources.search_title AS file_resources_search_title, file_resources.subtitle_group AS file_resources_subtitle_group, file_resources.subtitle_groups AS file_resources_subtitle_groups, file_resources.subtitle_groups_source AS file_resources_subtitle_groups_source, file_resources.episode AS file_resources_episode, file_resources.season AS file_resources_season, file_resources.title_year AS file_resources_title_year, file_resources.is_batch AS file_resources_is_batch, file_resources.episode_start AS file_resources_episode_start, file_resources.episode_end AS file_resources_episode_end, file_resources.batch_scope AS file_resources_batch_scope, file_resources.batch_seasons AS file_resources_batch_seasons, file_resources.season_ranges AS file_resources_season_ranges, file_resources.absolute_episode AS file_resources_absolute_episode, file_resources.episode_confidence AS file_resources_episode_confidence, file_resources.resolution AS file_resources_resolution, file_resources.source AS file_resources_source, file_resources.video_codec AS file_resources_video_codec, file_resources.audio_codec AS file_resources_audio_codec, file_resources.subtitle_type AS file_resources_subtitle_type, file_resources.subtitle_langs AS file_resources_subtitle_langs, file_resources.container AS file_resources_container, file_resources.file_size AS file_resources_file_size, file_resources.torrent_url AS file_resources_torrent_url, file_resources.torrent_file AS file_resources_torrent_file, file_resources.magnet_resolve_status AS file_resources_magnet_resolve_status, file_resources.magnet_resolve_attempt_id AS file_resources_magnet_resolve_attempt_id, file_resources.magnet_resolve_error AS file_resources_magnet_resolve_error, file_resources.magnet_resolve_attempts AS file_resources_magnet_resolve_attempts, file_resources.magnet_resolve_updated_at AS file_resources_magnet_resolve_updated_at, file_resources.magnet_resolve_trackers AS file_resources_magnet_resolve_trackers, file_resources.detail_url AS file_resources_detail_url, file_resources.published_at AS file_resources_published_at, file_resources.parsed_at AS file_resources_parsed_at, file_resources.series_id AS file_resources_series_id, file_resources.movie_id AS file_resources_movie_id, file_resources.audio_work_id AS file_resources_audio_work_id, file_resources.collection_id AS file_resources_collection_id, file_resources.metadata_matched_at AS file_resources_metadata_matched_at, file_resources.metadata_attempts AS file_resources_metadata_attempts, file_resources.last_metadata_attempt_at AS file_resources_last_metadata_attempt_at, file_resources.metadata_failure_type AS file_resources_metadata_failure_type, file_resources.confirmation_ignored_at AS file_resources_confirmation_ignored_at, file_resources.created_at AS file_resources_created_at, file_resources.updated_at AS file_resources_updated_at 
+E           FROM file_resources 
+E           WHERE file_resources.id = ?]
+E           [parameters: [{'pk_1': 'a35cdd69-7555-4a69-ae14-cc15a0c6357b'}]]
+E           (Background on this error at: https://sqlalche.me/e/20/xd2s)
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:123: StatementError
+=============================== warnings summary ===============================
+tests/unit/test_magnet_resolve.py::test_resolve_success_writes_valid_torrent
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_magnet_resolve.py::test_stale_manual_retry_preserves_new_claim
+1 failed, 74 passed, 115 deselected, 1 warning in 16.11s

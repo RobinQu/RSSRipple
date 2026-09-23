@@ -1,0 +1,86 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_ TestFetchChannelResources.test_expired_backfill_cannot_finalize_channel[False] _
+
+self = <tests.unit.test_fetch_service.TestFetchChannelResources object at 0x7fa1bfc0d810>
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fa1bf6cbcb0>
+channel = <app.models.channel.Channel object at 0x7fa1bf8001a0>
+fake_queue = <MagicMock id='140332679304528'>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fa1bfc53490>
+raises_loss = False
+
+    @pytest.mark.parametrize("raises_loss", [False, True])
+    async def test_expired_backfill_cannot_finalize_channel(self, db_session, channel, fake_queue, monkeypatch, raises_loss):
+        from app.database import async_session_factory
+        from app.services import task_queue
+    
+        channel_id = channel.id
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired during backfill")
+    
+        async def backfill(*args, **kwargs):
+            nonlocal expired
+            expired = True
+            if raises_loss:
+                raise task_queue.ExecutionOwnershipLostError("Backfill lost ownership")
+            return 0
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr(fs, "_parse_feed_sync", lambda _: _mock_feed([]))
+        monkeypatch.setattr(fs, "_backfill_unmatched_resources", backfill)
+>       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_fetch_service.py:135: Failed
+_ TestFetchChannelResources.test_expired_backfill_cannot_finalize_channel[True] _
+
+self = <tests.unit.test_fetch_service.TestFetchChannelResources object at 0x7fa1bfc0d950>
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fa1bf95efd0>
+channel = <app.models.channel.Channel object at 0x7fa1bf95f250>
+fake_queue = <MagicMock id='140332678033968'>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fa1bf9ffb50>
+raises_loss = True
+
+    @pytest.mark.parametrize("raises_loss", [False, True])
+    async def test_expired_backfill_cannot_finalize_channel(self, db_session, channel, fake_queue, monkeypatch, raises_loss):
+        from app.database import async_session_factory
+        from app.services import task_queue
+    
+        channel_id = channel.id
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired during backfill")
+    
+        async def backfill(*args, **kwargs):
+            nonlocal expired
+            expired = True
+            if raises_loss:
+                raise task_queue.ExecutionOwnershipLostError("Backfill lost ownership")
+            return 0
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr(fs, "_parse_feed_sync", lambda _: _mock_feed([]))
+        monkeypatch.setattr(fs, "_backfill_unmatched_resources", backfill)
+>       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_fetch_service.py:135: Failed
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.fetch_service:fetch_service.py:979 [fetch:dc8bf82c-3cb3-4e90-984f-e97a55ad47c2] backfill phase failed: Backfill lost ownership
+=============================== warnings summary ===============================
+tests/unit/test_fetch_service.py::TestFetchChannelResources::test_expired_backfill_cannot_finalize_channel[False]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_fetch_service.py::TestFetchChannelResources::test_expired_backfill_cannot_finalize_channel[False]
+FAILED tests/unit/test_fetch_service.py::TestFetchChannelResources::test_expired_backfill_cannot_finalize_channel[True]
+2 failed, 56 deselected, 1 warning in 1.11s

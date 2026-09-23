@@ -40,9 +40,8 @@ async def main():
         db.add(agent)
         await db.commit()
         aid = agent.id
-    from app.services.resource_publication import publish_resource
-
     from app.api.v1.agents import _apply_backfill
+    from app.services.resource_publication import publish_resource
 
     async with database.async_session_factory() as db:
         resource = _make_resource(channel.id, movie_id=movies[0].id, season=None, episode=None, parsed_at=None)

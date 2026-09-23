@@ -1,0 +1,109 @@
+FFF                                                                      [100%]
+=================================== FAILURES ===================================
+_________ test_expired_connection_probe_keeps_previous_health[success] _________
+
+_seed = namespace(ch=<app.models.channel.Channel object at 0x7fa0eebd2660>, dl=<app.models.downloader.DownloaderInstance objec...d_task.DownloadTask object at 0x7fa0ecc1c2d0>, t_done=<app.models.download_task.DownloadTask object at 0x7fa0ecc1c690>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fa0eebae060>
+probe_result = 'success'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("probe_result", ["success", "negative", "exception"])
+    async def test_expired_connection_probe_keeps_previous_health(_seed, monkeypatch, probe_result):
+        from app.database import async_session_factory
+        from app.services import task_queue
+    
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired connection probe")
+    
+        async def probe():
+            nonlocal expired
+            expired = True
+            if probe_result == "exception":
+                raise RuntimeError("Late probe failure")
+            return probe_result == "success", "synthetic"
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.clients.downloader.get_downloader_client", lambda _: SimpleNamespace(test_connection=probe))
+>       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_scheduler.py:348: Failed
+________ test_expired_connection_probe_keeps_previous_health[negative] _________
+
+_seed = namespace(ch=<app.models.channel.Channel object at 0x7fa0ee9ce0d0>, dl=<app.models.downloader.DownloaderInstance objec...d_task.DownloadTask object at 0x7fa0df765350>, t_done=<app.models.download_task.DownloadTask object at 0x7fa0ef0d0b90>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fa0ecc1a650>
+probe_result = 'negative'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("probe_result", ["success", "negative", "exception"])
+    async def test_expired_connection_probe_keeps_previous_health(_seed, monkeypatch, probe_result):
+        from app.database import async_session_factory
+        from app.services import task_queue
+    
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired connection probe")
+    
+        async def probe():
+            nonlocal expired
+            expired = True
+            if probe_result == "exception":
+                raise RuntimeError("Late probe failure")
+            return probe_result == "success", "synthetic"
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.clients.downloader.get_downloader_client", lambda _: SimpleNamespace(test_connection=probe))
+>       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_scheduler.py:348: Failed
+________ test_expired_connection_probe_keeps_previous_health[exception] ________
+
+_seed = namespace(ch=<app.models.channel.Channel object at 0x7fa0ecc1d590>, dl=<app.models.downloader.DownloaderInstance objec...d_task.DownloadTask object at 0x7fa0df7bc6b0>, t_done=<app.models.download_task.DownloadTask object at 0x7fa0df760850>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fa0ecc3e0b0>
+probe_result = 'exception'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("probe_result", ["success", "negative", "exception"])
+    async def test_expired_connection_probe_keeps_previous_health(_seed, monkeypatch, probe_result):
+        from app.database import async_session_factory
+        from app.services import task_queue
+    
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired connection probe")
+    
+        async def probe():
+            nonlocal expired
+            expired = True
+            if probe_result == "exception":
+                raise RuntimeError("Late probe failure")
+            return probe_result == "success", "synthetic"
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.clients.downloader.get_downloader_client", lambda _: SimpleNamespace(test_connection=probe))
+>       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_scheduler.py:348: Failed
+=============================== warnings summary ===============================
+tests/unit/test_scheduler.py::test_expired_connection_probe_keeps_previous_health[success]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_scheduler.py::test_expired_connection_probe_keeps_previous_health[success]
+FAILED tests/unit/test_scheduler.py::test_expired_connection_probe_keeps_previous_health[negative]
+FAILED tests/unit/test_scheduler.py::test_expired_connection_probe_keeps_previous_health[exception]
+3 failed, 31 deselected, 1 warning in 1.51s

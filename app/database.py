@@ -593,12 +593,15 @@ async def _apply_light_migrations(conn) -> None:
         # never attempted; the worker claims rows via a guarded UPDATE so
         # only one process resolves a given magnet at a time.
         ("file_resources", "magnet_resolve_status", "VARCHAR(16)"),
+        ("file_resources", "magnet_resolve_attempt_id", "VARCHAR(36)"),
         ("file_resources", "magnet_resolve_error", "TEXT"),
         ("file_resources", "magnet_resolve_attempts", "INTEGER NOT NULL DEFAULT 0"),
         ("file_resources", "magnet_resolve_updated_at", "DATETIME" if is_turso else "TIMESTAMP"),
         # Custom tracker list for resolution attempts (NULL = defaults only).
         ("file_resources", "magnet_resolve_trackers", "TEXT" if is_turso else "JSONB"),
     ]
+
+    additions.append(("webhook_deliveries", "attempt_token", "VARCHAR(36)"))
 
     for table, column, ddl in additions:
         if is_turso:
@@ -615,7 +618,9 @@ async def _apply_light_migrations(conn) -> None:
             existing = set()
         if column in existing:
             continue
-        if table in ("organize_plans", "organize_configuration"):
+        if table in ("organize_plans", "organize_configuration", "webhook_deliveries") or (
+            table == "file_resources" and column == "magnet_resolve_attempt_id"
+        ):
             # Ownership/version columns are safety-critical: a partial schema
             # must fail startup rather than silently run old semantics.
             await conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} {ddl}'))

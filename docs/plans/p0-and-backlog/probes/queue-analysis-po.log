@@ -1,0 +1,94 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+__________ test_expired_batch_analysis_does_not_store_result[listing] __________
+
+db_engine = <sqlalchemy.ext.asyncio.engine.AsyncEngine object at 0x7f4d669c3910>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f4d66b92b10>
+phase = 'listing'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("phase", ["listing", "stream"])
+    async def test_expired_batch_analysis_does_not_store_result(db_engine, monkeypatch, phase):
+        from app.api.v1 import resources as res_mod
+        from app.services import batch_content_analysis as bca
+        from app.services import task_queue
+    
+        resource, _ = await _make_resource()
+        expired = False
+        store = AsyncMock()
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired batch analysis")
+    
+        async def listing(*args):
+            nonlocal expired
+            expired = phase == "listing"
+            return ([] if phase == "listing" else [{"name": "Show.S01E01.mkv", "size": 100}], "synthetic")
+    
+        async def stream(*args, **kwargs):
+            nonlocal expired
+            expired = True
+            yield "result", None
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr(res_mod, "_resolve_resource_files", listing)
+        monkeypatch.setattr(res_mod, "_store_batch_analysis", store)
+        monkeypatch.setattr(bca, "build_candidate_works", AsyncMock(return_value=[]))
+        monkeypatch.setattr(bca, "analyze_listing_stream", stream)
+>       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_job_handlers.py:299: Failed
+__________ test_expired_batch_analysis_does_not_store_result[stream] ___________
+
+db_engine = <sqlalchemy.ext.asyncio.engine.AsyncEngine object at 0x7f4d686e3dd0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f4d64a3acf0>
+phase = 'stream'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("phase", ["listing", "stream"])
+    async def test_expired_batch_analysis_does_not_store_result(db_engine, monkeypatch, phase):
+        from app.api.v1 import resources as res_mod
+        from app.services import batch_content_analysis as bca
+        from app.services import task_queue
+    
+        resource, _ = await _make_resource()
+        expired = False
+        store = AsyncMock()
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired batch analysis")
+    
+        async def listing(*args):
+            nonlocal expired
+            expired = phase == "listing"
+            return ([] if phase == "listing" else [{"name": "Show.S01E01.mkv", "size": 100}], "synthetic")
+    
+        async def stream(*args, **kwargs):
+            nonlocal expired
+            expired = True
+            yield "result", None
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr(res_mod, "_resolve_resource_files", listing)
+        monkeypatch.setattr(res_mod, "_store_batch_analysis", store)
+        monkeypatch.setattr(bca, "build_candidate_works", AsyncMock(return_value=[]))
+        monkeypatch.setattr(bca, "analyze_listing_stream", stream)
+>       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_job_handlers.py:299: Failed
+=============================== warnings summary ===============================
+tests/unit/test_job_handlers.py::test_expired_batch_analysis_does_not_store_result[listing]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_job_handlers.py::test_expired_batch_analysis_does_not_store_result[listing]
+FAILED tests/unit/test_job_handlers.py::test_expired_batch_analysis_does_not_store_result[stream]
+2 failed, 26 deselected, 1 warning in 1.17s

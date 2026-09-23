@@ -1,0 +1,167 @@
+[
+  {
+    "test": {
+      "classname": "tests.unit.test_database_migrations",
+      "name": "test_create_tables_postgres_path",
+      "time": "0.048"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "PostgreSQL unavailable: ConnectionRefusedError(111, \"Connect call failed ('127.0.0.1', 5432)\")"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.unit.test_database_migrations",
+      "name": "test_light_migrations_postgres_legacy_shapes",
+      "time": "0.004"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "PostgreSQL unavailable: ConnectionRefusedError(111, \"Connect call failed ('127.0.0.1', 5432)\")"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.unit.test_database_migrations",
+      "name": "test_light_migrations_postgres_legacy_delivery_columns_nullable",
+      "time": "0.004"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "PostgreSQL unavailable: ConnectionRefusedError(111, \"Connect call failed ('127.0.0.1', 5432)\")"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.unit.test_decision_migration",
+      "name": "test_postgres_startup_rejects_unreviewed_then_accepts_review",
+      "time": "0.923"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "PostgreSQL startup DDL branch; embedded startup tested through CLI subprocess"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.api.test_api_coverage3.TestResourcesMore",
+      "name": "test_search_metadata_via_manual",
+      "time": "0.001"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "resource-scoped metadata search replaced by /api/v1/metadata/search"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.api.test_api_coverage3.TestResourcesMore",
+      "name": "test_link_metadata_error_path",
+      "time": "0.000"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "resource-scoped metadata link replaced by work metadata apply/associations"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.api.test_api_coverage3.TestResourcesMore",
+      "name": "test_link_metadata_movie",
+      "time": "0.000"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "resource-scoped metadata link replaced by work metadata apply/associations"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.api.test_resources.TestResourceSearchLink",
+      "name": "test_search_404",
+      "time": "0.000"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.api.test_resources.TestResourceSearchLink",
+      "name": "test_search_returns_results",
+      "time": "0.000"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.api.test_resources.TestResourceSearchLink",
+      "name": "test_search_result_none_genre_coerced",
+      "time": "0.000"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.api.test_resources.TestResourceSearchLink",
+      "name": "test_search_forwards_source_and_fallback_sites",
+      "time": "0.000"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.api.test_resources.TestResourceSearchLink",
+      "name": "test_search_llm_error_returns_502",
+      "time": "0.000"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.api.test_resources.TestResourceSearchLink",
+      "name": "test_link_creates_series",
+      "time": "0.000"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.api.test_resources.TestResourceSearchLink",
+      "name": "test_link_404",
+      "time": "0.000"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.api.test_resources.TestResourceSearchLink",
+      "name": "test_link_movie_clears_ambiguous",
+      "time": "0.000"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    }
+  }
+]

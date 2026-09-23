@@ -1,0 +1,59 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_cancelled_cache_writer_cannot_overwrite_replacement ___________
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1483/test_cancelled_cache_writer_ca0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f19529c7e10>
+
+    async def test_cancelled_cache_writer_cannot_overwrite_replacement(tmp_path, monkeypatch):
+        import threading
+    
+        real_to_thread = asyncio.to_thread
+        old = _single_torrent("Old.S01E01.mkv", 500 * MB)
+        new = _single_torrent("New.S01E01.mkv", 500 * MB)
+        _stub_httpx_counting(monkeypatch, [("respond", 200, [old]), ("respond", 200, [new])])
+        monkeypatch.setattr(asyncio, "to_thread", real_to_thread)
+        monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
+        entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+        original = Path.write_bytes
+    
+        def delayed_write(path, content):
+            if content == old:
+                entered.set()
+                try:
+                    assert release.wait(5), "test writer was not released"
+                    return original(path, content)
+                finally:
+                    finished.set()
+            return original(path, content)
+    
+        monkeypatch.setattr(Path, "write_bytes", delayed_write)
+        task = asyncio.create_task(fetch_torrent_file("https://example.invalid/old", "same-resource"))
+        try:
+            assert await real_to_thread(entered.wait, 3)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            replacement = await fetch_torrent_file("https://example.invalid/new", "same-resource")
+        finally:
+            release.set()
+            await real_to_thread(finished.wait, 3)
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+>       assert replacement and Path(replacement).read_bytes() == new
+E       AssertionError: assert ('/tmp/pytest-of-robinqu/pytest-1483/test_cancelled_cache_writer_ca0/same-resource.torrent' and b'd4:infod4:n...xxxxxxxxxxxee' == b'd4:infod4:n...xxxxxxxxxxxee'
+E         
+E         At index 17 diff: b'O' != b'N'
+E         Use -v to get more diff)
+
+tests/unit/test_torrent_inspect.py:437: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_torrent_inspect.py::test_cancelled_cache_writer_cannot_overwrite_replacement
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_torrent_inspect.py::test_cancelled_cache_writer_cannot_overwrite_replacement
+1 failed, 110 deselected, 1 warning in 0.28s

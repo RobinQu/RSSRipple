@@ -1,0 +1,47 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________ test_refresh_losing_ownership_during_search_does_not_commit __________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fe98da8b380>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fe98da92ea0>
+
+    async def test_refresh_losing_ownership_during_search_does_not_commit(db_session, monkeypatch):
+        from sqlalchemy import select
+    
+        from app.models.work_external_id import WorkExternalId
+        from app.services import metadata_search
+        from tests.unit.test_metadata_search import _external_candidate
+    
+        work = Movie(title_cn="Original")
+        db_session.add(work)
+        await db_session.commit()
+        work_id = work.id
+        expired = False
+        candidate = _external_candidate("Replacement")
+        candidate.content_type = "movie"
+    
+        async def search(*args, **kwargs):
+            nonlocal expired
+            expired = True
+            return [candidate]
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired during metadata search")
+    
+        monkeypatch.setattr(metadata_search, "search_metadata_candidates", search)
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+>       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_queue_metadata_ownership.py:56: Failed
+=============================== warnings summary ===============================
+tests/unit/test_queue_metadata_ownership.py::test_refresh_losing_ownership_during_search_does_not_commit
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_queue_metadata_ownership.py::test_refresh_losing_ownership_during_search_does_not_commit
+1 failed, 2 deselected, 1 warning in 0.73s

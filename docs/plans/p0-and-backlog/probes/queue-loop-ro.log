@@ -1,0 +1,128 @@
+.........................................F.....FFFFF.................... [ 41%]
+........................................................................ [ 82%]
+...............................                                          [100%]
+=================================== FAILURES ===================================
+______________________________ test_fetch_success ______________________________
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1481/test_fetch_success0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fa8b33ed5c0>
+
+    async def test_fetch_success(tmp_path, monkeypatch):
+        monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
+        payload = _single_torrent("Show.S01E01.mkv", 500 * MB)
+        _stub_httpx(monkeypatch, chunks=[payload])
+        out = await fetch_torrent_file("https://x/abc.torrent", "rid-1")
+>       assert out == str(tmp_path / "rid-1.torrent")
+E       AssertionError: assert None == '/tmp/pytest-of-robinqu/pytest-1481/test_fetch_success0/rid-1.torrent'
+E        +  where '/tmp/pytest-of-robinqu/pytest-1481/test_fetch_success0/rid-1.torrent' = str((PosixPath('/tmp/pytest-of-robinqu/pytest-1481/test_fetch_success0') / 'rid-1.torrent'))
+
+tests/unit/test_torrent_inspect.py:406: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.torrent_inspect:torrent_inspect.py:163 [torrent] cache dir not writable /tmp/pytest-of-robinqu/pytest-1481/test_fetch_success0: [Errno 17] File exists: '/tmp/pytest-of-robinqu/pytest-1481/test_fetch_success0'
+______________ test_fetch_retries_transient_failure_then_succeeds ______________
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1481/test_fetch_retries_transient_f0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fa8b33ed240>
+
+    async def test_fetch_retries_transient_failure_then_succeeds(tmp_path, monkeypatch):
+        monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
+        payload = _single_torrent("Show.S01E01.mkv", 500 * MB)
+        calls = _stub_httpx_counting(monkeypatch, [
+            ("raise", ti.httpx.ConnectError("connection refused")),
+            ("respond", 200, [payload]),
+        ])
+        out = await fetch_torrent_file("https://x/retry.torrent", "rid-retry")
+>       assert out == str(tmp_path / "rid-retry.torrent")
+E       AssertionError: assert None == '/tmp/pytest-of-robinqu/pytest-1481/test_fetch_retries_transient_f0/rid-retry.torrent'
+E        +  where '/tmp/pytest-of-robinqu/pytest-1481/test_fetch_retries_transient_f0/rid-retry.torrent' = str((PosixPath('/tmp/pytest-of-robinqu/pytest-1481/test_fetch_retries_transient_f0') / 'rid-retry.torrent'))
+
+tests/unit/test_torrent_inspect.py:527: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.torrent_inspect:torrent_inspect.py:163 [torrent] cache dir not writable /tmp/pytest-of-robinqu/pytest-1481/test_fetch_retries_transient_f0: [Errno 17] File exists: '/tmp/pytest-of-robinqu/pytest-1481/test_fetch_retries_transient_f0'
+________________ test_fetch_transient_failure_exhausts_attempts ________________
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1481/test_fetch_transient_failure_e0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fa8b33ed630>
+
+    async def test_fetch_transient_failure_exhausts_attempts(tmp_path, monkeypatch):
+        monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
+        calls = _stub_httpx_counting(monkeypatch, [
+            ("raise", ti.httpx.ConnectError("connection refused")),
+            ("raise", ti.httpx.ReadTimeout("timed out")),
+        ])
+        assert await fetch_torrent_file("https://x/down.torrent", "rid-down") is None
+>       assert calls[0] == 2
+E       assert 0 == 2
+
+tests/unit/test_torrent_inspect.py:538: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.torrent_inspect:torrent_inspect.py:163 [torrent] cache dir not writable /tmp/pytest-of-robinqu/pytest-1481/test_fetch_transient_failure_e0: [Errno 17] File exists: '/tmp/pytest-of-robinqu/pytest-1481/test_fetch_transient_failure_e0'
+_________________________ test_fetch_404_retried_once __________________________
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1481/test_fetch_404_retried_once0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fa8b2280210>
+
+    async def test_fetch_404_retried_once(tmp_path, monkeypatch):
+        monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
+        calls = _stub_httpx_counting(monkeypatch, [
+            ("respond", 404, [b""]),
+            ("respond", 404, [b""]),
+        ])
+        assert await fetch_torrent_file("https://x/missing.torrent", "rid-404") is None
+>       assert calls[0] == 2
+E       assert 0 == 2
+
+tests/unit/test_torrent_inspect.py:549: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.torrent_inspect:torrent_inspect.py:163 [torrent] cache dir not writable /tmp/pytest-of-robinqu/pytest-1481/test_fetch_404_retried_once0: [Errno 17] File exists: '/tmp/pytest-of-robinqu/pytest-1481/test_fetch_404_retried_once0'
+_______________________ test_fetch_oversize_not_retried ________________________
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1481/test_fetch_oversize_not_retrie0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fa8b2282c10>
+
+    async def test_fetch_oversize_not_retried(tmp_path, monkeypatch):
+        monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
+        monkeypatch.setattr(ti, "_MAX_TORRENT_BYTES", 16)
+        calls = _stub_httpx_counting(monkeypatch, [
+            ("respond", 200, [b"x" * 10, b"y" * 10]),
+            ("respond", 200, [b"x" * 10, b"y" * 10]),
+        ])
+        assert await fetch_torrent_file("https://x/big.torrent", "rid-big2") is None
+>       assert calls[0] == 1
+E       assert 0 == 1
+
+tests/unit/test_torrent_inspect.py:560: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.torrent_inspect:torrent_inspect.py:163 [torrent] cache dir not writable /tmp/pytest-of-robinqu/pytest-1481/test_fetch_oversize_not_retrie0: [Errno 17] File exists: '/tmp/pytest-of-robinqu/pytest-1481/test_fetch_oversize_not_retrie0'
+____________________ test_fetch_invalid_bencode_not_retried ____________________
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1481/test_fetch_invalid_bencode_not0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fa8b2282a50>
+
+    async def test_fetch_invalid_bencode_not_retried(tmp_path, monkeypatch):
+        monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
+        calls = _stub_httpx_counting(monkeypatch, [
+            ("respond", 200, [b"<!doctype html>not a torrent"]),
+            ("respond", 200, [b"<!doctype html>not a torrent"]),
+        ])
+        assert await fetch_torrent_file("https://x/html.torrent", "rid-html") is None
+>       assert calls[0] == 1
+E       assert 0 == 1
+
+tests/unit/test_torrent_inspect.py:570: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.torrent_inspect:torrent_inspect.py:163 [torrent] cache dir not writable /tmp/pytest-of-robinqu/pytest-1481/test_fetch_invalid_bencode_not0: [Errno 17] File exists: '/tmp/pytest-of-robinqu/pytest-1481/test_fetch_invalid_bencode_not0'
+=============================== warnings summary ===============================
+tests/unit/test_torrent_inspect.py::test_parse_multi_file_torrent
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_torrent_inspect.py::test_fetch_success - AssertionErro...
+FAILED tests/unit/test_torrent_inspect.py::test_fetch_retries_transient_failure_then_succeeds
+FAILED tests/unit/test_torrent_inspect.py::test_fetch_transient_failure_exhausts_attempts
+FAILED tests/unit/test_torrent_inspect.py::test_fetch_404_retried_once - asse...
+FAILED tests/unit/test_torrent_inspect.py::test_fetch_oversize_not_retried - ...
+FAILED tests/unit/test_torrent_inspect.py::test_fetch_invalid_bencode_not_retried
+6 failed, 169 passed, 1 warning in 15.18s

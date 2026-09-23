@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="1.001" timestamp="2026-09-23T07:12:24.007412+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_scheduler" name="test_sync_loss_during_rpc_preserves_task_and_downloader[False]" time="0.468"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">_seed = namespace(ch=&lt;app.models.channel.Channel object at 0x7f37090127b0&gt;, dl=&lt;app.models.downloader.DownloaderInstance objec...d_task.DownloadTask object at 0x7f3708140190&gt;, t_done=&lt;app.models.download_task.DownloadTask object at 0x7f3708140550&gt;)
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f3708fcdf30&gt;
+rpc_failed = False
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("rpc_failed", [False, True])
+    async def test_sync_loss_during_rpc_preserves_task_and_downloader(_seed, monkeypatch, rpc_failed):
+        from app.database import async_session_factory
+        from app.services import task_queue
+    
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired progress sync")
+    
+        async def list_torrents():
+            nonlocal expired
+            expired = True
+            if rpc_failed:
+                raise RuntimeError("Late downloader failure")
+            return []
+    
+        wrapper = SimpleNamespace(list_torrents=AsyncMock(side_effect=list_torrents))
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.clients.downloader.get_downloader_client", lambda _: wrapper)
+&gt;       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_scheduler.py:113: Failed</failure></testcase><testcase classname="tests.unit.test_scheduler" name="test_sync_loss_during_rpc_preserves_task_and_downloader[True]" time="0.398"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">_seed = namespace(ch=&lt;app.models.channel.Channel object at 0x7f3708d85f90&gt;, dl=&lt;app.models.downloader.DownloaderInstance objec...d_task.DownloadTask object at 0x7f3708e5f350&gt;, t_done=&lt;app.models.download_task.DownloadTask object at 0x7f3708e5f680&gt;)
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f370813f950&gt;
+rpc_failed = True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("rpc_failed", [False, True])
+    async def test_sync_loss_during_rpc_preserves_task_and_downloader(_seed, monkeypatch, rpc_failed):
+        from app.database import async_session_factory
+        from app.services import task_queue
+    
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired progress sync")
+    
+        async def list_torrents():
+            nonlocal expired
+            expired = True
+            if rpc_failed:
+                raise RuntimeError("Late downloader failure")
+            return []
+    
+        wrapper = SimpleNamespace(list_torrents=AsyncMock(side_effect=list_torrents))
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.clients.downloader.get_downloader_client", lambda _: wrapper)
+&gt;       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_scheduler.py:113: Failed</failure></testcase></testsuite></testsuites>

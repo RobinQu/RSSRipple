@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.250" timestamp="2026-09-23T10:08:13.919117+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_torrent_inspect" name="test_cancelled_cache_writer_cannot_overwrite_replacement" time="0.011"><failure message="AssertionError: assert ('/tmp/pytest-of-robinqu/pytest-1483/test_cancelled_cache_writer_ca0/same-resource.torrent' and b'd4:infod4:n...xxxxxxxxxxxee' == b'd4:infod4:n...xxxxxxxxxxxee'&#10;  &#10;  At index 17 diff: b'O' != b'N'&#10;  Use -v to get more diff)">tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1483/test_cancelled_cache_writer_ca0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f19529c7e10&gt;
+
+    async def test_cancelled_cache_writer_cannot_overwrite_replacement(tmp_path, monkeypatch):
+        import threading
+    
+        real_to_thread = asyncio.to_thread
+        old = _single_torrent("Old.S01E01.mkv", 500 * MB)
+        new = _single_torrent("New.S01E01.mkv", 500 * MB)
+        _stub_httpx_counting(monkeypatch, [("respond", 200, [old]), ("respond", 200, [new])])
+        monkeypatch.setattr(asyncio, "to_thread", real_to_thread)
+        monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
+        entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+        original = Path.write_bytes
+    
+        def delayed_write(path, content):
+            if content == old:
+                entered.set()
+                try:
+                    assert release.wait(5), "test writer was not released"
+                    return original(path, content)
+                finally:
+                    finished.set()
+            return original(path, content)
+    
+        monkeypatch.setattr(Path, "write_bytes", delayed_write)
+        task = asyncio.create_task(fetch_torrent_file("https://example.invalid/old", "same-resource"))
+        try:
+            assert await real_to_thread(entered.wait, 3)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            replacement = await fetch_torrent_file("https://example.invalid/new", "same-resource")
+        finally:
+            release.set()
+            await real_to_thread(finished.wait, 3)
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+&gt;       assert replacement and Path(replacement).read_bytes() == new
+E       AssertionError: assert ('/tmp/pytest-of-robinqu/pytest-1483/test_cancelled_cache_writer_ca0/same-resource.torrent' and b'd4:infod4:n...xxxxxxxxxxxee' == b'd4:infod4:n...xxxxxxxxxxxee'
+E         
+E         At index 17 diff: b'O' != b'N'
+E         Use -v to get more diff)
+
+tests/unit/test_torrent_inspect.py:437: AssertionError</failure></testcase></testsuite></testsuites>

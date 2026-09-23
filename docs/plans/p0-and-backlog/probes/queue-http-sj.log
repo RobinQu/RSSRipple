@@ -1,0 +1,42 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.14, pytest-9.1.1, pluggy-1.6.0 -- /app/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /app
+configfile: pyproject.toml
+plugins: asyncio-1.4.0, anyio-4.14.0, langsmith-0.9.3, cov-7.1.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 30 items
+
+tests/integration/http/test_task_queue.py::TestChannelFetchJob::test_enqueue_returns_job_state[memory] PASSED [  3%]
+tests/integration/http/test_task_queue.py::TestChannelFetchJob::test_enqueue_returns_job_state[redis] PASSED [  6%]
+tests/integration/http/test_task_queue.py::TestChannelFetchJob::test_fetch_status_none_before_any_fetch[memory] PASSED [ 10%]
+tests/integration/http/test_task_queue.py::TestChannelFetchJob::test_fetch_status_none_before_any_fetch[redis] PASSED [ 13%]
+tests/integration/http/test_task_queue.py::TestChannelFetchJob::test_fetch_completes_and_creates_resources[memory] PASSED [ 16%]
+tests/integration/http/test_task_queue.py::TestChannelFetchJob::test_fetch_completes_and_creates_resources[redis] PASSED [ 20%]
+tests/integration/http/test_task_queue.py::TestChannelFetchJob::test_dedup_returns_409_while_active[memory] PASSED [ 23%]
+tests/integration/http/test_task_queue.py::TestChannelFetchJob::test_dedup_returns_409_while_active[redis] PASSED [ 26%]
+tests/integration/http/test_task_queue.py::TestChannelFetchJob::test_reenqueue_after_completion[memory] PASSED [ 30%]
+tests/integration/http/test_task_queue.py::TestChannelFetchJob::test_reenqueue_after_completion[redis] PASSED [ 33%]
+tests/integration/http/test_task_queue.py::TestChannelFetchJob::test_status_reaches_terminal_state[memory] PASSED [ 36%]
+tests/integration/http/test_task_queue.py::TestChannelFetchJob::test_status_reaches_terminal_state[redis] PASSED [ 40%]
+tests/integration/http/test_task_queue.py::TestChannelFetchJob::test_fetch_nonexistent_channel_404[memory] PASSED [ 43%]
+tests/integration/http/test_task_queue.py::TestChannelFetchJob::test_fetch_nonexistent_channel_404[redis] PASSED [ 46%]
+tests/integration/http/test_task_queue.py::TestChannelFetchJob::test_fetch_status_nonexistent_channel_404[memory] PASSED [ 50%]
+tests/integration/http/test_task_queue.py::TestChannelFetchJob::test_fetch_status_nonexistent_channel_404[redis] PASSED [ 53%]
+tests/integration/http/test_task_queue.py::TestAgentRunJob::test_run_returns_job_state[memory] PASSED [ 56%]
+tests/integration/http/test_task_queue.py::TestAgentRunJob::test_run_returns_job_state[redis] PASSED [ 60%]
+tests/integration/http/test_task_queue.py::TestAgentRunJob::test_run_status_none_before_any_run[memory] PASSED [ 63%]
+tests/integration/http/test_task_queue.py::TestAgentRunJob::test_run_status_none_before_any_run[redis] PASSED [ 66%]
+tests/integration/http/test_task_queue.py::TestAgentRunJob::test_run_reaches_terminal_state[memory] PASSED [ 70%]
+tests/integration/http/test_task_queue.py::TestAgentRunJob::test_run_reaches_terminal_state[redis] PASSED [ 73%]
+tests/integration/http/test_task_queue.py::TestAgentRunJob::test_run_dedup_returns_409[memory] PASSED [ 76%]
+tests/integration/http/test_task_queue.py::TestAgentRunJob::test_run_dedup_returns_409[redis] PASSED [ 80%]
+tests/integration/http/test_task_queue.py::TestAgentRunJob::test_run_reenqueue_after_completion[memory] PASSED [ 83%]
+tests/integration/http/test_task_queue.py::TestAgentRunJob::test_run_reenqueue_after_completion[redis] PASSED [ 86%]
+tests/integration/http/test_task_queue.py::TestAgentRunJob::test_run_nonexistent_agent_404[memory] PASSED [ 90%]
+tests/integration/http/test_task_queue.py::TestAgentRunJob::test_run_nonexistent_agent_404[redis] PASSED [ 93%]
+tests/integration/http/test_task_queue.py::TestRedisDistributedDedup::test_status_key_shared_after_enqueue PASSED [ 96%]
+tests/integration/http/test_task_queue.py::TestRedisDistributedDedup::test_redis_job_state_persists_after_done PASSED [100%]
+
+--------------- generated xml file: /app/data/redis-http-sj.xml ----------------
+======================== 30 passed in 140.37s (0:02:20) ========================

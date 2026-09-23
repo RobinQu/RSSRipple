@@ -267,6 +267,46 @@ async def test_analyze_batch_files_no_listing(db_engine):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["listing", "stream"])
+async def test_expired_batch_analysis_does_not_store_result(db_engine, monkeypatch, phase):
+    from app.api.v1 import resources as res_mod
+    from app.services import batch_content_analysis as bca
+    from app.services import task_queue
+
+    resource, _ = await _make_resource()
+    expired = False
+    store = AsyncMock()
+
+    async def guard():
+        if expired:
+            raise task_queue.ExecutionOwnershipLostError("Expired batch analysis")
+
+    async def listing(*args):
+        nonlocal expired
+        expired = phase == "listing"
+        return ([] if phase == "listing" else [{"name": "Show.S01E01.mkv", "size": 100}], "synthetic")
+
+    async def stream(*args, **kwargs):
+        nonlocal expired
+        expired = True
+        yield "result", None
+
+    monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+    monkeypatch.setattr(res_mod, "_resolve_resource_files", listing)
+    monkeypatch.setattr(res_mod, "_store_batch_analysis", store)
+    monkeypatch.setattr(bca, "build_candidate_works", AsyncMock(return_value=[]))
+    monkeypatch.setattr(bca, "analyze_listing_stream", stream)
+    monkeypatch.setattr("app.services.torrent_inspect.analyze_torrent_files", lambda files: TorrentReport(
+        scope="season", is_batch=True, season_ranges=[],
+        file_parses=[{"path": "Show.S01E01.mkv", "size": 100, "season": 1, "episode": 1}],
+    ))
+    with pytest.raises(task_queue.ExecutionOwnershipLostError):
+        await _handle_analyze_batch_files({"resource_id": resource.id, "fingerprint": "expired", "job_key": "expired"})
+    assert expired
+    store.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_analyze_batch_files_missing_resource(db_engine):
     with pytest.raises(RuntimeError, match="not found"):
         await _handle_analyze_batch_files({
@@ -398,6 +438,49 @@ async def test_magnet_resolve_sweep_enqueues_and_reclaims(db_engine, monkeypatch
             select(FileResource).where(FileResource.id == stale.id)
         )).scalar_one()
         assert stale_row.magnet_resolve_status is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["entry", "after_update", "enqueue"])
+async def test_magnet_sweep_propagates_ownership_loss(db_engine, monkeypatch, phase):
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.database import async_session_factory
+    from app.services import task_queue
+    from app.utils.time import utcnow
+
+    attempt_id = str(uuid.uuid4())
+    resource, _ = await _make_resource(
+        torrent_url="magnet:?xt=urn:btih:aaa", magnet_resolve_status="pending",
+        magnet_resolve_attempt_id=attempt_id,
+        magnet_resolve_updated_at=utcnow() - timedelta(days=30),
+    )
+    expired = phase == "entry"
+    original = AsyncSession.execute
+
+    async def execute(session, statement, *args, **kwargs):
+        nonlocal expired
+        result = await original(session, statement, *args, **kwargs)
+        if phase == "after_update" and getattr(statement, "is_update", False):
+            expired = True
+        return result
+
+    async def guard():
+        if expired:
+            raise task_queue.ExecutionOwnershipLostError("expired sweep")
+
+    enqueue = AsyncMock(side_effect=task_queue.ExecutionOwnershipLostError("expired enqueue"))
+    monkeypatch.setattr(AsyncSession, "execute", execute)
+    monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+    monkeypatch.setattr("app.services.magnet_resolve.enqueue_resolution", enqueue)
+    with pytest.raises(task_queue.ExecutionOwnershipLostError):
+        await _handle_magnet_resolve_sweep({})
+    if phase != "enqueue":
+        enqueue.assert_not_awaited()
+        async with async_session_factory() as observer:
+            saved = await observer.get(FileResource, resource.id)
+            assert saved.magnet_resolve_status == "pending"
+            assert saved.magnet_resolve_attempt_id == attempt_id
 
 
 @pytest.mark.asyncio

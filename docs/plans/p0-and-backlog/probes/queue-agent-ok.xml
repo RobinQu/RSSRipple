@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="1.285" timestamp="2026-09-23T06:03:05.003621+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_agent_service" name="test_queue_loss_stops_candidates_and_suggestion_writes[False]" time="0.527"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7feef6609550&gt;
+channel = &lt;app.models.channel.Channel object at 0x7feef6609400&gt;
+downloader = &lt;app.models.downloader.DownloaderInstance object at 0x7feef660a7b0&gt;
+series = &lt;app.models.series.TVSeries object at 0x7feef660a900&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7feef675f490&gt;
+autocommit = False
+
+    @pytest.mark.parametrize("autocommit", [False, True])
+    async def test_queue_loss_stops_candidates_and_suggestion_writes(
+        db_session, channel, downloader, series, monkeypatch, autocommit,
+    ):
+        from app.services.task_queue import ExecutionOwnershipLostError
+    
+        agent = Agent(id=_uuid(), name="ownership loss", channel_id=channel.id,
+                      downloader_id=downloader.id, status="active",
+                      scope_channel_wide=True, conflict_resolution="ask")
+        resources = [_make_resource(channel.id, series_id=series.id, episode=number) for number in (1, 2)]
+        db_session.add_all([agent, *resources])
+        await db_session.commit()
+        await db_session.refresh(agent)
+        dispatch = AsyncMock(side_effect=ExecutionOwnershipLostError("Expired during dispatch"))
+        suggestions = AsyncMock()
+        monkeypatch.setattr("app.services.agent_service.dispatch_download", dispatch)
+        monkeypatch.setattr("app.services.agent_service._persist_suggestions", suggestions)
+    
+&gt;       with pytest.raises(ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_agent_service.py:2603: Failed</failure></testcase><testcase classname="tests.unit.test_agent_service" name="test_queue_loss_stops_candidates_and_suggestion_writes[True]" time="0.440"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7feef65cbed0&gt;
+channel = &lt;app.models.channel.Channel object at 0x7feef59ebed0&gt;
+downloader = &lt;app.models.downloader.DownloaderInstance object at 0x7feef5cccb90&gt;
+series = &lt;app.models.series.TVSeries object at 0x7feef5ccccd0&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7feef678ab70&gt;
+autocommit = True
+
+    @pytest.mark.parametrize("autocommit", [False, True])
+    async def test_queue_loss_stops_candidates_and_suggestion_writes(
+        db_session, channel, downloader, series, monkeypatch, autocommit,
+    ):
+        from app.services.task_queue import ExecutionOwnershipLostError
+    
+        agent = Agent(id=_uuid(), name="ownership loss", channel_id=channel.id,
+                      downloader_id=downloader.id, status="active",
+                      scope_channel_wide=True, conflict_resolution="ask")
+        resources = [_make_resource(channel.id, series_id=series.id, episode=number) for number in (1, 2)]
+        db_session.add_all([agent, *resources])
+        await db_session.commit()
+        await db_session.refresh(agent)
+        dispatch = AsyncMock(side_effect=ExecutionOwnershipLostError("Expired during dispatch"))
+        suggestions = AsyncMock()
+        monkeypatch.setattr("app.services.agent_service.dispatch_download", dispatch)
+        monkeypatch.setattr("app.services.agent_service._persist_suggestions", suggestions)
+    
+&gt;       with pytest.raises(ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_agent_service.py:2603: Failed</failure></testcase></testsuite></testsuites>

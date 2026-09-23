@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="3.258" timestamp="2026-09-23T10:15:37.003124+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_torrent_inspect" name="test_inspection_keeps_event_loop_responsive[parse_torrent_files]" time="2.003"><failure message="AssertionError: inspection blocked the queue event loop&#10;assert ([False, False] and False)&#10; +  where False = all([False, False])">tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1488/test_inspection_keeps_event_lo0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f2a874fbe10&gt;
+operation = 'parse_torrent_files'
+
+    @pytest.mark.parametrize("operation", ["parse_torrent_files", "analyze_torrent_files"])
+    async def test_inspection_keeps_event_loop_responsive(tmp_path, monkeypatch, operation):
+        import threading
+    
+        source = Path("tests/fixtures/metadata_corpus_v1/torrents/987a72c09d5b0c2e934fa5016cc4dda6427a80dc5a4594e284a06ccf966acdb2.torrent")
+        path = tmp_path / "recorded.torrent"
+        path.write_bytes(source.read_bytes())
+        resource = _resource(torrent_file=str(path))
+        original = getattr(ti, operation)
+        loop = asyncio.get_running_loop()
+        responsive = []
+    
+        def slow_operation(*args):
+            heartbeat = threading.Event()
+            loop.call_soon_threadsafe(heartbeat.set)
+            responsive.append(heartbeat.wait(1))
+            return original(*args)
+    
+        monkeypatch.setattr(ti, operation, slow_operation)
+        await maybe_inspect_torrent(None, resource)
+&gt;       assert responsive and all(responsive), "inspection blocked the queue event loop"
+E       AssertionError: inspection blocked the queue event loop
+E       assert ([False, False] and False)
+E        +  where False = all([False, False])
+
+tests/unit/test_torrent_inspect.py:700: AssertionError</failure></testcase><testcase classname="tests.unit.test_torrent_inspect" name="test_inspection_keeps_event_loop_responsive[analyze_torrent_files]" time="1.002"><failure message="AssertionError: inspection blocked the queue event loop&#10;assert ([False] and False)&#10; +  where False = all([False])">tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1488/test_inspection_keeps_event_lo1')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f2a873f9d90&gt;
+operation = 'analyze_torrent_files'
+
+    @pytest.mark.parametrize("operation", ["parse_torrent_files", "analyze_torrent_files"])
+    async def test_inspection_keeps_event_loop_responsive(tmp_path, monkeypatch, operation):
+        import threading
+    
+        source = Path("tests/fixtures/metadata_corpus_v1/torrents/987a72c09d5b0c2e934fa5016cc4dda6427a80dc5a4594e284a06ccf966acdb2.torrent")
+        path = tmp_path / "recorded.torrent"
+        path.write_bytes(source.read_bytes())
+        resource = _resource(torrent_file=str(path))
+        original = getattr(ti, operation)
+        loop = asyncio.get_running_loop()
+        responsive = []
+    
+        def slow_operation(*args):
+            heartbeat = threading.Event()
+            loop.call_soon_threadsafe(heartbeat.set)
+            responsive.append(heartbeat.wait(1))
+            return original(*args)
+    
+        monkeypatch.setattr(ti, operation, slow_operation)
+        await maybe_inspect_torrent(None, resource)
+&gt;       assert responsive and all(responsive), "inspection blocked the queue event loop"
+E       AssertionError: inspection blocked the queue event loop
+E       assert ([False] and False)
+E        +  where False = all([False])
+
+tests/unit/test_torrent_inspect.py:700: AssertionError</failure></testcase></testsuite></testsuites>

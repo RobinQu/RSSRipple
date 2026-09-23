@@ -1,0 +1,12 @@
+{
+  "mode": "organize_takeover",
+  "child_exit": 0,
+  "outcomes": [
+    "busy",
+    "done"
+  ],
+  "old_completion_rejected": true,
+  "target_bytes_preserved": true,
+  "distinct_replay_job": true,
+  "data": "synthetic media; real PG/Redis/file locks; SIGSTOP/SIGCONT; natural lease expiry"
+}

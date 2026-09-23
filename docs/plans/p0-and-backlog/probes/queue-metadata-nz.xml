@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="3" time="1.609" timestamp="2026-09-23T05:32:58.388908+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_queue_metadata_ownership" name="test_background_refresh_respects_concurrent_manual_edit[False]" time="0.693" /><testcase classname="tests.unit.test_queue_metadata_ownership" name="test_background_refresh_respects_concurrent_manual_edit[True]" time="0.434" /><testcase classname="tests.unit.test_queue_metadata_ownership" name="test_concurrent_background_refreshes_finish_after_write_conflict" time="0.401"><failure message="AssertionError: [[{'id': '6ebd0026-a29c-44af-ac20-946b6c7c1dfb', 'content_type': 'movie', 'found': False, 'error': &quot;(turso.lib.Databas...026-a29c-44af-ac20-946b6c7c1dfb', 'content_type': 'movie', 'found': True, 'applied': ['title_cn', 'poster_url'], ...}]]&#10;assert False&#10; +  where False = all(&lt;generator object test_concurrent_background_refreshes_finish_after_write_conflict.&lt;locals&gt;.&lt;genexpr&gt; at 0x7f9477adacf0&gt;)">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f9477dba550&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f948eba8410&gt;
+
+    async def test_concurrent_background_refreshes_finish_after_write_conflict(db_session, monkeypatch):
+        import asyncio
+    
+        from app.services import metadata_search
+        from tests.unit.test_metadata_search import _external_candidate
+    
+        work = Movie(title_cn="Original")
+        db_session.add(work)
+        await db_session.commit()
+        candidate = _external_candidate("Automatic", poster_url="https://example.invalid/poster.jpg")
+        candidate.content_type = "movie"
+        barrier = asyncio.Barrier(2)
+        calls = 0
+    
+        async def poster(_url):
+            nonlocal calls
+            calls += 1
+            if calls &lt;= 2:
+                await asyncio.wait_for(barrier.wait(), 3)
+            return "/posters/fixture.jpg"
+    
+        monkeypatch.setattr(metadata_search, "search_metadata_candidates", AsyncMock(return_value=[candidate]))
+        monkeypatch.setattr(metadata_search, "download_and_cache_poster", poster)
+        item = {"id": work.id, "content_type": "movie"}
+        results = await asyncio.gather(*(
+            job_handlers._refresh_works_batch([item], "tmdb", strategy="sync_non_manual") for _ in range(2)
+        ))
+&gt;       assert all(result[0]["found"] for result in results), results
+E       AssertionError: [[{'id': '6ebd0026-a29c-44af-ac20-946b6c7c1dfb', 'content_type': 'movie', 'found': False, 'error': "(turso.lib.Databas...026-a29c-44af-ac20-946b6c7c1dfb', 'content_type': 'movie', 'found': True, 'applied': ['title_cn', 'poster_url'], ...}]]
+E       assert False
+E        +  where False = all(&lt;generator object test_concurrent_background_refreshes_finish_after_write_conflict.&lt;locals&gt;.&lt;genexpr&gt; at 0x7f9477adacf0&gt;)
+
+tests/unit/test_queue_metadata_ownership.py:186: AssertionError</failure></testcase></testsuite></testsuites>

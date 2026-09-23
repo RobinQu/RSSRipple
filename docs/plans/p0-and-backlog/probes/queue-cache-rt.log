@@ -1,0 +1,42 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________ test_existing_cache_validation_keeps_event_loop_responsive __________
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1486/test_existing_cache_validation0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f360b68be10>
+
+    async def test_existing_cache_validation_keeps_event_loop_responsive(tmp_path, monkeypatch):
+        import threading
+    
+        path = tmp_path / "existing.torrent"
+        path.write_bytes(_single_torrent("Show.S01E01.mkv", 500 * MB))
+        resource = SimpleNamespace(torrent_file=str(path), torrent_url="https://example.invalid", id="existing")
+        original = ti.parse_torrent_files
+        loop = asyncio.get_running_loop()
+        responsive = []
+    
+        def slow_parse(path):
+            heartbeat = threading.Event()
+            loop.call_soon_threadsafe(heartbeat.set)
+            responsive.append(heartbeat.wait(1))
+            return original(path)
+    
+        monkeypatch.setattr(ti, "parse_torrent_files", slow_parse)
+        assert await ensure_torrent_cached(resource) == str(path)
+>       assert responsive == [True], "existing cache parsing blocked the event loop"
+E       AssertionError: existing cache parsing blocked the event loop
+E       assert [False] == [True]
+E         
+E         At index 0 diff: False != True
+E         Use -v to get more diff
+
+tests/unit/test_torrent_inspect.py:474: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_torrent_inspect.py::test_existing_cache_validation_keeps_event_loop_responsive
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_torrent_inspect.py::test_existing_cache_validation_keeps_event_loop_responsive
+1 failed, 112 deselected, 1 warning in 1.28s

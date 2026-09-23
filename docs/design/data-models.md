@@ -2,6 +2,8 @@
 
 所有 ORM 模型使用 SQLAlchemy 2.0 风格声明，主键均为 UUID v4 字符串，时间字段均为 UTC 时区。
 
+新增 `FileResource.magnet_resolve_attempt_id: VARCHAR(36), nullable`，用于独立 magnet 解析尝试身份；历史行保持 NULL。新领取生成 UUID，状态及重试计数写入匹配该标识；回收/人工重试清空。缓存路径含 attempt 标识，完成状态 CAS 接受后才被资源引用。
+
 ### Channel（订阅频道）
 
 ```python
@@ -849,3 +851,9 @@ TVSeries.number_of_seasons / seasons 为退役孤儿列：创建/更新 API 拒�
 每资源至多一条 created 和一条最新 metadata。创建序号永久充当 origin；metadata 替换时在同一事务删除旧事件并写入更高序号，不重编号。资源删除级联清理事件，频道计数器不回退。
 
 baseline 和 cursor 分别表示历史准入与消费确认，不要求 cursor>=baseline。普通频道切换 cursor=0，baseline 取新频道当前前缀，历史时间下界沿用旧 last_consumed_at；显式回填清空历史下界。指定扫描可扩展历史准入并在处理前回退 cursor 以保留失败重试，确认只在同 generation 内前进。全历史以 datetime.min 表示下界。业务协议见 business-logic.md，升级步骤见 db-migration.md。
+
+### DownloadDispatch（队列派发预留）
+
+队列派发的稳定身份表 download_dispatches：id 为 UUID v4 主键；operation_key 为唯一 SHA256 字符串；task_id 为唯一预留 UUID v4；parameters 为冻结 JSON（资源、Agent、下载器、目录和 payload 摘要）；settled 为非空 Boolean，数据库默认 false；created_at 为 UTC。task_id 在任务创建之前预留，因此不指向 DownloadTask 外键；任务删除后保留记录以阻止旧执行重建。身份 JSON 的 ID 是不可变操作快照，不建立级联外键。新增可空 job_key（512）与 job_id（32）保存逻辑队列身份，created_at 建索引；身份缺失时保守保留。正常 queued 派发始终填入两字段。
+
+`WebhookDelivery.attempt_token` 为 nullable String(36)，表示当前发送尝试/失效代次；旧行 NULL 可被首次条件领取。发送、人工重试及快照更新均更换 UUID，结果按 id/token/pending 条件写入。

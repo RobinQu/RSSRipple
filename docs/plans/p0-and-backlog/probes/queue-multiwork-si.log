@@ -1,0 +1,77 @@
+[external_ids] tmdb:tmdb:90000002 already maps to collection e627482c-f88a-4db1-8719-18799fe5251e — NOT re-pointing to series c3a654ab-a31c-43c9-bc42-9b4463d7c8d6 (dedup candidate)
+[external_ids] tmdb:tmdb:90000002 already maps to collection a740d9c5-58f7-41b8-8a00-d88ef67149dc — NOT re-pointing to series 8cb0e171-cfea-46bb-b7bf-98c41c2f3bcc (dedup candidate)
+[external_ids] tmdb:tmdb:90000002 already maps to collection 742a370e-1ca4-462f-b657-91acb560a2df — NOT re-pointing to series 9bc1f4d7-5186-48db-85d4-41b3c0158b15 (dedup candidate)
+[external_ids] tmdb:tmdb:90000002 already maps to collection bfb2f686-0217-4b90-ad35-dee292add893 — NOT re-pointing to series 71d83d8f-c165-47a0-be3a-f3e84159ebc8 (dedup candidate)
+{
+  "sha256": "912c2bd9bd70a9556cfaa974cd29d0f1748c05e26dbf6ae87453418a7f801ef1",
+  "cases": [
+    {
+      "replace_attempt": false,
+      "llm_success": false,
+      "counts": {
+        "resource_file_assignments": 27,
+        "resource_work_links": 2,
+        "movies": 1,
+        "tv_series": 1,
+        "work_collections": 1
+      },
+      "metadata_calls": [
+        "Film _BDrip_950P_h264_aac_dub jpn sub chs&jpn",
+        "TV _BDrip_1080P_h264_flac_dub jpn sub chs",
+        "Film _BDrip_950P_h264_aac_dub jpn sub chs&jpn",
+        "TV _BDrip_1080P_h264_flac_dub jpn sub chs"
+      ]
+    },
+    {
+      "replace_attempt": false,
+      "llm_success": true,
+      "counts": {
+        "resource_file_assignments": 27,
+        "resource_work_links": 2,
+        "movies": 1,
+        "tv_series": 1,
+        "work_collections": 1
+      },
+      "metadata_calls": [
+        "Film _BDrip_950P_h264_aac_dub jpn sub chs&jpn",
+        "Film _BDrip_950P_h264_aac_dub jpn sub chs&jpn",
+        "TV _BDrip_1080P_h264_flac_dub jpn sub chs",
+        "TV _BDrip_1080P_h264_flac_dub jpn sub chs"
+      ]
+    },
+    {
+      "replace_attempt": true,
+      "llm_success": false,
+      "counts": {
+        "resource_file_assignments": 0,
+        "resource_work_links": 0,
+        "movies": 0,
+        "tv_series": 0,
+        "work_collections": 0
+      },
+      "metadata_calls": [
+        "Film _BDrip_950P_h264_aac_dub jpn sub chs&jpn",
+        "TV _BDrip_1080P_h264_flac_dub jpn sub chs",
+        "Film _BDrip_950P_h264_aac_dub jpn sub chs&jpn",
+        "TV _BDrip_1080P_h264_flac_dub jpn sub chs"
+      ]
+    },
+    {
+      "replace_attempt": true,
+      "llm_success": true,
+      "counts": {
+        "resource_file_assignments": 0,
+        "resource_work_links": 0,
+        "movies": 0,
+        "tv_series": 0,
+        "work_collections": 0
+      },
+      "metadata_calls": [
+        "Film _BDrip_950P_h264_aac_dub jpn sub chs&jpn",
+        "Film _BDrip_950P_h264_aac_dub jpn sub chs&jpn",
+        "TV _BDrip_1080P_h264_flac_dub jpn sub chs",
+        "TV _BDrip_1080P_h264_flac_dub jpn sub chs"
+      ]
+    }
+  ]
+}

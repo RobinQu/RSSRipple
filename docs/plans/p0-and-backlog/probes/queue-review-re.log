@@ -1,0 +1,47 @@
+I001 [*] Import block is un-sorted or un-formatted
+  --> download_takeover_probe.py:22:1
+   |
+20 |   RPC_URL = f"http://{address('transmission')}:9091/transmission/rpc"
+21 |
+22 | / import redis.asyncio as redis  # noqa: E402
+23 | | from sqlalchemy import select  # noqa: E402
+24 | | import app.database as database  # noqa: E402
+25 | | import app.models  # noqa: E402,F401
+26 | | from app.clients.transmission import TransmissionWrapper  # noqa: E402
+27 | | from app.models.channel import Channel  # noqa: E402
+28 | | from app.models.downloader import DownloaderInstance  # noqa: E402
+29 | | from app.models.file_resource import FileResource  # noqa: E402
+30 | | from app.models.download_task import DownloadTask  # noqa: E402
+31 | | from app.services.agent_service import create_and_submit_task  # noqa: E402
+32 | | from app.services.task_queue import RedisQueue  # noqa: E402
+33 | | from tests.metadata_corpus.dataset import ROOT, asset, digest, load_corpus  # noqa: E402
+   | |__________________________________________________________________________^
+34 |
+35 |   async def main():
+   |
+help: Organize imports
+
+E501 Line too long (139 > 120)
+  --> download_takeover_probe.py:50:121
+   |
+48 | …
+49 | …takeover", field_mapping={}, type="rss_feed", url="https://example.invalid/feed")
+50 | …ame="isolated", type="transmission", url=RPC_URL, download_dir="/downloads")
+   |                                                           ^^^^^^^^^^^^^^^^^^^
+51 | …
+52 | …
+   |
+
+E501 Line too long (221 > 120)
+  --> download_takeover_probe.py:53:121
+   |
+51 | …
+52 | …
+53 | …le_raw=case["input"]["title_raw"], torrent_url="https://example.invalid/captured.torrent", torrent_file=str(torrent))
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+54 | …
+55 | …
+   |
+
+Found 3 errors.
+[*] 1 fixable with the `--fix` option.

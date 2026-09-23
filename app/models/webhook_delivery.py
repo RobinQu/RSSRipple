@@ -50,6 +50,9 @@ class WebhookDelivery(Base):
         default="pending",
         nullable=False,
     )
+    # Rotated before each send and whenever the snapshot/retry is invalidated.
+    attempt_token: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
     # Delivery bookkeeping: attempts so far and when the next one is due
     # (exponential backoff). ``next_attempt_at`` NULL on a pending row means
     # "due immediately".

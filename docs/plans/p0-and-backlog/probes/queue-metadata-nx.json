@@ -1,0 +1,8 @@
+{
+  "title": "Manually corrected",
+  "manual_fields": [
+    "title_cn"
+  ],
+  "expected_title": "Manually corrected",
+  "data": "synthetic candidate; real PostgreSQL sessions"
+}

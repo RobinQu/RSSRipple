@@ -1,0 +1,189 @@
+[
+  {
+    "test": {
+      "classname": "tests.integration.http.test_api_coverage2.TestMagnetResolve",
+      "name": "test_terminal_retry_flow",
+      "time": "304.781"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "no magnet resolution reached a terminal state in time"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "name": "test_mapping_structure",
+      "time": "0.002"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "name": "test_mapping_has_torrent_url",
+      "time": "0.008"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "name": "test_mapping_has_title_field",
+      "time": "0.001"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "name": "test_all_rules_have_source_key",
+      "time": "0.001"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "name": "test_confidence_not_low",
+      "time": "0.001"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "name": "test_fetch_succeeded",
+      "time": "0.001"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "name": "test_fetch_created_resources",
+      "time": "0.001"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "name": "test_resources_have_torrent_url",
+      "time": "0.001"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "name": "test_resources_have_title_raw",
+      "time": "0.001"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "name": "test_channel_stream_analyze_also_works",
+      "time": "0.001"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "name": "test_no_duplicates_on_refetch",
+      "time": "0.001"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.integration.http.test_metadata_api.TestMetadataLink",
+      "name": "test_link_metadata_creates_series",
+      "time": "0.277"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "No metadata API keys configured — cannot perform search+link"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.integration.http.test_task_queue.TestRedisDistributedDedup",
+      "name": "test_status_key_shared_after_enqueue",
+      "time": "0.009"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "No distinct Redis-backed app instance configured"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.integration.http.test_task_queue.TestRedisDistributedDedup",
+      "name": "test_redis_job_state_persists_after_done",
+      "time": "0.008"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "No distinct Redis-backed app instance configured"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.integration.magnet.test_magnet_resolve_e2e",
+      "name": "test_live_magnet_resolution",
+      "time": "0.001"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)"
+    }
+  },
+  {
+    "test": {
+      "classname": "tests.integration.magnet.test_magnet_resolve_e2e",
+      "name": "test_live_fetch_to_resolve_end_to_end",
+      "time": "0.001"
+    },
+    "reason": {
+      "type": "pytest.skip",
+      "message": "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)"
+    }
+  }
+]

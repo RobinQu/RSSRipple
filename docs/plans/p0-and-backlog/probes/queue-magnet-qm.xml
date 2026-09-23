@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.668" timestamp="2026-09-23T08:16:10.502800+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_magnet_resolve" name="test_detached_resolution_drops_only_queue_ownership" time="0.532"><failure message="AssertionError: assert [(&lt;object obj...a122b5a16e7')] == [(None, 'keep...a122b5a16e7')]&#10;  &#10;  At index 0 diff: (&lt;object object at 0x7f76407f1470&gt;, 'keep-trace', 'bdf22a46-03b1-4e74-a0bf-8a122b5a16e7') != (None, 'keep-trace', 'bdf22a46-03b1-4e74-a0bf-8a122b5a16e7')&#10;  Use -v to get more diff">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f764004d550&gt;
+sample_channel = &lt;app.models.channel.Channel object at 0x7f764004d400&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f76405dac40&gt;
+
+    async def test_detached_resolution_drops_only_queue_ownership(db_session, sample_channel, monkeypatch):
+        from contextvars import ContextVar
+    
+        from app.services import task_queue
+    
+        monkeypatch.setattr(mr, "lt", _fake_lt())
+        monkeypatch.setattr(task_queue, "require_execution_ownership", AsyncMock())
+        parent_owner = object()
+        trace = ContextVar("test_magnet_trace", default=None)
+        seen = []
+    
+        async def attempt(resource_id, attempt_id):
+            seen.append((task_queue._execution_ownership.get(), trace.get(), attempt_id))
+    
+        monkeypatch.setattr(mr, "_attempt_loop", attempt)
+        resource = await _make_magnet_resource(db_session, sample_channel.id)
+        owner_token = task_queue._execution_ownership.set(parent_owner)
+        trace_token = trace.set("keep-trace")
+        try:
+            assert await mr.launch_resolution(resource.id)
+            await _drain_background()
+            assert task_queue._execution_ownership.get() is parent_owner
+            await db_session.refresh(resource)
+&gt;           assert seen == [(None, "keep-trace", resource.magnet_resolve_attempt_id)]
+E           AssertionError: assert [(&lt;object obj...a122b5a16e7')] == [(None, 'keep...a122b5a16e7')]
+E             
+E             At index 0 diff: (&lt;object object at 0x7f76407f1470&gt;, 'keep-trace', 'bdf22a46-03b1-4e74-a0bf-8a122b5a16e7') != (None, 'keep-trace', 'bdf22a46-03b1-4e74-a0bf-8a122b5a16e7')
+E             Use -v to get more diff
+
+tests/unit/test_magnet_resolve.py:250: AssertionError</failure></testcase></testsuite></testsuites>

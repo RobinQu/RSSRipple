@@ -1,0 +1,182 @@
+.F.F                                                                     [100%]
+=================================== FAILURES ===================================
+____________ test_resource_metadata_commit_boundaries[movie-poster] ____________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f31044382b0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f3101364d10>
+phase = 'poster', kind = 'movie'
+
+    @pytest.mark.parametrize("phase", ["publication", "poster"])
+    @pytest.mark.parametrize("kind", ["movie", "series"])
+    async def test_resource_metadata_commit_boundaries(db_session, monkeypatch, phase, kind):
+        import asyncio
+    
+        from sqlalchemy import select
+    
+        from app.database import async_session_factory
+        from app.models.channel import Channel
+        from app.models.file_resource import FileResource
+        from app.models.resource_publication import ResourcePublication
+        from app.models.series import TVSeries
+        from app.models.work_collection import WorkCollection
+        from app.services import fetch_service, resource_publication
+    
+        channel = Channel(name="Boundary", type="rss_feed", url="https://example.invalid",
+                          field_mapping={}, metadata_agent_enabled=False)
+        collection = WorkCollection(title_cn="Synthetic")
+        db_session.add_all([channel, collection])
+        await db_session.flush()
+        original_poster = "https://example.invalid/poster.jpg"
+        work = (Movie(title_cn="Synthetic", poster_url=original_poster) if kind == "movie"
+                else TVSeries(title_cn="Synthetic", collection_id=collection.id, season_number=1, poster_url=original_poster))
+        db_session.add(work)
+        await db_session.flush()
+        resource = FileResource(channel_id=channel.id, guid="boundary", title_raw="Synthetic",
+                                search_title="Original", torrent_url="https://example.invalid/file.torrent")
+        db_session.add(resource)
+        await db_session.flush()
+        await resource_publication.publish_resource(db_session, resource.id, kind="created")
+        await db_session.commit()
+        resource_id, channel_id, work_id = resource.id, channel.id, work.id
+        expired = False
+        reached = []
+        publish = resource_publication.publish_resource
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired at commit boundary")
+    
+        async def link(db, row, channel):
+            row.search_title = "Linked"
+            setattr(row, "movie_id" if kind == "movie" else "series_id", work_id)
+    
+        async def publish_then_expire(db, *args, **kwargs):
+            nonlocal expired
+            result = await publish(db, *args, **kwargs)
+            await db.flush()
+            reached.append("publication")
+            expired = phase == "publication"
+            return result
+    
+        async def poster(url):
+            nonlocal expired
+            reached.append("poster")
+            expired = True
+            return "/posters/synthetic.jpg"
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.services.torrent_inspect.ensure_torrent_cached", AsyncMock())
+        monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", AsyncMock())
+        monkeypatch.setattr(fetch_service, "fetch_and_link_metadata", link)
+        monkeypatch.setattr(resource_publication, "publish_resource", publish_then_expire)
+        monkeypatch.setattr("app.services.metadata_service.download_and_cache_poster", poster)
+        with pytest.raises(task_queue.ExecutionOwnershipLostError):
+            await fetch_service._process_resource_metadata(resource_id, channel_id, asyncio.Semaphore(1))
+        assert reached == (["publication"] if phase == "publication" else ["publication", "poster"])
+        async with async_session_factory() as observer:
+            row = await observer.get(FileResource, resource_id)
+            assert row.search_title == ("Original" if phase == "publication" else "Linked")
+            assert getattr(row, "movie_id" if kind == "movie" else "series_id") == (None if phase == "publication" else work_id)
+            publications = list(await observer.scalars(select(ResourcePublication)))
+>           assert len(publications) == 1
+E           assert 2 == 1
+E            +  where 2 = len([<app.models.resource_publication.ResourcePublication object at 0x7f3104356690>, <app.models.resource_publication.ResourcePublication object at 0x7f3104412a50>])
+
+tests/unit/test_queue_metadata_ownership.py:84: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.fetch_service:fetch_service.py:445 [metadata-task] failed for 6d9877ad-a92a-40d8-b298-f4c129f1f95b: Expired at commit boundary
+___________ test_resource_metadata_commit_boundaries[series-poster] ____________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f3104413e50>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f30dec3a510>
+phase = 'poster', kind = 'series'
+
+    @pytest.mark.parametrize("phase", ["publication", "poster"])
+    @pytest.mark.parametrize("kind", ["movie", "series"])
+    async def test_resource_metadata_commit_boundaries(db_session, monkeypatch, phase, kind):
+        import asyncio
+    
+        from sqlalchemy import select
+    
+        from app.database import async_session_factory
+        from app.models.channel import Channel
+        from app.models.file_resource import FileResource
+        from app.models.resource_publication import ResourcePublication
+        from app.models.series import TVSeries
+        from app.models.work_collection import WorkCollection
+        from app.services import fetch_service, resource_publication
+    
+        channel = Channel(name="Boundary", type="rss_feed", url="https://example.invalid",
+                          field_mapping={}, metadata_agent_enabled=False)
+        collection = WorkCollection(title_cn="Synthetic")
+        db_session.add_all([channel, collection])
+        await db_session.flush()
+        original_poster = "https://example.invalid/poster.jpg"
+        work = (Movie(title_cn="Synthetic", poster_url=original_poster) if kind == "movie"
+                else TVSeries(title_cn="Synthetic", collection_id=collection.id, season_number=1, poster_url=original_poster))
+        db_session.add(work)
+        await db_session.flush()
+        resource = FileResource(channel_id=channel.id, guid="boundary", title_raw="Synthetic",
+                                search_title="Original", torrent_url="https://example.invalid/file.torrent")
+        db_session.add(resource)
+        await db_session.flush()
+        await resource_publication.publish_resource(db_session, resource.id, kind="created")
+        await db_session.commit()
+        resource_id, channel_id, work_id = resource.id, channel.id, work.id
+        expired = False
+        reached = []
+        publish = resource_publication.publish_resource
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired at commit boundary")
+    
+        async def link(db, row, channel):
+            row.search_title = "Linked"
+            setattr(row, "movie_id" if kind == "movie" else "series_id", work_id)
+    
+        async def publish_then_expire(db, *args, **kwargs):
+            nonlocal expired
+            result = await publish(db, *args, **kwargs)
+            await db.flush()
+            reached.append("publication")
+            expired = phase == "publication"
+            return result
+    
+        async def poster(url):
+            nonlocal expired
+            reached.append("poster")
+            expired = True
+            return "/posters/synthetic.jpg"
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.services.torrent_inspect.ensure_torrent_cached", AsyncMock())
+        monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", AsyncMock())
+        monkeypatch.setattr(fetch_service, "fetch_and_link_metadata", link)
+        monkeypatch.setattr(resource_publication, "publish_resource", publish_then_expire)
+        monkeypatch.setattr("app.services.metadata_service.download_and_cache_poster", poster)
+        with pytest.raises(task_queue.ExecutionOwnershipLostError):
+            await fetch_service._process_resource_metadata(resource_id, channel_id, asyncio.Semaphore(1))
+        assert reached == (["publication"] if phase == "publication" else ["publication", "poster"])
+        async with async_session_factory() as observer:
+            row = await observer.get(FileResource, resource_id)
+            assert row.search_title == ("Original" if phase == "publication" else "Linked")
+            assert getattr(row, "movie_id" if kind == "movie" else "series_id") == (None if phase == "publication" else work_id)
+            publications = list(await observer.scalars(select(ResourcePublication)))
+>           assert len(publications) == 1
+E           assert 2 == 1
+E            +  where 2 = len([<app.models.resource_publication.ResourcePublication object at 0x7f30deba0950>, <app.models.resource_publication.ResourcePublication object at 0x7f30dedef120>])
+
+tests/unit/test_queue_metadata_ownership.py:84: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.fetch_service:fetch_service.py:445 [metadata-task] failed for 26ae0045-4419-41cd-972f-f3bbcc371d2d: Expired at commit boundary
+=============================== warnings summary ===============================
+tests/unit/test_queue_metadata_ownership.py::test_resource_metadata_commit_boundaries[movie-publication]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_queue_metadata_ownership.py::test_resource_metadata_commit_boundaries[movie-poster]
+FAILED tests/unit/test_queue_metadata_ownership.py::test_resource_metadata_commit_boundaries[series-poster]
+2 failed, 2 passed, 25 deselected, 1 warning in 2.45s

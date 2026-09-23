@@ -1,0 +1,92 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_________________ test_fts_loss_keeps_outbox_for_replay[False] _________________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7ffab990aa50>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7ffab998e190>
+raises_loss = False
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("raises_loss", [False, True])
+    async def test_fts_loss_keeps_outbox_for_replay(db_session, monkeypatch, raises_loss):
+        from app.config import settings
+        from app.database import async_session_factory
+        from app.models.fts_outbox import FtsOutbox
+        from app.services import fts, task_queue
+    
+        row = FtsOutbox(entity_type="movie", entity_id=_uuid(), op="delete")
+        db_session.add(row)
+        await db_session.commit()
+        row_id = row.id
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired FTS drain")
+    
+        async def shadow(statements):
+            nonlocal expired
+            assert statements
+            expired = True
+            if raises_loss:
+                raise task_queue.ExecutionOwnershipLostError("Shadow write lost ownership")
+    
+        monkeypatch.setattr(settings, "database_url", "sqlite+aioturso:///:memory:")
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr(fts, "_shadow_write", shadow)
+>       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_scheduler.py:355: Failed
+_________________ test_fts_loss_keeps_outbox_for_replay[True] __________________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7ffab9ace0d0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7ffab99ee250>
+raises_loss = True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("raises_loss", [False, True])
+    async def test_fts_loss_keeps_outbox_for_replay(db_session, monkeypatch, raises_loss):
+        from app.config import settings
+        from app.database import async_session_factory
+        from app.models.fts_outbox import FtsOutbox
+        from app.services import fts, task_queue
+    
+        row = FtsOutbox(entity_type="movie", entity_id=_uuid(), op="delete")
+        db_session.add(row)
+        await db_session.commit()
+        row_id = row.id
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired FTS drain")
+    
+        async def shadow(statements):
+            nonlocal expired
+            assert statements
+            expired = True
+            if raises_loss:
+                raise task_queue.ExecutionOwnershipLostError("Shadow write lost ownership")
+    
+        monkeypatch.setattr(settings, "database_url", "sqlite+aioturso:///:memory:")
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr(fts, "_shadow_write", shadow)
+>       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_scheduler.py:355: Failed
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.fts:fts.py:599 [fts] drain write failed for 1 rows (reconcile will heal): Shadow write lost ownership
+=============================== warnings summary ===============================
+tests/unit/test_scheduler.py::test_fts_loss_keeps_outbox_for_replay[False]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_scheduler.py::test_fts_loss_keeps_outbox_for_replay[False]
+FAILED tests/unit/test_scheduler.py::test_fts_loss_keeps_outbox_for_replay[True]
+2 failed, 38 deselected, 1 warning in 0.99s

@@ -6,7 +6,7 @@ from datetime import date
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.movie import Movie
@@ -27,6 +27,8 @@ from app.services.metadata_service import (
 )
 from app.services.metadata_source_registry import REGISTRY_SOURCES, granularity_of
 from app.services.metadata_sources import is_metadata_source_available
+
+_WORK_SCOPE_CHANGED = "work season or collection changed during lookup; refresh again"
 
 
 def _safe_float(v: Any) -> float | None:
@@ -337,9 +339,36 @@ async def apply_work_metadata(
     only_missing: bool = False,
 ) -> dict[str, Any]:
     work_type = "movie" if content_type == "movie" else "series"
+    from app.services.task_queue import require_execution_ownership
+
+    await require_execution_ownership()
     work = await db.get(Movie if content_type == "movie" else TVSeries, work_id)
     if work is None:
         raise HTTPException(status_code=404, detail="work not found")
+    expected_scope = (getattr(work, "season_number", None), work.collection_id)
+    values = await _expanded_candidate_values(work, content_type, candidate)
+    poster_url = candidate.poster_url or values.get("poster_url")
+    cached_poster = None
+    if poster_url and not (only_missing and work.poster_url) and (
+        override_manual_edits or "poster_url" not in manually_edited_fields(work)
+    ):
+        cached_poster = await download_and_cache_poster(poster_url)
+    await require_execution_ownership()
+
+    # Take write ownership only after remote work. PostgreSQL serializes the
+    # row here; Turso rejects a stale MVCC writer so its caller can retry.
+    # Refresh the identity map before calculating manual-field exclusions.
+    model = Movie if content_type == "movie" else TVSeries
+    await db.execute(
+        update(model).where(model.id == work_id)
+        .values(updated_at=model.updated_at)
+        .execution_options(synchronize_session=False)
+    )
+    work = await db.get(model, work_id, populate_existing=True)
+    if work is None:
+        raise HTTPException(status_code=404, detail="work not found")
+    if (getattr(work, "season_number", None), work.collection_id) != expected_scope:
+        raise HTTPException(status_code=409, detail=_WORK_SCOPE_CHANGED)
     owner = await find_work_by_external_id(
         db, work_type, candidate.identity_source, candidate.external_id
     )
@@ -364,11 +393,11 @@ async def apply_work_metadata(
     ) is not None:
         raise HTTPException(status_code=409, detail="external identity belongs to another work type")
 
-    values = await _expanded_candidate_values(work, content_type, candidate)
     preview = await preview_work_metadata(
         db, work_id, content_type, candidate, override_manual_edits, only_missing,
         resolved_values=values,
     )
+    await require_execution_ownership()
     applied: list[str] = []
     for change in preview["changes"]:
         if change["action"] != "update":
@@ -382,16 +411,15 @@ async def apply_work_metadata(
         setattr(work, field, value)
         applied.append(field)
 
-    poster_url = candidate.poster_url or values.get("poster_url")
     if poster_url and not (only_missing and work.poster_url) and (
         override_manual_edits or "poster_url" not in manually_edited_fields(work)
     ):
-        cached = await download_and_cache_poster(poster_url)
-        poster = cached or poster_url
+        poster = cached_poster or poster_url
         if work.poster_url != poster:
             work.poster_url = poster
             applied.append("poster_url")
 
+    await require_execution_ownership()
     await add_external_id(
         db, work_type, work.id, candidate.identity_source, candidate.external_id
     )
@@ -408,6 +436,7 @@ async def apply_work_metadata(
         # written. Episode rows still upsert, season-scoped by upsert_episodes.
         if values.get("episode_list"):
             await upsert_episodes(db, work, values["episode_list"])
+    await require_execution_ownership()
     await db.commit()
     return {"applied": applied, "skipped": [c["field"] for c in preview["changes"] if c["action"] == "skip"]}
 
@@ -435,6 +464,9 @@ async def refresh_work_by_source(
     would match the MAIN entry and stuff its series-level data (premiere,
     episode count, identity) into the specials work.
     """
+    from app.services.task_queue import require_execution_ownership
+
+    await require_execution_ownership()
     if work is None:
         return {"found": False, "applied": [], "message": "work not found"}
     season = getattr(work, "season_number", None) if content_type == "tv" else None
@@ -449,13 +481,28 @@ async def refresh_work_by_source(
             and work.start_date is None
             and "start_date" not in manually_edited_fields(work)
         ):
+            fallback_collection_id = work.collection_id
             fallback = await _collection_fallback_start_date(
                 db, work.collection_id, work.id
             )
             if fallback:
-                work.start_date = fallback
-                await db.commit()
-                applied.append("start_date")
+                await require_execution_ownership()
+                work_id = work.id
+                await db.execute(
+                    update(TVSeries).where(TVSeries.id == work_id)
+                    .values(updated_at=TVSeries.updated_at)
+                    .execution_options(synchronize_session=False)
+                )
+                work = await db.get(TVSeries, work_id, populate_existing=True)
+                if work is None:
+                    return {"found": False, "applied": [], "message": "work not found"}
+                if work.season_number != 0 or work.collection_id != fallback_collection_id:
+                    return {"found": True, "applied": [], "message": "work scope changed; fallback skipped"}
+                if work.start_date is None and "start_date" not in manually_edited_fields(work):
+                    work.start_date = fallback
+                    await require_execution_ownership()
+                    await db.commit()
+                    applied.append("start_date")
         return {
             "found": True, "applied": applied,
             "message": "season-0 specials work — refresh skipped",
@@ -491,6 +538,8 @@ async def refresh_work_by_source(
             override_manual_edits=override_manual_edits, only_missing=only_missing,
         )
     except HTTPException as e:
+        if e.status_code == 409 and e.detail == _WORK_SCOPE_CHANGED:
+            return {"found": False, "applied": [], "scope_changed": True, "message": e.detail}
         if e.status_code == 409:
             # The matched identity belongs to another work — never steal it;
             # the pair is a dedup candidate (merge via POST /works/merge).

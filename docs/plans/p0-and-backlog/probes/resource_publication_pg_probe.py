@@ -5,8 +5,6 @@ import json
 import os
 import uuid
 
-from app.models.resource_publication import ChannelPublicationCounter, ResourcePublication
-from app.services.resource_publication import publish_resource
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -14,6 +12,8 @@ import app.models  # noqa: F401
 from app.database import Base
 from app.models.channel import Channel
 from app.models.file_resource import FileResource
+from app.models.resource_publication import ChannelPublicationCounter, ResourcePublication
+from app.services.resource_publication import publish_resource
 
 
 async def main():

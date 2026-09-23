@@ -399,12 +399,26 @@ class TestRedisQueue:
             queue._deserialize = original
         assert [job["key"] for job in jobs] == ["rlj1"]
 
-    async def test_update_progress_is_shared_in_redis(self, queue):
-        await queue.start(consume=False)
-        await queue.enqueue("slow", "progress-redis", {})
-        await queue.update_progress("progress-redis", {"message": "working", "output": "abc"})
-        state = await queue.status("progress-redis")
-        assert state["result"] == {"message": "working", "output": "abc"}
+    async def test_update_progress_is_shared_in_redis(self, queue, redis_client):
+        reported, release = asyncio.Event(), asyncio.Event()
+
+        async def handler(payload):
+            await queue.update_progress("progress-redis", {"message": "working", "output": "abc"})
+            reported.set()
+            await release.wait()
+
+        queue.register("slow", handler)
+        await queue.start()
+        try:
+            await queue.enqueue("slow", "progress-redis", {})
+            await asyncio.wait_for(reported.wait(), 2)
+            reader = RedisQueue(redis_client=redis_client)
+            state = await reader.status("progress-redis")
+            assert state["result"] == {"message": "working", "output": "abc"}
+            await queue.update_progress("progress-redis", {"message": "outside handler"})
+            assert (await reader.status("progress-redis"))["result"] == state["result"]
+        finally:
+            release.set()
 
     async def test_consume_false_enqueues_without_consuming(self, queue, redis_client):
         """start(consume=False) (web role): the job lands in the Redis list

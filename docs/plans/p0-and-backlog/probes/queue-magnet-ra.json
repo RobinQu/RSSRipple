@@ -1,0 +1,41 @@
+{
+  "backend": "postgresql",
+  "cases": [
+    {
+      "case": "legacy_migration_twice",
+      "passed": true
+    },
+    {
+      "case": "manual_retry",
+      "passed": true
+    },
+    {
+      "case": "inspection",
+      "passed": true
+    },
+    {
+      "case": "reclaimed",
+      "passed": true
+    },
+    {
+      "case": "entry",
+      "passed": true
+    },
+    {
+      "case": "after_update",
+      "passed": true
+    },
+    {
+      "case": "enqueue",
+      "passed": true
+    },
+    {
+      "case": "sigkill_after_claim",
+      "passed": true,
+      "worker_exit": -9,
+      "torrent_sha256": "987a72c09d5b0c2e934fa5016cc4dda6427a80dc5a4594e284a06ccf966acdb2",
+      "network": "recorded torrent bytes; resolver and inspection mocked"
+    }
+  ],
+  "data": "synthetic resources; real concurrent database sessions; mocked libtorrent and inspection"
+}

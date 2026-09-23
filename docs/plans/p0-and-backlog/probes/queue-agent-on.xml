@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="1.264" timestamp="2026-09-23T06:08:40.466125+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_agent_service" name="test_queue_loss_during_suggestion_does_not_persist_choice[False]" time="0.521"><failure message="assert [&lt;app.models....7f204e170910&gt;] == []&#10;  &#10;  Left contains one more item: &lt;app.models.pending_decision.PendingDecision object at 0x7f204e170910&gt;&#10;  Use -v to get more diff">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f204d5e1550&gt;
+channel = &lt;app.models.channel.Channel object at 0x7f204d5e1400&gt;
+downloader = &lt;app.models.downloader.DownloaderInstance object at 0x7f204d5e27b0&gt;
+series = &lt;app.models.series.TVSeries object at 0x7f204d5e2900&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f204e3075c0&gt;
+autocommit = False
+
+    @pytest.mark.parametrize("autocommit", [False, True])
+    async def test_queue_loss_during_suggestion_does_not_persist_choice(
+        db_session, channel, downloader, series, monkeypatch, autocommit,
+    ):
+        from app.services import task_queue
+    
+        agent = Agent(id=_uuid(), name="suggestion loss", channel_id=channel.id,
+                      downloader_id=downloader.id, status="active",
+                      scope_channel_wide=True, conflict_resolution="ask")
+        resources = [_make_resource(channel.id, series_id=series.id, episode=1) for _ in range(2)]
+        db_session.add_all([agent, *resources])
+        await db_session.commit()
+        await db_session.refresh(agent)
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired during suggestion")
+    
+        async def suggest(*args):
+            nonlocal expired
+            expired = True
+            return resources[0].id, "synthetic suggestion"
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.services.agent_service._suggest_pick", suggest)
+        with pytest.raises(task_queue.ExecutionOwnershipLostError):
+            await process_resources(agent, resources, db_session, autocommit=autocommit)
+        assert expired
+&gt;       assert (await db_session.scalars(select(PendingDecision))).all() == []
+E       assert [&lt;app.models....7f204e170910&gt;] == []
+E         
+E         Left contains one more item: &lt;app.models.pending_decision.PendingDecision object at 0x7f204e170910&gt;
+E         Use -v to get more diff
+
+tests/unit/test_agent_service.py:2614: AssertionError</failure></testcase><testcase classname="tests.unit.test_agent_service" name="test_queue_loss_during_suggestion_does_not_persist_choice[True]" time="0.439"><failure message="assert [&lt;app.models....7f204e3075c0&gt;] == []&#10;  &#10;  Left contains one more item: &lt;app.models.pending_decision.PendingDecision object at 0x7f204e3075c0&gt;&#10;  Use -v to get more diff">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f204e170a50&gt;
+channel = &lt;app.models.channel.Channel object at 0x7f204e170cd0&gt;
+downloader = &lt;app.models.downloader.DownloaderInstance object at 0x7f204e171590&gt;
+series = &lt;app.models.series.TVSeries object at 0x7f204e1716d0&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f204d5b58b0&gt;
+autocommit = True
+
+    @pytest.mark.parametrize("autocommit", [False, True])
+    async def test_queue_loss_during_suggestion_does_not_persist_choice(
+        db_session, channel, downloader, series, monkeypatch, autocommit,
+    ):
+        from app.services import task_queue
+    
+        agent = Agent(id=_uuid(), name="suggestion loss", channel_id=channel.id,
+                      downloader_id=downloader.id, status="active",
+                      scope_channel_wide=True, conflict_resolution="ask")
+        resources = [_make_resource(channel.id, series_id=series.id, episode=1) for _ in range(2)]
+        db_session.add_all([agent, *resources])
+        await db_session.commit()
+        await db_session.refresh(agent)
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired during suggestion")
+    
+        async def suggest(*args):
+            nonlocal expired
+            expired = True
+            return resources[0].id, "synthetic suggestion"
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.services.agent_service._suggest_pick", suggest)
+        with pytest.raises(task_queue.ExecutionOwnershipLostError):
+            await process_resources(agent, resources, db_session, autocommit=autocommit)
+        assert expired
+&gt;       assert (await db_session.scalars(select(PendingDecision))).all() == []
+E       assert [&lt;app.models....7f204e3075c0&gt;] == []
+E         
+E         Left contains one more item: &lt;app.models.pending_decision.PendingDecision object at 0x7f204e3075c0&gt;
+E         Use -v to get more diff
+
+tests/unit/test_agent_service.py:2614: AssertionError</failure></testcase></testsuite></testsuites>

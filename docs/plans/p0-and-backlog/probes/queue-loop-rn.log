@@ -1,0 +1,121 @@
+FFF                                                                      [100%]
+=================================== FAILURES ===================================
+___________ test_fetch_cache_work_keeps_event_loop_responsive[mkdir] ___________
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1480/test_fetch_cache_work_keeps_ev0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f6b774f3e10>
+phase = 'mkdir'
+
+    @pytest.mark.parametrize("phase", ["mkdir", "parse", "write"])
+    async def test_fetch_cache_work_keeps_event_loop_responsive(tmp_path, monkeypatch, phase):
+        import threading
+    
+        real_to_thread = asyncio.to_thread
+        source = Path("tests/fixtures/metadata_corpus_v1/torrents/987a72c09d5b0c2e934fa5016cc4dda6427a80dc5a4594e284a06ccf966acdb2.torrent")
+        payload = source.read_bytes()
+        _stub_httpx(monkeypatch, chunks=[payload])
+        monkeypatch.setattr(asyncio, "to_thread", real_to_thread)
+        monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
+        loop = asyncio.get_running_loop()
+        responsive = []
+        target, attribute = (ti, "parse_torrent_payload") if phase == "parse" else (Path, "mkdir" if phase == "mkdir" else "write_bytes")
+        original = getattr(target, attribute)
+    
+        def slow_operation(*args, **kwargs):
+            heartbeat = threading.Event()
+            loop.call_soon_threadsafe(heartbeat.set)
+            responsive.append(heartbeat.wait(timeout=1))
+            return original(*args, **kwargs)
+    
+        monkeypatch.setattr(target, attribute, slow_operation)
+        output = await fetch_torrent_file("https://example.invalid/recorded.torrent", "responsive")
+        assert output and Path(output).read_bytes() == payload
+>       assert responsive and all(responsive), "event loop could not run while cache work was blocked"
+E       AssertionError: event loop could not run while cache work was blocked
+E       assert ([False] and False)
+E        +  where False = all([False])
+
+tests/unit/test_torrent_inspect.py:398: AssertionError
+___________ test_fetch_cache_work_keeps_event_loop_responsive[parse] ___________
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1480/test_fetch_cache_work_keeps_ev1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f6b773b4950>
+phase = 'parse'
+
+    @pytest.mark.parametrize("phase", ["mkdir", "parse", "write"])
+    async def test_fetch_cache_work_keeps_event_loop_responsive(tmp_path, monkeypatch, phase):
+        import threading
+    
+        real_to_thread = asyncio.to_thread
+        source = Path("tests/fixtures/metadata_corpus_v1/torrents/987a72c09d5b0c2e934fa5016cc4dda6427a80dc5a4594e284a06ccf966acdb2.torrent")
+        payload = source.read_bytes()
+        _stub_httpx(monkeypatch, chunks=[payload])
+        monkeypatch.setattr(asyncio, "to_thread", real_to_thread)
+        monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
+        loop = asyncio.get_running_loop()
+        responsive = []
+        target, attribute = (ti, "parse_torrent_payload") if phase == "parse" else (Path, "mkdir" if phase == "mkdir" else "write_bytes")
+        original = getattr(target, attribute)
+    
+        def slow_operation(*args, **kwargs):
+            heartbeat = threading.Event()
+            loop.call_soon_threadsafe(heartbeat.set)
+            responsive.append(heartbeat.wait(timeout=1))
+            return original(*args, **kwargs)
+    
+        monkeypatch.setattr(target, attribute, slow_operation)
+        output = await fetch_torrent_file("https://example.invalid/recorded.torrent", "responsive")
+        assert output and Path(output).read_bytes() == payload
+>       assert responsive and all(responsive), "event loop could not run while cache work was blocked"
+E       AssertionError: event loop could not run while cache work was blocked
+E       assert ([False] and False)
+E        +  where False = all([False])
+
+tests/unit/test_torrent_inspect.py:398: AssertionError
+___________ test_fetch_cache_work_keeps_event_loop_responsive[write] ___________
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1480/test_fetch_cache_work_keeps_ev2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f6b769b1260>
+phase = 'write'
+
+    @pytest.mark.parametrize("phase", ["mkdir", "parse", "write"])
+    async def test_fetch_cache_work_keeps_event_loop_responsive(tmp_path, monkeypatch, phase):
+        import threading
+    
+        real_to_thread = asyncio.to_thread
+        source = Path("tests/fixtures/metadata_corpus_v1/torrents/987a72c09d5b0c2e934fa5016cc4dda6427a80dc5a4594e284a06ccf966acdb2.torrent")
+        payload = source.read_bytes()
+        _stub_httpx(monkeypatch, chunks=[payload])
+        monkeypatch.setattr(asyncio, "to_thread", real_to_thread)
+        monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
+        loop = asyncio.get_running_loop()
+        responsive = []
+        target, attribute = (ti, "parse_torrent_payload") if phase == "parse" else (Path, "mkdir" if phase == "mkdir" else "write_bytes")
+        original = getattr(target, attribute)
+    
+        def slow_operation(*args, **kwargs):
+            heartbeat = threading.Event()
+            loop.call_soon_threadsafe(heartbeat.set)
+            responsive.append(heartbeat.wait(timeout=1))
+            return original(*args, **kwargs)
+    
+        monkeypatch.setattr(target, attribute, slow_operation)
+        output = await fetch_torrent_file("https://example.invalid/recorded.torrent", "responsive")
+        assert output and Path(output).read_bytes() == payload
+>       assert responsive and all(responsive), "event loop could not run while cache work was blocked"
+E       AssertionError: event loop could not run while cache work was blocked
+E       assert ([False] and False)
+E        +  where False = all([False])
+
+tests/unit/test_torrent_inspect.py:398: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_torrent_inspect.py::test_fetch_cache_work_keeps_event_loop_responsive[mkdir]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_torrent_inspect.py::test_fetch_cache_work_keeps_event_loop_responsive[mkdir]
+FAILED tests/unit/test_torrent_inspect.py::test_fetch_cache_work_keeps_event_loop_responsive[parse]
+FAILED tests/unit/test_torrent_inspect.py::test_fetch_cache_work_keeps_event_loop_responsive[write]
+3 failed, 107 deselected, 1 warning in 3.33s

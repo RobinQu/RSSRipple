@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="4" skipped="0" tests="4" time="2.394" timestamp="2026-09-23T06:32:09.629370+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_queue_metadata_ownership" name="test_resource_metadata_loss_rolls_back_flushed_fields_and_publication[False-False]" time="0.975"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7ff7cbce8ec0&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7ff7cbf1afd0&gt;
+agent_enabled = False, raises_loss = False
+
+    @pytest.mark.parametrize("agent_enabled", [False, True])
+    @pytest.mark.parametrize("raises_loss", [False, True])
+    async def test_resource_metadata_loss_rolls_back_flushed_fields_and_publication(
+        db_session, monkeypatch, agent_enabled, raises_loss,
+    ):
+        import asyncio
+        from types import SimpleNamespace
+    
+        from sqlalchemy import select
+    
+        from app.database import async_session_factory
+        from app.models.channel import Channel
+        from app.models.file_resource import FileResource
+        from app.models.resource_publication import ResourcePublication
+        from app.services import fetch_service
+    
+        channel = Channel(name="Loss", type="rss_feed", url="https://example.invalid",
+                          field_mapping={}, metadata_agent_enabled=agent_enabled)
+        db_session.add(channel)
+        await db_session.flush()
+        resource = FileResource(channel_id=channel.id, guid="loss", title_raw="Synthetic",
+                                search_title="Original", torrent_url="https://example.invalid/file.torrent")
+        db_session.add(resource)
+        await db_session.commit()
+        resource_id, channel_id = resource.id, channel.id
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired after metadata flush")
+    
+        async def change(db, row, channel):
+            nonlocal expired
+            row.search_title = "Stale replacement"
+            await db.flush()
+            expired = True
+            if raises_loss:
+                raise task_queue.ExecutionOwnershipLostError("Metadata provider lost ownership")
+    
+        async def agent_process(row, channel, db, **kwargs):
+            await change(db, row, channel)
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.services.torrent_inspect.ensure_torrent_cached", AsyncMock())
+        monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", AsyncMock())
+        monkeypatch.setattr(fetch_service, "fetch_and_link_metadata", change)
+        monkeypatch.setattr("app.services.metadata_agent.get_agent", lambda: SimpleNamespace(process=agent_process))
+&gt;       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_queue_metadata_ownership.py:59: Failed</failure></testcase><testcase classname="tests.unit.test_queue_metadata_ownership" name="test_resource_metadata_loss_rolls_back_flushed_fields_and_publication[False-True]" time="0.367"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7ff7cbd62490&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7ff7cec349e0&gt;
+agent_enabled = True, raises_loss = False
+
+    @pytest.mark.parametrize("agent_enabled", [False, True])
+    @pytest.mark.parametrize("raises_loss", [False, True])
+    async def test_resource_metadata_loss_rolls_back_flushed_fields_and_publication(
+        db_session, monkeypatch, agent_enabled, raises_loss,
+    ):
+        import asyncio
+        from types import SimpleNamespace
+    
+        from sqlalchemy import select
+    
+        from app.database import async_session_factory
+        from app.models.channel import Channel
+        from app.models.file_resource import FileResource
+        from app.models.resource_publication import ResourcePublication
+        from app.services import fetch_service
+    
+        channel = Channel(name="Loss", type="rss_feed", url="https://example.invalid",
+                          field_mapping={}, metadata_agent_enabled=agent_enabled)
+        db_session.add(channel)
+        await db_session.flush()
+        resource = FileResource(channel_id=channel.id, guid="loss", title_raw="Synthetic",
+                                search_title="Original", torrent_url="https://example.invalid/file.torrent")
+        db_session.add(resource)
+        await db_session.commit()
+        resource_id, channel_id = resource.id, channel.id
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired after metadata flush")
+    
+        async def change(db, row, channel):
+            nonlocal expired
+            row.search_title = "Stale replacement"
+            await db.flush()
+            expired = True
+            if raises_loss:
+                raise task_queue.ExecutionOwnershipLostError("Metadata provider lost ownership")
+    
+        async def agent_process(row, channel, db, **kwargs):
+            await change(db, row, channel)
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.services.torrent_inspect.ensure_torrent_cached", AsyncMock())
+        monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", AsyncMock())
+        monkeypatch.setattr(fetch_service, "fetch_and_link_metadata", change)
+        monkeypatch.setattr("app.services.metadata_agent.get_agent", lambda: SimpleNamespace(process=agent_process))
+&gt;       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_queue_metadata_ownership.py:59: Failed</failure></testcase><testcase classname="tests.unit.test_queue_metadata_ownership" name="test_resource_metadata_loss_rolls_back_flushed_fields_and_publication[True-False]" time="0.427"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7ff7cbf1a9e0&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7ff7cbf467b0&gt;
+agent_enabled = False, raises_loss = True
+
+    @pytest.mark.parametrize("agent_enabled", [False, True])
+    @pytest.mark.parametrize("raises_loss", [False, True])
+    async def test_resource_metadata_loss_rolls_back_flushed_fields_and_publication(
+        db_session, monkeypatch, agent_enabled, raises_loss,
+    ):
+        import asyncio
+        from types import SimpleNamespace
+    
+        from sqlalchemy import select
+    
+        from app.database import async_session_factory
+        from app.models.channel import Channel
+        from app.models.file_resource import FileResource
+        from app.models.resource_publication import ResourcePublication
+        from app.services import fetch_service
+    
+        channel = Channel(name="Loss", type="rss_feed", url="https://example.invalid",
+                          field_mapping={}, metadata_agent_enabled=agent_enabled)
+        db_session.add(channel)
+        await db_session.flush()
+        resource = FileResource(channel_id=channel.id, guid="loss", title_raw="Synthetic",
+                                search_title="Original", torrent_url="https://example.invalid/file.torrent")
+        db_session.add(resource)
+        await db_session.commit()
+        resource_id, channel_id = resource.id, channel.id
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired after metadata flush")
+    
+        async def change(db, row, channel):
+            nonlocal expired
+            row.search_title = "Stale replacement"
+            await db.flush()
+            expired = True
+            if raises_loss:
+                raise task_queue.ExecutionOwnershipLostError("Metadata provider lost ownership")
+    
+        async def agent_process(row, channel, db, **kwargs):
+            await change(db, row, channel)
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.services.torrent_inspect.ensure_torrent_cached", AsyncMock())
+        monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", AsyncMock())
+        monkeypatch.setattr(fetch_service, "fetch_and_link_metadata", change)
+        monkeypatch.setattr("app.services.metadata_agent.get_agent", lambda: SimpleNamespace(process=agent_process))
+&gt;       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_queue_metadata_ownership.py:59: Failed</failure></testcase><testcase classname="tests.unit.test_queue_metadata_ownership" name="test_resource_metadata_loss_rolls_back_flushed_fields_and_publication[True-True]" time="0.461"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7ff7cec36580&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7ff7ab0331d0&gt;
+agent_enabled = True, raises_loss = True
+
+    @pytest.mark.parametrize("agent_enabled", [False, True])
+    @pytest.mark.parametrize("raises_loss", [False, True])
+    async def test_resource_metadata_loss_rolls_back_flushed_fields_and_publication(
+        db_session, monkeypatch, agent_enabled, raises_loss,
+    ):
+        import asyncio
+        from types import SimpleNamespace
+    
+        from sqlalchemy import select
+    
+        from app.database import async_session_factory
+        from app.models.channel import Channel
+        from app.models.file_resource import FileResource
+        from app.models.resource_publication import ResourcePublication
+        from app.services import fetch_service
+    
+        channel = Channel(name="Loss", type="rss_feed", url="https://example.invalid",
+                          field_mapping={}, metadata_agent_enabled=agent_enabled)
+        db_session.add(channel)
+        await db_session.flush()
+        resource = FileResource(channel_id=channel.id, guid="loss", title_raw="Synthetic",
+                                search_title="Original", torrent_url="https://example.invalid/file.torrent")
+        db_session.add(resource)
+        await db_session.commit()
+        resource_id, channel_id = resource.id, channel.id
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired after metadata flush")
+    
+        async def change(db, row, channel):
+            nonlocal expired
+            row.search_title = "Stale replacement"
+            await db.flush()
+            expired = True
+            if raises_loss:
+                raise task_queue.ExecutionOwnershipLostError("Metadata provider lost ownership")
+    
+        async def agent_process(row, channel, db, **kwargs):
+            await change(db, row, channel)
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.services.torrent_inspect.ensure_torrent_cached", AsyncMock())
+        monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", AsyncMock())
+        monkeypatch.setattr(fetch_service, "fetch_and_link_metadata", change)
+        monkeypatch.setattr("app.services.metadata_agent.get_agent", lambda: SimpleNamespace(process=agent_process))
+&gt;       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_queue_metadata_ownership.py:59: Failed</failure></testcase></testsuite></testsuites>

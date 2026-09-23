@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="1.116" timestamp="2026-09-23T07:48:30.647250+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_magnet_resolve" name="test_old_resolution_preserves_replacement_result[failure]" time="0.569"><failure message="AssertionError: assert 'failed' == 'done'&#10;  &#10;  - done&#10;  + failed">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f6722cd1400&gt;
+sample_channel = &lt;app.models.channel.Channel object at 0x7f6722cd12b0&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f67230ca520&gt;
+outcome = 'failure'
+
+    @pytest.mark.parametrize("outcome", ["failure", "success"])
+    async def test_old_resolution_preserves_replacement_result(db_session, sample_channel, monkeypatch, outcome):
+        from app.database import async_session_factory
+        from app.models.file_resource import FileResource
+    
+        resource = await _make_magnet_resource(db_session, sample_channel.id)
+        resource_id = resource.id
+    
+        async def replaced_then_failed(*args, **kwargs):
+            async with async_session_factory() as replacement:
+                row = await replacement.get(FileResource, resource_id)
+                row.magnet_resolve_status = "done"
+                row.magnet_resolve_error = None
+                row.torrent_file = "/synthetic/replacement.torrent"
+                await replacement.commit()
+            if outcome == "failure":
+                raise mr.MagnetResolveError("Old resolver failed after replacement")
+    
+        monkeypatch.setattr(mr, "resolve_magnet_to_cache", replaced_then_failed)
+        monkeypatch.setattr(mr.settings, "magnet_resolve_max_attempts", 0)
+        monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", AsyncMock())
+        await mr._attempt_loop(resource_id)
+        async with async_session_factory() as observer:
+            saved = await observer.get(FileResource, resource_id)
+&gt;           assert saved.magnet_resolve_status == "done"
+E           AssertionError: assert 'failed' == 'done'
+E             
+E             - done
+E             + failed
+
+tests/unit/test_magnet_resolve.py:236: AssertionError</failure></testcase><testcase classname="tests.unit.test_magnet_resolve" name="test_old_resolution_preserves_replacement_result[success]" time="0.397"><failure message="AssertionError: assert 'data/torrent...f6e16.torrent' == '/synthetic/r...ement.torrent'&#10;  &#10;  - /synthetic/replacement.torrent&#10;  + data/torrents/9b1e1cdf-18ec-4bb5-8212-3cab52bf6e16.torrent">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f6722d629c0&gt;
+sample_channel = &lt;app.models.channel.Channel object at 0x7f6722b2b4d0&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f671bc03950&gt;
+outcome = 'success'
+
+    @pytest.mark.parametrize("outcome", ["failure", "success"])
+    async def test_old_resolution_preserves_replacement_result(db_session, sample_channel, monkeypatch, outcome):
+        from app.database import async_session_factory
+        from app.models.file_resource import FileResource
+    
+        resource = await _make_magnet_resource(db_session, sample_channel.id)
+        resource_id = resource.id
+    
+        async def replaced_then_failed(*args, **kwargs):
+            async with async_session_factory() as replacement:
+                row = await replacement.get(FileResource, resource_id)
+                row.magnet_resolve_status = "done"
+                row.magnet_resolve_error = None
+                row.torrent_file = "/synthetic/replacement.torrent"
+                await replacement.commit()
+            if outcome == "failure":
+                raise mr.MagnetResolveError("Old resolver failed after replacement")
+    
+        monkeypatch.setattr(mr, "resolve_magnet_to_cache", replaced_then_failed)
+        monkeypatch.setattr(mr.settings, "magnet_resolve_max_attempts", 0)
+        monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", AsyncMock())
+        await mr._attempt_loop(resource_id)
+        async with async_session_factory() as observer:
+            saved = await observer.get(FileResource, resource_id)
+            assert saved.magnet_resolve_status == "done"
+            assert saved.magnet_resolve_error is None
+            assert saved.magnet_resolve_attempts == 0
+&gt;           assert saved.torrent_file == "/synthetic/replacement.torrent"
+E           AssertionError: assert 'data/torrent...f6e16.torrent' == '/synthetic/r...ement.torrent'
+E             
+E             - /synthetic/replacement.torrent
+E             + data/torrents/9b1e1cdf-18ec-4bb5-8212-3cab52bf6e16.torrent
+
+tests/unit/test_magnet_resolve.py:239: AssertionError</failure></testcase></testsuite></testsuites>

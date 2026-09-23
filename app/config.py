@@ -55,7 +55,8 @@ class Settings(BaseSettings):
 
     # Torrent file cache — .torrent files fetched for content inspection
     # (file-listing batch analysis) are stored here as
-    # ``<resource_id>.torrent``. Env var: TORRENT_CACHE_DIR.
+    # Paths are recorded in FileResource.torrent_file; HTTP uses content
+    # digests and magnet uses attempt IDs. Env var: TORRENT_CACHE_DIR.
     torrent_cache_dir: str = "data/torrents"
 
     # Magnet metadata resolution — magnet: links carry no .torrent file, so a

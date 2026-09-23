@@ -1,0 +1,1 @@
+{"backend": "redis", "resumed_descriptor_preserved": true, "empty_list_removed_automatically": true, "boundary": "Two real Redis connections; controlled command interleaving, no process pause"}

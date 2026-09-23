@@ -315,3 +315,27 @@ V13 ji/jk 独立 PG/Redis 探针：较早创建晚提交资源由下轮 handler 
 V13 发布补偿定时集成：`organize/test_publication_scheduler.py` 使用真实生产五秒 IntervalTrigger、MemoryQueue、handler 和临时 Turso；暂停经历一次 tick 后仍待消费，恢复后自动产生一条成功 AgentRun 并确认游标。仅移除无关定时任务，不手动调用发布回调或缩短周期。数据为合成资源；此用例不证明外部下载副作用。
 
 V13 FTS 并发回归：`organize/test_fts_concurrency.py` 在独立子进程和临时 Turso sidecar 上运行生产 FTS 初始化、写入和检索；8 个并发调用者共 400 写、400 读，要求进程正常退出、无操作异常、最终索引恰好包含 10 个唯一预期 ID。数据明确为合成压力夹具；进程隔离保留原生崩溃输出。此测试不替代完整 HTTP/调度负载门禁，也不证明此前 page_cache 崩溃与已复现 btree 崩溃同源。
+
+V14 派发持久化原型测试：test_download_dispatch 验证预留复用、参数漂移、不同逻辑操作、结果复用、删除后不重建与直接 SQL 默认值；test_queue_download_ownership 使用临时真实数据库覆盖八种身份/连接状态。真实 PG/Redis/Transmission 的已审核 torrent 接管探针见 V14 文档：两次 RPC 接受仍仅一条持久任务，无媒体下载。这些证据不替代全量门禁或其他 handler 验收。
+
+V14 md/me/mf 补验：实际 NOT NULL 故障回滚后预留保持 unsettled，重试复用 UUID；同作业目录/payload/下载器漂移在第二次 RPC 前拒绝。真实 PG 的延迟外键约束使 COMMIT（不是 flush）失败，已审核 torrent RPC 接受后重试复用同一任务 UUID，最终一任务一 torrent。该探针显式在同一逻辑 handler 内换事务重试，不宣称验证了生产自动重试或进程崩溃恢复。
+
+V14 mg 崩溃探针使用两个独立进程和真实 PG/Redis/Transmission：A 在真实 RPC 接受后 SIGKILL（-9），B 等待默认 lease 自然过期后通过生产队列自动接管（退出 0）；保留 job_id/task UUID，最终一任务一 torrent。使用 confirmed torrent、无媒体下载；handler 为专用薄包装，不表示全部生产 job handler 已验收。mh/mi 连接绑定测试先复现外层回滚抹掉预留，再验证独立引擎连接修复。
+
+V14 派发表升级正式集成：organize/test_download_dispatch_schema.py 在新子进程构造仅缺 download_dispatches 的旧 schema，通过生产 create_tables 连续两次执行，保留旧 AppSetting 与首次升级后预留；直接 SQL 验证 operation_key/task_id 唯一、settled 非空和 false 默认值。默认 Turso 入常规集成收集；同驱动在专用 PostgreSQL 项目亦验证通过。数据为合成迁移夹具，不涉及 RSS 或 RPC。
+
+V14 预留清理测试 test_download_dispatch_cleanup 覆盖 Redis 终态/替换/缺失、queued/running/active 孤儿/未知状态、年龄、缺身份、Redis 故障、分页越过活动记录、数据库 settled 竞争以及已有任务不删除。使用真实临时 DB、FakeRedis 的生产 RedisQueue 判断；不替代真实 Redis 清理集成。每日 scheduler 回归确认数据库绑定和事务外接线。
+
+V14 mq 在真实 PG/Redis 中确认退休孤立记录删除、queued/running 保留；任务事务先持有预留行锁，清理 DELETE 在 pg_stat_activity 显示 Lock 等待，任务提交后 DELETE 影响零行，任务及 settled 预留保留。mr 在实际队列上下文/临时 DB 下验证不同 Agent 或新逻辑作业（同 queue key）各保留独立任务，下载器替身返回同一 torrent ID 也不会错误合并。
+
+V14 通知所有权回归 test_queue_notification_ownership：生产队列上下文、临时数据库和 HTTP 替身，覆盖发送前失权不发送、发送后失权不确认，以及同批异常传播前等待在途 HTTP 协程完成。负向 ms/mu 与正向 mv 证据见 V14；不证明外部消费者的 exactly-once，也未替代真实 HTTP 接管竞争。
+
+B4 通知候选增加旧结果覆盖和 retry/两类 regenerate 在途失效测试。download_dispatch_schema_driver 同时删除旧表的 attempt_token，再通过生产 create_tables 验证恢复 nullable 字段。HTTP 测试目前使用替身；独立进程真实 HTTP 接管及 PostgreSQL 新列升级尚待验证。
+
+B4 双会话同 token 领取测试通过 barrier 保证双方均先读取；Turso 失败方应通过独立短事务重试得到 CAS 未命中，不重复 HTTP。nc 保留 write-write conflict 红测，后续回归不可用单会话测试替代。
+
+B4 nf/ng 独立验证：真实 PG/Redis + loopback HTTP，默认租约下 SIGKILL 恢复及 SIGSTOP/SIGCONT 旧执行失权均通过；使用合成 payload 和专用 handler，尚未纳入常规集成执行入口，不能代替完整通知 tick 验收。驱动与证据见 V14。
+
+B4 正式 queue_recovery 子套件包含 SIGKILL、SIGSTOP/SIGCONT、metadata（17 项）、agent（六项）、magnet（八项）、commit（四项）、responsiveness、organize（三项）、organize_takeover 和 multiwork（四项）十个参数。commit 覆盖内部提交失权回滚；responsiveness 验证真实续租；organize 验证 PG/文件锁边界；organize_takeover 将真实 Redis 接管、SIGSTOP/SIGCONT 和计划文件锁组合，验证旧完成不覆盖新结果及重入幂等。其余矩阵覆盖作品/资源事务、Agent 消费、magnet 迁移与恢复。完整 isolated Compose 开启 QUEUE_RECOVERY_REQUIRED=1，专用 PG/Redis 缺失即失败。数据库矩阵的失权信号为确定性替身；magnet 使用录制种子，未连接 libtorrent 网络。详细隔离/清理契约见 isolated-integration.md。
+
+B4 nk/nl 覆盖快照停种前、停种后、文件返回后失权，要求停止 RPC 链、无快照和无失败退避记录；nl 联合既有构建重试/毒任务隔离回归通过。下载器与 guard 使用替身，真实 Redis/RPC 组合仍待补充。

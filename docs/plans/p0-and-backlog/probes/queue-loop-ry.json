@@ -1,0 +1,28 @@
+{
+  "mode": "responsiveness",
+  "executions": 1,
+  "child_exit": 0,
+  "lease_seconds": 15,
+  "blocked_thread_seconds": 18,
+  "lease_samples_ms": [
+    14995,
+    13994,
+    12993,
+    11991,
+    10990,
+    14991,
+    13990,
+    12989,
+    11989,
+    10986,
+    14987,
+    13986,
+    12985,
+    11982,
+    10981,
+    14982,
+    13981
+  ],
+  "renewals": 3,
+  "data": "recorded torrent; real Redis and independent process; controlled slow analysis"
+}

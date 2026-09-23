@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.669" timestamp="2026-09-23T07:46:52.333333+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_magnet_resolve" name="test_old_resolution_failure_preserves_replacement_result" time="0.538"><failure message="AssertionError: assert 'failed' == 'done'&#10;  &#10;  - done&#10;  + failed">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fe9546852b0&gt;
+sample_channel = &lt;app.models.channel.Channel object at 0x7fe954685160&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7fe9547c2c40&gt;
+
+    async def test_old_resolution_failure_preserves_replacement_result(db_session, sample_channel, monkeypatch):
+        from app.database import async_session_factory
+        from app.models.file_resource import FileResource
+    
+        resource = await _make_magnet_resource(db_session, sample_channel.id)
+        resource_id = resource.id
+    
+        async def replaced_then_failed(*args, **kwargs):
+            async with async_session_factory() as replacement:
+                row = await replacement.get(FileResource, resource_id)
+                row.magnet_resolve_status = "done"
+                row.magnet_resolve_error = None
+                row.torrent_file = "/synthetic/replacement.torrent"
+                await replacement.commit()
+            raise mr.MagnetResolveError("Old resolver failed after replacement")
+    
+        monkeypatch.setattr(mr, "resolve_magnet_to_cache", replaced_then_failed)
+        monkeypatch.setattr(mr.settings, "magnet_resolve_max_attempts", 0)
+        await mr._attempt_loop(resource_id)
+        async with async_session_factory() as observer:
+            saved = await observer.get(FileResource, resource_id)
+&gt;           assert saved.magnet_resolve_status == "done"
+E           AssertionError: assert 'failed' == 'done'
+E             
+E             - done
+E             + failed
+
+tests/unit/test_magnet_resolve.py:233: AssertionError</failure></testcase></testsuite></testsuites>

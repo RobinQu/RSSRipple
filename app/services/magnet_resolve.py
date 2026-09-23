@@ -16,7 +16,7 @@ it is missing (the manual-retry API returns 422 instead).
 Concurrency: queue jobs (``resolve_magnet_torrent``) only *claim* the resource
 row and spawn a detached worker task — the 15-minute metadata wait never
 occupies a queue slot. The DB status claim (a guarded UPDATE) is the real
-cross-process dedup; the in-process ``_inflight`` set and the semaphore bound
+cross-process dedup; the semaphore bounds
 local concurrency to ``settings.magnet_resolve_concurrency``.
 """
 
@@ -26,6 +26,7 @@ import logging
 import re
 import shutil
 import tempfile
+import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -393,7 +394,6 @@ async def resolve_magnet_to_cache(
 # ---------------------------------------------------------------------------
 
 _semaphore: asyncio.Semaphore | None = None
-_inflight: set[str] = set()
 _background_tasks: set[asyncio.Task] = set()
 
 
@@ -424,14 +424,15 @@ async def launch_resolution(resource_id: str) -> bool:
         return False
     if not settings.magnet_resolve_enabled:
         return False
-    if resource_id in _inflight:
-        return False
 
     from sqlalchemy import or_, update
 
     from app.database import committed_session
     from app.models.file_resource import FileResource
+    from app.services.task_queue import independent_execution_context, require_execution_ownership
 
+    await require_execution_ownership()
+    attempt_id = str(uuid.uuid4())
     async with committed_session() as db:
         result = await db.execute(
             update(FileResource)
@@ -444,36 +445,38 @@ async def launch_resolution(resource_id: str) -> bool:
             )
             .values(
                 magnet_resolve_status="pending",
+                magnet_resolve_attempt_id=attempt_id,
                 magnet_resolve_updated_at=utcnow(),
             )
         )
         if result.rowcount == 0:
             return False
+        await require_execution_ownership()
 
-    _inflight.add(resource_id)
-    task = asyncio.create_task(_run_resolution(resource_id))
+    task = asyncio.create_task(
+        _run_resolution(resource_id, attempt_id), context=independent_execution_context(),
+    )
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
     return True
 
 
-async def _run_resolution(resource_id: str) -> None:
+async def _run_resolution(resource_id: str, attempt_id: str) -> None:
     try:
         async with _get_semaphore():
-            await _attempt_loop(resource_id)
+            await _attempt_loop(resource_id, attempt_id)
     except Exception:  # noqa: BLE001 — last-resort guard for the detached task
         logger.warning(
             "[magnet] resolution task crashed for %s", resource_id, exc_info=True
         )
-    finally:
-        _inflight.discard(resource_id)
 
 
-async def _set_status(resource_id: str, **values) -> bool:
+async def _set_status(resource_id: str, attempt_id: str, **values) -> bool:
     """Write status fields in their own short transaction.
 
     Returns False when the row disappeared (resource deleted mid-flight).
     """
+    uuid.UUID(attempt_id)
     from sqlalchemy import update
 
     from app.database import committed_session
@@ -482,22 +485,28 @@ async def _set_status(resource_id: str, **values) -> bool:
     async with committed_session() as db:
         result = await db.execute(
             update(FileResource)
-            .where(FileResource.id == resource_id)
+            .where(
+                FileResource.id == resource_id,
+                FileResource.magnet_resolve_attempt_id == attempt_id,
+            )
             .values(magnet_resolve_updated_at=utcnow(), **values)
         )
         return result.rowcount > 0
 
 
-async def _attempt_loop(resource_id: str) -> None:
+async def _attempt_loop(resource_id: str, attempt_id: str) -> None:
     """Run resolve attempts for a claimed resource until done/failed."""
+    from sqlalchemy import update
+
     from app.database import committed_session
     from app.models.channel import Channel
     from app.models.file_resource import FileResource
     from app.services.torrent_inspect import maybe_inspect_torrent
 
+    uuid.UUID(attempt_id)
     max_attempts = 1 + settings.magnet_resolve_max_attempts
     while True:
-        if not await _set_status(resource_id, magnet_resolve_status="running"):
+        if not await _set_status(resource_id, attempt_id=attempt_id, magnet_resolve_status="running"):
             return
         async with committed_session() as db:
             resource = await db.get(FileResource, resource_id)
@@ -510,7 +519,8 @@ async def _attempt_loop(resource_id: str) -> None:
             )
         if not magnet_uri.startswith("magnet:"):
             return
-        dest = str(Path(settings.torrent_cache_dir) / f"{resource_id}.torrent")
+        filename = f"{resource_id}-{attempt_id}.torrent"
+        dest = str(Path(settings.torrent_cache_dir) / filename)
         try:
             await resolve_magnet_to_cache(
                 magnet_uri, dest, settings.magnet_resolve_timeout_seconds,
@@ -519,14 +529,23 @@ async def _attempt_loop(resource_id: str) -> None:
         except MagnetResolveError as e:
             async with committed_session() as db:
                 resource = await db.get(FileResource, resource_id)
-                if resource is None:
+                if resource is None or resource.magnet_resolve_attempt_id != attempt_id:
                     return
                 attempts = (resource.magnet_resolve_attempts or 0) + 1
                 exhausted = attempts >= max_attempts
-                resource.magnet_resolve_attempts = attempts
-                resource.magnet_resolve_error = str(e)
-                resource.magnet_resolve_status = "failed" if exhausted else "pending"
-                resource.magnet_resolve_updated_at = utcnow()
+                from sqlalchemy import update
+
+                updated = await db.execute(update(FileResource).where(
+                    FileResource.id == resource_id,
+                    FileResource.magnet_resolve_attempt_id == attempt_id,
+                ).values(
+                    magnet_resolve_attempts=attempts,
+                    magnet_resolve_error=str(e),
+                    magnet_resolve_status="failed" if exhausted else "pending",
+                    magnet_resolve_updated_at=utcnow(),
+                ))
+                if not updated.rowcount:
+                    return
             logger.info(
                 "[magnet] attempt %d/%d failed for %s: %s",
                 attempts, max_attempts, resource_id, e,
@@ -541,6 +560,7 @@ async def _attempt_loop(resource_id: str) -> None:
             )
             await _set_status(
                 resource_id,
+                attempt_id=attempt_id,
                 magnet_resolve_status="failed",
                 magnet_resolve_error=f"unexpected error: {e}",
             )
@@ -550,21 +570,49 @@ async def _attempt_loop(resource_id: str) -> None:
         # inspection call site as the fetch pipeline (fresh session, committed
         # on exit). Custom trackers are cleared on done; on failure they are
         # kept so the UI can show what was tried and prefill the next retry.
-        await _set_status(
+        accepted = await _set_status(
             resource_id,
+            attempt_id=attempt_id,
             torrent_file=dest,
             magnet_resolve_status="done",
             magnet_resolve_error=None,
             magnet_resolve_trackers=None,
         )
+        if not accepted:
+            try:
+                await asyncio.to_thread(Path(dest).unlink, missing_ok=True)
+            except OSError:
+                logger.warning("[magnet] could not remove rejected attempt cache %s", dest, exc_info=True)
+            return
         logger.info("[magnet] resolved metadata for %s -> %s", resource_id, dest)
         try:
             async with committed_session() as db:
                 resource = await db.get(FileResource, resource_id)
-                if resource is None:
+                if resource is None or resource.magnet_resolve_attempt_id != attempt_id:
                     return
+                # Inspection reads this relationship synchronously before its
+                # refresh path; async lazy loading would be swallowed as an
+                # inspection failure and leave the file list unassigned.
+                await db.refresh(resource, ["file_assignments"])
                 channel = await db.get(Channel, resource.channel_id)
                 await maybe_inspect_torrent(db, resource, channel)
+                # Inspection can await network/metadata work. Acquire the row's
+                # write lock with an ownership predicate before flushing its
+                # changes; retain that lock through committed_session's commit.
+                with db.no_autoflush:
+                    owned = await db.execute(
+                        update(FileResource)
+                        .where(
+                            FileResource.id == resource_id,
+                            FileResource.magnet_resolve_attempt_id == attempt_id,
+                            FileResource.magnet_resolve_status == "done",
+                        )
+                        .values(magnet_resolve_attempt_id=attempt_id)
+                        .execution_options(synchronize_session=False)
+                    )
+                if not owned.rowcount:
+                    await db.rollback()
+                    return
         except Exception:  # noqa: BLE001 — inspection failure must not flip done
             logger.warning(
                 "[magnet] post-resolve inspection failed for %s",

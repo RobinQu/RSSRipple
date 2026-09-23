@@ -139,7 +139,6 @@ class _StubQueue:
 def _reset_magnet_state():
     mr._session = None
     mr._semaphore = None
-    mr._inflight.clear()
     mr._background_tasks.clear()
     mr._unavailable_logged = False
     yield

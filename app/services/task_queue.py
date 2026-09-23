@@ -21,12 +21,66 @@ import socket
 import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
+from contextvars import Context, ContextVar, copy_context
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
 from app.utils.time import utcnow
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _ExecutionOwnership:
+    queue: "RedisQueue"
+    key: str
+    job_id: str
+    token: str
+
+
+_execution_ownership: ContextVar[_ExecutionOwnership | None] = ContextVar("queue_execution_ownership", default=None)
+
+
+def independent_execution_context() -> Context:
+    """Detach queue ownership only after another durable owner has been claimed."""
+    context = copy_context()
+    context.run(_execution_ownership.set, None)
+    return context
+
+
+def current_job_identity() -> tuple[str, str] | None:
+    owner = _execution_ownership.get()
+    return (owner.key, owner.job_id) if owner is not None else None
+
+
+class ExecutionOwnershipLostError(RuntimeError):
+    """The current queued execution no longer owns its job."""
+
+
+async def require_execution_ownership() -> None:
+    """Reject stale Redis handlers before starting a business operation.
+
+    Direct API calls and MemoryQueue have no Redis execution context. This
+    check does not fence an external operation after it has already started.
+    Redis failure propagates: unknown ownership is not permission to proceed.
+    """
+    owner = _execution_ownership.get()
+    if owner is None:
+        return
+    queue = owner.queue
+    async with queue._redis.pipeline(transaction=True) as pipe:
+        pipe.hgetall(f"{_JOB_PFX}{owner.key}")
+        pipe.get(f"{_ACTIVE_PFX}{owner.key}")
+        pipe.exists(queue._consumer_key)
+        state, active, leased = await pipe.execute()
+    if (state.get("job_id") != owner.job_id or
+            state.get("status") != JobStatus.RUNNING or
+            state.get("execution_token") != owner.token or
+            state.get("consumer_id") != queue._consumer_id or
+            active != owner.job_id or not leased):
+        raise ExecutionOwnershipLostError(f"Queue execution lost ownership: {owner.key}")
+
 
 MAX_CONCURRENT = 4
 JOB_TTL_SECONDS = 86_400  # 24 h — how long Redis keeps job state after completion
@@ -101,6 +155,10 @@ class BaseQueue(ABC):
         If no handler is registered, the job is enqueued but will fail at
         execution time.
         """
+
+    async def job_is_retired(self, key: str, job_id: str) -> bool:
+        """Only durable backends can prove a historical execution is retired."""
+        return False
 
     @abstractmethod
     async def status(self, key: str) -> dict | None:
@@ -217,7 +275,7 @@ class MemoryQueue(BaseQueue):
     async def enqueue(self, job_type: str, key: str, payload: dict) -> dict | None:
         if key in self._active_keys:
             return None
-        job = _MemJob(job_id=uuid.uuid4().hex[:8], job_type=job_type, key=key, payload=payload)
+        job = _MemJob(job_id=uuid.uuid4().hex, job_type=job_type, key=key, payload=payload)
         self._active_keys.add(key)
         self._jobs_by_key[key] = job
         self._queue.put_nowait(job)
@@ -371,14 +429,11 @@ class RedisQueue(BaseQueue):
         return bool(await self._redis.set(f"{_TICK_PFX}{key}", "1", nx=True, ex=ttl))
 
     async def enqueue(self, job_type: str, key: str, payload: dict) -> dict | None:
-        active_key = f"{_ACTIVE_PFX}{key}"
-        job_id = uuid.uuid4().hex[:8]
-        now = utcnow().isoformat()
+        from redis.exceptions import WatchError
 
-        # Atomic SETNX — only one active job per key across all instances
-        acquired = await self._redis.set(active_key, job_id, nx=True, ex=self._ttl)
-        if not acquired:
-            return None
+        active_key = f"{_ACTIVE_PFX}{key}"
+        job_id = uuid.uuid4().hex
+        now = utcnow().isoformat()
 
         job_hash = {
             "job_id": job_id,
@@ -390,20 +445,47 @@ class RedisQueue(BaseQueue):
             "queued_at": now,
             "started_at": "",
             "finished_at": "",
+            "execution_token": "",
+            "consumer_id": "",
         }
         redis_key = f"{_JOB_PFX}{key}"
         msg = json.dumps({"job_id": job_id, "job_type": job_type, "key": key, "payload": payload})
         job_hash["message"] = msg
-        async with self._redis.pipeline(transaction=True) as pipe:
-            pipe.hset(redis_key, mapping=job_hash)
-            pipe.expire(redis_key, self._ttl)
-            if job_type in _PRIORITY_JOB_TYPES:
-                pipe.lpush(_QUEUE_LIST, msg)
-            else:
-                pipe.rpush(_QUEUE_LIST, msg)
-            await pipe.execute()
+        while True:
+            async with self._redis.pipeline(transaction=True) as pipe:
+                try:
+                    await pipe.watch(active_key)
+                    if await pipe.exists(active_key):
+                        return None
+                    pipe.multi()
+                    pipe.set(active_key, job_id, ex=self._ttl)
+                    pipe.hset(redis_key, mapping=job_hash)
+                    pipe.expire(redis_key, self._ttl)
+                    if job_type in _PRIORITY_JOB_TYPES:
+                        pipe.lpush(_QUEUE_LIST, msg)
+                    else:
+                        pipe.rpush(_QUEUE_LIST, msg)
+                    await pipe.execute()
+                    break
+                except WatchError:
+                    continue
         logger.info("Enqueued %s/%s (job=%s) → Redis", job_type, key[:16], job_id)
         return self._deserialize(job_hash)
+
+    async def job_is_retired(self, key: str, job_id: str) -> bool:
+        async with self._redis.pipeline(transaction=True) as pipe:
+            pipe.hgetall(f"{_JOB_PFX}{key}")
+            pipe.get(f"{_ACTIVE_PFX}{key}")
+            state, active = await pipe.execute()
+        if active == job_id:
+            return False
+        if not state:
+            return True
+        if not state.get("job_id") or state.get("status") not in {
+            JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.DONE, JobStatus.FAILED,
+        }:
+            return False
+        return state["job_id"] != job_id or state["status"] in {JobStatus.DONE, JobStatus.FAILED}
 
     async def status(self, key: str) -> dict | None:
         raw = await self._redis.hgetall(f"{_JOB_PFX}{key}")
@@ -439,10 +521,32 @@ class RedisQueue(BaseQueue):
         await self._redis.delete(redis_key, active_key)
 
     async def update_progress(self, key: str, result: dict) -> None:
+        from redis.exceptions import WatchError
+
+        owner = _execution_ownership.get()
+        if owner is None or owner.queue is not self or owner.key != key:
+            return
         redis_key = f"{_JOB_PFX}{key}"
-        if await self._redis.exists(redis_key):
-            await self._redis.hset(redis_key, "result", json.dumps(result))
-            await self._redis.expire(redis_key, self._ttl)
+        active = f"{_ACTIVE_PFX}{key}"
+        while True:
+            async with self._redis.pipeline(transaction=True) as pipe:
+                try:
+                    await pipe.watch(redis_key, active, self._consumer_key)
+                    state = await pipe.hgetall(redis_key)
+                    if (state.get("job_id") != owner.job_id or
+                            state.get("status") != JobStatus.RUNNING or
+                            state.get("execution_token") != owner.token or
+                            state.get("consumer_id") != self._consumer_id or
+                            await pipe.get(active) != owner.job_id or
+                            not await pipe.exists(self._consumer_key)):
+                        return
+                    pipe.multi()
+                    pipe.hset(redis_key, "result", json.dumps(result))
+                    pipe.expire(redis_key, self._ttl)
+                    await pipe.execute()
+                    return
+                except WatchError:
+                    continue
 
     async def _worker_loop(self) -> None:
         while True:
@@ -493,6 +597,41 @@ class RedisQueue(BaseQueue):
             except Exception as exc:
                 logger.warning("RedisQueue heartbeat failed: %s", exc)
 
+    async def _recover_descriptor(self, processing_key, consumer_id, raw, msg) -> bool:
+        """Fence recovery against renewal, completion and another claimant."""
+        from redis.exceptions import WatchError
+
+        key = f"{_JOB_PFX}{msg['key']}"
+        active = f"{_ACTIVE_PFX}{msg['key']}"
+        lease = f"{_CONSUMER_PFX}{consumer_id}"
+        while True:
+            async with self._redis.pipeline(transaction=True) as pipe:
+                try:
+                    await pipe.watch(key, active, lease, processing_key)
+                    state = await pipe.hgetall(key)
+                    if (await pipe.exists(lease) or
+                            state.get("job_id") != msg["job_id"] or
+                            state.get("status") not in (JobStatus.QUEUED, JobStatus.RUNNING) or
+                            state.get("consumer_id") not in (None, "", consumer_id) or
+                            await pipe.get(active) != msg["job_id"] or
+                            raw not in await pipe.lrange(processing_key, 0, -1)):
+                        return False
+                    pipe.multi()
+                    pipe.hset(key, mapping={
+                        "status": JobStatus.QUEUED, "started_at": "",
+                        "finished_at": "", "error": "",
+                        "execution_token": "", "consumer_id": "",
+                    })
+                    if msg.get("job_type") in _PRIORITY_JOB_TYPES:
+                        pipe.lpush(_QUEUE_LIST, raw)
+                    else:
+                        pipe.rpush(_QUEUE_LIST, raw)
+                    pipe.lrem(processing_key, 1, raw)
+                    await pipe.execute()
+                    return True
+                except WatchError:
+                    continue
+
     async def _recover_orphaned_jobs(self, *, reconcile_legacy: bool = False) -> None:
         """Return jobs owned by dead consumers to the durable backlog.
 
@@ -500,7 +639,8 @@ class RedisQueue(BaseQueue):
         once. A processing list is touched only after its consumer lease has
         expired, so work executing in another healthy process is never stolen.
         """
-        acquired = await self._redis.set(_RECOVERY_LOCK, self._consumer_id, nx=True, ex=30)
+        recovery_token = uuid.uuid4().hex
+        acquired = await self._redis.set(_RECOVERY_LOCK, recovery_token, nx=True, ex=30)
         if not acquired:
             return
         try:
@@ -526,24 +666,12 @@ class RedisQueue(BaseQueue):
                         continue
                     if (state.get("job_id") == msg.get("job_id") and
                             state.get("status") in (JobStatus.QUEUED, JobStatus.RUNNING)):
-                        async with self._redis.pipeline(transaction=True) as pipe:
-                            pipe.hset(f"{_JOB_PFX}{msg['key']}", mapping={
-                                "status": JobStatus.QUEUED,
-                                "started_at": "",
-                                "finished_at": "",
-                                "error": "",
-                            })
-                            if msg.get("job_type") in _PRIORITY_JOB_TYPES:
-                                pipe.lpush(_QUEUE_LIST, raw)
-                            else:
-                                pipe.rpush(_QUEUE_LIST, raw)
-                            pipe.lrem(processing_key, 1, raw)
-                            await pipe.execute()
-                        recovered += 1
+                        if await self._recover_descriptor(processing_key, consumer_id, raw, msg):
+                            recovered += 1
                     else:
                         await self._redis.lrem(processing_key, 1, raw)
-                if not await self._redis.llen(processing_key):
-                    await self._redis.delete(processing_key)
+                # Redis removes empty lists automatically. A separate DELETE
+                # could erase a descriptor claimed by a resumed consumer.
                 if recovered:
                     logger.warning("Recovered %d jobs from dead consumer %s", recovered, consumer_id)
 
@@ -558,101 +686,158 @@ class RedisQueue(BaseQueue):
                 if (state.get("status") == JobStatus.RUNNING and
                         not state.get("message") and
                         state.get("job_id") not in processing_job_ids):
-                    key = state.get("key", "")
-                    async with self._redis.pipeline(transaction=True) as pipe:
-                        pipe.hset(job_key, mapping={
-                            "status": JobStatus.FAILED,
-                            "error": "worker interrupted before durable recovery was available",
-                            "finished_at": utcnow().isoformat(),
-                        })
-                        if key:
-                            pipe.delete(f"{_ACTIVE_PFX}{key}")
-                        await pipe.execute()
+                    await self._fail_legacy_execution(job_key, state.get("job_id"))
         finally:
             # Do not turn task cancellation into another Redis round trip;
             # the lock has a short TTL and cancellation must remain prompt.
             current = asyncio.current_task()
             if not current or not current.cancelling():
-                if await self._redis.get(_RECOVERY_LOCK) == self._consumer_id:
-                    await self._redis.delete(_RECOVERY_LOCK)
+                await self._release_recovery_lock(recovery_token)
 
-    async def _run(self, msg: dict, raw: str) -> None:
-        job_type: str = msg["job_type"]
-        key: str = msg["key"]
-        payload: dict = msg["payload"]
-        redis_key = f"{_JOB_PFX}{key}"
-        active_key = f"{_ACTIVE_PFX}{key}"
+    async def _fail_legacy_execution(self, job_key: str, expected_id: str | None) -> None:
+        from redis.exceptions import WatchError
 
-        try:
-            handler = self._handlers.get(job_type)
-            if handler is None:
-                logger.warning("No handler for job_type=%s — failing job", job_type)
-                async with self._redis.pipeline(transaction=True) as pipe:
-                    pipe.hset(redis_key, mapping={
+        active = f"{_ACTIVE_PFX}{job_key.removeprefix(_JOB_PFX)}"
+        while True:
+            async with self._redis.pipeline(transaction=True) as pipe:
+                try:
+                    await pipe.watch(job_key, active)
+                    state = await pipe.hgetall(job_key)
+                    if (not expected_id or state.get("job_id") != expected_id or
+                            state.get("status") != JobStatus.RUNNING or
+                            state.get("message") or state.get("execution_token")):
+                        return
+                    owns_active = await pipe.get(active) == expected_id
+                    pipe.multi()
+                    pipe.hset(job_key, mapping={
                         "status": JobStatus.FAILED,
-                        "error": f"No handler registered for job_type={job_type!r}",
+                        "error": "worker interrupted before durable recovery was available",
                         "finished_at": utcnow().isoformat(),
                     })
-                    pipe.delete(active_key)
-                    pipe.lrem(self._processing_key, 1, raw)
-                    pipe.expire(redis_key, self._ttl)
+                    if owns_active:
+                        pipe.delete(active)
                     await pipe.execute()
+                    return
+                except WatchError:
+                    continue
+
+    async def _release_recovery_lock(self, token: str) -> None:
+        from redis.exceptions import WatchError
+
+        while True:
+            async with self._redis.pipeline(transaction=True) as pipe:
+                try:
+                    await pipe.watch(_RECOVERY_LOCK)
+                    if await pipe.get(_RECOVERY_LOCK) != token:
+                        return
+                    pipe.multi()
+                    pipe.delete(_RECOVERY_LOCK)
+                    await pipe.execute()
+                    return
+                except WatchError:
+                    continue
+
+    async def _claim_execution(self, msg: dict) -> str | None:
+        from redis.exceptions import WatchError
+
+        key = f"{_JOB_PFX}{msg['key']}"
+        active = f"{_ACTIVE_PFX}{msg['key']}"
+        token = uuid.uuid4().hex
+        while True:
+            async with self._redis.pipeline(transaction=True) as pipe:
+                try:
+                    await pipe.watch(key, active, self._consumer_key)
+                    state = await pipe.hgetall(key)
+                    if (state.get("job_id") != msg["job_id"] or
+                            state.get("status") != JobStatus.QUEUED or
+                            await pipe.get(active) != msg["job_id"] or
+                            not await pipe.exists(self._consumer_key)):
+                        return None
+                    pipe.multi()
+                    pipe.hset(key, mapping={
+                        "status": JobStatus.RUNNING,
+                        "started_at": utcnow().isoformat(),
+                        "execution_token": token,
+                        "consumer_id": self._consumer_id,
+                    })
+                    await pipe.execute()
+                    return token
+                except WatchError:
+                    continue
+
+    async def _finish_execution(self, msg, raw, token, status, extra, *, requeue):
+        from redis.exceptions import WatchError
+
+        key = f"{_JOB_PFX}{msg['key']}"
+        active = f"{_ACTIVE_PFX}{msg['key']}"
+        while True:
+            async with self._redis.pipeline(transaction=True) as pipe:
+                try:
+                    await pipe.watch(key, active, self._consumer_key)
+                    state = await pipe.hgetall(key)
+                    if (state.get("job_id") != msg["job_id"] or
+                            state.get("status") != JobStatus.RUNNING or
+                            state.get("execution_token") != token or
+                            state.get("consumer_id") != self._consumer_id or
+                            await pipe.get(active) != msg["job_id"] or
+                            not await pipe.exists(self._consumer_key)):
+                        # Retain the descriptor for lease recovery/garbage
+                        # collection; never erase the current owner's work.
+                        return False
+                    pipe.multi()
+                    if requeue:
+                        pipe.hset(key, mapping={
+                            "status": JobStatus.QUEUED, "started_at": "",
+                            "finished_at": "", "error": "",
+                            "execution_token": "", "consumer_id": "",
+                        })
+                        if msg["job_type"] in _PRIORITY_JOB_TYPES:
+                            pipe.lpush(_QUEUE_LIST, raw)
+                        else:
+                            pipe.rpush(_QUEUE_LIST, raw)
+                        pipe.expire(active, self._ttl)
+                    else:
+                        pipe.hset(key, mapping={
+                            "status": status, "finished_at": utcnow().isoformat(), **extra,
+                        })
+                        pipe.delete(active)
+                    pipe.lrem(self._processing_key, 1, raw)
+                    pipe.expire(key, self._ttl)
+                    await pipe.execute()
+                    return True
+                except WatchError:
+                    continue
+
+    async def _run(self, msg: dict, raw: str) -> None:
+        context_token = None
+        try:
+            token = await self._claim_execution(msg)
+            if token is None:
                 return
-
-            await self._redis.hset(redis_key, mapping={
-                "status": JobStatus.RUNNING,
-                "started_at": utcnow().isoformat(),
-            })
-            logger.info("Running %s/%s", job_type, key[:16])
-
-            # Build final state before the atomic pipeline so no await
-            # separates setting the terminal status from releasing the dedup key.
+            context_token = _execution_ownership.set(
+                _ExecutionOwnership(self, msg["key"], msg["job_id"], token)
+            )
+            handler = self._handlers.get(msg["job_type"])
             finish_status = JobStatus.FAILED
             finish_extra: dict = {}
             requeue = False
             try:
-                result = await handler(payload)
+                if handler is None:
+                    raise RuntimeError(f"No handler registered for job_type={msg['job_type']!r}")
+                result = await handler(msg["payload"])
                 finish_status = JobStatus.DONE
                 finish_extra = {"result": json.dumps(result) if result is not None else ""}
-                logger.info("Done %s/%s", job_type, key[:16])
             except asyncio.CancelledError:
-                # Graceful deploy/restart: put the durable descriptor back on
-                # the queue and retain the active-key lock. Abrupt termination
-                # is handled by consumer-lease recovery instead.
                 requeue = True
-                logger.info("Requeueing %s/%s during worker shutdown", job_type, key[:16])
             except Exception as exc:
                 finish_extra = {"error": str(exc)}
-                logger.error("Failed %s/%s: %s", job_type, key[:16], exc)
-
-            # Atomic pipeline: write terminal state + delete dedup key together.
-            # This prevents a window where status=DONE is visible but the active
-            # key still blocks a re-enqueue.
-            async with self._redis.pipeline(transaction=True) as pipe:
-                if requeue:
-                    pipe.hset(redis_key, mapping={
-                        "status": JobStatus.QUEUED,
-                        "started_at": "",
-                        "finished_at": "",
-                        "error": "",
-                    })
-                    if job_type in _PRIORITY_JOB_TYPES:
-                        pipe.lpush(_QUEUE_LIST, raw)
-                    else:
-                        pipe.rpush(_QUEUE_LIST, raw)
-                    pipe.lrem(self._processing_key, 1, raw)
-                    pipe.expire(active_key, self._ttl)
-                else:
-                    pipe.hset(redis_key, mapping={
-                        "status": finish_status,
-                        "finished_at": utcnow().isoformat(),
-                        **finish_extra,
-                    })
-                    pipe.delete(active_key)
-                    pipe.lrem(self._processing_key, 1, raw)
-                pipe.expire(redis_key, self._ttl)
-                await pipe.execute()
+                logger.error("Failed %s/%s: %s", msg["job_type"], msg["key"][:16], exc)
+            await self._finish_execution(
+                msg, raw, token, finish_status, finish_extra, requeue=requeue,
+            )
         finally:
+            if context_token is not None:
+                _execution_ownership.reset(context_token)
             self._sem.release()
 
     @staticmethod

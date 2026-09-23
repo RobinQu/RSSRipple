@@ -5,18 +5,18 @@ import json
 import os
 import uuid
 
-from app.models.resource_publication import ResourcePublication
-from app.services.agent_publication_progress import snapshot_publications
-from app.services.publication_migration import MARKER, bootstrap_publications
-from app.services.resource_publication import publish_resource
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from tests.unit.test_publication_migration import legacy
 
 import app.models  # noqa: F401
 from app.database import Base
 from app.models.app_setting import AppSetting
 from app.models.file_resource import FileResource
+from app.models.resource_publication import ResourcePublication
+from app.services.agent_publication_progress import snapshot_publications
+from app.services.publication_migration import MARKER, bootstrap_publications
+from app.services.resource_publication import publish_resource
+from tests.unit.test_publication_migration import legacy
 
 
 async def main():

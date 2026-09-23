@@ -8,7 +8,6 @@ from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from app.services.publication_migration import bootstrap_publications
 from sqlalchemy import select, text
 
 import app.database as database
@@ -20,6 +19,7 @@ from app.models.channel import Channel
 from app.models.download_task import DownloadTask
 from app.models.downloader import DownloaderInstance
 from app.models.movie import Movie
+from app.services.publication_migration import bootstrap_publications
 from app.utils.time import utcnow
 from tests.unit.test_agent_service import _make_resource
 

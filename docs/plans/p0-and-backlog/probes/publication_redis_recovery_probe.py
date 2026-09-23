@@ -24,8 +24,6 @@ async def child(mode):
     guard()
     from datetime import date, timedelta
 
-    from app.services.publication_dispatch import dispatch_pending_publications
-    from app.services.resource_publication import publish_resource
     from sqlalchemy import select
 
     import app.database as database
@@ -35,6 +33,8 @@ async def child(mode):
     from app.models.agent import Agent
     from app.models.download_task import DownloadTask
     from app.models.movie import Movie
+    from app.services.publication_dispatch import dispatch_pending_publications
+    from app.services.resource_publication import publish_resource
     from app.services.task_queue import RedisQueue
     from app.utils.time import utcnow
     from tests.unit.test_agent_service import _make_resource

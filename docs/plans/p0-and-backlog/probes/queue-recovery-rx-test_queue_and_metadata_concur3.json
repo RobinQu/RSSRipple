@@ -1,0 +1,42 @@
+{
+  "backend": "postgresql",
+  "cases": [
+    {
+      "case": "choice",
+      "autocommit": false,
+      "phase": "suggestion",
+      "passed": true
+    },
+    {
+      "case": "choice",
+      "autocommit": false,
+      "phase": "flushed_choice",
+      "passed": true
+    },
+    {
+      "case": "choice",
+      "autocommit": true,
+      "phase": "suggestion",
+      "passed": true
+    },
+    {
+      "case": "choice",
+      "autocommit": true,
+      "phase": "flushed_choice",
+      "passed": true
+    },
+    {
+      "case": "cursor",
+      "autocommit": null,
+      "phase": "result",
+      "passed": true
+    },
+    {
+      "case": "cursor",
+      "autocommit": null,
+      "phase": "exception",
+      "passed": true
+    }
+  ],
+  "data": "synthetic resources; real database transactions; deterministic ownership loss"
+}

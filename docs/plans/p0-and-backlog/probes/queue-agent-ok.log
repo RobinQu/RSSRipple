@@ -1,0 +1,141 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+________ test_queue_loss_stops_candidates_and_suggestion_writes[False] _________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7feef6609550>
+channel = <app.models.channel.Channel object at 0x7feef6609400>
+downloader = <app.models.downloader.DownloaderInstance object at 0x7feef660a7b0>
+series = <app.models.series.TVSeries object at 0x7feef660a900>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7feef675f490>
+autocommit = False
+
+    @pytest.mark.parametrize("autocommit", [False, True])
+    async def test_queue_loss_stops_candidates_and_suggestion_writes(
+        db_session, channel, downloader, series, monkeypatch, autocommit,
+    ):
+        from app.services.task_queue import ExecutionOwnershipLostError
+    
+        agent = Agent(id=_uuid(), name="ownership loss", channel_id=channel.id,
+                      downloader_id=downloader.id, status="active",
+                      scope_channel_wide=True, conflict_resolution="ask")
+        resources = [_make_resource(channel.id, series_id=series.id, episode=number) for number in (1, 2)]
+        db_session.add_all([agent, *resources])
+        await db_session.commit()
+        await db_session.refresh(agent)
+        dispatch = AsyncMock(side_effect=ExecutionOwnershipLostError("Expired during dispatch"))
+        suggestions = AsyncMock()
+        monkeypatch.setattr("app.services.agent_service.dispatch_download", dispatch)
+        monkeypatch.setattr("app.services.agent_service._persist_suggestions", suggestions)
+    
+>       with pytest.raises(ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_agent_service.py:2603: Failed
+------------------------------ Captured log call -------------------------------
+ERROR    app.services.agent_service:agent_service.py:1008 Failed to process candidates for ('series', 'e71ba4c8-75eb-4bcc-a83d-8325120fe440', 1): Expired during dispatch
+Traceback (most recent call last):
+  File "/tmp/rssripple-v14-dispatch-lx/app/services/agent_service.py", line 994, in process_resources
+    pending = await _process_candidate_group(agent, key, cands, db, **guard_options)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/app/services/agent_service.py", line 791, in _process_candidate_group
+    await dispatch_download(agent, cands[0], db, **dispatch_options)
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/unittest/mock.py", line 2321, in _execute_mock_call
+    raise effect
+app.services.task_queue.ExecutionOwnershipLostError: Expired during dispatch
+ERROR    app.services.agent_service:agent_service.py:1008 Failed to process candidates for ('series', 'e71ba4c8-75eb-4bcc-a83d-8325120fe440', 2): Expired during dispatch
+Traceback (most recent call last):
+  File "/tmp/rssripple-v14-dispatch-lx/app/services/agent_service.py", line 994, in process_resources
+    pending = await _process_candidate_group(agent, key, cands, db, **guard_options)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/app/services/agent_service.py", line 791, in _process_candidate_group
+    await dispatch_download(agent, cands[0], db, **dispatch_options)
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/unittest/mock.py", line 2321, in _execute_mock_call
+    raise effect
+  File "/tmp/rssripple-v14-dispatch-lx/app/services/agent_service.py", line 994, in process_resources
+    pending = await _process_candidate_group(agent, key, cands, db, **guard_options)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/app/services/agent_service.py", line 791, in _process_candidate_group
+    await dispatch_download(agent, cands[0], db, **dispatch_options)
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/unittest/mock.py", line 2321, in _execute_mock_call
+    raise effect
+app.services.task_queue.ExecutionOwnershipLostError: Expired during dispatch
+_________ test_queue_loss_stops_candidates_and_suggestion_writes[True] _________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7feef65cbed0>
+channel = <app.models.channel.Channel object at 0x7feef59ebed0>
+downloader = <app.models.downloader.DownloaderInstance object at 0x7feef5cccb90>
+series = <app.models.series.TVSeries object at 0x7feef5ccccd0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7feef678ab70>
+autocommit = True
+
+    @pytest.mark.parametrize("autocommit", [False, True])
+    async def test_queue_loss_stops_candidates_and_suggestion_writes(
+        db_session, channel, downloader, series, monkeypatch, autocommit,
+    ):
+        from app.services.task_queue import ExecutionOwnershipLostError
+    
+        agent = Agent(id=_uuid(), name="ownership loss", channel_id=channel.id,
+                      downloader_id=downloader.id, status="active",
+                      scope_channel_wide=True, conflict_resolution="ask")
+        resources = [_make_resource(channel.id, series_id=series.id, episode=number) for number in (1, 2)]
+        db_session.add_all([agent, *resources])
+        await db_session.commit()
+        await db_session.refresh(agent)
+        dispatch = AsyncMock(side_effect=ExecutionOwnershipLostError("Expired during dispatch"))
+        suggestions = AsyncMock()
+        monkeypatch.setattr("app.services.agent_service.dispatch_download", dispatch)
+        monkeypatch.setattr("app.services.agent_service._persist_suggestions", suggestions)
+    
+>       with pytest.raises(ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_agent_service.py:2603: Failed
+------------------------------ Captured log call -------------------------------
+ERROR    app.services.agent_service:agent_service.py:1008 Failed to process candidates for ('series', '5c13ee94-62a8-4eee-b3ba-62a0c03862cb', 1): Expired during dispatch
+Traceback (most recent call last):
+  File "/tmp/rssripple-v14-dispatch-lx/app/services/agent_service.py", line 989, in process_resources
+    pending = await write_candidate()
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/app/services/agent_service.py", line 982, in write_candidate
+    return await _process_candidate_group(agent, key, cands, unit_db, **guard_options)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/app/services/agent_service.py", line 791, in _process_candidate_group
+    await dispatch_download(agent, cands[0], db, **dispatch_options)
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/unittest/mock.py", line 2321, in _execute_mock_call
+    raise effect
+app.services.task_queue.ExecutionOwnershipLostError: Expired during dispatch
+ERROR    app.services.agent_service:agent_service.py:1008 Failed to process candidates for ('series', '5c13ee94-62a8-4eee-b3ba-62a0c03862cb', 2): Expired during dispatch
+Traceback (most recent call last):
+  File "/tmp/rssripple-v14-dispatch-lx/app/services/agent_service.py", line 989, in process_resources
+    pending = await write_candidate()
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/app/services/agent_service.py", line 982, in write_candidate
+    return await _process_candidate_group(agent, key, cands, unit_db, **guard_options)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/app/services/agent_service.py", line 791, in _process_candidate_group
+    await dispatch_download(agent, cands[0], db, **dispatch_options)
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/unittest/mock.py", line 2321, in _execute_mock_call
+    raise effect
+  File "/tmp/rssripple-v14-dispatch-lx/app/services/agent_service.py", line 989, in process_resources
+    pending = await write_candidate()
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/app/services/agent_service.py", line 982, in write_candidate
+    return await _process_candidate_group(agent, key, cands, unit_db, **guard_options)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/app/services/agent_service.py", line 791, in _process_candidate_group
+    await dispatch_download(agent, cands[0], db, **dispatch_options)
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/unittest/mock.py", line 2321, in _execute_mock_call
+    raise effect
+app.services.task_queue.ExecutionOwnershipLostError: Expired during dispatch
+=============================== warnings summary ===============================
+tests/unit/test_agent_service.py::test_queue_loss_stops_candidates_and_suggestion_writes[False]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_agent_service.py::test_queue_loss_stops_candidates_and_suggestion_writes[False]
+FAILED tests/unit/test_agent_service.py::test_queue_loss_stops_candidates_and_suggestion_writes[True]
+2 failed, 110 deselected, 1 warning in 1.29s

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.660" timestamp="2026-09-23T07:43:47.745847+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_magnet_resolve" name="test_expired_queue_cannot_claim_magnet" time="0.537"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fca09b8d2b0&gt;
+sample_channel = &lt;app.models.channel.Channel object at 0x7fca09b8d160&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7fca09c82c40&gt;
+
+    async def test_expired_queue_cannot_claim_magnet(db_session, sample_channel, monkeypatch):
+        from app.services import task_queue
+    
+        monkeypatch.setattr(mr, "lt", _fake_lt())
+        run = AsyncMock()
+        monkeypatch.setattr(mr, "_attempt_loop", run)
+        monkeypatch.setattr(task_queue, "require_execution_ownership", AsyncMock(
+            side_effect=task_queue.ExecutionOwnershipLostError("Expired before magnet claim"),
+        ))
+        resource = await _make_magnet_resource(db_session, sample_channel.id)
+        try:
+&gt;           with pytest.raises(task_queue.ExecutionOwnershipLostError):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_magnet_resolve.py:203: Failed</failure></testcase></testsuite></testsuites>

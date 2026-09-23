@@ -1,0 +1,33 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________________ test_expired_queue_cannot_claim_magnet ____________________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fca09b8d2b0>
+sample_channel = <app.models.channel.Channel object at 0x7fca09b8d160>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fca09c82c40>
+
+    async def test_expired_queue_cannot_claim_magnet(db_session, sample_channel, monkeypatch):
+        from app.services import task_queue
+    
+        monkeypatch.setattr(mr, "lt", _fake_lt())
+        run = AsyncMock()
+        monkeypatch.setattr(mr, "_attempt_loop", run)
+        monkeypatch.setattr(task_queue, "require_execution_ownership", AsyncMock(
+            side_effect=task_queue.ExecutionOwnershipLostError("Expired before magnet claim"),
+        ))
+        resource = await _make_magnet_resource(db_session, sample_channel.id)
+        try:
+>           with pytest.raises(task_queue.ExecutionOwnershipLostError):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_magnet_resolve.py:203: Failed
+=============================== warnings summary ===============================
+tests/unit/test_magnet_resolve.py::test_expired_queue_cannot_claim_magnet
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_magnet_resolve.py::test_expired_queue_cannot_claim_magnet
+1 failed, 55 deselected, 1 warning in 0.66s

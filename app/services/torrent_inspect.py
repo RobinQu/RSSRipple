@@ -16,8 +16,11 @@ an existing batch verdict is never downgraded.
 """
 
 import asyncio
+import hashlib
 import logging
+import os
 import re
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -144,7 +147,7 @@ async def fetch_torrent_file(url: str, resource_id: str) -> str | None:
     """Download a .torrent file into ``settings.torrent_cache_dir``.
 
     Only plain http(s) URLs are fetched. The file is stored as
-    ``<resource_id>.torrent`` and the local path is returned (relative to the
+    ``<resource_id>-<sha256(content)>.torrent`` and the local path is returned (relative to the
     data root with the default config, mirroring how the poster cache hands
     back its cache-dir path). Transient failures (timeout / connection
     error / non-200 status) are retried once with a short backoff; permanent
@@ -158,7 +161,7 @@ async def fetch_torrent_file(url: str, resource_id: str) -> str | None:
 
     cache_dir = Path(settings.torrent_cache_dir)
     try:
-        cache_dir.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(cache_dir.mkdir, parents=True, exist_ok=True)
     except Exception as e:
         logger.warning("[torrent] cache dir not writable %s: %s", cache_dir, e)
         return None
@@ -201,13 +204,24 @@ async def fetch_torrent_file(url: str, resource_id: str) -> str | None:
             break
         if attempt < _MAX_ATTEMPTS - 1:
             await asyncio.sleep(_RETRY_BACKOFF_SECONDS)
-    if not content or parse_torrent_payload(content) is None:
+    if not content or await asyncio.to_thread(parse_torrent_payload, content) is None:
         logger.debug("[torrent] rejecting non-bencode or unusable payload %s", url[:80])
         return None
 
-    dest = cache_dir / f"{resource_id}.torrent"
+    dest = cache_dir / f"{resource_id}-{hashlib.sha256(content).hexdigest()}.torrent"
+
+    def publish():
+        temporary = dest.with_name(f".{uuid.uuid4().hex}.torrent.tmp")
+        try:
+            temporary.write_bytes(content)
+            os.replace(temporary, dest)
+        finally:
+            temporary.unlink(missing_ok=True)
+
     try:
-        dest.write_bytes(content)
+        # A cancelled caller cannot stop its thread. Different bytes use
+        # different final paths, and readers never observe a partial write.
+        await asyncio.to_thread(publish)
         return str(dest)
     except Exception as e:
         logger.warning("[torrent] write failed %s: %s", dest, e)
@@ -225,13 +239,13 @@ async def ensure_torrent_cached(resource: "FileResource") -> str | None:
     caller's session owns the transaction.
     """
     path = resource.torrent_file
-    if path and Path(path).exists():
-        if parse_torrent_files(path) is not None:
+    if path and await asyncio.to_thread(Path(path).exists):
+        if await asyncio.to_thread(parse_torrent_files, path) is not None:
             return path
         # A previous implementation persisted HTTP error pages as .torrent
         # files. Remove those poison entries before attempting a fresh fetch.
         try:
-            Path(path).unlink()
+            await asyncio.to_thread(Path(path).unlink)
         except OSError:
             pass
         resource.torrent_file = None
@@ -593,17 +607,18 @@ async def maybe_inspect_torrent(
                 return False
     url = resource.torrent_url or ""
     cached_path = resource.torrent_file
-    if cached_path and Path(cached_path).exists() and parse_torrent_files(cached_path) is None:
+    if (cached_path and await asyncio.to_thread(Path(cached_path).exists)
+            and await asyncio.to_thread(parse_torrent_files, cached_path) is None):
         # Be defensive for callers that invoke inspection without the normal
         # ensure_torrent_cached pre-pass: a stale HTML/error page must never
         # block a later valid fetch forever.
         try:
-            Path(cached_path).unlink()
+            await asyncio.to_thread(Path(cached_path).unlink)
         except OSError:
             pass
         resource.torrent_file = None
         cached_path = None
-    if not (cached_path and Path(cached_path).exists()) and not url.startswith(("http://", "https://")):
+    if not (cached_path and await asyncio.to_thread(Path(cached_path).exists)) and not url.startswith(("http://", "https://")):
         return False
 
     try:
@@ -611,16 +626,16 @@ async def maybe_inspect_torrent(
         # first in the fetch pipeline); only download when there is no
         # usable cache on disk.
         path = resource.torrent_file
-        if not (path and Path(path).exists()):
+        if not (path and await asyncio.to_thread(Path(path).exists)):
             path = await fetch_torrent_file(url, resource.id)
             if not path:
                 return False
             resource.torrent_file = path
 
-        files = parse_torrent_files(path)
+        files = await asyncio.to_thread(parse_torrent_files, path)
         if files is None:
             return False
-        report = analyze_torrent_files(files)
+        report = await asyncio.to_thread(analyze_torrent_files, files)
 
         if report.scope == "season":
             resource.is_batch = True

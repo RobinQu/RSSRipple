@@ -1,0 +1,323 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______________ test_magnet_attempt_upgrade_preserves_legacy_rows _______________
+
+self = <turso.lib.Connection object at 0x7fe623f3f770>, sql = 'BEGIN CONCURRENT'
+
+    def _exec_ddl_only(self, sql: str) -> None:
+        """
+        Execute a SQL statement that does not produce rows and ignore any result rows.
+        """
+        try:
+            stmt = self._conn.prepare_single(sql)
+>           _run_execute_with_io(stmt, self.extra_io)
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:307: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+stmt = <builtins.PyTursoStatement object at 0x7fe6240ae3f0>, extra_io = None
+
+    def _run_execute_with_io(stmt: PyTursoStatement, extra_io: Optional[Callable[[], None]]) -> PyTursoExecutionResult:
+        """
+        Run PyTursoStatement.execute() handling potential async IO loops.
+        """
+        while True:
+>           result = stmt.execute()
+                     ^^^^^^^^^^^^^^
+E           turso.Error: Transaction error: Concurrent transaction mode is only supported when MVCC is enabled
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:185: Error
+
+During handling of the above exception, another exception occurred:
+
+self = <sqlalchemy.engine.base.Connection object at 0x7fe623f3e900>
+dialect = <app.db_turso_dialect.CompatAioTursoDialect object at 0x7fe623fc4910>
+context = <sqlalchemy.dialects.sqlite.aiosqlite.SQLiteExecutionContext_aiosqlite object at 0x7fe623e49790>
+statement = <sqlalchemy.dialects.sqlite.base.SQLiteCompiler object at 0x7fe623f55550>
+parameters = [('02852996-38cd-458d-a1c9-757d2cebbb82', 'Synthetic', 'rss_feed', 'https://example.invalid', 1800, 'active', ...)]
+
+    def _exec_single_context(
+        self,
+        dialect: Dialect,
+        context: ExecutionContext,
+        statement: Union[str, Compiled],
+        parameters: Optional[_AnyMultiExecuteParams],
+    ) -> CursorResult[Any]:
+        """continue the _execute_context() method for a single DBAPI
+        cursor.execute() or cursor.executemany() call.
+    
+        """
+        if dialect.bind_typing is BindTyping.SETINPUTSIZES:
+            generic_setinputsizes = context._prepare_set_input_sizes()
+    
+            if generic_setinputsizes:
+                try:
+                    dialect.do_set_input_sizes(
+                        context.cursor, generic_setinputsizes, context
+                    )
+                except BaseException as e:
+                    self._handle_dbapi_exception(
+                        e, str(statement), parameters, None, context
+                    )
+    
+        cursor, str_statement, parameters = (
+            context.cursor,
+            context.statement,
+            context.parameters,
+        )
+    
+        effective_parameters: Optional[_AnyExecuteParams]
+    
+        if not context.executemany:
+            effective_parameters = parameters[0]
+        else:
+            effective_parameters = parameters
+    
+        if self._has_events or self.engine._has_events:
+            for fn in self.dispatch.before_cursor_execute:
+                str_statement, effective_parameters = fn(
+                    self,
+                    cursor,
+                    str_statement,
+                    effective_parameters,
+                    context,
+                    context.executemany,
+                )
+    
+        if self._echo:
+            self._log_info(str_statement)
+    
+            stats = context._get_cache_stats()
+    
+            if not self.engine.hide_parameters:
+                self._log_info(
+                    "[%s] %r",
+                    stats,
+                    sql_util._repr_params(
+                        effective_parameters,
+                        batches=10,
+                        ismulti=context.executemany,
+                    ),
+                )
+            else:
+                self._log_info(
+                    "[%s] [SQL parameters hidden due to hide_parameters=True]",
+                    stats,
+                )
+    
+        evt_handled: bool = False
+        try:
+            if context.execute_style is ExecuteStyle.EXECUTEMANY:
+                effective_parameters = cast(
+                    "_CoreMultiExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_executemany:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_executemany(
+                        cursor,
+                        str_statement,
+                        effective_parameters,
+                        context,
+                    )
+            elif not effective_parameters and context.no_parameters:
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute_no_params:
+                        if fn(cursor, str_statement, context):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_execute_no_params(
+                        cursor, str_statement, context
+                    )
+            else:
+                effective_parameters = cast(
+                    "_CoreSingleExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+>                   self.dialect.do_execute(
+                        cursor, str_statement, effective_parameters, context
+                    )
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1969: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:230: in execute
+    self._adapt_connection._handle_exception(error)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:368: in _handle_exception
+    raise error.with_traceback(exc_info[2])
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:228: in execute
+    return self.await_(self._execute_async(operation, parameters))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:251: in _execute_async
+    result = await self._cursor.execute(operation, parameters)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:252: in execute
+    description, lastrowid, rowcount = await self._connection._run(_exec)
+                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:95: in _run
+    return await fut
+           ^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/worker.py:38: in run
+    result = func()
+             ^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:249: in _exec
+    cur.execute(sql, parameters)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:678: in execute
+    self._maybe_implicit_begin(sql)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:665: in _maybe_implicit_begin
+    self._connection._maybe_implicit_begin(sql)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:469: in _maybe_implicit_begin
+    self._exec_ddl_only(f"BEGIN {level}")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <turso.lib.Connection object at 0x7fe623f3f770>, sql = 'BEGIN CONCURRENT'
+
+    def _exec_ddl_only(self, sql: str) -> None:
+        """
+        Execute a SQL statement that does not produce rows and ignore any result rows.
+        """
+        try:
+            stmt = self._conn.prepare_single(sql)
+            _run_execute_with_io(stmt, self.extra_io)
+            # finalize to ensure completion; finalize never mixes with execute
+            stmt.finalize()
+        except Exception as exc:  # noqa: BLE001
+>           raise _map_turso_exception(exc)
+E           turso.lib.DatabaseError: Transaction error: Concurrent transaction mode is only supported when MVCC is enabled
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:311: DatabaseError
+
+The above exception was the direct cause of the following exception:
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1457/test_magnet_attempt_upgrade_pr0')
+
+    async def test_magnet_attempt_upgrade_preserves_legacy_rows(tmp_path):
+        legacy = MetaData()
+        for table in Base.metadata.sorted_tables:
+            table.to_metadata(legacy)
+        resources = legacy.tables["file_resources"]
+        resources._columns.remove(resources.c.magnet_resolve_attempt_id)
+        engine = create_async_engine(normalize_database_url(f"sqlite+aioturso:///{tmp_path / 'legacy.db'}"))
+        channel_id = str(uuid.uuid4())
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(legacy.create_all)
+                assert "magnet_resolve_attempt_id" not in await conn.run_sync(lambda db: {
+                    col["name"] for col in inspect(db).get_columns("file_resources")
+                })
+>               await conn.execute(legacy.tables["channels"].insert().values(
+                    id=channel_id, name="Synthetic", type="rss_feed", url="https://example.invalid", field_mapping={},
+                ))
+
+tests/unit/test_magnet_attempt_migration.py:25: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/ext/asyncio/engine.py:659: in execute
+    result = await greenlet_spawn(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1421: in execute
+    return meth(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/sql/elements.py:526: in _execute_on_connection
+    return connection._execute_clauseelement(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1643: in _execute_clauseelement
+    ret = self._execute_context(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1848: in _execute_context
+    return self._exec_single_context(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1988: in _exec_single_context
+    self._handle_dbapi_exception(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:2365: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1969: in _exec_single_context
+    self.dialect.do_execute(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:230: in execute
+    self._adapt_connection._handle_exception(error)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:368: in _handle_exception
+    raise error.with_traceback(exc_info[2])
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:228: in execute
+    return self.await_(self._execute_async(operation, parameters))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:251: in _execute_async
+    result = await self._cursor.execute(operation, parameters)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:252: in execute
+    description, lastrowid, rowcount = await self._connection._run(_exec)
+                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:95: in _run
+    return await fut
+           ^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/worker.py:38: in run
+    result = func()
+             ^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:249: in _exec
+    cur.execute(sql, parameters)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:678: in execute
+    self._maybe_implicit_begin(sql)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:665: in _maybe_implicit_begin
+    self._connection._maybe_implicit_begin(sql)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:469: in _maybe_implicit_begin
+    self._exec_ddl_only(f"BEGIN {level}")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <turso.lib.Connection object at 0x7fe623f3f770>, sql = 'BEGIN CONCURRENT'
+
+    def _exec_ddl_only(self, sql: str) -> None:
+        """
+        Execute a SQL statement that does not produce rows and ignore any result rows.
+        """
+        try:
+            stmt = self._conn.prepare_single(sql)
+            _run_execute_with_io(stmt, self.extra_io)
+            # finalize to ensure completion; finalize never mixes with execute
+            stmt.finalize()
+        except Exception as exc:  # noqa: BLE001
+>           raise _map_turso_exception(exc)
+E           sqlalchemy.exc.DatabaseError: (turso.lib.DatabaseError) Transaction error: Concurrent transaction mode is only supported when MVCC is enabled
+E           [SQL: INSERT INTO channels (id, name, type, url, fetch_interval, status, field_mapping, metadata_agent_enabled, required_metadata_fields, default_is_anime, auto_cleanup_unresolved_enabled, auto_cleanup_unresolved_days, metadata_refresh_enabled, metadata_refresh_full_scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]
+E           [parameters: ('02852996-38cd-458d-a1c9-757d2cebbb82', 'Synthetic', 'rss_feed', 'https://example.invalid', 1800, 'active', '{}', 1, '["search_title", "content_type", "is_batch", "year", "is_anime", "episode", "episode_start", "episode_end", "resource_collection"]', 0, 0, 21, 0, 0)]
+E           (Background on this error at: https://sqlalche.me/e/20/4xp6)
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:311: DatabaseError
+=============================== warnings summary ===============================
+tests/unit/test_magnet_attempt_migration.py::test_magnet_attempt_upgrade_preserves_legacy_rows
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_magnet_attempt_migration.py::test_magnet_attempt_upgrade_preserves_legacy_rows
+1 failed, 1 warning in 0.58s

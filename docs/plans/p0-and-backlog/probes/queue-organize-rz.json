@@ -1,0 +1,18 @@
+{
+  "backend": "postgresql",
+  "cases": [
+    {
+      "phase": "before_lock",
+      "passed": true
+    },
+    {
+      "phase": "after_validation",
+      "passed": true
+    },
+    {
+      "phase": "started_cleanup",
+      "passed": true
+    }
+  ],
+  "data": "synthetic media bytes; real filesystem locks and SQL; injected queue ownership loss"
+}

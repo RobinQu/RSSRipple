@@ -1,5 +1,7 @@
 # 下载完成通知（Download Notifications）
 
+B4 候选：资源定向通知重新生成在入口、逐任务、应用快照前、投递 attempt 作废后提交前和整理计划调用前检查队列所有权。提交前失权通过调用方事务回滚快照与投递身份更新，不继续生成整理计划。普通非队列调用沿用无执行上下文的行为；Redis 检查与 SQL commit 不构成跨系统原子事务。
+
 RSSRipple 的语义到"订阅 + 下载 + 通知"为止。文件整理（重命名/移动/Plex 刷新）由通知快照的消费方完成，两形态并存：**内置 organize 子系统**（P1 起内置于 RSSRipple，见 [file-organization.md](file-organization.md)）与**外部 webhook 消费者**（如 vault-organizer，独立部署在存储所在主机）——两者消费同一份快照，互不感知。本文档是通知机制的权威设计：模型、快照契约、多 webhook 注册、fan-out 投递与退避、聚合状态机、重试与保留策略、下游清理 API。
 
 ## 分工边界
@@ -164,6 +166,8 @@ pending --(2xx / mock)--> done
 - mock webhook：不发 HTTP，直接记 `done`（`delivered_at` 落时间），仅用于在界面查看通知内容。
 - **webhook URL 可达性（Docker 部署）**：消费者在宿主机或其他容器时，机器主机名（常解析为 127.0.1.1 回环）在容器内不可达；`docker-compose.yml` 已注入 `extra_hosts: host.docker.internal:host-gateway`，指向宿主机的 webhook 应注册为 `http://host.docker.internal:<port>/...`。
 - 每条 delivery 独立 commit（行变更经 `commit_lock` 串行化，AsyncSession 不可重入），写锁绝不跨 HTTP 调用持有；单个 webhook 失败不回滚其他 delivery。
+- Redis handler 在每条 HTTP 发起前、结果变更和 commit 前校验执行所有权；失权或 Redis 校验失败不计为普通 HTTP 失败，不推进 attempt_count。无 Redis 上下文的既有调用沿用原路径。已发出的 HTTP 无法撤销，远端重复投递仍可能发生；接收方需按通知身份幂等处理，不能宣称 exactly-once。
+- 批次内失权或数据库异常先等待同批所有在途协程结束，再传播异常，避免共享 AsyncSession 已交还调用方时其他 delivery 仍继续访问它。
 
 ## API（前缀 /api/v1）
 
@@ -209,3 +213,11 @@ Agent 详情页"通知记录" Tab：webhook 多注册列表（添加/编辑/删�
 生成快照按 download_task_id 使用独立事务；一项失败不回滚其他任务，也不中断已有通知的整理规划和 webhook 投递。失败事务不保留空快照，不把 completed 下载任务改成 error。生成失败由 NotificationBuildFailure 持久记录；首次等待 30 秒，此后指数退避，上限 1800 秒，无自动终止次数。到期后仍满足 completed 和消费者启用条件的任务重新入选。
 
 生成成功与删除该任务的失败记录在同一事务提交。并发失败记录按任务唯一键原子累加 attempt_count；如果成功通知先提交、迟到失败记录随后提交，下一 tick 清除已有通知对应的失败记录。任务取消或删除后不再生成；删除任务级联删除失败记录。失败记录自身无法保存时记录日志并继续后续任务，不承诺该项可持久退避。该退避独立于 WebhookDelivery 的投递次数及状态机。
+
+### 队列接管下的投递尝试（B4 候选）
+
+WebhookDelivery.attempt_token 为可空 UUID 字符串。发送前以读取到的 token 和 pending 状态条件领取并提交新 token；结果仅在该 token 仍匹配且仍 pending 时更新。没有跨 HTTP 的数据库锁。进程中断保留 pending，下次读取可以领取新 token；允许重复 HTTP，远端仍需幂等。人工重试更换 token；两种快照重新生成都在更新快照的同一事务中按 notification_id 更新全部 delivery 的 token，不依赖可能已缓存的 deliveries 关系。结果被淘汰计 skipped，不增加重试次数。该机制不消除 Redis 检查与 HTTP 发出之间的窗口。
+
+领取与结果条件写入使用独立短会话；先结束批次读取事务，复用 retry_on_lock 仅重试数据库锁/MVCC 冲突。HTTP 调用不在重试闭包中。成功后同步调用者已加载对象的已提交值，不将它们标记为需 flush 的修改。
+
+B4 候选快照构建在停种前后、文件列表返回后和构建事务确认前检查队列所有权。失权异常不得作为普通下载器故障进入 best-effort 快照降级或 NotificationBuildFailure 退避；无队列上下文的人工入口保持原行为。检查不能撤销已发 RPC，也不构成跨 Redis/数据库的原子提交。

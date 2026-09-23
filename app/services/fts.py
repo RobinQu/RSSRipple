@@ -556,7 +556,9 @@ async def drain_fts_outbox(db: AsyncSession, limit: int = 500) -> int:
     from app.models.fts_outbox import FtsOutbox
     from app.models.movie import Movie
     from app.models.series import TVSeries
+    from app.services.task_queue import ExecutionOwnershipLostError, require_execution_ownership
 
+    await require_execution_ownership()
     rows = (await db.execute(
         select(FtsOutbox).order_by(FtsOutbox.created_at).limit(limit)
     )).scalars().all()
@@ -592,13 +594,17 @@ async def drain_fts_outbox(db: AsyncSession, limit: int = 500) -> int:
         statements.append(delete_stmt)
         statements.append((upsert_sql[table], vals))
 
+    await require_execution_ownership()
     await db.execute(delete(FtsOutbox).where(FtsOutbox.id.in_([r.id for r in rows])))
     try:
         await _shadow_write(statements)
+    except ExecutionOwnershipLostError:
+        raise
     except Exception as e:
         logger.warning(
             "[fts] drain write failed for %d rows (reconcile will heal): %s", len(rows), e
         )
+    await require_execution_ownership()
     return len(rows)
 
 
@@ -650,7 +656,9 @@ async def reconcile_fts(db: AsyncSession) -> dict[str, int]:
     from app.models.audio_work import AudioWork
     from app.models.movie import Movie
     from app.models.series import TVSeries
+    from app.services.task_queue import ExecutionOwnershipLostError, require_execution_ownership
 
+    await require_execution_ownership()
     report = {"updated": 0, "deleted": 0}
     engine = _get_fts_engine()
     for table, model in (
@@ -658,6 +666,7 @@ async def reconcile_fts(db: AsyncSession) -> dict[str, int]:
         ("movie_fts", Movie),
         ("audio_work_fts", AudioWork),
     ):
+        await require_execution_ownership()
         entities = (await db.execute(select(model))).scalars().all()
         expected = {e.id: _fts_values(e) for e in entities}
         async with engine.connect() as conn:
@@ -691,8 +700,12 @@ async def reconcile_fts(db: AsyncSession) -> dict[str, int]:
                 statements.append((f"DELETE FROM {table} WHERE entity_id = :id", {"id": eid}))
                 report["deleted"] += 1
         if statements:
+            await require_execution_ownership()
             try:
                 await _shadow_write(statements)
+            except ExecutionOwnershipLostError:
+                raise
             except Exception as e:
                 logger.warning("[fts] reconcile failed for %s: %s", table, e)
+        await require_execution_ownership()
     return report

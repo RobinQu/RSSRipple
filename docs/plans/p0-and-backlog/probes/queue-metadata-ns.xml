@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.730" timestamp="2026-09-23T05:21:27.736257+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_queue_metadata_ownership" name="test_refresh_losing_ownership_during_search_does_not_commit" time="0.648"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fe98da8b380&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7fe98da92ea0&gt;
+
+    async def test_refresh_losing_ownership_during_search_does_not_commit(db_session, monkeypatch):
+        from sqlalchemy import select
+    
+        from app.models.work_external_id import WorkExternalId
+        from app.services import metadata_search
+        from tests.unit.test_metadata_search import _external_candidate
+    
+        work = Movie(title_cn="Original")
+        db_session.add(work)
+        await db_session.commit()
+        work_id = work.id
+        expired = False
+        candidate = _external_candidate("Replacement")
+        candidate.content_type = "movie"
+    
+        async def search(*args, **kwargs):
+            nonlocal expired
+            expired = True
+            return [candidate]
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired during metadata search")
+    
+        monkeypatch.setattr(metadata_search, "search_metadata_candidates", search)
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+&gt;       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_queue_metadata_ownership.py:56: Failed</failure></testcase></testsuite></testsuites>

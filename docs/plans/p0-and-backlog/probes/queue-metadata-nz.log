@@ -1,0 +1,54 @@
+..F                                                                      [100%]
+=================================== FAILURES ===================================
+_______ test_concurrent_background_refreshes_finish_after_write_conflict _______
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f9477dba550>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f948eba8410>
+
+    async def test_concurrent_background_refreshes_finish_after_write_conflict(db_session, monkeypatch):
+        import asyncio
+    
+        from app.services import metadata_search
+        from tests.unit.test_metadata_search import _external_candidate
+    
+        work = Movie(title_cn="Original")
+        db_session.add(work)
+        await db_session.commit()
+        candidate = _external_candidate("Automatic", poster_url="https://example.invalid/poster.jpg")
+        candidate.content_type = "movie"
+        barrier = asyncio.Barrier(2)
+        calls = 0
+    
+        async def poster(_url):
+            nonlocal calls
+            calls += 1
+            if calls <= 2:
+                await asyncio.wait_for(barrier.wait(), 3)
+            return "/posters/fixture.jpg"
+    
+        monkeypatch.setattr(metadata_search, "search_metadata_candidates", AsyncMock(return_value=[candidate]))
+        monkeypatch.setattr(metadata_search, "download_and_cache_poster", poster)
+        item = {"id": work.id, "content_type": "movie"}
+        results = await asyncio.gather(*(
+            job_handlers._refresh_works_batch([item], "tmdb", strategy="sync_non_manual") for _ in range(2)
+        ))
+>       assert all(result[0]["found"] for result in results), results
+E       AssertionError: [[{'id': '6ebd0026-a29c-44af-ac20-946b6c7c1dfb', 'content_type': 'movie', 'found': False, 'error': "(turso.lib.Databas...026-a29c-44af-ac20-946b6c7c1dfb', 'content_type': 'movie', 'found': True, 'applied': ['title_cn', 'poster_url'], ...}]]
+E       assert False
+E        +  where False = all(<generator object test_concurrent_background_refreshes_finish_after_write_conflict.<locals>.<genexpr> at 0x7f9477adacf0>)
+
+tests/unit/test_queue_metadata_ownership.py:186: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.job_handlers:job_handlers.py:350 [refresh_works] failed for movie/6ebd0026-a29c-44af-ac20-946b6c7c1dfb: (turso.lib.DatabaseError) Write-write conflict
+[SQL: UPDATE movies SET updated_at=movies.updated_at WHERE movies.id = ?]
+[parameters: ('6ebd0026-a29c-44af-ac20-946b6c7c1dfb',)]
+(Background on this error at: https://sqlalche.me/e/20/4xp6)
+=============================== warnings summary ===============================
+tests/unit/test_queue_metadata_ownership.py::test_background_refresh_respects_concurrent_manual_edit[False]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_queue_metadata_ownership.py::test_concurrent_background_refreshes_finish_after_write_conflict
+1 failed, 2 passed, 5 deselected, 1 warning in 1.61s

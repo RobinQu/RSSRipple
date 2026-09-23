@@ -13,6 +13,7 @@ from app.models.audio_work import AudioWork
 from app.models.channel import Channel
 from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
 from app.models.decision_migration import DecisionMigration
+from app.models.download_dispatch import DownloadDispatch
 from app.models.download_notification import DownloadNotification
 from app.models.download_task import DownloadTask
 from app.models.downloader import DownloaderInstance
@@ -62,6 +63,7 @@ __all__ = [
     "ChannelRawTitleMapping",
     "DownloaderInstance",
     "DownloadTask",
+    "DownloadDispatch",
     "DownloadNotification",
     "NotificationBuildFailure",
     "PendingDecision",
@@ -93,3 +95,4 @@ __all__ = [
 # classes above are already defined.
 import app.services.organize_config_events as _organize_config_events  # noqa: E402, F401
 import app.services.work_search_events as _work_search_events  # noqa: E402, F401
+

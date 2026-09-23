@@ -15,6 +15,7 @@ refinement layer and franchise linker are monkeypatched.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
@@ -156,14 +157,10 @@ def _stub_httpx_counting(monkeypatch, behaviors):
             _, status, chunks = action
             return _Resp(status, chunks)
 
-    async def _fake_to_thread(fn, *a, **kw):
-        return fn()
-
     async def _no_sleep(*a, **kw):
         return None
 
     monkeypatch.setattr(ti.httpx, "Client", _Client)
-    monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
     monkeypatch.setattr(asyncio, "sleep", _no_sleep)
     return calls
 
@@ -195,7 +192,8 @@ async def test_fetch_success_persists_payload(tmp_path, monkeypatch):
     payload = _single_torrent("Show.S01E01.mkv", 500 * MB)
     _stub_httpx_counting(monkeypatch, [("respond", 200, [payload])])
     out = await fetch_torrent_file("https://x/abc.torrent", "rid-ok")
-    assert out == str(tmp_path / "rid-ok.torrent")
+    assert out == str(tmp_path / f"rid-ok-{hashlib.sha256(payload).hexdigest()}.torrent")
+    assert Path(out).read_bytes() == payload
     assert parse_torrent_files(out) == [{"name": "Show.S01E01.mkv", "size": 500 * MB}]
 
 
@@ -226,11 +224,16 @@ async def test_fetch_write_failure_returns_none(tmp_path, monkeypatch):
     payload = _single_torrent("Show.S01E01.mkv", 500 * MB)
     _stub_httpx_counting(monkeypatch, [("respond", 200, [payload])])
 
+    writes = []
+
     def _boom(self, *a, **kw):
+        writes.append(self)
         raise OSError("disk full")
 
     monkeypatch.setattr(Path, "write_bytes", _boom)
     assert await fetch_torrent_file("https://x/a.torrent", "rid-w") is None
+    assert len(writes) == 1
+    assert list(tmp_path.iterdir()) == []
 
 
 # =============================================================================

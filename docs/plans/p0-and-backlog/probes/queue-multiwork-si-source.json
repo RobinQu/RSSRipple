@@ -1,0 +1,14 @@
+{
+  "script": "docs/plans/p0-and-backlog/probes/queue_multiwork_probe.py",
+  "sha256": "dc5588b1a1aab90cdb5f8ceccdb2ea80d07f176d3db3fd6ece110af16905a0f5",
+  "runtime_manifest": "queue-final-sb-source.json",
+  "passed_log": "queue-multiwork-si.log",
+  "cases": 4,
+  "data": "Captured torrent file listing; synthetic metadata and LLM responses; disposable PostgreSQL",
+  "not_yet_covered": [
+    "old execution acquires SQL write lock before replacement attempt",
+    "formal isolated-gate integration entry"
+  ],
+  "formatted_script_sha256": "25295f151c1af2eb30593f9c859b5b641ca04821b9653b4857621b7352a04b42",
+  "format_note": "Original sha256 identifies executed si script; subsequent changes only Ruff import sorting/formatting and noqa on moved import."
+}

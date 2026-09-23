@@ -1,0 +1,23 @@
+{
+  "status": "running; provisional inventory, not final acceptance",
+  "project": "rssripple-v14-final-sc",
+  "observed_skips": [
+    "tests/integration/http/test_api_coverage2.py::TestMagnetResolve::test_terminal_retry_flow SKIPPED [  1%]",
+    "tests/integration/http/test_channel_workflow.py::TestAnalyzeUrlStream::test_mapping_structure SKIPPED [  4%]",
+    "tests/integration/http/test_channel_workflow.py::TestAnalyzeUrlStream::test_mapping_has_torrent_url SKIPPED [  5%]",
+    "tests/integration/http/test_channel_workflow.py::TestAnalyzeUrlStream::test_mapping_has_title_field SKIPPED [  5%]",
+    "tests/integration/http/test_channel_workflow.py::TestAnalyzeUrlStream::test_all_rules_have_source_key SKIPPED [  5%]",
+    "tests/integration/http/test_channel_workflow.py::TestAnalyzeUrlStream::test_confidence_not_low SKIPPED [  5%]",
+    "tests/integration/http/test_channel_workflow.py::TestEditChannelWithMapping::test_fetch_succeeded SKIPPED [  5%]",
+    "tests/integration/http/test_channel_workflow.py::TestEditChannelWithMapping::test_fetch_created_resources SKIPPED [  5%]",
+    "tests/integration/http/test_channel_workflow.py::TestEditChannelWithMapping::test_resources_have_torrent_url SKIPPED [  5%]",
+    "tests/integration/http/test_channel_workflow.py::TestEditChannelWithMapping::test_resources_have_title_raw SKIPPED [  5%]",
+    "tests/integration/http/test_channel_workflow.py::TestEditChannelWithMapping::test_channel_stream_analyze_also_works SKIPPED [  5%]",
+    "tests/integration/http/test_channel_workflow.py::TestEditChannelWithMapping::test_no_duplicates_on_refetch SKIPPED [  5%]",
+    "tests/integration/http/test_metadata_api.py::TestMetadataLink::test_link_metadata_creates_series SKIPPED [  8%]",
+    "tests/integration/http/test_task_queue.py::TestRedisDistributedDedup::test_status_key_shared_after_enqueue SKIPPED [ 11%]",
+    "tests/integration/http/test_task_queue.py::TestRedisDistributedDedup::test_redis_job_state_persists_after_done SKIPPED [ 11%]"
+  ],
+  "required_followup": "Read final JUnit skip reasons; distinguish external-provider opt-ins from unproven behaviors. Magnet 300-second timeout is not a pass.",
+  "redis_http_note": "test_task_queue.TestRedisDistributedDedup requires distinct REDIS_APP_URL; isolated gate has no distinct Redis HTTP app. queue_recovery has dedicated Redis and REQUIRED=1, but is not equivalent HTTP coverage."
+}

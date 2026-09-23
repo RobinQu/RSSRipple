@@ -1,5 +1,7 @@
 # 数据库迁移方案
 
+为 `file_resources` 增加 nullable `magnet_resolve_attempt_id VARCHAR(36)`。轻量迁移按列存在性幂等执行，失败须阻止启动，禁止静默回退旧所有权语义；历史状态和缓存路径不改，旧行标识保持 NULL。升级前须停止全部旧版本 worker，迁移完成后再启动新版本。
+
 RSSRipple 支持三种数据库后端，两两之间都有可复现的迁移脚本。本文是**迁移的权威操作手册**：迁移矩阵、各脚本的用法与行为、Docker 部署下的迁移步骤、以及数据安全不变量。后端选型与全文检索语义见 [conventions.md](conventions.md) 的 `DATABASE_URL` 一节。
 
 | 后端 | URL scheme | 定位 |
@@ -302,3 +304,13 @@ PostgreSQL 在参与表写屏障内重新核对报告并应用，Turso 使用 BE
 web/worker 在运行配置和调度启动前检查迁移状态；真正空库初始化 fresh 标记，旧数据无标记拒绝启动。有标记仍检查资源初始事件与旧 Agent 的匹配频道进度，防止遗漏迁移或混用旧写入者。DB_MIGRATE_ON_STARTUP=false 不跳过此门禁。
 
 专项证据与发布验收状态见 V13-CONSUMPTION-PROGRESS.md；本节描述迁移协议，不表示已对生产数据库执行迁移。
+
+### 下载派发预留表
+
+新版本注册 DownloadDispatch，由常规模型建表创建 download_dispatches（唯一 operation_key 与 task_id）；不回填旧下载任务，也不对 downloader/torrent_id 加全局唯一。已存在任务继续保持原有身份。混合版本 worker 不支持执行所有权保证，部署需停启全部 worker。Turso 的 Boolean 默认必须使用 SQL 布尔表达式，不能用字符串 'false'；原型旧表不作为正式升级来源。两后端旧库启动、重复建表和唯一约束直接写入测试属于合入前必要门禁。
+
+派发表旧库建表已在 Turso 与 PostgreSQL 通过同一驱动验证两次生产 create_tables：旧 AppSetting 和新增预留保留，直接 SQL 的 operation_key/task_id 唯一约束、settled 非空及 false 默认生效。验证只覆盖相对本基线缺派发表的旧 schema，不代表任意更早或实验 schema 自动可升级。
+
+派发表包含可空 job_key/job_id 与 created_at 索引，正常派发填入身份供清理验证；缺身份记录不清理。尚未发布的旧实验表不属于支持升级来源。两后端升级、约束与完整门禁证据见 `docs/plans/p0-and-backlog/V14-QUEUE-OWNERSHIP.md`。
+
+升级新增 `webhook_deliveries.attempt_token VARCHAR(36) NULL`；老行无需回填。该安全字段的添加失败必须中止启动，不允许 best-effort 吞错。升级须停掉旧 worker，不能让不检查 token 的旧进程继续写投递结果。

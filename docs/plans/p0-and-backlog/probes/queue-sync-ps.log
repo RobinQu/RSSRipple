@@ -1,0 +1,78 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+________ test_sync_loss_during_rpc_preserves_task_and_downloader[False] ________
+
+_seed = namespace(ch=<app.models.channel.Channel object at 0x7f37090127b0>, dl=<app.models.downloader.DownloaderInstance objec...d_task.DownloadTask object at 0x7f3708140190>, t_done=<app.models.download_task.DownloadTask object at 0x7f3708140550>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f3708fcdf30>
+rpc_failed = False
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("rpc_failed", [False, True])
+    async def test_sync_loss_during_rpc_preserves_task_and_downloader(_seed, monkeypatch, rpc_failed):
+        from app.database import async_session_factory
+        from app.services import task_queue
+    
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired progress sync")
+    
+        async def list_torrents():
+            nonlocal expired
+            expired = True
+            if rpc_failed:
+                raise RuntimeError("Late downloader failure")
+            return []
+    
+        wrapper = SimpleNamespace(list_torrents=AsyncMock(side_effect=list_torrents))
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.clients.downloader.get_downloader_client", lambda _: wrapper)
+>       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_scheduler.py:113: Failed
+________ test_sync_loss_during_rpc_preserves_task_and_downloader[True] _________
+
+_seed = namespace(ch=<app.models.channel.Channel object at 0x7f3708d85f90>, dl=<app.models.downloader.DownloaderInstance objec...d_task.DownloadTask object at 0x7f3708e5f350>, t_done=<app.models.download_task.DownloadTask object at 0x7f3708e5f680>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f370813f950>
+rpc_failed = True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("rpc_failed", [False, True])
+    async def test_sync_loss_during_rpc_preserves_task_and_downloader(_seed, monkeypatch, rpc_failed):
+        from app.database import async_session_factory
+        from app.services import task_queue
+    
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired progress sync")
+    
+        async def list_torrents():
+            nonlocal expired
+            expired = True
+            if rpc_failed:
+                raise RuntimeError("Late downloader failure")
+            return []
+    
+        wrapper = SimpleNamespace(list_torrents=AsyncMock(side_effect=list_torrents))
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.clients.downloader.get_downloader_client", lambda _: wrapper)
+>       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_scheduler.py:113: Failed
+=============================== warnings summary ===============================
+tests/unit/test_scheduler.py::test_sync_loss_during_rpc_preserves_task_and_downloader[False]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_scheduler.py::test_sync_loss_during_rpc_preserves_task_and_downloader[False]
+FAILED tests/unit/test_scheduler.py::test_sync_loss_during_rpc_preserves_task_and_downloader[True]
+2 failed, 29 deselected, 1 warning in 1.00s

@@ -1,0 +1,50 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ TestFetchChannelResources.test_loss_after_created_publication_rolls_back_resource _
+
+self = <tests.unit.test_fetch_service.TestFetchChannelResources object at 0x7ff50930d810>
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7ff50986bcb0>
+channel = <app.models.channel.Channel object at 0x7ff5094c01a0>
+fake_queue = <MagicMock id='140690399696208'>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7ff509367490>
+
+    async def test_loss_after_created_publication_rolls_back_resource(self, db_session, channel, fake_queue, monkeypatch):
+        from sqlalchemy import select
+    
+        from app.database import async_session_factory
+        from app.models.resource_publication import ResourcePublication
+        from app.services import resource_publication, task_queue
+    
+        publish = resource_publication.publish_resource
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired after created publication")
+    
+        async def publish_then_expire(db, *args, **kwargs):
+            nonlocal expired
+            result = await publish(db, *args, **kwargs)
+            await db.flush()
+            expired = True
+            return result
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr(resource_publication, "publish_resource", publish_then_expire)
+        monkeypatch.setattr(fs, "_parse_feed_sync", lambda _: _mock_feed([_entry("ownership", "Synthetic 01")]))
+>       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_fetch_service.py:137: Failed
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.fetch_service:fetch_service.py:841 Skipping entry 'ownership': no torrent/magnet URL found
+=============================== warnings summary ===============================
+tests/unit/test_fetch_service.py::TestFetchChannelResources::test_loss_after_created_publication_rolls_back_resource
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_fetch_service.py::TestFetchChannelResources::test_loss_after_created_publication_rolls_back_resource
+1 failed, 58 deselected, 1 warning in 0.66s

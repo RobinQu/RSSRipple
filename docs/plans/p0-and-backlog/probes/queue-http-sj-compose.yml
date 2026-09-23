@@ -1,0 +1,197 @@
+services:
+  app:
+    environment:
+      LLM_API_KEY: ''
+      TMDB_API_KEY: ''
+      BANGUMI_API_KEY: ''
+      WIGOLO_API_TOKEN: ''
+      AUTH_ENABLED: 'true'
+      API_KEY: test-integration-key
+      APP_ROLE: all
+      MAGNET_RESOLVE_ENABLED: 'true'
+      PYTHONPATH: /app
+      DATABASE_URL: sqlite+aioturso:///data/rss_ripple_test_turso.db
+      QUEUE_BACKEND: memory
+      DEBUG: 'true'
+      LOG_LEVEL: DEBUG
+      POSTER_CACHE_DIR: /app/data/posters
+      SCHEDULER_ENABLED: 'false'
+    volumes:
+    - gate-data:/app/data
+    - /tmp/rssripple-v14-dispatch-lx/app:/app/app:ro
+    - /tmp/rssripple-v14-dispatch-lx/tests:/app/tests:ro
+    - /tmp/rssripple-v14-dispatch-lx/scripts:/app/scripts:ro
+    - /tmp/rssripple-v14-dispatch-lx/.coveragerc:/app/.coveragerc:ro
+    command:
+    - /app/.venv/bin/python
+    - -m
+    - coverage
+    - run
+    - --rcfile=/app/.coveragerc
+    - --data-file=/app/data/.coverage.integration
+    - -m
+    - uvicorn
+    - app.main:app
+    - --host
+    - 0.0.0.0
+    - --port
+    - '9001'
+    depends_on:
+      test-server:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - python3
+      - -c
+      - 'import urllib.request; urllib.request.urlopen(urllib.request.Request(''http://localhost:9001/api/v1/channels'',
+        headers={''X-API-Key'': ''test-integration-key''}), timeout=3)'
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    networks:
+    - integration-gate
+    image: rssripple-v0-tests:local
+  test-server:
+    environment:
+    - SERVER_URL=http://test-server:8080
+    healthcheck:
+      test:
+      - CMD
+      - python3
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://localhost:8080/health',
+        timeout=3)
+      interval: 3s
+      timeout: 3s
+      retries: 15
+      start_period: 5s
+    networks:
+    - integration-gate
+    image: rssripple-itest-test-server:latest
+    volumes:
+    - /tmp/rssripple-v14-dispatch-lx/tests/integration/server:/app/server:ro
+  queue-recovery-redis:
+    image: redis:7-alpine
+    healthcheck:
+      test:
+      - CMD
+      - redis-cli
+      - ping
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    networks:
+    - integration-gate
+    volumes: []
+  test-runner:
+    environment:
+      QUEUE_RECOVERY_REQUIRED: '1'
+      QUEUE_RECOVERY_POSTGRES_URL: postgresql://probe:probe@queue-recovery-postgres:5432/queue_recovery
+      QUEUE_RECOVERY_REDIS_URL: redis://queue-recovery-redis:6379/0
+      LLM_API_KEY: ''
+      TMDB_API_KEY: ''
+      BANGUMI_API_KEY: ''
+      WIGOLO_API_TOKEN: ''
+      AUTH_ENABLED: 'true'
+      API_KEY: test-integration-key
+      APP_ROLE: all
+      MAGNET_RESOLVE_ENABLED: 'true'
+      PYTHONPATH: /app
+      DATABASE_URL: sqlite+aioturso:///data/rss_ripple_test_turso.db
+      TEST_SERVER_URL: http://test-server:8080
+      RSSRIPPLE_URL: http://app:9001
+      CORPUS_TEST_DATABASE_URL: ''
+      CORPUS_REPORT_DIR: /app/data/metadata-corpus
+      REDIS_APP_URL: http://app-redis:9001
+    volumes:
+    - gate-data:/app/data
+    - /tmp/rssripple-v14-dispatch-lx/app:/app/app:ro
+    - /tmp/rssripple-v14-dispatch-lx/tests:/app/tests:ro
+    - /tmp/rssripple-v14-dispatch-lx/scripts:/app/scripts:ro
+    - /tmp/rssripple-v14-dispatch-lx/.coveragerc:/app/.coveragerc:ro
+    depends_on:
+      app:
+        condition: service_healthy
+      app-redis:
+        condition: service_healthy
+      test-server:
+        condition: service_healthy
+      queue-recovery-redis:
+        condition: service_healthy
+    command:
+    - /app/.venv/bin/python
+    - -m
+    - pytest
+    - tests/integration/http/test_task_queue.py
+    - -v
+    - --junitxml=/app/data/redis-http-sj.xml
+    networks:
+    - integration-gate
+    image: rssripple-v0-tests:local
+  app-redis:
+    environment:
+      LLM_API_KEY: ''
+      TMDB_API_KEY: ''
+      BANGUMI_API_KEY: ''
+      WIGOLO_API_TOKEN: ''
+      AUTH_ENABLED: 'true'
+      API_KEY: test-integration-key
+      APP_ROLE: all
+      MAGNET_RESOLVE_ENABLED: 'true'
+      PYTHONPATH: /app
+      DATABASE_URL: sqlite+aioturso:///data/rss_ripple_http_redis.db
+      QUEUE_BACKEND: redis
+      DEBUG: 'true'
+      LOG_LEVEL: DEBUG
+      POSTER_CACHE_DIR: /app/data/posters
+      SCHEDULER_ENABLED: 'false'
+      REDIS_URL: redis://queue-recovery-redis:6379/0
+    volumes:
+    - gate-data:/app/data
+    - /tmp/rssripple-v14-dispatch-lx/app:/app/app:ro
+    - /tmp/rssripple-v14-dispatch-lx/tests:/app/tests:ro
+    - /tmp/rssripple-v14-dispatch-lx/scripts:/app/scripts:ro
+    - /tmp/rssripple-v14-dispatch-lx/.coveragerc:/app/.coveragerc:ro
+    command:
+    - /app/.venv/bin/python
+    - -m
+    - coverage
+    - run
+    - --rcfile=/app/.coveragerc
+    - --data-file=/app/data/.coverage.http-redis
+    - -m
+    - uvicorn
+    - app.main:app
+    - --host
+    - 0.0.0.0
+    - --port
+    - '9001'
+    depends_on:
+      test-server:
+        condition: service_healthy
+      queue-recovery-redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - python3
+      - -c
+      - 'import urllib.request; urllib.request.urlopen(urllib.request.Request(''http://localhost:9001/api/v1/channels'',
+        headers={''X-API-Key'': ''test-integration-key''}), timeout=3)'
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    networks:
+    - integration-gate
+    image: rssripple-v0-tests:local
+volumes:
+  transmission-test-config: null
+  test-downloads: null
+  test-watch: null
+  gate-data: {}
+networks:
+  integration-gate:
+    internal: true

@@ -1,0 +1,26 @@
+{
+  "backend": "postgresql",
+  "cases": [
+    {
+      "case": "notification",
+      "phase": "snapshot",
+      "passed": true
+    },
+    {
+      "case": "notification",
+      "phase": "invalidated",
+      "passed": true
+    },
+    {
+      "case": "reconcile",
+      "phase": "entry",
+      "passed": true
+    },
+    {
+      "case": "reconcile",
+      "phase": "published",
+      "passed": true
+    }
+  ],
+  "data": "synthetic fixtures; real SQL transactions; deterministic ownership loss"
+}

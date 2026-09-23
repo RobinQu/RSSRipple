@@ -21,6 +21,7 @@ import pytest
 import app.services.magnet_resolve as mr
 from app.models.channel import Channel
 from app.models.file_resource import FileResource
+from tests.unit.test_magnet_resolve import _run_claimed_attempt
 
 _FAKE_TORRENT = {
     b"info": {
@@ -36,7 +37,6 @@ _FAKE_TORRENT = {
 def _reset_magnet_state():
     mr._session = None
     mr._semaphore = None
-    mr._inflight.clear()
     mr._background_tasks.clear()
     mr._unavailable_logged = False
     yield
@@ -503,11 +503,11 @@ class TestLaunchResolution:
         monkeypatch.setattr(mr.settings, "magnet_resolve_enabled", False)
         assert await mr.launch_resolution("rid") is False
 
-    async def test_inflight_dedup(self, db_session, monkeypatch):
+    async def test_running_row_not_reclaimed(self, db_session, monkeypatch):
         monkeypatch.setattr(mr, "lt", _fake_lt())
         monkeypatch.setattr(mr.settings, "magnet_resolve_enabled", True)
-        mr._inflight.add("rid")
-        assert await mr.launch_resolution("rid") is False
+        res = await _make_magnet_resource(db_session, magnet_resolve_status="running")
+        assert await mr.launch_resolution(res.id) is False
 
     async def test_pending_row_not_reclaimed(self, db_session, monkeypatch):
         monkeypatch.setattr(mr, "lt", _fake_lt())
@@ -531,19 +531,16 @@ class TestLaunchResolution:
         await db_session.refresh(res)
         assert res.magnet_resolve_status == "done"
         assert res.torrent_file is not None
-        assert res.id not in mr._inflight
 
-    async def test_run_resolution_crash_cleans_inflight(self, db_session, monkeypatch, caplog):
+    async def test_run_resolution_crash_logged(self, db_session, monkeypatch, caplog):
         import logging
 
-        async def _boom(resource_id):
+        async def _boom(resource_id, attempt_id):
             raise RuntimeError("worker exploded")
 
         monkeypatch.setattr(mr, "_attempt_loop", _boom)
-        mr._inflight.add("rid")
         with caplog.at_level(logging.WARNING, logger="app.services.magnet_resolve"):
-            await mr._run_resolution("rid")
-        assert "rid" not in mr._inflight
+            await mr._run_resolution("rid", str(uuid.uuid4()))
         assert "worker exploded" in caplog.text
 
 
@@ -562,7 +559,7 @@ class TestAttemptLoop:
             called = True
 
         monkeypatch.setattr(mr, "resolve_magnet_to_cache", _resolve)
-        await mr._attempt_loop(res.id)
+        await _run_claimed_attempt(res.id)
         await db_session.refresh(res)
         assert res.magnet_resolve_status == "running"
         assert called is False
@@ -576,7 +573,7 @@ class TestAttemptLoop:
 
         monkeypatch.setattr(mr, "resolve_magnet_to_cache", _fail)
         res = await _make_magnet_resource(db_session)
-        await mr._attempt_loop(res.id)
+        await _run_claimed_attempt(res.id)
         await db_session.refresh(res)
         assert res.magnet_resolve_status == "failed"
         assert res.magnet_resolve_attempts == 2
@@ -600,7 +597,7 @@ class TestAttemptLoop:
             lambda *a, **kw: asyncio.sleep(0),
         )
         res = await _make_magnet_resource(db_session)
-        await mr._attempt_loop(res.id)
+        await _run_claimed_attempt(res.id)
         await db_session.refresh(res)
         assert res.magnet_resolve_status == "done"
         assert res.magnet_resolve_attempts == 1
@@ -614,7 +611,7 @@ class TestAttemptLoop:
 
         monkeypatch.setattr(mr, "resolve_magnet_to_cache", _crash)
         res = await _make_magnet_resource(db_session)
-        await mr._attempt_loop(res.id)
+        await _run_claimed_attempt(res.id)
         await db_session.refresh(res)
         assert res.magnet_resolve_status == "failed"
         assert "unexpected error: segfault-ish" in res.magnet_resolve_error
@@ -635,7 +632,7 @@ class TestAttemptLoop:
             "app.services.torrent_inspect.maybe_inspect_torrent", _inspect_boom
         )
         res = await _make_magnet_resource(db_session)
-        await mr._attempt_loop(res.id)
+        await _run_claimed_attempt(res.id)
         await db_session.refresh(res)
         assert res.magnet_resolve_status == "done"
         assert res.torrent_file is not None
@@ -762,7 +759,7 @@ class TestRowDeletedMidFlight:
     async def test_status_write_on_deleted_row_returns(self, db_session, monkeypatch):
         # The row is gone before the first status write: _set_status reports
         # rowcount == 0 and the loop exits silently (line 501).
-        await mr._attempt_loop(str(uuid.uuid4()))
+        await mr._attempt_loop(str(uuid.uuid4()), str(uuid.uuid4()))
 
     async def test_deleted_during_failure_handling(self, db_session, monkeypatch, tmp_path):
         # Call order in _attempt_loop: _set_status(running) [1], resource load
@@ -778,7 +775,7 @@ class TestRowDeletedMidFlight:
             "app.database.committed_session",
             _deleting_committed_session(res.id, delete_on_call=3),
         )
-        await mr._attempt_loop(res.id)  # returns without writing failure state
+        await _run_claimed_attempt(res.id)  # returns without writing failure state
         db_session.expunge_all()  # drop identity-map copies; re-read the DB
         assert await db_session.get(FileResource, res.id) is None
 
@@ -798,6 +795,6 @@ class TestRowDeletedMidFlight:
             "app.database.committed_session",
             _deleting_committed_session(res.id, delete_on_call=4),
         )
-        await mr._attempt_loop(res.id)
+        await _run_claimed_attempt(res.id)
         db_session.expunge_all()  # drop identity-map copies; re-read the DB
         assert await db_session.get(FileResource, res.id) is None

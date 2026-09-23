@@ -1,0 +1,10 @@
+[poster] write failed df089aa79c098f3f.svg: injected interrupted disk write
+{
+  "first_result": null,
+  "second_result": "/posters/df089aa79c098f3f.svg",
+  "cached_sizes": [
+    4
+  ],
+  "expected_size": 62,
+  "partial_cache_accepted": true
+}

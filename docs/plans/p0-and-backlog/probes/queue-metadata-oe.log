@@ -1,0 +1,114 @@
+FF.                                                                      [100%]
+=================================== FAILURES ===================================
+________ test_refresh_rejects_candidate_for_changed_work_scope[season] _________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f8c78608c20>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f8c786b2ea0>
+change = 'season'
+
+    @pytest.mark.parametrize("change", ["season", "collection", "delete"])
+    async def test_refresh_rejects_candidate_for_changed_work_scope(db_session, monkeypatch, change):
+        from sqlalchemy import select
+    
+        from app.database import async_session_factory
+        from app.models.series import TVSeries
+        from app.models.work_collection import WorkCollection
+        from app.models.work_external_id import WorkExternalId
+        from app.services import metadata_search
+        from tests.unit.test_metadata_search import _external_candidate
+    
+        collection = WorkCollection(title_cn="Original collection")
+        db_session.add(collection)
+        await db_session.flush()
+        work = TVSeries(title_cn="Original", season_number=1, collection_id=collection.id)
+        db_session.add(work)
+        await db_session.commit()
+        work_id = work.id
+        candidate = _external_candidate("Old candidate", poster_url="https://example.invalid/poster.jpg")
+    
+        async def poster(_url):
+            async with async_session_factory() as editor:
+                current = await editor.get(TVSeries, work_id)
+                if change == "delete":
+                    await editor.delete(current)
+                elif change == "season":
+                    current.season_number = 2
+                else:
+                    other = WorkCollection(title_cn="New collection")
+                    editor.add(other)
+                    await editor.flush()
+                    current.collection_id = other.id
+                await editor.commit()
+            return "/posters/old.jpg"
+    
+        monkeypatch.setattr(metadata_search, "search_metadata_candidates", AsyncMock(return_value=[candidate]))
+        monkeypatch.setattr(metadata_search, "download_and_cache_poster", poster)
+        [result] = await job_handlers._refresh_works_batch(
+            [{"id": work_id, "content_type": "tv"}], "tmdb", strategy="sync_non_manual",
+        )
+>       assert result["found"] is False, result
+E       AssertionError: {'id': '782632be-4887-4398-89f3-7de4b56af3e8', 'content_type': 'tv', 'found': True, 'applied': ['title_cn', 'poster_url'], ...}
+E       assert True is False
+
+tests/unit/test_queue_metadata_ownership.py:289: AssertionError
+______ test_refresh_rejects_candidate_for_changed_work_scope[collection] _______
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f8c756128b0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f8c75769260>
+change = 'collection'
+
+    @pytest.mark.parametrize("change", ["season", "collection", "delete"])
+    async def test_refresh_rejects_candidate_for_changed_work_scope(db_session, monkeypatch, change):
+        from sqlalchemy import select
+    
+        from app.database import async_session_factory
+        from app.models.series import TVSeries
+        from app.models.work_collection import WorkCollection
+        from app.models.work_external_id import WorkExternalId
+        from app.services import metadata_search
+        from tests.unit.test_metadata_search import _external_candidate
+    
+        collection = WorkCollection(title_cn="Original collection")
+        db_session.add(collection)
+        await db_session.flush()
+        work = TVSeries(title_cn="Original", season_number=1, collection_id=collection.id)
+        db_session.add(work)
+        await db_session.commit()
+        work_id = work.id
+        candidate = _external_candidate("Old candidate", poster_url="https://example.invalid/poster.jpg")
+    
+        async def poster(_url):
+            async with async_session_factory() as editor:
+                current = await editor.get(TVSeries, work_id)
+                if change == "delete":
+                    await editor.delete(current)
+                elif change == "season":
+                    current.season_number = 2
+                else:
+                    other = WorkCollection(title_cn="New collection")
+                    editor.add(other)
+                    await editor.flush()
+                    current.collection_id = other.id
+                await editor.commit()
+            return "/posters/old.jpg"
+    
+        monkeypatch.setattr(metadata_search, "search_metadata_candidates", AsyncMock(return_value=[candidate]))
+        monkeypatch.setattr(metadata_search, "download_and_cache_poster", poster)
+        [result] = await job_handlers._refresh_works_batch(
+            [{"id": work_id, "content_type": "tv"}], "tmdb", strategy="sync_non_manual",
+        )
+>       assert result["found"] is False, result
+E       AssertionError: {'id': '62f97039-5a84-4881-bbbf-c585581758e6', 'content_type': 'tv', 'found': True, 'applied': ['title_cn', 'poster_url'], ...}
+E       assert True is False
+
+tests/unit/test_queue_metadata_ownership.py:289: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_queue_metadata_ownership.py::test_refresh_rejects_candidate_for_changed_work_scope[season]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_queue_metadata_ownership.py::test_refresh_rejects_candidate_for_changed_work_scope[season]
+FAILED tests/unit/test_queue_metadata_ownership.py::test_refresh_rejects_candidate_for_changed_work_scope[collection]
+2 failed, 1 passed, 12 deselected, 1 warning in 1.64s

@@ -284,6 +284,42 @@ async def test_reconcile_fts_noop_when_in_sync(db_session, sample_series):
     assert report == {"updated": 0, "deleted": 0}
 
 
+async def test_reconcile_loss_stops_after_first_shadow_table(db_session, sample_series, sample_movie, monkeypatch):
+    import pytest
+    from sqlalchemy import text
+
+    from app.services import fts, scheduler, task_queue
+
+    await db_session.commit()
+    await backfill_fts_if_empty(db_session)
+    engine = fts._get_fts_engine()
+    async with engine.begin() as conn:
+        await conn.execute(text("DELETE FROM tv_series_fts"))
+        await conn.execute(text("DELETE FROM movie_fts"))
+    expired = False
+    writes = []
+    write = fts._shadow_write
+
+    async def guard():
+        if expired:
+            raise task_queue.ExecutionOwnershipLostError("Expired after first table")
+
+    async def write_then_expire(statements):
+        nonlocal expired
+        await write(statements)
+        writes.append(statements)
+        expired = True
+
+    monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+    monkeypatch.setattr(fts, "_shadow_write", write_then_expire)
+    with pytest.raises(task_queue.ExecutionOwnershipLostError):
+        await scheduler._reconcile_fts()
+    assert len(writes) == 1
+    async with engine.connect() as conn:
+        assert await conn.scalar(text("SELECT count(*) FROM tv_series_fts")) == 1
+        assert await conn.scalar(text("SELECT count(*) FROM movie_fts")) == 0
+
+
 # ---------------------------------------------------------------------------
 # Sidecar engine bootstrap, URL derivation, availability detection
 # ---------------------------------------------------------------------------

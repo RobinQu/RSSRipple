@@ -1,0 +1,70 @@
+[
+  {
+    "test": "tests.integration.http.test_api_coverage2.TestMagnetResolve.test_terminal_retry_flow",
+    "reason": "no magnet resolution reached a terminal state in time"
+  },
+  {
+    "test": "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream.test_mapping_structure",
+    "reason": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+  },
+  {
+    "test": "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream.test_mapping_has_torrent_url",
+    "reason": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+  },
+  {
+    "test": "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream.test_mapping_has_title_field",
+    "reason": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+  },
+  {
+    "test": "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream.test_all_rules_have_source_key",
+    "reason": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+  },
+  {
+    "test": "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream.test_confidence_not_low",
+    "reason": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+  },
+  {
+    "test": "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping.test_fetch_succeeded",
+    "reason": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+  },
+  {
+    "test": "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping.test_fetch_created_resources",
+    "reason": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+  },
+  {
+    "test": "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping.test_resources_have_torrent_url",
+    "reason": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+  },
+  {
+    "test": "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping.test_resources_have_title_raw",
+    "reason": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+  },
+  {
+    "test": "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping.test_channel_stream_analyze_also_works",
+    "reason": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+  },
+  {
+    "test": "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping.test_no_duplicates_on_refetch",
+    "reason": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+  },
+  {
+    "test": "tests.integration.http.test_metadata_api.TestMetadataLink.test_link_metadata_creates_series",
+    "reason": "No metadata API keys configured \u2014 cannot perform search+link"
+  },
+  {
+    "test": "tests.integration.http.test_task_queue.TestRedisDistributedDedup.test_status_key_shared_after_enqueue",
+    "reason": "No distinct Redis-backed app instance configured"
+  },
+  {
+    "test": "tests.integration.http.test_task_queue.TestRedisDistributedDedup.test_redis_job_state_persists_after_done",
+    "reason": "No distinct Redis-backed app instance configured"
+  },
+  {
+    "test": "tests.integration.magnet.test_magnet_resolve_e2e.test_live_magnet_resolution",
+    "reason": "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)"
+  },
+  {
+    "test": "tests.integration.magnet.test_magnet_resolve_e2e.test_live_fetch_to_resolve_end_to_end",
+    "reason": "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)"
+  }
+]

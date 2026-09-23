@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="4" skipped="0" tests="4" time="2.006" timestamp="2026-09-23T07:23:47.095867+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_scheduler" name="test_maintenance_loss_rolls_back_pending_deletion[False-cleanup]" time="0.565"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">_seed = namespace(ch=&lt;app.models.channel.Channel object at 0x7fecbe0c27b0&gt;, dl=&lt;app.models.downloader.DownloaderInstance objec...d_task.DownloadTask object at 0x7fecbc334410&gt;, t_done=&lt;app.models.download_task.DownloadTask object at 0x7fecbc3347d0&gt;)
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7fecbe142060&gt;
+operation = 'cleanup', raises_loss = False
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("operation", ["cleanup", "dedup"])
+    @pytest.mark.parametrize("raises_loss", [False, True])
+    async def test_maintenance_loss_rolls_back_pending_deletion(_seed, monkeypatch, operation, raises_loss):
+        from app.database import async_session_factory
+        from app.services import task_queue
+    
+        task_id = _seed.t_done.id
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired maintenance")
+    
+        async def maintenance(db):
+            nonlocal expired
+            if operation == "dedup":
+                await db.delete(await db.get(DownloadTask, task_id))
+            await db.flush()
+            expired = True
+            if raises_loss:
+                raise task_queue.ExecutionOwnershipLostError("Maintenance helper lost ownership")
+            return {"deleted": 0, "channels": 0} if operation == "cleanup" else SimpleNamespace(series_removed=0, movies_removed=0)
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        target = ("app.services.resource_cleanup.cleanup_stale_unresolved_resources" if operation == "cleanup"
+                  else "app.services.metadata_dedup.merge_duplicate_metadata")
+        monkeypatch.setattr(target, maintenance)
+&gt;       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_scheduler.py:355: Failed</failure></testcase><testcase classname="tests.unit.test_scheduler" name="test_maintenance_loss_rolls_back_pending_deletion[False-dedup]" time="0.465"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">_seed = namespace(ch=&lt;app.models.channel.Channel object at 0x7fecbe08a210&gt;, dl=&lt;app.models.downloader.DownloaderInstance objec...d_task.DownloadTask object at 0x7fecb6fe0270&gt;, t_done=&lt;app.models.download_task.DownloadTask object at 0x7fecb6f3be50&gt;)
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7fecb6f3bc50&gt;
+operation = 'dedup', raises_loss = False
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("operation", ["cleanup", "dedup"])
+    @pytest.mark.parametrize("raises_loss", [False, True])
+    async def test_maintenance_loss_rolls_back_pending_deletion(_seed, monkeypatch, operation, raises_loss):
+        from app.database import async_session_factory
+        from app.services import task_queue
+    
+        task_id = _seed.t_done.id
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired maintenance")
+    
+        async def maintenance(db):
+            nonlocal expired
+            if operation == "dedup":
+                await db.delete(await db.get(DownloadTask, task_id))
+            await db.flush()
+            expired = True
+            if raises_loss:
+                raise task_queue.ExecutionOwnershipLostError("Maintenance helper lost ownership")
+            return {"deleted": 0, "channels": 0} if operation == "cleanup" else SimpleNamespace(series_removed=0, movies_removed=0)
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        target = ("app.services.resource_cleanup.cleanup_stale_unresolved_resources" if operation == "cleanup"
+                  else "app.services.metadata_dedup.merge_duplicate_metadata")
+        monkeypatch.setattr(target, maintenance)
+&gt;       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_scheduler.py:355: Failed</failure></testcase><testcase classname="tests.unit.test_scheduler" name="test_maintenance_loss_rolls_back_pending_deletion[True-cleanup]" time="0.403"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">_seed = namespace(ch=&lt;app.models.channel.Channel object at 0x7fecb6e011d0&gt;, dl=&lt;app.models.downloader.DownloaderInstance objec...d_task.DownloadTask object at 0x7fecb6ee1150&gt;, t_done=&lt;app.models.download_task.DownloadTask object at 0x7fecb6ee1350&gt;)
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7fecb6f8e430&gt;
+operation = 'cleanup', raises_loss = True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("operation", ["cleanup", "dedup"])
+    @pytest.mark.parametrize("raises_loss", [False, True])
+    async def test_maintenance_loss_rolls_back_pending_deletion(_seed, monkeypatch, operation, raises_loss):
+        from app.database import async_session_factory
+        from app.services import task_queue
+    
+        task_id = _seed.t_done.id
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired maintenance")
+    
+        async def maintenance(db):
+            nonlocal expired
+            if operation == "dedup":
+                await db.delete(await db.get(DownloadTask, task_id))
+            await db.flush()
+            expired = True
+            if raises_loss:
+                raise task_queue.ExecutionOwnershipLostError("Maintenance helper lost ownership")
+            return {"deleted": 0, "channels": 0} if operation == "cleanup" else SimpleNamespace(series_removed=0, movies_removed=0)
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        target = ("app.services.resource_cleanup.cleanup_stale_unresolved_resources" if operation == "cleanup"
+                  else "app.services.metadata_dedup.merge_duplicate_metadata")
+        monkeypatch.setattr(target, maintenance)
+&gt;       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_scheduler.py:355: Failed</failure></testcase><testcase classname="tests.unit.test_scheduler" name="test_maintenance_loss_rolls_back_pending_deletion[True-dedup]" time="0.392"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">_seed = namespace(ch=&lt;app.models.channel.Channel object at 0x7fecb6f6cd60&gt;, dl=&lt;app.models.downloader.DownloaderInstance objec...d_task.DownloadTask object at 0x7fecb6ee2b50&gt;, t_done=&lt;app.models.download_task.DownloadTask object at 0x7fecb6ee2d50&gt;)
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7fecbe137800&gt;
+operation = 'dedup', raises_loss = True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("operation", ["cleanup", "dedup"])
+    @pytest.mark.parametrize("raises_loss", [False, True])
+    async def test_maintenance_loss_rolls_back_pending_deletion(_seed, monkeypatch, operation, raises_loss):
+        from app.database import async_session_factory
+        from app.services import task_queue
+    
+        task_id = _seed.t_done.id
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired maintenance")
+    
+        async def maintenance(db):
+            nonlocal expired
+            if operation == "dedup":
+                await db.delete(await db.get(DownloadTask, task_id))
+            await db.flush()
+            expired = True
+            if raises_loss:
+                raise task_queue.ExecutionOwnershipLostError("Maintenance helper lost ownership")
+            return {"deleted": 0, "channels": 0} if operation == "cleanup" else SimpleNamespace(series_removed=0, movies_removed=0)
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        target = ("app.services.resource_cleanup.cleanup_stale_unresolved_resources" if operation == "cleanup"
+                  else "app.services.metadata_dedup.merge_duplicate_metadata")
+        monkeypatch.setattr(target, maintenance)
+&gt;       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_scheduler.py:355: Failed</failure></testcase></testsuite></testsuites>

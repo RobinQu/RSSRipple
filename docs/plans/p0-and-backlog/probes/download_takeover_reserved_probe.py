@@ -1,4 +1,5 @@
 """Real Redis/PG/Transmission, captured torrent, acceptance-before-commit takeover."""
+
 import asyncio
 import json
 import os
@@ -9,11 +10,13 @@ from unittest.mock import patch
 
 PROJECT = "rssripple-v14-download-lz"
 
+
 def address(service):
     [state] = json.loads(subprocess.check_output(["docker", "inspect", f"{PROJECT}-{service}-1"]))
     assert state["Config"]["Labels"]["com.docker.compose.project"] == PROJECT
     assert state["State"]["Running"]
     return state["NetworkSettings"]["Networks"][PROJECT + "_isolated"]["IPAddress"]
+
 
 os.environ["DATABASE_URL"] = f"postgresql+asyncpg://probe:probe@{address('postgres')}:5432/probe"
 REDIS_URL = f"redis://{address('redis')}:6379/0"
@@ -21,16 +24,18 @@ RPC_URL = f"http://{address('transmission')}:9091/transmission/rpc"
 
 import redis.asyncio as redis  # noqa: E402
 from sqlalchemy import select  # noqa: E402
+
 import app.database as database  # noqa: E402
 import app.models  # noqa: E402,F401
 from app.clients.transmission import TransmissionWrapper  # noqa: E402
 from app.models.channel import Channel  # noqa: E402
+from app.models.download_task import DownloadTask  # noqa: E402
 from app.models.downloader import DownloaderInstance  # noqa: E402
 from app.models.file_resource import FileResource  # noqa: E402
-from app.models.download_task import DownloadTask  # noqa: E402
 from app.services.agent_service import create_and_submit_task  # noqa: E402
 from app.services.task_queue import RedisQueue  # noqa: E402
 from tests.metadata_corpus.dataset import ROOT, asset, digest, load_corpus  # noqa: E402
+
 
 async def main():
     observer = redis.from_url(REDIS_URL, decode_responses=True)
@@ -46,11 +51,26 @@ async def main():
     async with database.engine.begin() as conn:
         await conn.run_sync(database.Base.metadata.create_all)
     async with database.async_session_factory() as db:
-        channel = Channel(id=str(uuid.uuid4()), name="captured takeover", field_mapping={}, type="rss_feed", url="https://example.invalid/feed")
-        downloader = DownloaderInstance(id=str(uuid.uuid4()), name="isolated", type="transmission", url=RPC_URL, download_dir="/downloads")
+        channel = Channel(
+            id=str(uuid.uuid4()),
+            name="captured takeover",
+            field_mapping={},
+            type="rss_feed",
+            url="https://example.invalid/feed",
+        )
+        downloader = DownloaderInstance(
+            id=str(uuid.uuid4()), name="isolated", type="transmission", url=RPC_URL, download_dir="/downloads"
+        )
         db.add_all([channel, downloader])
         await db.flush()
-        resource = FileResource(id=str(uuid.uuid4()), channel_id=channel.id, guid=str(uuid.uuid4()), title_raw=case["input"]["title_raw"], torrent_url="https://example.invalid/captured.torrent", torrent_file=str(torrent))
+        resource = FileResource(
+            id=str(uuid.uuid4()),
+            channel_id=channel.id,
+            guid=str(uuid.uuid4()),
+            title_raw=case["input"]["title_raw"],
+            torrent_url="https://example.invalid/captured.torrent",
+            torrent_file=str(torrent),
+        )
         db.add(resource)
         await db.commit()
         resource_id, downloader_id = resource.id, downloader.id
@@ -77,6 +97,7 @@ async def main():
                 await db.commit()
                 done.set()
                 return {"task_id": task.id}
+
         return run
 
     a.register("takeover", handler(a_committed))
@@ -100,11 +121,15 @@ async def main():
             tasks = (await db.scalars(select(DownloadTask))).all()
         [live] = await wrapper.list_torrents()
         result = {
-            "case_id": case_id, "torrent_sha256": torrent.stem,
-            "rpc_ids": accepted_ids, "daemon_torrents": 1,
-            "task_ids": [task.id for task in tasks], "persisted_tasks": len(tasks),
+            "case_id": case_id,
+            "torrent_sha256": torrent.stem,
+            "rpc_ids": accepted_ids,
+            "daemon_torrents": 1,
+            "task_ids": [task.id for task in tasks],
+            "persisted_tasks": len(tasks),
             "task_torrent_ids": [task.transmission_torrent_id for task in tasks],
-            "peers_connected": live["peers_connected"], "received_media_bytes": live["have_valid"],
+            "peers_connected": live["peers_connected"],
+            "received_media_bytes": live["have_valid"],
             "boundary": "actual RPC acceptance held before local task flush/commit; forced lease loss",
         }
         Path(os.environ["PROBE_RESULT_PATH"]).write_text(json.dumps(result, indent=2) + "\n")
@@ -117,5 +142,6 @@ async def main():
         await b.stop()
         await observer.aclose()
         await database.engine.dispose()
+
 
 asyncio.run(main())

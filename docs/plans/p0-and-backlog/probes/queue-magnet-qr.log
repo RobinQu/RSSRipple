@@ -1,0 +1,53 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_inspection_discards_changes_after_attempt_replaced ____________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f83f038d6a0>
+sample_channel = <app.models.channel.Channel object at 0x7f83f038d550>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f83f0446ea0>
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1468/test_inspection_discards_chang0')
+
+    async def test_inspection_discards_changes_after_attempt_replaced(db_session, sample_channel, monkeypatch, tmp_path):
+        from app.database import async_session_factory
+        from app.models.file_resource import FileResource
+    
+        resource = await _make_magnet_resource(db_session, sample_channel.id)
+        resource_id = resource.id
+        attempt_id = str(uuid.uuid4())
+        replacement_id = str(uuid.uuid4())
+        resource.magnet_resolve_attempt_id = attempt_id
+        await db_session.commit()
+        monkeypatch.setattr(mr.settings, "torrent_cache_dir", str(tmp_path))
+        monkeypatch.setattr(mr, "resolve_magnet_to_cache", AsyncMock())
+    
+        async def inspect(db, stale_resource, channel):
+            async with async_session_factory() as replacement:
+                row = await replacement.get(FileResource, resource_id)
+                row.magnet_resolve_attempt_id = replacement_id
+                row.magnet_resolve_status = "pending"
+                row.title_en = "Replacement title"
+                await replacement.commit()
+            stale_resource.title_en = "Stale inspection title"
+    
+        monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", inspect)
+        await mr._attempt_loop(resource_id, attempt_id)
+        async with async_session_factory() as observer:
+            saved = await observer.get(FileResource, resource_id)
+            assert saved.magnet_resolve_attempt_id == replacement_id
+            assert saved.magnet_resolve_status == "pending"
+>           assert saved.title_en == "Replacement title"
+E           AssertionError: assert 'Stale inspection title' == 'Replacement title'
+E             
+E             - Replacement title
+E             + Stale inspection title
+
+tests/unit/test_magnet_resolve.py:282: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_magnet_resolve.py::test_inspection_discards_changes_after_attempt_replaced
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_magnet_resolve.py::test_inspection_discards_changes_after_attempt_replaced
+1 failed, 63 deselected, 1 warning in 0.72s

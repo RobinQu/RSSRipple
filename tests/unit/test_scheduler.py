@@ -89,6 +89,37 @@ async def _seed(db_session):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("rpc_failed", [False, True])
+async def test_sync_loss_during_rpc_preserves_task_and_downloader(_seed, monkeypatch, rpc_failed):
+    from app.database import async_session_factory
+    from app.services import task_queue
+
+    expired = False
+
+    async def guard():
+        if expired:
+            raise task_queue.ExecutionOwnershipLostError("Expired progress sync")
+
+    async def list_torrents():
+        nonlocal expired
+        expired = True
+        if rpc_failed:
+            raise RuntimeError("Late downloader failure")
+        return []
+
+    wrapper = SimpleNamespace(list_torrents=AsyncMock(side_effect=list_torrents))
+    monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+    monkeypatch.setattr("app.clients.downloader.get_downloader_client", lambda _: wrapper)
+    with pytest.raises(task_queue.ExecutionOwnershipLostError):
+        await sch._sync_download_progress()
+    async with async_session_factory() as observer:
+        task = await observer.get(DownloadTask, _seed.t1.id)
+        downloader = await observer.get(DownloaderInstance, _seed.dl.id)
+        assert task.status == "downloading" and task.progress == 0.1
+        assert downloader.status == "disconnected" and downloader.last_checked_at is None
+
+
+@pytest.mark.asyncio
 async def test_sync_download_progress_marks_completed_and_paused(db_session, _seed, monkeypatch):
     # Patch async_session_factory in scheduler module to use test session
     class _Ctx:
@@ -291,6 +322,104 @@ async def test_cleanup_expired_expires_decisions_and_deletes_tasks(db_session, _
     assert pd.status == "expired"
     assert pd_active.status == "pending"
     assert count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("raises_loss", [False, True])
+async def test_fts_loss_keeps_outbox_for_replay(db_session, monkeypatch, raises_loss):
+    from app.config import settings
+    from app.database import async_session_factory
+    from app.models.fts_outbox import FtsOutbox
+    from app.services import fts, task_queue
+
+    row = FtsOutbox(entity_type="movie", entity_id=_uuid(), op="delete")
+    db_session.add(row)
+    await db_session.commit()
+    row_id = row.id
+    expired = False
+
+    async def guard():
+        if expired:
+            raise task_queue.ExecutionOwnershipLostError("Expired FTS drain")
+
+    async def shadow(statements):
+        nonlocal expired
+        assert statements
+        expired = True
+        if raises_loss:
+            raise task_queue.ExecutionOwnershipLostError("Shadow write lost ownership")
+
+    monkeypatch.setattr(settings, "database_url", "sqlite+aioturso:///:memory:")
+    monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+    monkeypatch.setattr(fts, "_shadow_write", shadow)
+    with pytest.raises(task_queue.ExecutionOwnershipLostError):
+        await sch._drain_fts_outbox()
+    assert expired
+    async with async_session_factory() as observer:
+        assert await observer.get(FtsOutbox, row_id) is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["cleanup", "dedup"])
+@pytest.mark.parametrize("raises_loss", [False, True])
+async def test_maintenance_loss_rolls_back_pending_deletion(_seed, monkeypatch, operation, raises_loss):
+    from app.database import async_session_factory
+    from app.services import task_queue
+
+    task_id = _seed.t_done.id
+    expired = False
+
+    async def guard():
+        if expired:
+            raise task_queue.ExecutionOwnershipLostError("Expired maintenance")
+
+    async def maintenance(db):
+        nonlocal expired
+        if operation == "dedup":
+            await db.delete(await db.get(DownloadTask, task_id))
+        await db.flush()
+        expired = True
+        if raises_loss:
+            raise task_queue.ExecutionOwnershipLostError("Maintenance helper lost ownership")
+        return {"deleted": 0, "channels": 0} if operation == "cleanup" else SimpleNamespace(series_removed=0, movies_removed=0)
+
+    monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+    target = ("app.services.resource_cleanup.cleanup_stale_unresolved_resources" if operation == "cleanup"
+              else "app.services.metadata_dedup.merge_duplicate_metadata")
+    monkeypatch.setattr(target, maintenance)
+    with pytest.raises(task_queue.ExecutionOwnershipLostError):
+        await (sch._cleanup_expired() if operation == "cleanup" else sch._dedup_metadata())
+    assert expired
+    async with async_session_factory() as observer:
+        assert await observer.get(DownloadTask, task_id) is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("probe_result", ["success", "negative", "exception"])
+async def test_expired_connection_probe_keeps_previous_health(_seed, monkeypatch, probe_result):
+    from app.database import async_session_factory
+    from app.services import task_queue
+
+    expired = False
+
+    async def guard():
+        if expired:
+            raise task_queue.ExecutionOwnershipLostError("Expired connection probe")
+
+    async def probe():
+        nonlocal expired
+        expired = True
+        if probe_result == "exception":
+            raise RuntimeError("Late probe failure")
+        return probe_result == "success", "synthetic"
+
+    monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+    monkeypatch.setattr("app.clients.downloader.get_downloader_client", lambda _: SimpleNamespace(test_connection=probe))
+    with pytest.raises(task_queue.ExecutionOwnershipLostError):
+        await sch._check_downloader_connections()
+    async with async_session_factory() as observer:
+        saved = await observer.get(DownloaderInstance, _seed.dl.id)
+        assert saved.status == "disconnected" and saved.last_checked_at is None
 
 
 @pytest.mark.asyncio

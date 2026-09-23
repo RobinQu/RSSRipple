@@ -14,16 +14,16 @@ from unittest.mock import patch
 async def child(mode):
     from datetime import date
 
-    from app.services.agent_publication_progress import snapshot_publications
-    from app.services.resource_publication import publish_resource
     from sqlalchemy import select as sql_select
-    from tests.unit.test_agent_publication_progress import setup
 
     import app.database as database
     import app.models  # noqa: F401
     from app.job_handlers import _handle_run_agent
     from app.models.download_task import DownloadTask
     from app.models.movie import Movie
+    from app.services.agent_publication_progress import snapshot_publications
+    from app.services.resource_publication import publish_resource
+    from tests.unit.test_agent_publication_progress import setup
     from tests.unit.test_agent_service import _make_resource
 
     state_path = Path(os.environ["PROBE_STATE"])

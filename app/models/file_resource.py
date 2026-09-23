@@ -127,6 +127,7 @@ class FileResource(Base):
     #   "done"     – .torrent rebuilt and cached (torrent_file set).
     #   "failed"   – attempts exhausted; manual retry resets the state.
     magnet_resolve_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    magnet_resolve_attempt_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     magnet_resolve_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     magnet_resolve_attempts: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"

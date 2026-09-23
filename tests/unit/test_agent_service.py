@@ -2583,6 +2583,76 @@ async def test_retire_legacy_confirmation_decisions(db_session, channel, downloa
 
 
 @pytest.mark.parametrize("autocommit", [False, True])
+@pytest.mark.parametrize("phase", ["suggestion", "flushed_choice"])
+async def test_queue_loss_during_suggestion_does_not_persist_choice(
+    db_session, channel, downloader, series, monkeypatch, autocommit, phase,
+):
+    from app.services import decision_store, task_queue
+
+    agent = Agent(id=_uuid(), name="suggestion loss", channel_id=channel.id,
+                  downloader_id=downloader.id, status="active",
+                  scope_channel_wide=True, conflict_resolution="ask")
+    from app.utils.time import utcnow
+
+    resources = [_make_resource(channel.id, series_id=series.id, episode=1, parsed_at=utcnow()) for _ in range(2)]
+    db_session.add_all([agent, *resources])
+    await db_session.commit()
+    await db_session.refresh(agent)
+    expired = False
+
+    async def guard():
+        if expired:
+            raise task_queue.ExecutionOwnershipLostError("Expired during suggestion")
+
+    async def suggest(*args):
+        nonlocal expired
+        expired = phase == "suggestion"
+        return resources[0].id, "synthetic suggestion"
+
+    persist = decision_store.persist_choice
+
+    async def persist_then_expire(*args, **kwargs):
+        nonlocal expired
+        choice = await persist(*args, **kwargs)
+        expired = True
+        return choice
+
+    monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+    monkeypatch.setattr("app.services.agent_service._suggest_pick", suggest)
+    if phase == "flushed_choice":
+        monkeypatch.setattr(decision_store, "persist_choice", persist_then_expire)
+    with pytest.raises(task_queue.ExecutionOwnershipLostError):
+        await process_resources(agent, resources, db_session, autocommit=autocommit)
+    assert expired
+    assert (await db_session.scalars(select(PendingDecision))).all() == []
+
+
+@pytest.mark.parametrize("autocommit", [False, True])
+async def test_queue_loss_stops_candidates_and_suggestion_writes(
+    db_session, channel, downloader, series, monkeypatch, autocommit,
+):
+    from app.services.task_queue import ExecutionOwnershipLostError
+
+    agent = Agent(id=_uuid(), name="ownership loss", channel_id=channel.id,
+                  downloader_id=downloader.id, status="active",
+                  scope_channel_wide=True, conflict_resolution="ask")
+    resources = [_make_resource(channel.id, series_id=series.id, episode=number) for number in (1, 2)]
+    db_session.add_all([agent, *resources])
+    await db_session.commit()
+    await db_session.refresh(agent)
+    dispatch = AsyncMock(side_effect=ExecutionOwnershipLostError("Expired during dispatch"))
+    suggestions = AsyncMock()
+    monkeypatch.setattr("app.services.agent_service.dispatch_download", dispatch)
+    monkeypatch.setattr("app.services.agent_service._persist_suggestions", suggestions)
+
+    with pytest.raises(ExecutionOwnershipLostError):
+        await process_resources(agent, resources, db_session, autocommit=autocommit)
+    assert dispatch.await_count == 1
+    suggestions.assert_not_awaited()
+    assert (await db_session.scalars(select(DownloadTask))).all() == []
+
+
+@pytest.mark.parametrize("autocommit", [False, True])
 async def test_failed_dispatch_transaction_does_not_poison_next_candidate(
     db_session, channel, downloader, series, monkeypatch, autocommit,
 ):

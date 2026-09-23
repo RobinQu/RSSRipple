@@ -1,0 +1,76 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_______ test_inspection_keeps_event_loop_responsive[parse_torrent_files] _______
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1488/test_inspection_keeps_event_lo0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f2a874fbe10>
+operation = 'parse_torrent_files'
+
+    @pytest.mark.parametrize("operation", ["parse_torrent_files", "analyze_torrent_files"])
+    async def test_inspection_keeps_event_loop_responsive(tmp_path, monkeypatch, operation):
+        import threading
+    
+        source = Path("tests/fixtures/metadata_corpus_v1/torrents/987a72c09d5b0c2e934fa5016cc4dda6427a80dc5a4594e284a06ccf966acdb2.torrent")
+        path = tmp_path / "recorded.torrent"
+        path.write_bytes(source.read_bytes())
+        resource = _resource(torrent_file=str(path))
+        original = getattr(ti, operation)
+        loop = asyncio.get_running_loop()
+        responsive = []
+    
+        def slow_operation(*args):
+            heartbeat = threading.Event()
+            loop.call_soon_threadsafe(heartbeat.set)
+            responsive.append(heartbeat.wait(1))
+            return original(*args)
+    
+        monkeypatch.setattr(ti, operation, slow_operation)
+        await maybe_inspect_torrent(None, resource)
+>       assert responsive and all(responsive), "inspection blocked the queue event loop"
+E       AssertionError: inspection blocked the queue event loop
+E       assert ([False, False] and False)
+E        +  where False = all([False, False])
+
+tests/unit/test_torrent_inspect.py:700: AssertionError
+______ test_inspection_keeps_event_loop_responsive[analyze_torrent_files] ______
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1488/test_inspection_keeps_event_lo1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f2a873f9d90>
+operation = 'analyze_torrent_files'
+
+    @pytest.mark.parametrize("operation", ["parse_torrent_files", "analyze_torrent_files"])
+    async def test_inspection_keeps_event_loop_responsive(tmp_path, monkeypatch, operation):
+        import threading
+    
+        source = Path("tests/fixtures/metadata_corpus_v1/torrents/987a72c09d5b0c2e934fa5016cc4dda6427a80dc5a4594e284a06ccf966acdb2.torrent")
+        path = tmp_path / "recorded.torrent"
+        path.write_bytes(source.read_bytes())
+        resource = _resource(torrent_file=str(path))
+        original = getattr(ti, operation)
+        loop = asyncio.get_running_loop()
+        responsive = []
+    
+        def slow_operation(*args):
+            heartbeat = threading.Event()
+            loop.call_soon_threadsafe(heartbeat.set)
+            responsive.append(heartbeat.wait(1))
+            return original(*args)
+    
+        monkeypatch.setattr(ti, operation, slow_operation)
+        await maybe_inspect_torrent(None, resource)
+>       assert responsive and all(responsive), "inspection blocked the queue event loop"
+E       AssertionError: inspection blocked the queue event loop
+E       assert ([False] and False)
+E        +  where False = all([False])
+
+tests/unit/test_torrent_inspect.py:700: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_torrent_inspect.py::test_inspection_keeps_event_loop_responsive[parse_torrent_files]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_torrent_inspect.py::test_inspection_keeps_event_loop_responsive[parse_torrent_files]
+FAILED tests/unit/test_torrent_inspect.py::test_inspection_keeps_event_loop_responsive[analyze_torrent_files]
+2 failed, 113 deselected, 1 warning in 3.29s

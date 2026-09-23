@@ -1,0 +1,45 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_reclaimed_resource_can_launch_while_old_task_waits ____________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f32cca316a0>
+sample_channel = <app.models.channel.Channel object at 0x7f32cca31550>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f32ccb17100>
+
+    async def test_reclaimed_resource_can_launch_while_old_task_waits(db_session, sample_channel, monkeypatch):
+        from sqlalchemy import update
+    
+        from app.database import async_session_factory
+        from app.models.file_resource import FileResource
+    
+        monkeypatch.setattr(mr, "lt", _fake_lt())
+        release = asyncio.Event()
+        seen = []
+    
+        async def attempt(resource_id, attempt_id):
+            seen.append(attempt_id)
+            await release.wait()
+    
+        monkeypatch.setattr(mr, "_attempt_loop", attempt)
+        resource = await _make_magnet_resource(db_session, sample_channel.id)
+        try:
+            assert await mr.launch_resolution(resource.id)
+            async with async_session_factory() as recovery:
+                await recovery.execute(update(FileResource).where(FileResource.id == resource.id).values(
+                    magnet_resolve_status=None, magnet_resolve_attempt_id=None,
+                ))
+                await recovery.commit()
+>           assert await mr.launch_resolution(resource.id), "durable reclamation must permit replacement"
+E           AssertionError: durable reclamation must permit replacement
+E           assert False
+
+tests/unit/test_magnet_resolve.py:250: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_magnet_resolve.py::test_reclaimed_resource_can_launch_while_old_task_waits
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_magnet_resolve.py::test_reclaimed_resource_can_launch_while_old_task_waits
+1 failed, 64 deselected, 1 warning in 0.66s

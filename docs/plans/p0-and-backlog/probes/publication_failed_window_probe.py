@@ -7,9 +7,6 @@ import json
 from datetime import date, timedelta
 from pathlib import Path
 
-from app.services.agent_publication_progress import reset_progress
-from app.services.resource_publication import publish_resource
-
 import app.database as database
 import app.models  # noqa: F401
 from app.job_handlers import _handle_run_agent
@@ -17,6 +14,8 @@ from app.models.agent import Agent
 from app.models.channel import Channel
 from app.models.downloader import DownloaderInstance
 from app.models.movie import Movie
+from app.services.agent_publication_progress import reset_progress
+from app.services.resource_publication import publish_resource
 from app.utils.time import utcnow
 from tests.unit.test_agent_service import _make_resource
 

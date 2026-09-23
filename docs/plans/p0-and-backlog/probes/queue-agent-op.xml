@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="4" time="2.154" timestamp="2026-09-23T06:10:55.209648+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_agent_service" name="test_queue_loss_during_suggestion_does_not_persist_choice[suggestion-False]" time="0.530" /><testcase classname="tests.unit.test_agent_service" name="test_queue_loss_during_suggestion_does_not_persist_choice[suggestion-True]" time="0.490" /><testcase classname="tests.unit.test_agent_service" name="test_queue_loss_during_suggestion_does_not_persist_choice[flushed_choice-False]" time="0.402" /><testcase classname="tests.unit.test_agent_service" name="test_queue_loss_during_suggestion_does_not_persist_choice[flushed_choice-True]" time="0.449"><failure message="assert [&lt;app.models....7f4571d611d0&gt;] == []&#10;  &#10;  Left contains one more item: &lt;app.models.pending_decision.PendingDecision object at 0x7f4571d611d0&gt;&#10;  Use -v to get more diff">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f4571d236f0&gt;
+channel = &lt;app.models.channel.Channel object at 0x7f4571d23360&gt;
+downloader = &lt;app.models.downloader.DownloaderInstance object at 0x7f4571d23ce0&gt;
+series = &lt;app.models.series.TVSeries object at 0x7f4571eefed0&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f4571ae51d0&gt;
+autocommit = True, phase = 'flushed_choice'
+
+    @pytest.mark.parametrize("autocommit", [False, True])
+    @pytest.mark.parametrize("phase", ["suggestion", "flushed_choice"])
+    async def test_queue_loss_during_suggestion_does_not_persist_choice(
+        db_session, channel, downloader, series, monkeypatch, autocommit, phase,
+    ):
+        from app.services import decision_store, task_queue
+    
+        agent = Agent(id=_uuid(), name="suggestion loss", channel_id=channel.id,
+                      downloader_id=downloader.id, status="active",
+                      scope_channel_wide=True, conflict_resolution="ask")
+        resources = [_make_resource(channel.id, series_id=series.id, episode=1) for _ in range(2)]
+        db_session.add_all([agent, *resources])
+        await db_session.commit()
+        await db_session.refresh(agent)
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired during suggestion")
+    
+        async def suggest(*args):
+            nonlocal expired
+            expired = phase == "suggestion"
+            return resources[0].id, "synthetic suggestion"
+    
+        persist = decision_store.persist_choice
+    
+        async def persist_then_expire(*args, **kwargs):
+            nonlocal expired
+            choice = await persist(*args, **kwargs)
+            expired = True
+            return choice
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.services.agent_service._suggest_pick", suggest)
+        if phase == "flushed_choice":
+            monkeypatch.setattr(decision_store, "persist_choice", persist_then_expire)
+        with pytest.raises(task_queue.ExecutionOwnershipLostError):
+            await process_resources(agent, resources, db_session, autocommit=autocommit)
+        assert expired
+&gt;       assert (await db_session.scalars(select(PendingDecision))).all() == []
+E       assert [&lt;app.models....7f4571d611d0&gt;] == []
+E         
+E         Left contains one more item: &lt;app.models.pending_decision.PendingDecision object at 0x7f4571d611d0&gt;
+E         Use -v to get more diff
+
+tests/unit/test_agent_service.py:2625: AssertionError</failure></testcase></testsuite></testsuites>

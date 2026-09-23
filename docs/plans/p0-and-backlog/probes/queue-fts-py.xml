@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="0.981" timestamp="2026-09-23T07:30:56.145629+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_scheduler" name="test_fts_loss_keeps_outbox_for_replay[False]" time="0.507"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7ffab990aa50&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7ffab998e190&gt;
+raises_loss = False
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("raises_loss", [False, True])
+    async def test_fts_loss_keeps_outbox_for_replay(db_session, monkeypatch, raises_loss):
+        from app.config import settings
+        from app.database import async_session_factory
+        from app.models.fts_outbox import FtsOutbox
+        from app.services import fts, task_queue
+    
+        row = FtsOutbox(entity_type="movie", entity_id=_uuid(), op="delete")
+        db_session.add(row)
+        await db_session.commit()
+        row_id = row.id
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired FTS drain")
+    
+        async def shadow(statements):
+            nonlocal expired
+            assert statements
+            expired = True
+            if raises_loss:
+                raise task_queue.ExecutionOwnershipLostError("Shadow write lost ownership")
+    
+        monkeypatch.setattr(settings, "database_url", "sqlite+aioturso:///:memory:")
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr(fts, "_shadow_write", shadow)
+&gt;       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_scheduler.py:355: Failed</failure></testcase><testcase classname="tests.unit.test_scheduler" name="test_fts_loss_keeps_outbox_for_replay[True]" time="0.342"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7ffab9ace0d0&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7ffab99ee250&gt;
+raises_loss = True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("raises_loss", [False, True])
+    async def test_fts_loss_keeps_outbox_for_replay(db_session, monkeypatch, raises_loss):
+        from app.config import settings
+        from app.database import async_session_factory
+        from app.models.fts_outbox import FtsOutbox
+        from app.services import fts, task_queue
+    
+        row = FtsOutbox(entity_type="movie", entity_id=_uuid(), op="delete")
+        db_session.add(row)
+        await db_session.commit()
+        row_id = row.id
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired FTS drain")
+    
+        async def shadow(statements):
+            nonlocal expired
+            assert statements
+            expired = True
+            if raises_loss:
+                raise task_queue.ExecutionOwnershipLostError("Shadow write lost ownership")
+    
+        monkeypatch.setattr(settings, "database_url", "sqlite+aioturso:///:memory:")
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr(fts, "_shadow_write", shadow)
+&gt;       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_scheduler.py:355: Failed</failure></testcase></testsuite></testsuites>

@@ -1,0 +1,8 @@
+
+==================================== ERRORS ====================================
+________________ ERROR collecting tests/unit/test_scheduler.py _________________
+In tests/unit/test_scheduler.py::test_sync_loss_during_rpc_preserves_task_and_downloader: function uses no argument 'rpc_failed'
+=========================== short test summary info ============================
+ERROR tests/unit/test_scheduler.py - Failed: In tests/unit/test_scheduler.py:...
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 error in 0.15s

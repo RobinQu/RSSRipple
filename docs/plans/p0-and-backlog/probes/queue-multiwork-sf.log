@@ -1,0 +1,19 @@
+[cluster-bind] resolution failed for hint 'Film _BDrip_950P_h264_aac_dub jpn sub chs&jpn': 'types.SimpleNamespace' object has no attribute 'ambiguous'
+[cluster-bind] resolution failed for hint 'TV _BDrip_1080P_h264_flac_dub jpn sub chs': 'types.SimpleNamespace' object has no attribute 'ambiguous'
+Traceback (most recent call last):
+  File "/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/queue_multiwork_probe.py", line 96, in <module>
+    asyncio.run(main())
+    ~~~~~~~~~~~^^^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 719, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/queue_multiwork_probe.py", line 89, in main
+    assert counts["resource_work_links"] >= 2 and counts["work_collections"] >= 1, counts
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: {'resource_file_assignments': 27, 'resource_work_links': 0, 'movies': 1, 'tv_series': 1, 'work_collections': 1}

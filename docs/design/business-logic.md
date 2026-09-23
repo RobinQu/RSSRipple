@@ -1,5 +1,15 @@
 # 核心业务逻辑
 
+旧集数协调 `reconcile_stale_raw_episodes` 在入口、逐个资源发布前和内部 commit 前验证队列所有权。失权向调用方传播，调用方事务回滚集数修订及资源发布记录；不能仅依赖后续 backfill 的提交保护，因为协调函数会提前提交。
+
+HTTP 种子下载后的缓存目录创建、bencode 校验和磁盘写入通过 asyncio.to_thread 执行，避免这些同步操作占用队列事件循环。此改动仅治理该入口；取消协程不能停止已经启动的线程，文件发布隔离及其余同步检查路径仍须验证。
+
+HTTP 种子新缓存路径为 `<resource_id>-<sha256(content)>.torrent`。同目录唯一临时文件完整写入后 os.replace 原子发布，失败清理临时文件；不同内容不共享最终路径，取消后的旧线程不能覆盖新内容路径。数据库仍通过 torrent_file 引用实际路径，旧缓存路径可继续读取。取消或进程终止产生的未引用文件回收仍须验收。
+
+ensure_torrent_cached 的缓存命中路径也将文件存在检查、读取校验及无效文件删除移至线程；资源 ORM 字段更新仍在调用协程内执行，不把数据库 session 传入线程。未引用缓存的通用回收尚未实现，不得仅按文件年龄删除可能在途的文件。
+
+maybe_inspect_torrent 的缓存存在检查、无效文件删除、parse_torrent_files 和 analyze_torrent_files 在工作线程执行。仅传入路径或普通文件清单，不传 ORM 对象/session；分类、指派和关联持久化仍在调用协程内。响应性测试使用录制种子及可控阻塞，不替代真实 Redis 租约接管验收。
+
 ### RSS 抓取流程（fetch_service）
 
 入口：`fetch_channel_resources(channel_id: str)`，由定时任务或手动触发入队。
@@ -610,7 +620,9 @@ startup:
                             # 年份守卫约束，外部 id 相等不受）
 ```
 
-任务队列使用 MemoryQueue（默认）或 RedisQueue（配置时），承载手动触发的 fetch/run 与全部周期任务；同 key 去重（分布式锁）保证同一 Channel/Agent/周期任务不会被并发执行。**web/worker 分离**（`APP_ROLE`）：web 进程只 HTTP + enqueue（`queue.start(consume=False)`）；worker 进程（`python -m app.worker`）跑调度器 + 消费队列。RedisQueue 必须先取得并发槽位，再以原子 `LMOVE` 把 job 从持久 backlog 移至该 consumer 的 processing 列表，禁止无界预取到进程内等待；consumer 以短 TTL 租约持续心跳，正常完成才从 processing 确认删除。worker 优雅退出时未完成 job 原样重新入队；进程崩溃时描述符仍留在 processing，其他 worker 在租约过期后通过全局恢复锁幂等重新入队，状态回退为 queued 且保留 active-key 去重锁，禁止产生永久 running 僵尸或窃取仍存活 consumer 的任务。旧版本遗留、没有可恢复描述符的 running 状态在升级启动时标记 failed 并释放 active 锁。`sync_progress`、`download_notifications`、`check_downloaders` 三类短周期运维 job 走队首优先级，避免下载状态与通知被 LLM 长任务积压。每个 job handler 执行前重读 `load_runtime_config`（进程本地缓存，跨进程设置变更靠此收敛）。分布式 compose 默认 1 web + 3 worker；standalone 单进程 `APP_ROLE=all` 行为不变。
+任务队列使用 MemoryQueue（默认）或 RedisQueue（配置时），承载手动触发的 fetch/run 与全部周期任务；同 key 的 active key 与执行 token 保证当前有效领取唯一；失权旧协程可能仍在运行，其数据库提交和外部副作用由各 handler 的所有权检查、条件写入及幂等协议保护，不承诺恰好执行一次。**web/worker 分离**（`APP_ROLE`）：web 进程只 HTTP + enqueue（`queue.start(consume=False)`）；worker 进程（`python -m app.worker`）跑调度器 + 消费队列。RedisQueue 必须先取得并发槽位，再以原子 `LMOVE` 把 job 从持久 backlog 移至该 consumer 的 processing 列表，禁止无界预取到进程内等待；consumer 以短 TTL 租约持续心跳，正常完成才从 processing 确认删除。worker 优雅退出时未完成 job 原样重新入队；进程崩溃时描述符仍留在 processing，其他 worker 在租约过期后通过全局恢复锁幂等重新入队，状态回退为 queued 且保留 active-key 去重锁，禁止产生永久 running 僵尸或窃取仍存活 consumer 的任务。旧版本遗留、没有可恢复描述符的 running 状态在升级启动时标记 failed 并释放 active 锁。`sync_progress`、`download_notifications`、`check_downloaders` 三类短周期运维 job 走队首优先级，避免下载状态与通知被 LLM 长任务积压。每个 job handler 执行前重读 `load_runtime_config`（进程本地缓存，跨进程设置变更靠此收敛）。分布式 compose 默认 1 web + 3 worker；standalone 单进程 `APP_ROLE=all` 行为不变。
+
+升级执行所有权协议时，必须先停止全部旧版本 worker，再启动新版本 worker。旧代码的无条件回写无法受新代码中的 WATCH/CAS 约束，不支持据此宣称新旧版本滚动混跑安全。无可恢复描述符的旧 running 作业转 failed；具有持久描述符、作业身份和 active key 一致的作业按租约恢复，身份不一致时不得窃取替代作业。
 
 ### 频道调度对账
 
@@ -773,3 +785,69 @@ Turso MVCC 同频道计数器写冲突通过既有 `retry_on_lock` 在尚未提�
 部署迁移和启动门禁见 db-migration.md；验证记录与尚未完成的发布验收见 `docs/plans/p0-and-backlog/V13-CONSUMPTION-PROGRESS.md`。
 
 FTS sidecar 并发：派生索引独立引擎使用 pool_size=1、max_overflow=0，短读写事务通过连接池串行，避免实验性 Turso FTS 多连接并发的原生崩溃。主业务数据库池与并发不变；sidecar checkout 内不得加入网络调用。并发调用者继续等待连接，不跳过检索或写入；全量索引重建仍须遵循已有业务契约。
+
+### Redis 执行所有权与下载发起
+
+下载 RPC 成功或失败返回后、持久化结果之前再次检查执行所有权；已失权时抛出并由调用者回滚，保留未 settled 的派发预留供接管者重试。不能撤销远端已经接受的请求，也不能消除检查到数据库提交之间的竞争窗口。
+
+Agent 候选循环在入口、各候选开始和建议写入前检查所有权；失权异常直接终止，不转成普通候选错误。后台 handler 在创建运行记录前、处理完成后确认请求/消费进度前及正常收尾前检查；失权不执行失败请求延期，其他异常也须确认所有权后才补偿。此前已经提交的候选不回滚；被中断的 running 记录回收仍由单独待办跟踪。上述检查不构成 Redis 与数据库的原子提交。
+
+待决策建议生成结束后，在 persist_choice 前检查所有权；候选独立事务或请求保存点退出前再次检查，以回滚写入等待期间失权的候选。后台独立 Turso 候选事务先显式 BEGIN，避免驱动尚未开启物理事务时，内部 SAVEPOINT 的 RELEASE 提前提交；这里使用延迟事务，不在网络调用前取得写锁。PostgreSQL 沿用原有事务开始语义。
+
+资源重解析在开始及 finally 清除 confirmation_ignored_at 前检查所有权，清理事务退出前再检查。仍有所有权的成功/普通失败继续清理标记；失权保留标记供接管者完成。此约束不替代重解析内部元数据写入的保护，也未解决入队失败或永久崩溃造成的标记回收（B8）。
+
+资源元数据独立事务在获得 semaphore、torrent 缓存返回、取得作品锁、主元数据处理返回及发布/提交前检查执行所有权；海报阶段提交前再次检查。主匹配与扩展路径中的 ExecutionOwnershipLostError 不作为普通 best-effort 错误吞掉，事务回滚后继续向调用者传播，锁重试包装同样不得吞掉。元数据已经提交后的海报失权只能回滚海报事务，不能撤销前一阶段；文件缓存及已发生网络请求亦不能由数据库回滚撤销。
+
+新资源元数据、频道回填及全局回填等待所有已启动子任务返回后才传播异常，优先传播失权；不因第一个异常提前退出父任务并遗留兄弟任务。频道抓取在开始、RSS 返回、最终状态提交前及各 Agent 唤醒前检查所有权，回填失权不降为普通告警继续收尾。已经提交的资源和发布事件仍保留，不因后续失权撤销。
+
+RSS 逐条入库在每条开始及 created 发布完成后、资源事务 commit 前再次检查所有权。该提交点发现失权时由调用方回滚资源和发布事件；它不能消除检查到数据库 commit 之间的竞争窗口。
+
+批量文件分析在任务开始、进度更新、每个 LLM 流事件处理及结果缓存写入前检查所有权；空文件清单也遵守缓存写入检查。失权终止分析，不将旧执行结果发布到缓存。已发出的网络请求不能撤销，检查到缓存写入之间仍有竞争窗口。
+
+下载进度同步在入口、每个下载器开始、list_torrents 返回及每下载器提交前检查所有权；RPC 失败也先检查再标记下载器 error。失权直接传播，不改写任务状态或下载器健康状态；前面下载器已提交的更新保留，未提交部分由会话回滚。检查与 commit 仍非原子。
+
+下载器健康检查在入口、逐下载器探测前、探测返回或异常后及事务退出前检查所有权。失权不更新 status/last_checked_at；普通失败仅在仍有所有权时标记 error，整个未提交检查事务由调用会话回滚。
+
+每日清理及元数据去重在入口、业务事务提交前检查所有权；内部抛出的失权不降为普通告警或成功返回。未提交删除由外层事务回滚。清理业务事务提交后、进入派发预留保留期清理之前再次检查；前一事务已经提交的结果不能撤销。
+
+FTS outbox drain 在入口、删除事件前、sidecar 写入后及后台主库事务提交前检查所有权；失权不作为普通索引写失败吞掉，外层回滚保留 outbox。sidecar 已完成的写入无法随主库回滚，允许后续幂等重放。普通 sidecar 写失败的既有 reconcile 补偿策略保持不变。
+
+FTS reconcile 在入口、每表处理前后及 sidecar 写入前检查所有权，后台包装同样传播失权。失权后停止后续表，前面已提交的 sidecar 写入保留；后续当前执行者可重新对账。
+
+magnet launch 在领取资源前与领取事务提交前检查队列所有权，已失权不得创建 detached 解析任务。领取提交后的解析生命周期独立于队列任务结束；不能用已结束队列的租约作为解析存活条件。后台解析回收与状态更新的独立所有权仍需专门验证。
+
+成功解析后的 torrent inspection 在独立事务内执行，提交前禁用自动 flush，以 resource ID、attempt UUID、done 状态为条件执行同值 UPDATE，取得行写锁并保持至提交。条件失配回滚 inspection 的整个事务，禁止旧检查覆盖重试后的新数据。文件及外部服务副作用不由数据库回滚保证，仍须分别验证。
+
+magnet sweep 在入口、回收 SQL 前后（提交前）、逐个入队及返回前检查队列所有权；失权异常传播，不作为单资源入队错误吞掉。回收依赖当前状态及更新时间的条件 UPDATE，清空旧 attempt。超时阈值是恢复策略，并非进程死亡证明：等待 semaphore 的活任务也可能超时，旧任务后续写入必须受 attempt 条件保护。
+
+领取资格仅由数据库条件 UPDATE 判断，移除按 resource ID 的进程内 inflight 去重，避免数据库已回收而旧内存标记持续阻止恢复。semaphore 继续限制实际解析并发；旧任务恢复时按旧 attempt 校验，不能获得新任务写权限。
+
+magnet 成功后的 inspection 调用前显式加载 file_assignments，避免同步属性检查触发异步 ORM 懒加载错误，导致 done 状态下文件指派静默缺失。真实单文件种子恢复测试必须检查持久化指派路径，而不只检查 done 与缓存文件。
+
+B4 候选的新领取分配 attempt UUID，传给独立解析；running/失败/重试计数/done 按资源及 attempt 条件更新，失去匹配停止。内部状态写入与解析循环要求显式 UUID，拒绝 NULL/空串/非法标识，不允许无身份写入历史行。缓存写入 `<resource_id>-<attempt_id>.torrent`，成功 CAS 后引用；拒绝发布只删除该 attempt 文件，删除异常记日志。sweep 回收和人工重试使旧标识失效。领取成功提交后，新解析任务复制当前 Context，仅清除队列所有权，保留其他上下文；父 Context 不变。该脱离仅用于已有独立持久所有者的任务，不能作为普通队列子任务绕过所有权检查的手段。领取后进程崩溃由超时 sweep 清空旧 attempt 并重新领取。
+
+Redis handler 每次 claim 持有独立执行 token。创建下载任务前，从同一 Redis 事务读取 job/active/consumer lease，要求 job_id、running、token、consumer 和 active 均匹配；失权抛 ExecutionOwnershipLostError，Redis 读取失败也不允许继续发起。直接 API/MemoryQueue 无 Redis 执行上下文，沿用既有行为。此检查不保证校验之后或已开始的远端操作被撤销，不能代替下载器幂等和任务持久关联，也不代表其他 handler 副作用已经受到保护。
+
+### 队列派发的持久幂等
+
+Redis 逻辑作业 ID 在接管时保留，新作业使用完整 UUID hex。派发身份对 queue key/job_id/资源/Agent 作 SHA256；冻结参数包含下载器、目录、payload 类型及摘要。先在独立短事务中预留 DownloadDispatch 与任务 UUID，提交后再发 RPC；调用方此时不得持有数据库写锁。参数不一致拒绝复用。主业务事务在 RPC 之后锁住预留行，以预留 UUID 原子插入任务并标记 settled；重入只返回已存在的任务，不覆盖其状态。已删除的 settled 任务不能重建。手动 API 无 Redis 上下文，继续独立创建；重试 API 更新原任务。
+
+这不是外部操作 exactly-once：下载器可接受两次请求，Transmission 按 torrent 身份去重，本地任务按派发身份去重。不同逻辑作业仍是不同身份，旧 writer、队列存储完全丢失后的新作业以及其他 handler 的副作用需要各自恢复协议。
+
+派发预留事务从调用方绑定的 AsyncEngine 获取独立连接；若调用方绑定 AsyncConnection，则使用其 engine，不能加入外层连接事务，否则外层 rollback 会撤销预留。调用方无写锁跨 RPC 的前提仍需保持。
+
+### 派发预留保留与清理
+
+每日业务清理提交后，另行分页扫描超过 7 天且 DownloadTask 已不存在的预留。Redis 以一次事务读取 job hash 和 active key：同 job_id 仍 queued/running、active 仍指向旧作业或状态异常时保留；原作业终态、同 key 被不同 job_id 替代或原记录缺失时才可清理。Redis 故障立即停止本轮后续清理，MemoryQueue 无法证明 Redis 作业退休则保留。未知 job_key/job_id 的历史或直接写入记录保留。7 天是预留年龄，不是任务删除后的计时器。
+
+数据库读取会话在 Redis 调用前关闭；删除事务再次要求任务不存在且 settled 与扫描时一致，防止与任务落库竞争。每页 500 条，以 created_at/id 游标推进，旧但仍活动的记录不会阻塞后续候选。已有任务的预留随任务保留；删除任务后的记录只有满足年龄与队列终态条件才删除。不得复用历史逻辑 job_id；清理后旧执行的结果持久化必须因预留缺失而拒绝。
+
+手动批量/频道周期作品刷新共用的 `_refresh_works_batch` 在每部作品开始前检查队列所有权；`ExecutionOwnershipLostError` 终止整个批次，不作为单作品普通错误吞掉后继续处理。普通网络失败与超时仍保持单作品隔离。此为批次边界，不替代单作品元数据应用及内部 commit 的竞争保护。
+
+单作品刷新入口与 `apply_work_metadata` 另检查队列所有权；异步元数据扩展/预览、海报获取后及内部 commit 前再次检查，失权抛出让事务所有者回滚。season-0 日期回填也在写入前检查。人工调用没有队列上下文时保持既有行为。此协议能阻止已检测失权后的提交，尚不能消除检查到 commit 的竞争窗口。
+
+并发人工编辑保护候选：`apply_work_metadata` 先完成候选扩展及海报请求，再对作品执行保持 updated_at 不变的条件 UPDATE 获取写保护，重新加载当前行并计算人工字段排除与差异。PostgreSQL 在该行序列化写入，Turso 旧 MVCC 快照可能发生写冲突，由调用者结束事务后重试；网络请求不在该写保护阶段内。season-0 日期回填独立分支在计算后取得同类写保护、重读人工标记和日期；作品删除、季号不再为 0 或合集归属改变时不应用旧回填值。
+
+后台批次按作品复用 `retry_on_lock`：每次尝试创建新会话、重读作品并检查队列所有权，全部尝试共用原有 120 秒上限。仅锁/MVCC 冲突重试，失权、普通网络失败不由此重试。候选搜索或海报请求可能随新尝试重复，数据库回滚不能撤销已发生的网络读取。
+
+候选扩展前记录作品季号和合集，写保护后重读值若不同则拒绝旧候选。直接 apply 返回 409；后台刷新返回 found=false、scope_changed=true、applied=[]，不标为 identity_conflict。作品已删除继续按未找到处理。这只验证当前应用调用期间的归属变化，不替代跨请求 preview/apply 的版本契约。

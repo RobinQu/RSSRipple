@@ -376,6 +376,9 @@ async def _run_channel_works_refresh(channel_id: str) -> None:  # pragma: no cov
 
 
 async def _sync_download_progress() -> None:
+    from app.services.task_queue import ExecutionOwnershipLostError, require_execution_ownership
+
+    await require_execution_ownership()
     from sqlalchemy import and_, or_, select
 
     from app.clients.downloader import get_downloader_client
@@ -408,12 +411,14 @@ async def _sync_download_progress() -> None:
             by_downloader.setdefault(t.downloader_id, []).append(t)
 
         for dl_id, dl_tasks in by_downloader.items():
+            await require_execution_ownership()
             downloader = await db.get(DownloaderInstance, dl_id)
             if not downloader:
                 continue
             try:
                 wrapper = get_downloader_client(downloader)
                 torrents = await wrapper.list_torrents()
+                await require_execution_ownership()
                 tmap = {t["id"]: t for t in torrents}
                 for task in dl_tasks:
                     torrent = tmap.get(task.transmission_torrent_id)
@@ -443,16 +448,20 @@ async def _sync_download_progress() -> None:
                         task.status = "downloading"
                 downloader.status = "connected"
                 downloader.last_checked_at = utcnow()
+            except ExecutionOwnershipLostError:
+                raise
             except Exception:
                 # A failed RPC says nothing about the tasks themselves — the
                 # torrents keep running in the daemon. Only flag the
                 # downloader; task statuses stay as last known and resume
                 # syncing on the next successful pass.
+                await require_execution_ownership()
                 downloader.status = "error"
                 downloader.last_checked_at = utcnow()  # type: ignore[arg-type]
             # Commit per downloader: the next iteration's queries would
             # otherwise autoflush these pending UPDATEs right before its RPC,
             # holding the SQLite write lock for the whole list_torrents call.
+            await require_execution_ownership()
             await db.commit()
 
 
@@ -464,7 +473,9 @@ async def _cleanup_expired() -> None:
     from app.models.agent import Agent
     from app.models.download_task import DownloadTask
     from app.models.pending_decision import PendingDecision
+    from app.services.task_queue import ExecutionOwnershipLostError, require_execution_ownership
 
+    await require_execution_ownership()
     async with committed_session() as db:
         now = utcnow()
         # Expire pending decisions past expires_at
@@ -540,8 +551,18 @@ async def _cleanup_expired() -> None:
                     "Auto-cleaned %d unresolved resources on %d channels",
                     report["deleted"], report["channels"],
                 )
+        except ExecutionOwnershipLostError:
+            raise
         except Exception as e:
             logger.warning("Unresolved-resource cleanup failed: %s", e)
+        await require_execution_ownership()
+
+    # The business cleanup transaction has committed before Redis is queried.
+    from app.services.download_dispatch_cleanup import cleanup_dispatch_reservations
+    from app.services.task_queue import task_queue
+
+    await require_execution_ownership()
+    await cleanup_dispatch_reservations(db.bind, task_queue)
 
 
 async def _check_downloader_connections() -> None:
@@ -551,18 +572,26 @@ async def _check_downloader_connections() -> None:
     from app.clients.downloader import get_downloader_client
     from app.database import committed_session
     from app.models.downloader import DownloaderInstance
+    from app.services.task_queue import ExecutionOwnershipLostError, require_execution_ownership
 
+    await require_execution_ownership()
     async with committed_session() as db:
         result = await db.execute(select(DownloaderInstance))
         downloaders = result.scalars().all()
         for dl in downloaders:
+            await require_execution_ownership()
             try:
                 wrapper = get_downloader_client(dl)
                 ok, _msg = await wrapper.test_connection()
+                await require_execution_ownership()
                 dl.status = "connected" if ok else "error"
+            except ExecutionOwnershipLostError:
+                raise
             except Exception:
+                await require_execution_ownership()
                 dl.status = "error"
             dl.last_checked_at = utcnow()
+        await require_execution_ownership()
 
 
 async def _dedup_metadata() -> None:
@@ -575,11 +604,16 @@ async def _dedup_metadata() -> None:
     """
     from app.database import committed_session
     from app.services.metadata_dedup import merge_duplicate_metadata
+    from app.services.task_queue import ExecutionOwnershipLostError, require_execution_ownership
 
+    await require_execution_ownership()
     async with committed_session() as db:
         try:
             report = await merge_duplicate_metadata(db)
+            await require_execution_ownership()
             await db.commit()
+        except ExecutionOwnershipLostError:
+            raise
         except Exception as e:
             await db.rollback()
             logger.warning("Metadata dedup failed: %s", e)
@@ -714,12 +748,17 @@ async def _drain_fts_outbox() -> None:
     """Every 30s: replay fts_outbox change rows onto the FTS sidecar."""
     from app.database import committed_session
     from app.services.fts import drain_fts_outbox
+    from app.services.task_queue import ExecutionOwnershipLostError, require_execution_ownership
 
+    await require_execution_ownership()
     try:
         async with committed_session() as db:
             n = await drain_fts_outbox(db)
+            await require_execution_ownership()
         if n:
             logger.info("[fts] drained %d outbox rows", n)
+    except ExecutionOwnershipLostError:
+        raise
     except Exception as e:
         logger.warning("[fts] drain job failed: %s", e)
 
@@ -728,14 +767,19 @@ async def _reconcile_fts() -> None:
     """Hourly: reconcile FTS shadow tables with the base tables."""
     from app.database import committed_session
     from app.services.fts import reconcile_fts
+    from app.services.task_queue import ExecutionOwnershipLostError, require_execution_ownership
 
+    await require_execution_ownership()
     try:
         async with committed_session() as db:
             report = await reconcile_fts(db)
+            await require_execution_ownership()
         if report["updated"] or report["deleted"]:
             logger.info(
                 "[fts] reconcile: %d rewritten, %d orphans removed",
                 report["updated"], report["deleted"],
             )
+    except ExecutionOwnershipLostError:
+        raise
     except Exception as e:
         logger.warning("[fts] reconcile job failed: %s", e)

@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="3" time="1.410" timestamp="2026-09-23T08:48:48.608451+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_job_handlers" name="test_magnet_sweep_propagates_ownership_loss[entry]" time="0.493"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">db_engine = &lt;sqlalchemy.ext.asyncio.engine.AsyncEngine object at 0x7fb263c69bd0&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7fb263a8ad70&gt;
+phase = 'entry'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("phase", ["entry", "after_update", "enqueue"])
+    async def test_magnet_sweep_propagates_ownership_loss(db_engine, monkeypatch, phase):
+        from sqlalchemy.ext.asyncio import AsyncSession
+    
+        from app.database import async_session_factory
+        from app.services import task_queue
+        from app.utils.time import utcnow
+    
+        attempt_id = str(uuid.uuid4())
+        resource, _ = await _make_resource(
+            torrent_url="magnet:?xt=urn:btih:aaa", magnet_resolve_status="pending",
+            magnet_resolve_attempt_id=attempt_id,
+            magnet_resolve_updated_at=utcnow() - timedelta(days=30),
+        )
+        expired = phase == "entry"
+        original = AsyncSession.execute
+    
+        async def execute(session, statement, *args, **kwargs):
+            nonlocal expired
+            result = await original(session, statement, *args, **kwargs)
+            if phase == "after_update" and getattr(statement, "is_update", False):
+                expired = True
+            return result
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("expired sweep")
+    
+        enqueue = AsyncMock(side_effect=task_queue.ExecutionOwnershipLostError("expired enqueue"))
+        monkeypatch.setattr(AsyncSession, "execute", execute)
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.services.magnet_resolve.enqueue_resolution", enqueue)
+&gt;       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_job_handlers.py:476: Failed</failure></testcase><testcase classname="tests.unit.test_job_handlers" name="test_magnet_sweep_propagates_ownership_loss[after_update]" time="0.372"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">db_engine = &lt;sqlalchemy.ext.asyncio.engine.AsyncEngine object at 0x7fb2604ae390&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7fb2638869c0&gt;
+phase = 'after_update'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("phase", ["entry", "after_update", "enqueue"])
+    async def test_magnet_sweep_propagates_ownership_loss(db_engine, monkeypatch, phase):
+        from sqlalchemy.ext.asyncio import AsyncSession
+    
+        from app.database import async_session_factory
+        from app.services import task_queue
+        from app.utils.time import utcnow
+    
+        attempt_id = str(uuid.uuid4())
+        resource, _ = await _make_resource(
+            torrent_url="magnet:?xt=urn:btih:aaa", magnet_resolve_status="pending",
+            magnet_resolve_attempt_id=attempt_id,
+            magnet_resolve_updated_at=utcnow() - timedelta(days=30),
+        )
+        expired = phase == "entry"
+        original = AsyncSession.execute
+    
+        async def execute(session, statement, *args, **kwargs):
+            nonlocal expired
+            result = await original(session, statement, *args, **kwargs)
+            if phase == "after_update" and getattr(statement, "is_update", False):
+                expired = True
+            return result
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("expired sweep")
+    
+        enqueue = AsyncMock(side_effect=task_queue.ExecutionOwnershipLostError("expired enqueue"))
+        monkeypatch.setattr(AsyncSession, "execute", execute)
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.services.magnet_resolve.enqueue_resolution", enqueue)
+&gt;       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_job_handlers.py:476: Failed</failure></testcase><testcase classname="tests.unit.test_job_handlers" name="test_magnet_sweep_propagates_ownership_loss[enqueue]" time="0.408"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">db_engine = &lt;sqlalchemy.ext.asyncio.engine.AsyncEngine object at 0x7fb2604c0650&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7fb2619ba450&gt;
+phase = 'enqueue'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("phase", ["entry", "after_update", "enqueue"])
+    async def test_magnet_sweep_propagates_ownership_loss(db_engine, monkeypatch, phase):
+        from sqlalchemy.ext.asyncio import AsyncSession
+    
+        from app.database import async_session_factory
+        from app.services import task_queue
+        from app.utils.time import utcnow
+    
+        attempt_id = str(uuid.uuid4())
+        resource, _ = await _make_resource(
+            torrent_url="magnet:?xt=urn:btih:aaa", magnet_resolve_status="pending",
+            magnet_resolve_attempt_id=attempt_id,
+            magnet_resolve_updated_at=utcnow() - timedelta(days=30),
+        )
+        expired = phase == "entry"
+        original = AsyncSession.execute
+    
+        async def execute(session, statement, *args, **kwargs):
+            nonlocal expired
+            result = await original(session, statement, *args, **kwargs)
+            if phase == "after_update" and getattr(statement, "is_update", False):
+                expired = True
+            return result
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("expired sweep")
+    
+        enqueue = AsyncMock(side_effect=task_queue.ExecutionOwnershipLostError("expired enqueue"))
+        monkeypatch.setattr(AsyncSession, "execute", execute)
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.services.magnet_resolve.enqueue_resolution", enqueue)
+&gt;       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_job_handlers.py:476: Failed</failure></testcase></testsuite></testsuites>

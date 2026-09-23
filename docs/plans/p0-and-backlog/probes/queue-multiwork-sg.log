@@ -1,0 +1,39 @@
+[external_ids] tmdb:tmdb:90000002 already maps to collection 5a86e7d5-9232-47cb-8c7c-6cf41cb7a83a — NOT re-pointing to series 5c3f5936-fd3d-4571-8f6f-82b17683fe9d (dedup candidate)
+[external_ids] tmdb:tmdb:90000002 already maps to collection 29efb2e1-9097-4449-8e36-bb4f6c9b3221 — NOT re-pointing to series 6f83c679-be7e-4019-90d1-78037649acdd (dedup candidate)
+{
+  "sha256": "912c2bd9bd70a9556cfaa974cd29d0f1748c05e26dbf6ae87453418a7f801ef1",
+  "cases": [
+    {
+      "replace_attempt": false,
+      "counts": {
+        "resource_file_assignments": 27,
+        "resource_work_links": 2,
+        "movies": 1,
+        "tv_series": 1,
+        "work_collections": 1
+      },
+      "metadata_calls": [
+        "Film _BDrip_950P_h264_aac_dub jpn sub chs&jpn",
+        "TV _BDrip_1080P_h264_flac_dub jpn sub chs",
+        "Film _BDrip_950P_h264_aac_dub jpn sub chs&jpn",
+        "TV _BDrip_1080P_h264_flac_dub jpn sub chs"
+      ]
+    },
+    {
+      "replace_attempt": true,
+      "counts": {
+        "resource_file_assignments": 0,
+        "resource_work_links": 0,
+        "movies": 0,
+        "tv_series": 0,
+        "work_collections": 0
+      },
+      "metadata_calls": [
+        "Film _BDrip_950P_h264_aac_dub jpn sub chs&jpn",
+        "TV _BDrip_1080P_h264_flac_dub jpn sub chs",
+        "Film _BDrip_950P_h264_aac_dub jpn sub chs&jpn",
+        "TV _BDrip_1080P_h264_flac_dub jpn sub chs"
+      ]
+    }
+  ]
+}

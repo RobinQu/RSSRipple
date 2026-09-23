@@ -1,0 +1,62 @@
+{
+  "path": "tests/fixtures/metadata_corpus_v1/torrents/912c2bd9bd70a9556cfaa974cd29d0f1748c05e26dbf6ae87453418a7f801ef1.torrent",
+  "sha256": "912c2bd9bd70a9556cfaa974cd29d0f1748c05e26dbf6ae87453418a7f801ef1",
+  "scope": "franchise",
+  "video_count": 27,
+  "clusters": [
+    {
+      "title": "Film _BDrip_950P_h264_aac_dub jpn sub chs&jpn",
+      "files": [
+        "Film (1S1E)_BDrip_950P_h264_aac_dub jpn sub chs&jpn/Film 2001/Film 2001-09-01 カウボーイビバップ 天国の扉; BD_1080P_h264_aac.mp4"
+      ]
+    },
+    {
+      "title": "TV _BDrip_1080P_h264_flac_dub jpn sub chs",
+      "files": [
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 01; BD_1080P_h264_flac.mkv",
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 02; BD_1080P_h264_flac.mkv",
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 03; BD_1080P_h264_flac.mkv",
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 04; BD_1080P_h264_flac.mkv",
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 05; BD_1080P_h264_flac.mkv",
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 06; BD_1080P_h264_flac.mkv",
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 07; BD_1080P_h264_flac.mkv",
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 08; BD_1080P_h264_flac.mkv",
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 09; BD_1080P_h264_flac.mkv",
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 10; BD_1080P_h264_flac.mkv",
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 11; BD_1080P_h264_flac.mkv",
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 12; BD_1080P_h264_flac.mkv",
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 13; BD_1080P_h264_flac.mkv",
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 14; BD_1080P_h264_flac.mkv",
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 15; BD_1080P_h264_flac.mkv",
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 16; BD_1080P_h264_flac.mkv",
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 17; BD_1080P_h264_flac.mkv",
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 18; BD_1080P_h264_flac.mkv",
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 19; BD_1080P_h264_flac.mkv",
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 20; BD_1080P_h264_flac.mkv",
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 21; BD_1080P_h264_flac.mkv",
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 22; BD_1080P_h264_flac.mkv",
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 23; BD_1080P_h264_flac.mkv",
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 24; BD_1080P_h264_flac.mkv",
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 25; BD_1080P_h264_flac.mkv",
+        "TV (1S26E)_BDrip_1080P_h264_flac_dub jpn sub chs/TV 1998/Cowboy Bebop. TV (1998) 26; BD_1080P_h264_flac.mkv"
+      ]
+    }
+  ],
+  "source_cases": [
+    {
+      "id": "09b336ea-a004-47c4-9abb-f8561b47f2e0",
+      "input": {
+        "kind": "title_and_torrent",
+        "raw_rss_available": false,
+        "title_raw": "[整理搬运] 星际牛仔 (カウボーイビバップ) (Cowboy Bebop)：TV动画+剧场版+漫画+音乐+其他；日语音轨; 外挂简中字幕 (整理时间：2024.03.05)"
+      },
+      "review": {
+        "issues": [],
+        "note": "Production state is not ground truth.",
+        "status": "pending"
+      }
+    }
+  ],
+  "limitation": "Recorded torrent bytes and filenames; no media download. Classification alone does not prove concurrent rollback or metadata identity correctness.",
+  "candidate_count": 29
+}

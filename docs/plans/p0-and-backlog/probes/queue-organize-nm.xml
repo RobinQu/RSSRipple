@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.808" timestamp="2026-09-23T05:12:20.731554+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_queue_organize_ownership" name="test_expired_queue_owner_cannot_move_files" time="0.590"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f1e73dff380&gt;
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1392/test_expired_queue_owner_canno0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f1e732788a0&gt;
+
+    async def test_expired_queue_owner_cannot_move_files(db_session, tmp_path, monkeypatch):
+        plan, downloads = await _planned_series_plan(db_session, tmp_path)
+        source = downloads / "Show.S01/ep04.mkv"
+        original = source.read_bytes()
+    
+        async def lost():
+            raise task_queue.ExecutionOwnershipLostError("Queue owner expired before organize")
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", lost)
+&gt;       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_queue_organize_ownership.py:20: Failed</failure></testcase></testsuite></testsuites>

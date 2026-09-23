@@ -1,0 +1,47 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________ test_detached_resolution_drops_only_queue_ownership ______________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f764004d550>
+sample_channel = <app.models.channel.Channel object at 0x7f764004d400>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f76405dac40>
+
+    async def test_detached_resolution_drops_only_queue_ownership(db_session, sample_channel, monkeypatch):
+        from contextvars import ContextVar
+    
+        from app.services import task_queue
+    
+        monkeypatch.setattr(mr, "lt", _fake_lt())
+        monkeypatch.setattr(task_queue, "require_execution_ownership", AsyncMock())
+        parent_owner = object()
+        trace = ContextVar("test_magnet_trace", default=None)
+        seen = []
+    
+        async def attempt(resource_id, attempt_id):
+            seen.append((task_queue._execution_ownership.get(), trace.get(), attempt_id))
+    
+        monkeypatch.setattr(mr, "_attempt_loop", attempt)
+        resource = await _make_magnet_resource(db_session, sample_channel.id)
+        owner_token = task_queue._execution_ownership.set(parent_owner)
+        trace_token = trace.set("keep-trace")
+        try:
+            assert await mr.launch_resolution(resource.id)
+            await _drain_background()
+            assert task_queue._execution_ownership.get() is parent_owner
+            await db_session.refresh(resource)
+>           assert seen == [(None, "keep-trace", resource.magnet_resolve_attempt_id)]
+E           AssertionError: assert [(<object obj...a122b5a16e7')] == [(None, 'keep...a122b5a16e7')]
+E             
+E             At index 0 diff: (<object object at 0x7f76407f1470>, 'keep-trace', 'bdf22a46-03b1-4e74-a0bf-8a122b5a16e7') != (None, 'keep-trace', 'bdf22a46-03b1-4e74-a0bf-8a122b5a16e7')
+E             Use -v to get more diff
+
+tests/unit/test_magnet_resolve.py:250: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_magnet_resolve.py::test_detached_resolution_drops_only_queue_ownership
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_magnet_resolve.py::test_detached_resolution_drops_only_queue_ownership
+1 failed, 61 deselected, 1 warning in 0.68s

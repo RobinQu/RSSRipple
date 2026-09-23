@@ -110,6 +110,72 @@ def fake_queue(monkeypatch):
 
 
 class TestFetchChannelResources:
+    async def test_loss_after_created_publication_rolls_back_resource(self, db_session, channel, fake_queue, monkeypatch):
+        from sqlalchemy import select
+
+        from app.database import async_session_factory
+        from app.models.resource_publication import ResourcePublication
+        from app.services import resource_publication, task_queue
+
+        publish = resource_publication.publish_resource
+        expired = False
+
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired after created publication")
+
+        async def publish_then_expire(db, *args, **kwargs):
+            nonlocal expired
+            result = await publish(db, *args, **kwargs)
+            await db.flush()
+            expired = True
+            return result
+
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr(resource_publication, "publish_resource", publish_then_expire)
+        entry = _entry("ownership", "Synthetic 01", enclosures=[
+            {"url": "magnet:?xt=urn:btih:synthetic", "type": "application/x-bittorrent"},
+        ])
+        monkeypatch.setattr(fs, "_parse_feed_sync", lambda _: _mock_feed([entry]))
+        with pytest.raises(task_queue.ExecutionOwnershipLostError):
+            await fs.fetch_channel_resources(channel, db_session)
+        await db_session.rollback()
+        assert expired
+        async with async_session_factory() as observer:
+            assert (await observer.scalars(select(FileResource))).all() == []
+            assert (await observer.scalars(select(ResourcePublication))).all() == []
+        fake_queue.enqueue.assert_not_awaited()
+
+    @pytest.mark.parametrize("raises_loss", [False, True])
+    async def test_expired_backfill_cannot_finalize_channel(self, db_session, channel, fake_queue, monkeypatch, raises_loss):
+        from app.database import async_session_factory
+        from app.services import task_queue
+
+        channel_id = channel.id
+        expired = False
+
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired during backfill")
+
+        async def backfill(*args, **kwargs):
+            nonlocal expired
+            expired = True
+            if raises_loss:
+                raise task_queue.ExecutionOwnershipLostError("Backfill lost ownership")
+            return 0
+
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr(fs, "_parse_feed_sync", lambda _: _mock_feed([]))
+        monkeypatch.setattr(fs, "_backfill_unmatched_resources", backfill)
+        with pytest.raises(task_queue.ExecutionOwnershipLostError):
+            await fs.fetch_channel_resources(channel, db_session)
+        async with async_session_factory() as observer:
+            saved = await observer.get(Channel, channel_id)
+            assert saved.last_fetch_status == "running"
+            assert saved.last_fetched_at is None
+        fake_queue.enqueue.assert_not_awaited()
+
     async def test_feed_fetch_failure_marks_channel_error(self, db_session, channel, fake_queue):
         with patch(
             "app.services.fetch_service._parse_feed_sync",
@@ -1458,6 +1524,59 @@ async def test_global_backfill_empty_returns_zero(db_session):
 async def test_reconcile_stale_raw_episodes_empty_returns_zero(db_session):
     assert await fs.reconcile_stale_raw_episodes(db_session) == 0
     assert await fs.reconcile_stale_raw_episodes(db_session, return_resource_ids=True) == []
+
+
+@pytest.mark.parametrize("phase", ["entry", "published"])
+async def test_reconcile_loss_preserves_episode_and_publications(db_session, channel, monkeypatch, phase):
+    from sqlalchemy import func, select
+
+    from app.database import async_session_factory, committed_session
+    from app.models.resource_publication import ResourcePublication
+    from app.models.series import TVSeries
+    from app.models.work_collection import WorkCollection
+    from app.services import resource_publication, task_queue
+    from app.services.publication_migration import bootstrap_publications
+
+    collection = WorkCollection(title_cn="Synthetic history")
+    db_session.add(collection)
+    await db_session.flush()
+    series = TVSeries(title_cn="Synthetic history", collection_id=collection.id,
+                      season_number=4, number_of_episodes=24)
+    db_session.add(series)
+    await db_session.flush()
+    for guid, absolute, confidence in (("anchor", 89, "manual"), ("target", 90, "raw")):
+        row = FileResource(channel_id=channel.id, guid=guid, title_raw="[G] Synthetic S4 - 18",
+                           torrent_url="magnet:?xt=synthetic", series_id=series.id, season=4,
+                           episode=18, absolute_episode=absolute, episode_confidence=confidence,
+                           subtitle_group="GROUP")
+        db_session.add(row)
+    await db_session.flush()
+    target_id = row.id
+    await bootstrap_publications(db_session, writers_stopped=True)
+    await db_session.commit()
+    before = await db_session.scalar(select(func.count()).select_from(ResourcePublication))
+    expired = phase == "entry"
+    original = resource_publication.publish_resource
+
+    async def publish(*args, **kwargs):
+        nonlocal expired
+        result = await original(*args, **kwargs)
+        expired = True
+        return result
+
+    async def guard():
+        if expired:
+            raise task_queue.ExecutionOwnershipLostError("reconciliation expired")
+
+    monkeypatch.setattr(resource_publication, "publish_resource", publish)
+    monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+    with pytest.raises(task_queue.ExecutionOwnershipLostError):
+        async with committed_session() as working:
+            await fs.reconcile_stale_raw_episodes(working)
+    async with async_session_factory() as observer:
+        saved = await observer.get(FileResource, target_id)
+        assert (saved.episode, saved.episode_confidence, saved.absolute_episode) == (18, "raw", 90)
+        assert await observer.scalar(select(func.count()).select_from(ResourcePublication)) == before
 
 
 async def test_reconcile_stale_history_backed_path(db_session, channel):

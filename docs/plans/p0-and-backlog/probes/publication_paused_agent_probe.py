@@ -6,21 +6,21 @@ assert os.environ.get("DATABASE_URL") == "sqlite+aioturso:///:memory:?isolation_
 import json
 from datetime import date, timedelta
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, patch  # noqa: F401
 
 from sqlalchemy import select
 
 import app.database as database
 import app.models  # noqa: F401
-import app.services.fetch_service as fetch_service
+import app.services.fetch_service as fetch_service  # noqa: F401
 from app.job_handlers import _handle_run_agent
 from app.models.agent import Agent
 from app.models.channel import Channel
 from app.models.download_task import DownloadTask
 from app.models.downloader import DownloaderInstance
 from app.models.movie import Movie
-from app.services.resource_publication import publish_resource
 from app.services.agent_publication_progress import reset_progress
+from app.services.resource_publication import publish_resource
 from app.utils.time import utcnow
 from tests.unit.test_agent_service import _make_resource
 
@@ -69,6 +69,7 @@ async def main():
         from app.api.v1.agents import update_agent
         from app.schemas.agent import AgentUpdate
         from app.services.agent_publication_progress import snapshot_publications
+
         async with database.async_session_factory() as changed:
             await update_agent(aid, AgentUpdate(status="paused"), changed)
         async with database.async_session_factory() as observer:
@@ -77,15 +78,22 @@ async def main():
         async with database.async_session_factory() as observer:
             after = await snapshot_publications(observer, aid, channel.id)
             tasks = list(await observer.scalars(select(DownloadTask)))
-        result = {"paused_run": paused, "task_count_while_paused": len(tasks), "pending_before": list(before.resource_ids), "pending_after": list(after.resource_ids)}
-        Path(os.environ["PROBE_RESULT_PATH"]).write_text(json.dumps(result, indent=2)+"\n")
-        assert paused.get("status") == "skipped" and not tasks and before == after, "automatic queued run consumed paused Agent"
+        result = {
+            "paused_run": paused,
+            "task_count_while_paused": len(tasks),
+            "pending_before": list(before.resource_ids),
+            "pending_after": list(after.resource_ids),
+        }
+        Path(os.environ["PROBE_RESULT_PATH"]).write_text(json.dumps(result, indent=2) + "\n")
+        assert paused.get("status") == "skipped" and not tasks and before == after, (
+            "automatic queued run consumed paused Agent"
+        )
         async with database.async_session_factory() as changed:
             await update_agent(aid, AgentUpdate(status="active"), changed)
         resumed = await _handle_run_agent({"agent_id": aid, "automatic": True})
         assert resumed["dispatched"] == 1 and not resumed["errors"], resumed
         result["resumed_run"] = resumed
-        Path(os.environ["PROBE_RESULT_PATH"]).write_text(json.dumps(result, indent=2)+"\n")
+        Path(os.environ["PROBE_RESULT_PATH"]).write_text(json.dumps(result, indent=2) + "\n")
 
 
 asyncio.run(main())

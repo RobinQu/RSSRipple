@@ -1,0 +1,114 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+___ test_resource_regeneration_loss_rolls_back_snapshot_and_tokens[snapshot] ___
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fcbc126e3c0>
+seed = namespace(channel=<app.models.channel.Channel object at 0x7fcbc126e660>, downloader=<app.models.downloader.DownloaderI...resource.FileResource object at 0x7fcbc126f620>, task=<app.models.download_task.DownloadTask object at 0x7fcbba5e46e0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fcbc1271810>
+phase = 'snapshot'
+
+    @pytest.mark.parametrize("phase", ["snapshot", "invalidated"])
+    async def test_resource_regeneration_loss_rolls_back_snapshot_and_tokens(db_session, seed, monkeypatch, phase):
+        from app.database import async_session_factory, committed_session
+        from app.models.download_notification import DownloadNotification
+        from app.models.webhook_delivery import WebhookDelivery
+        from app.services import task_queue
+    
+        db_session.add(_webhook(seed.agent.id))
+        notification, _ = await notify_service.create_notification_for_task(db_session, seed.task)
+        await db_session.commit()
+        await notify_service.ensure_deliveries(db_session)
+        [delivery] = await _deliveries(db_session, notification.id)
+        old_payload = notification.payload
+        old_token = delivery.attempt_token
+        notification_id, delivery_id = notification.id, delivery.id
+        expired = False
+        original_invalidate = notify_service._invalidate_delivery_attempts
+    
+        async def snapshot(*args):
+            nonlocal expired
+            expired = phase == "snapshot"
+            return {**old_payload, "test_stale_marker": True}, True
+    
+        async def invalidate(*args):
+            nonlocal expired
+            await original_invalidate(*args)
+            expired = True
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("regeneration expired")
+    
+        from unittest.mock import AsyncMock
+    
+        plans = AsyncMock()
+        monkeypatch.setattr(notify_service, "_build_snapshot", snapshot)
+        monkeypatch.setattr(notify_service, "_invalidate_delivery_attempts", invalidate)
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.services.organize_service.plan_for_notifications", plans)
+>       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_queue_notification_ownership.py:55: Failed
+_ test_resource_regeneration_loss_rolls_back_snapshot_and_tokens[invalidated] __
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fcbc121b610>
+seed = namespace(channel=<app.models.channel.Channel object at 0x7fcbc121bb10>, downloader=<app.models.downloader.DownloaderI...resource.FileResource object at 0x7fcbb9d6ee90>, task=<app.models.download_task.DownloadTask object at 0x7fcbb9d6fb10>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fcbb9c94450>
+phase = 'invalidated'
+
+    @pytest.mark.parametrize("phase", ["snapshot", "invalidated"])
+    async def test_resource_regeneration_loss_rolls_back_snapshot_and_tokens(db_session, seed, monkeypatch, phase):
+        from app.database import async_session_factory, committed_session
+        from app.models.download_notification import DownloadNotification
+        from app.models.webhook_delivery import WebhookDelivery
+        from app.services import task_queue
+    
+        db_session.add(_webhook(seed.agent.id))
+        notification, _ = await notify_service.create_notification_for_task(db_session, seed.task)
+        await db_session.commit()
+        await notify_service.ensure_deliveries(db_session)
+        [delivery] = await _deliveries(db_session, notification.id)
+        old_payload = notification.payload
+        old_token = delivery.attempt_token
+        notification_id, delivery_id = notification.id, delivery.id
+        expired = False
+        original_invalidate = notify_service._invalidate_delivery_attempts
+    
+        async def snapshot(*args):
+            nonlocal expired
+            expired = phase == "snapshot"
+            return {**old_payload, "test_stale_marker": True}, True
+    
+        async def invalidate(*args):
+            nonlocal expired
+            await original_invalidate(*args)
+            expired = True
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("regeneration expired")
+    
+        from unittest.mock import AsyncMock
+    
+        plans = AsyncMock()
+        monkeypatch.setattr(notify_service, "_build_snapshot", snapshot)
+        monkeypatch.setattr(notify_service, "_invalidate_delivery_attempts", invalidate)
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.services.organize_service.plan_for_notifications", plans)
+>       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_queue_notification_ownership.py:55: Failed
+=============================== warnings summary ===============================
+tests/unit/test_queue_notification_ownership.py::test_resource_regeneration_loss_rolls_back_snapshot_and_tokens[snapshot]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_queue_notification_ownership.py::test_resource_regeneration_loss_rolls_back_snapshot_and_tokens[snapshot]
+FAILED tests/unit/test_queue_notification_ownership.py::test_resource_regeneration_loss_rolls_back_snapshot_and_tokens[invalidated]
+2 failed, 11 deselected, 1 warning in 1.67s

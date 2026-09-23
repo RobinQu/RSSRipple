@@ -24,6 +24,21 @@ import app.services.magnet_resolve as mr
 from app.services.torrent_inspect import parse_torrent_files
 from app.utils.time import utcnow
 
+
+async def _run_claimed_attempt(resource_id):
+    from sqlalchemy import update
+
+    from app.database import async_session_factory
+    from app.models.file_resource import FileResource
+
+    attempt_id = str(uuid.uuid4())
+    async with async_session_factory() as db:
+        await db.execute(update(FileResource).where(FileResource.id == resource_id).values(
+            magnet_resolve_attempt_id=attempt_id, magnet_resolve_status="pending",
+        ))
+        await db.commit()
+    await mr._attempt_loop(resource_id, attempt_id)
+
 _VALID_TORRENT = {
     b"info": {
         b"name": b"root",
@@ -102,7 +117,6 @@ def _fake_lt(*, has_metadata: bool = True, parse_error: bool = False):
 def _reset_magnet_state():
     mr._session = None
     mr._semaphore = None
-    mr._inflight.clear()
     mr._background_tasks.clear()
     mr._unavailable_logged = False
     yield
@@ -174,7 +188,7 @@ async def test_launch_claim_guard_rejects_pending(
     monkeypatch.setattr(mr, "lt", _fake_lt())
     monkeypatch.setattr(mr.settings, "torrent_cache_dir", str(tmp_path))
 
-    async def _noop(resource_id):
+    async def _noop(resource_id, attempt_id=None):
         return None
 
     monkeypatch.setattr(mr, "_attempt_loop", _noop)
@@ -187,6 +201,194 @@ async def test_launch_claim_guard_rejects_pending(
     assert await mr.launch_resolution(r.id) is False
     await db_session.refresh(r)
     assert r.magnet_resolve_status == "pending"
+
+
+async def test_expired_queue_cannot_claim_magnet(db_session, sample_channel, monkeypatch):
+    from app.services import task_queue
+
+    monkeypatch.setattr(mr, "lt", _fake_lt())
+    run = AsyncMock()
+    monkeypatch.setattr(mr, "_attempt_loop", run)
+    monkeypatch.setattr(task_queue, "require_execution_ownership", AsyncMock(
+        side_effect=task_queue.ExecutionOwnershipLostError("Expired before magnet claim"),
+    ))
+    resource = await _make_magnet_resource(db_session, sample_channel.id)
+    try:
+        with pytest.raises(task_queue.ExecutionOwnershipLostError):
+            await mr.launch_resolution(resource.id)
+    finally:
+        await _drain_background()
+    run.assert_not_awaited()
+    await db_session.refresh(resource)
+    assert resource.magnet_resolve_status is None
+
+
+async def test_reclaimed_resource_can_launch_while_old_task_waits(db_session, sample_channel, monkeypatch):
+    from sqlalchemy import update
+
+    from app.database import async_session_factory
+    from app.models.file_resource import FileResource
+
+    monkeypatch.setattr(mr, "lt", _fake_lt())
+    release = asyncio.Event()
+    seen = []
+
+    async def attempt(resource_id, attempt_id):
+        seen.append(attempt_id)
+        await release.wait()
+
+    monkeypatch.setattr(mr, "_attempt_loop", attempt)
+    resource = await _make_magnet_resource(db_session, sample_channel.id)
+    try:
+        assert await mr.launch_resolution(resource.id)
+        async with async_session_factory() as recovery:
+            await recovery.execute(update(FileResource).where(FileResource.id == resource.id).values(
+                magnet_resolve_status=None, magnet_resolve_attempt_id=None,
+            ))
+            await recovery.commit()
+        assert await mr.launch_resolution(resource.id), "durable reclamation must permit replacement"
+    finally:
+        release.set()
+        await _drain_background()
+    assert len(seen) == 2 and len(set(seen)) == 2
+
+
+async def test_stale_manual_retry_preserves_new_claim(db_session, sample_channel, monkeypatch):
+    from app.api.v1.resources import resolve_magnet_metadata
+    from app.database import async_session_factory
+    from app.models.file_resource import FileResource
+
+    monkeypatch.setattr(mr, "lt", _fake_lt())
+    enqueue = AsyncMock()
+    monkeypatch.setattr(mr, "enqueue_resolution", enqueue)
+    resource = await _make_magnet_resource(db_session, sample_channel.id, magnet_resolve_status="failed")
+    resource_id = resource.id
+    new_attempt = str(uuid.uuid4())
+    async with async_session_factory() as other:
+        row = await other.get(FileResource, resource.id)
+        row.magnet_resolve_status = "pending"
+        row.magnet_resolve_attempt_id = new_attempt
+        row.magnet_resolve_attempts = 2
+        await other.commit()
+    assert resource.magnet_resolve_status == "failed", "exercise the stale identity-map read"
+    response = await resolve_magnet_metadata(resource.id, db=db_session)
+    assert response.status_code == 409
+    enqueue.assert_not_awaited()
+    async with async_session_factory() as observer:
+        saved = await observer.get(FileResource, resource_id)
+        assert saved.magnet_resolve_attempt_id == new_attempt
+        assert saved.magnet_resolve_status == "pending" and saved.magnet_resolve_attempts == 2
+
+
+async def test_inspection_discards_changes_after_attempt_replaced(db_session, sample_channel, monkeypatch, tmp_path):
+    from app.database import async_session_factory
+    from app.models.file_resource import FileResource
+
+    resource = await _make_magnet_resource(db_session, sample_channel.id)
+    resource_id = resource.id
+    attempt_id = str(uuid.uuid4())
+    replacement_id = str(uuid.uuid4())
+    resource.magnet_resolve_attempt_id = attempt_id
+    await db_session.commit()
+    monkeypatch.setattr(mr.settings, "torrent_cache_dir", str(tmp_path))
+    monkeypatch.setattr(mr, "resolve_magnet_to_cache", AsyncMock())
+
+    async def inspect(db, stale_resource, channel):
+        async with async_session_factory() as replacement:
+            row = await replacement.get(FileResource, resource_id)
+            row.magnet_resolve_attempt_id = replacement_id
+            row.magnet_resolve_status = "pending"
+            row.title_en = "Replacement title"
+            await replacement.commit()
+        stale_resource.title_en = "Stale inspection title"
+
+    monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", inspect)
+    await mr._attempt_loop(resource_id, attempt_id)
+    async with async_session_factory() as observer:
+        saved = await observer.get(FileResource, resource_id)
+        assert saved.magnet_resolve_attempt_id == replacement_id
+        assert saved.magnet_resolve_status == "pending"
+        assert saved.title_en == "Replacement title"
+
+
+async def test_detached_resolution_drops_only_queue_ownership(db_session, sample_channel, monkeypatch):
+    from contextvars import ContextVar
+
+    from app.services import task_queue
+
+    monkeypatch.setattr(mr, "lt", _fake_lt())
+    monkeypatch.setattr(task_queue, "require_execution_ownership", AsyncMock())
+    parent_owner = object()
+    trace = ContextVar("test_magnet_trace", default=None)
+    seen = []
+
+    async def attempt(resource_id, attempt_id):
+        seen.append((task_queue._execution_ownership.get(), trace.get(), attempt_id))
+
+    monkeypatch.setattr(mr, "_attempt_loop", attempt)
+    resource = await _make_magnet_resource(db_session, sample_channel.id)
+    owner_token = task_queue._execution_ownership.set(parent_owner)
+    trace_token = trace.set("keep-trace")
+    try:
+        assert await mr.launch_resolution(resource.id)
+        await _drain_background()
+        assert task_queue._execution_ownership.get() is parent_owner
+        await db_session.refresh(resource)
+        assert seen == [(None, "keep-trace", resource.magnet_resolve_attempt_id)]
+    finally:
+        task_queue._execution_ownership.reset(owner_token)
+        trace.reset(trace_token)
+
+
+@pytest.mark.parametrize("attempt_id", [None, "", "../invalid"])
+async def test_resolution_rejects_missing_or_invalid_identity(db_session, sample_channel, attempt_id):
+    resource = await _make_magnet_resource(db_session, sample_channel.id)
+    with pytest.raises((TypeError, ValueError)):
+        await mr._set_status(resource.id, attempt_id, magnet_resolve_status="running")
+    with pytest.raises((TypeError, ValueError)):
+        await mr._attempt_loop(resource.id, attempt_id)
+    await db_session.refresh(resource)
+    assert resource.magnet_resolve_status is None
+
+
+@pytest.mark.parametrize("outcome", ["failure", "success"])
+async def test_old_resolution_preserves_replacement_result(db_session, sample_channel, monkeypatch, outcome, tmp_path):
+    from app.database import async_session_factory
+    from app.models.file_resource import FileResource
+
+    resource = await _make_magnet_resource(db_session, sample_channel.id)
+    resource_id = resource.id
+    attempt_id = str(uuid.uuid4())
+    replacement_path = tmp_path / "replacement.torrent"
+    replacement_path.write_bytes(b"replacement bytes")
+    resource.magnet_resolve_attempt_id = attempt_id
+    await db_session.commit()
+    monkeypatch.setattr(mr.settings, "torrent_cache_dir", str(tmp_path))
+
+    async def replaced_then_failed(*args, **kwargs):
+        async with async_session_factory() as replacement:
+            row = await replacement.get(FileResource, resource_id)
+            row.magnet_resolve_status = "done"
+            row.magnet_resolve_attempt_id = str(uuid.uuid4())
+            row.magnet_resolve_error = None
+            row.torrent_file = str(replacement_path)
+            await replacement.commit()
+        if outcome == "failure":
+            raise mr.MagnetResolveError("Old resolver failed after replacement")
+        Path(args[1]).write_bytes(b"old attempt bytes")
+
+    monkeypatch.setattr(mr, "resolve_magnet_to_cache", replaced_then_failed)
+    monkeypatch.setattr(mr.settings, "magnet_resolve_max_attempts", 0)
+    monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", AsyncMock())
+    await mr._attempt_loop(resource_id, attempt_id)
+    async with async_session_factory() as observer:
+        saved = await observer.get(FileResource, resource_id)
+        assert saved.magnet_resolve_status == "done"
+        assert saved.magnet_resolve_error is None
+        assert saved.magnet_resolve_attempts == 0
+        assert saved.torrent_file == str(replacement_path)
+        assert replacement_path.read_bytes() == b"replacement bytes"
+        assert not (tmp_path / f"{resource_id}-{attempt_id}.torrent").exists()
 
 
 async def test_launch_skipped_when_libtorrent_missing(
@@ -801,26 +1003,18 @@ async def test_launch_disabled_returns_false(db_session, sample_channel, monkeyp
     assert r.magnet_resolve_status is None
 
 
-async def test_launch_skips_already_inflight_resource(monkeypatch):
+async def test_launch_skips_already_running_resource(db_session, sample_channel, monkeypatch):
     monkeypatch.setattr(mr, "lt", _fake_lt())
-    mr._inflight.add("already-running")
-    try:
-        assert await mr.launch_resolution("already-running") is False
-    finally:
-        mr._inflight.discard("already-running")
+    resource = await _make_magnet_resource(db_session, sample_channel.id, magnet_resolve_status="running")
+    assert await mr.launch_resolution(resource.id) is False
 
 
 async def test_run_resolution_swallows_crashed_attempt(monkeypatch):
-    async def _boom(resource_id):
+    async def _boom(resource_id, attempt_id):
         raise RuntimeError("crash")
 
     monkeypatch.setattr(mr, "_attempt_loop", _boom)
-    mr._inflight.add("crashed")
-    try:
-        await mr._run_resolution("crashed")
-    finally:
-        # The guard discards the inflight marker even after a crash.
-        assert "crashed" not in mr._inflight
+    await mr._run_resolution("crashed", str(uuid.uuid4()))
 
 
 # =============================================================================
@@ -830,7 +1024,7 @@ async def test_run_resolution_swallows_crashed_attempt(monkeypatch):
 async def test_attempt_loop_returns_when_row_disappeared(db_session, monkeypatch):
     """set_status(running) failing (row gone) exits the loop immediately."""
     monkeypatch.setattr(mr, "lt", _fake_lt())
-    await mr._attempt_loop("nonexistent-id")
+    await mr._attempt_loop("nonexistent-id", str(uuid.uuid4()))
 
 
 async def test_attempt_loop_returns_for_non_magnet(
@@ -841,7 +1035,7 @@ async def test_attempt_loop_returns_for_non_magnet(
     r = await _make_magnet_resource(
         db_session, sample_channel.id, torrent_url="https://x/plain.torrent"
     )
-    await mr._attempt_loop(r.id)
+    await _run_claimed_attempt(r.id)
     await db_session.refresh(r)
     assert r.magnet_resolve_status == "running"
 
@@ -864,7 +1058,7 @@ async def test_attempt_loop_resource_deleted_during_failure_returns(
         raise mr.MagnetResolveError("gone mid-flight")
 
     monkeypatch.setattr(mr, "resolve_magnet_to_cache", _delete_then_fail)
-    await mr._attempt_loop(r.id)
+    await _run_claimed_attempt(r.id)
 
 
 async def test_attempt_loop_unexpected_exception_marks_failed(
@@ -878,7 +1072,7 @@ async def test_attempt_loop_unexpected_exception_marks_failed(
 
     monkeypatch.setattr(mr, "resolve_magnet_to_cache", _boom)
     r = await _make_magnet_resource(db_session, sample_channel.id)
-    await mr._attempt_loop(r.id)
+    await _run_claimed_attempt(r.id)
     await db_session.refresh(r)
     assert r.magnet_resolve_status == "failed"
     assert r.magnet_resolve_error == "unexpected error: kaboom"
@@ -908,7 +1102,7 @@ async def test_attempt_loop_resource_deleted_after_done_returns(
         return await real_set_status(resource_id, **values)
 
     monkeypatch.setattr(mr, "_set_status", _set_status_and_delete)
-    await mr._attempt_loop(r.id)
+    await _run_claimed_attempt(r.id)
 
 
 async def test_attempt_loop_post_inspect_crash_keeps_done(

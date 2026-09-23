@@ -6,7 +6,7 @@
 > 本文件仅列出尚未完成的 P1–P3 项。**每条是一个复选框；完成并验证后直接删除该条**，规则见文末。
 > 行号基于评审时工作树，可能随改动漂移；以现象与函数名为准。
 
-> 2026-09-23 主干复核：当前 P0（P0-1/2/3/7/8/9）及 B9 的提交 `4c804ed` 已包含在本地 `main`；原 P0-4、P0-6 降级后的修复 `7fd8121`、`e535e1f` 也已包含。原 P0-5 仍按 P2 保留。核验基线 `35cb182`，本地领先本地记录的 `origin/main` 18 个提交，未推送远端；详情见 [PLAN.md](PLAN.md#p0-主干复核2026-09-23)。
+> 2026-09-23 主干复核：当前 P0（P0-1/2/3/7/8/9）及 B9 的提交 `4c804ed` 已包含在本地 `main`；原 P0-4、P0-6 降级后的修复 `7fd8121`、`e535e1f` 也已包含。原 P0-5 仍按 P2 保留。最新核验基线 `e536656`，本地领先本地记录的 `origin/main` 19 个提交，未推送远端；详情见 [PLAN.md](PLAN.md#p0-主干复核2026-09-23)。
 
 > B7 已完成 V13 全量验收，合入记录见 [V13](V13-CONSUMPTION-PROGRESS.md)。后续优先继续 B4 执行所有权及下载持久幂等，见 [V14](V14-QUEUE-OWNERSHIP.md)。
 
@@ -31,14 +31,12 @@
 
 ### 后台执行 / 调度 / 队列
 
-- [ ] **P1-B4 Redis consumer lease 过期致重复执行**：lease 15s/heartbeat 5s（`app/services/task_queue.py:43-44`），
-      事件循环阻塞超 15s 时 RUNNING 任务被恢复重入（`:483-548`）。**修复**：已有 consumer 心跳；治理阻塞并增加执行所有权/副作用幂等，延长 lease 只能缓解，同一事件循环再加心跳无效。 已用真实 Redis 双进程复现重复执行与旧完成覆盖，续接 [V14](V14-QUEUE-OWNERSHIP.md)。
-
-### 元数据匹配
+- [ ] **P1 元数据刷新并发覆盖人工标题**：`apply_work_metadata` 在海报请求前按旧对象计算并修改字段；请求期间另一事务提交人工标题和保护标记后，旧刷新仍覆盖标题。真实 PostgreSQL 双会话已复现，见 [V14 nv](V14-QUEUE-OWNERSHIP.md#postgresql-并发人工标题被刷新覆盖nv未修复)。网络完成后须在短事务内重新读取并保护作品行，再计算/应用差异；不得跨网络持有写锁。
 
 - [ ] **P1-M1 默认 MetadataAgent 路径未统一人工标题映射优先级**：默认分支未走
       `fetch_and_link_metadata` 的 ChannelRawTitleMapping；Agent 已有本地匹配、回退白名单及
       repository 的 season_hint 传递，不能宣称这些均失效。统一人工映射→本地匹配→Agent 的入口和测试。
+      2026-09-23 已用真实 Turso 和录制标题动态复现：普通路径落到人工映射电影，默认 Agent 的成功缓存却持久化到另一部电影，独立会话读取确认；必要性红测 `probes/manual_mapping_cache_probe.py`，失败证据 `probes/manual-mapping-sq.log`。冲突作品/映射/缓存为合成夹具，外部服务未参与；so/sp 为探针配置错误，不作为产品缺陷证据。下一批仍须覆盖标准化标题跨集匹配、旧 raw_title 回退、force_refresh、电影/季作品及合集资源形态保护。方案应共用人工映射解析入口并置于缓存/自动匹配之前，不能简单禁用缓存或跳过最终季号 reconciliation。V15 独立原型已加入电影/季作品目标保护和保存点，tt 完整映射矩阵 36 passed；ub Agent/Repository/抓取/映射回归 348 passed，合集 9 项及外部身份 6 项补验通过。并发与完整入口集成仍待补齐，未合入 main。
 - [ ] **P1-M2 单成员合集被当作可验证单季**：`app/services/metadata_service.py:1564-1575` 在
       `len(members)==1` 时直接链接，未校验 `verified_season_count`。**修复**：单成员不等于单季证据。
 - [ ] **P1-M3 维基整体故障被缓存为 `not_found`**：judge 路径硬编码 `"error": None`
@@ -86,6 +84,12 @@
 - [ ] **P1-F1 `WorkMetadataRefreshModal` 未国际化**：整个 modal 硬编码中文
       （`frontend/src/components/WorkMetadataRefreshModal.tsx`，被 `SeriesDetail`/`MovieDetail` 使用），
       en-US 用户看到中文。**修复**：接入 `useTranslation` 并补 locale key。
+
+### 海报缓存发布
+
+- [ ] **P2 未引用种子缓存回收**：代码复核未找到通用 torrent 缓存回收，删除资源及取消/崩溃后可能留下未引用文件；B4 的内容摘要/attempt 路径会增加旧版本残留。先提供引用与临时文件盘点，再设计有界回收，必须保护数据库引用、在途写入和历史路径；禁止仅凭文件年龄删除。本项为生命周期缺口，尚未量化生产占用。
+
+- [ ] **P2 海报写入失败留下残缺缓存且后续直接命中**：`download_and_cache_poster` 直接写最终路径，缓存命中只检查存在。V14 rh 在真实临时目录注入写入 4 字节后 OSError，第一次返回 None，第二次却返回残缺文件 URL（预期 62 字节）。应以同目录临时文件完整写入后原子发布，失败清理临时文件，并验证已有缓存的无效内容处理；同时避免同步磁盘写入阻塞事件循环。与 B4 的多作品元数据副作用相关，但严重度按 P2，不能将该复现扩大为已证明旧任务覆盖新元数据。
 
 ### P0-5（现 P2） `FileResource` 工作 FK 互斥 DB 约束
 
@@ -193,6 +197,8 @@
 ---
 
 ## P3
+
+- [ ] 离线 HTTP 集成门禁依赖外部能力而条件跳过：sn 的磁力终态重试等待 300 秒后 skip，11 项频道 LLM workflow 和 1 项 metadata search/link 因未配置提供者 skip。应使用录制输入与明确的本地提供者响应，建立不依赖公网且必跑的端到端用例；现有 API/服务组件覆盖不能替代完整串联。两项 live magnet 仍保留独立可选公网验收。逐项证据见 V14 跳过审计。
 
 - [ ] SSE 错误格式与 `error-handling.md:60` 契约不符（无 `event: error`）：
       `app/api/v1/channels.py:438-462`、`app/api/v1/resources.py:1192-1246`。

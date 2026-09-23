@@ -1,0 +1,60 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+____________ test_metadata_batch_stops_on_queue_loss[before_batch] _____________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fcd8e0f3380>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fcd8e0f6d70>
+phase = 'before_batch'
+
+    @pytest.mark.parametrize("phase", ["before_batch", "during_refresh"])
+    async def test_metadata_batch_stops_on_queue_loss(db_session, monkeypatch, phase):
+        first, second = Movie(title_cn="First"), Movie(title_cn="Second")
+        db_session.add_all([first, second])
+        await db_session.commit()
+        error = task_queue.ExecutionOwnershipLostError("Metadata worker lost ownership")
+        guard = AsyncMock(side_effect=error if phase == "before_batch" else None)
+        refresh = AsyncMock(side_effect=error)
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.services.metadata_search.refresh_work_by_source", refresh)
+>       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_queue_metadata_ownership.py:22: Failed
+------------------------------ Captured log call -------------------------------
+WARNING  app.job_handlers:job_handlers.py:346 [refresh_works] failed for movie/5f71206f-ce4a-4c78-a1dc-98197f409f89: Metadata worker lost ownership
+WARNING  app.job_handlers:job_handlers.py:346 [refresh_works] failed for movie/0192962e-7e6a-4a27-bbd5-52b2d01d35bb: Metadata worker lost ownership
+___________ test_metadata_batch_stops_on_queue_loss[during_refresh] ____________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fcd86a5d940>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fcd86a088d0>
+phase = 'during_refresh'
+
+    @pytest.mark.parametrize("phase", ["before_batch", "during_refresh"])
+    async def test_metadata_batch_stops_on_queue_loss(db_session, monkeypatch, phase):
+        first, second = Movie(title_cn="First"), Movie(title_cn="Second")
+        db_session.add_all([first, second])
+        await db_session.commit()
+        error = task_queue.ExecutionOwnershipLostError("Metadata worker lost ownership")
+        guard = AsyncMock(side_effect=error if phase == "before_batch" else None)
+        refresh = AsyncMock(side_effect=error)
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr("app.services.metadata_search.refresh_work_by_source", refresh)
+>       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_queue_metadata_ownership.py:22: Failed
+------------------------------ Captured log call -------------------------------
+WARNING  app.job_handlers:job_handlers.py:346 [refresh_works] failed for movie/ca9ecb96-a09e-448c-ba32-65873e534e7c: Metadata worker lost ownership
+WARNING  app.job_handlers:job_handlers.py:346 [refresh_works] failed for movie/09c5405a-16bc-4fd3-8b5f-78c0e97e5445: Metadata worker lost ownership
+=============================== warnings summary ===============================
+tests/unit/test_queue_metadata_ownership.py::test_metadata_batch_stops_on_queue_loss[before_batch]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_queue_metadata_ownership.py::test_metadata_batch_stops_on_queue_loss[before_batch]
+FAILED tests/unit/test_queue_metadata_ownership.py::test_metadata_batch_stops_on_queue_loss[during_refresh]
+2 failed, 1 warning in 1.08s

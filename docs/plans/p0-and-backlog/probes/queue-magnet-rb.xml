@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="2.507" timestamp="2026-09-23T09:10:42.914359+00:00" hostname="dl-workstation-albert"><testcase classname="tests.integration.queue_recovery.test_notification_recovery" name="test_queue_and_metadata_concurrency[magnet]" time="2.435"><failure message="AssertionError: Traceback (most recent call last):&#10;    File &quot;&lt;frozen runpy&gt;&quot;, line 198, in _run_module_as_main&#10;    File &quot;&lt;frozen runpy&gt;&quot;, line 88, in _run_code&#10;    File &quot;/tmp/rssripple-v14-dispatch-lx/tests/integration/queue_recovery/magnet_driver.py&quot;, line 90, in &lt;module&gt;&#10;      asyncio.run(main())&#10;      ~~~~~~~~~~~^^^^^^^^&#10;    File &quot;/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py&quot;, line 195, in run&#10;      return runner.run(main)&#10;             ~~~~~~~~~~^^^^^^&#10;    File &quot;/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py&quot;, line 118, in run&#10;      return self._loop.run_until_complete(task)&#10;             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^&#10;    File &quot;/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py&quot;, line 719, in run_until_complete&#10;      return future.result()&#10;             ~~~~~~~~~~~~~^^&#10;    File &quot;/tmp/rssripple-v14-dispatch-lx/tests/integration/queue_recovery/magnet_driver.py&quot;, line 77, in main&#10;      crash_result = await verify_recovery(db, channel, patcher, Path(directory))&#10;                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^&#10;    File &quot;/tmp/rssripple-v14-dispatch-lx/tests/integration/queue_recovery/magnet_crash.py&quot;, line 87, in verify_recovery&#10;      assert len(row.file_assignments) == 1&#10;             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^&#10;  AssertionError&#10;  &#10;assert 1 == 0&#10; +  where 1 = CompletedProcess(args=['/workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python', '-m', 'tests.integration.queue_...rify_recovery\n    assert len(row.file_assignments) == 1\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError\n').returncode">tmp_path = PosixPath('/tmp/rssripple-v14-magnet-rb-tests/test_queue_and_metadata_concur0')
+mode = 'magnet'
+
+    @pytest.mark.parametrize("mode", ["kill", "pause", "metadata", "agent", "magnet"])
+    async def test_queue_and_metadata_concurrency(tmp_path, mode):
+        admin_url = os.environ.get("QUEUE_RECOVERY_POSTGRES_URL")
+        redis_url = os.environ.get("QUEUE_RECOVERY_REDIS_URL")
+        if not admin_url or not redis_url:
+            if os.environ.get("QUEUE_RECOVERY_REQUIRED") == "1":
+                pytest.fail("Queue recovery gate requires dedicated PostgreSQL and Redis")
+            pytest.skip("Run the isolated integration gate for real queue recovery")
+        name = "queue_recovery_" + uuid.uuid4().hex
+        parts = urlsplit(admin_url)
+        assert parts.path == "/queue_recovery", "Refuse a non-test admin database"
+        admin = await asyncpg.connect(admin_url)
+        try:
+            await admin.execute(f'CREATE DATABASE "{name}"')
+            output = tmp_path / "recovery.json"
+            db_url = urlunsplit(parts._replace(scheme="postgresql+asyncpg", path="/" + name))
+            redis_parts = urlsplit(redis_url)
+            child_redis = urlunsplit(redis_parts._replace(path="/0" if mode == "kill" else "/1"))
+            env = dict(
+                os.environ,
+                QUEUE_RECOVERY_DATABASE_URL=db_url,
+                QUEUE_RECOVERY_REDIS_URL=child_redis,
+                QUEUE_RECOVERY_MODE=mode,
+                QUEUE_RECOVERY_RESULT=str(output),
+            )
+    
+            def run_driver():
+                module = {"metadata": "metadata_driver", "agent": "agent_driver", "magnet": "magnet_driver"}.get(mode, "notification_driver")
+                with subprocess.Popen(
+                    [sys.executable, "-m", "tests.integration.queue_recovery." + module],
+                    cwd=Path(__file__).resolve().parents[3],
+                    env=env,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    start_new_session=True,
+                ) as process:
+                    try:
+                        stdout, stderr = process.communicate(timeout=90)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(process.pid, signal.SIGKILL)
+                        stdout, stderr = process.communicate()
+                        raise AssertionError("Recovery driver timed out\n" + stdout + stderr) from None
+                    return subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
+    
+            result = await asyncio.to_thread(run_driver)
+            (tmp_path / "worker.log").write_text(result.stdout + result.stderr)
+&gt;           assert result.returncode == 0, result.stdout + result.stderr
+E           AssertionError: Traceback (most recent call last):
+E               File "&lt;frozen runpy&gt;", line 198, in _run_module_as_main
+E               File "&lt;frozen runpy&gt;", line 88, in _run_code
+E               File "/tmp/rssripple-v14-dispatch-lx/tests/integration/queue_recovery/magnet_driver.py", line 90, in &lt;module&gt;
+E                 asyncio.run(main())
+E                 ~~~~~~~~~~~^^^^^^^^
+E               File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 195, in run
+E                 return runner.run(main)
+E                        ~~~~~~~~~~^^^^^^
+E               File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 118, in run
+E                 return self._loop.run_until_complete(task)
+E                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+E               File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 719, in run_until_complete
+E                 return future.result()
+E                        ~~~~~~~~~~~~~^^
+E               File "/tmp/rssripple-v14-dispatch-lx/tests/integration/queue_recovery/magnet_driver.py", line 77, in main
+E                 crash_result = await verify_recovery(db, channel, patcher, Path(directory))
+E                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               File "/tmp/rssripple-v14-dispatch-lx/tests/integration/queue_recovery/magnet_crash.py", line 87, in verify_recovery
+E                 assert len(row.file_assignments) == 1
+E                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E             AssertionError
+E             
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['/workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python', '-m', 'tests.integration.queue_...rify_recovery\n    assert len(row.file_assignments) == 1\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError\n').returncode
+
+tests/integration/queue_recovery/test_notification_recovery.py:64: AssertionError</failure></testcase></testsuite></testsuites>

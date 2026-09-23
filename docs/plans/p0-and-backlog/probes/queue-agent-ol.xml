@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="2.002" timestamp="2026-09-23T06:04:08.036023+00:00" hostname="dl-workstation-albert"><testcase classname="tests.integration.organize.test_agent_request_failures" name="test_expired_agent_does_not_acknowledge_or_defer_requests[result]" time="0.544"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fcde07e2510&gt;
+session_factory = async_sessionmaker(class_='AsyncSession', bind=&lt;sqlalchemy.ext.asyncio.engine.AsyncEngine object at 0x7fcdde318890&gt;, autoflush=True, expire_on_commit=False)
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1414/test_expired_agent_does_not_ac0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7fcdde38d350&gt;
+failure_mode = 'result'
+
+    @pytest.mark.parametrize("failure_mode", ["result", "exception"])
+    async def test_expired_agent_does_not_acknowledge_or_defer_requests(
+        db_session, session_factory, tmp_path, monkeypatch, failure_mode,
+    ):
+        from app.services import agent_service
+    
+        chain = await seed(db_session, tmp_path)
+        await requests.request_resources(db_session, [chain.agent.id], [chain.resource.id])
+        await db_session.commit()
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise queue_module.ExecutionOwnershipLostError("Expired during processing")
+    
+        async def process(*args, **kwargs):
+            nonlocal expired
+            expired = True
+            if failure_mode == "exception":
+                raise queue_module.ExecutionOwnershipLostError("Expired during dispatch")
+            return agent_service.RunResult()
+    
+        monkeypatch.setattr(queue_module, "require_execution_ownership", guard)
+        monkeypatch.setattr(agent_service, "process_resources", process)
+&gt;       with pytest.raises(queue_module.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/integration/organize/test_agent_request_failures.py:57: Failed</failure></testcase><testcase classname="tests.integration.organize.test_agent_request_failures" name="test_expired_agent_does_not_acknowledge_or_defer_requests[exception]" time="0.472"><failure message="assert 1 == 0&#10; +  where 1 = &lt;app.models.agent_resource_request.AgentResourceRequest object at 0x7fcdde477380&gt;.attempt_count">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fcdd6f5f5c0&gt;
+session_factory = async_sessionmaker(class_='AsyncSession', bind=&lt;sqlalchemy.ext.asyncio.engine.AsyncEngine object at 0x7fcdde131dd0&gt;, autoflush=True, expire_on_commit=False)
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1414/test_expired_agent_does_not_ac1')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7fcddc397b50&gt;
+failure_mode = 'exception'
+
+    @pytest.mark.parametrize("failure_mode", ["result", "exception"])
+    async def test_expired_agent_does_not_acknowledge_or_defer_requests(
+        db_session, session_factory, tmp_path, monkeypatch, failure_mode,
+    ):
+        from app.services import agent_service
+    
+        chain = await seed(db_session, tmp_path)
+        await requests.request_resources(db_session, [chain.agent.id], [chain.resource.id])
+        await db_session.commit()
+        expired = False
+    
+        async def guard():
+            if expired:
+                raise queue_module.ExecutionOwnershipLostError("Expired during processing")
+    
+        async def process(*args, **kwargs):
+            nonlocal expired
+            expired = True
+            if failure_mode == "exception":
+                raise queue_module.ExecutionOwnershipLostError("Expired during dispatch")
+            return agent_service.RunResult()
+    
+        monkeypatch.setattr(queue_module, "require_execution_ownership", guard)
+        monkeypatch.setattr(agent_service, "process_resources", process)
+        with pytest.raises(queue_module.ExecutionOwnershipLostError):
+            await _handle_run_agent({"agent_id": chain.agent.id, "pending_requests": True})
+        async with session_factory() as observer:
+            pending = (await observer.scalars(select(AgentResourceRequest))).one()
+&gt;           assert pending.attempt_count == 0
+E           assert 1 == 0
+E            +  where 1 = &lt;app.models.agent_resource_request.AgentResourceRequest object at 0x7fcdde477380&gt;.attempt_count
+
+tests/integration/organize/test_agent_request_failures.py:61: AssertionError</failure></testcase></testsuite></testsuites>

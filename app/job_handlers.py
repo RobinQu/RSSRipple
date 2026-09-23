@@ -70,9 +70,11 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
     from app.models.series import TVSeries
     from app.services.agent_resource_requests import acknowledge_requests, defer_requests, snapshot_requests
     from app.services.agent_service import process_resources
+    from app.services.task_queue import ExecutionOwnershipLostError, require_execution_ownership
     from app.utils.time import utcnow
 
     await _refresh_runtime_config()
+    await require_execution_ownership()
     agent_id: str = payload["agent_id"]
     resource_ids: list[str] | None = payload.get("resource_ids")
     # Manual windowed run (scenario ④): the key's presence marks the run as
@@ -220,6 +222,7 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
                 ),
             )
 
+            await require_execution_ownership()
             progress_confirmed = False
             if run_result.errors:
                 await defer_requests(session, request_snapshots, "; ".join(run_result.errors))
@@ -266,6 +269,7 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
             run.matched_resource_ids = list(run_result.matched_resource_ids)
             run.errors = list(run_result.errors)
 
+            await require_execution_ownership()
             return {
                 "agent_id": agent_id,
                 "run_id": run.id,
@@ -279,7 +283,10 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
                 "errors": run_result.errors,
             }
 
+    except ExecutionOwnershipLostError:
+        raise
     except Exception as error:
+        await require_execution_ownership()
         try:
             async with committed_session() as failure_db:
                 await defer_requests(failure_db, request_snapshots, str(error))
@@ -311,29 +318,38 @@ async def _refresh_works_batch(
     One short transaction per work; a single hung external search cannot
     stall the whole batch.
     """
+    from app.database import retry_on_lock
     from app.models.movie import Movie
     from app.models.series import TVSeries
     from app.services.metadata_search import refresh_work_by_source
+    from app.services.task_queue import ExecutionOwnershipLostError, require_execution_ownership
+
+    async def refresh_one(work_id, content_type):
+        await require_execution_ownership()
+        async with committed_session() as session:
+            work = await session.get(Movie if content_type == "movie" else TVSeries, work_id)
+            if work is None:
+                return {"found": False, "applied": [], "message": "work/title not found"}
+            return await refresh_work_by_source(
+                session, work, content_type, source,
+                trusted_sites=trusted_sites,
+                override_manual_edits=override_manual_edits,
+                only_missing=strategy == "fill_missing",
+            )
 
     results: list[dict] = []
     for item in items:
+        await require_execution_ownership()
         work_id = item.get("id")
         content_type = item.get("content_type")
         try:
-            async with committed_session() as session:
-                work = await session.get(Movie if content_type == "movie" else TVSeries, work_id)
-                if work is None:
-                    r = {"found": False, "applied": [], "message": "work/title not found"}
-                else:
-                    r = await asyncio.wait_for(
-                        refresh_work_by_source(
-                            session, work, content_type, source,
-                            trusted_sites=trusted_sites,
-                            override_manual_edits=override_manual_edits,
-                            only_missing=strategy == "fill_missing",
-                        ), timeout=_REFRESH_WORK_TIMEOUT,
-                    )
+            r = await asyncio.wait_for(
+                retry_on_lock(lambda: refresh_one(work_id, content_type)),
+                timeout=_REFRESH_WORK_TIMEOUT,
+            )
             results.append({"id": work_id, "content_type": content_type, **r})
+        except ExecutionOwnershipLostError:
+            raise
         except TimeoutError:
             logger.warning(
                 "[refresh_works] timed out after %ds for %s/%s",
@@ -427,8 +443,10 @@ async def _handle_reprocess_resource_metadata(payload: dict) -> dict:
     """
     from app.models.file_resource import FileResource
     from app.services.fetch_service import _process_resource_metadata
+    from app.services.task_queue import require_execution_ownership
 
     await _refresh_runtime_config()
+    await require_execution_ownership()
     resource_id: str = payload["resource_id"]
     try:
         await _process_resource_metadata(
@@ -438,10 +456,12 @@ async def _handle_reprocess_resource_metadata(payload: dict) -> dict:
             force_refresh=True,
         )
     finally:
+        await require_execution_ownership()
         async with committed_session() as session:
             resource = await session.get(FileResource, resource_id)
             if resource is not None:
                 resource.confirmation_ignored_at = None
+            await require_execution_ownership()
     return {"status": "done"}
 
 
@@ -494,15 +514,18 @@ async def _handle_analyze_batch_files(payload: dict) -> dict:
         build_candidate_works,
         resolve_fractional_specials,
     )
+    from app.services.task_queue import require_execution_ownership
     from app.services.torrent_inspect import analyze_torrent_files
 
     await _refresh_runtime_config()
+    await require_execution_ownership()
     resource_id: str = payload["resource_id"]
     fingerprint: str = payload["fingerprint"]
     job_key: str = payload["job_key"]
     output = ""
 
     async def progress(message: str, **extra) -> None:
+        await require_execution_ownership()
         await task_queue_module.task_queue.update_progress(job_key, {
             "message": message, "output": output, **extra,
         })
@@ -516,6 +539,7 @@ async def _handle_analyze_batch_files(payload: dict) -> dict:
         await progress("正在解析 torrent 文件清单")
         if not files:
             result = {"suggestion": None, "listing_source": source}
+            await require_execution_ownership()
             await _store_batch_analysis(fingerprint, result)
             return result
 
@@ -568,6 +592,7 @@ async def _handle_analyze_batch_files(payload: dict) -> dict:
                 title, listing, [cluster.title for cluster in report.clusters],
                 candidate_works,
             ):
+                await require_execution_ownership()
                 if kind == "delta":
                     output = f"{output}{value}"[-50_000:]
                     await progress("正在请求 LLM 分析作品归属", deterministic=deterministic)
@@ -605,6 +630,7 @@ async def _handle_analyze_batch_files(payload: dict) -> dict:
             "suggestion": {"deterministic": deterministic, "works": llm_works},
             "listing_source": source,
         }
+        await require_execution_ownership()
         await _store_batch_analysis(fingerprint, result)
         return {**result, "output": output}
 
@@ -703,10 +729,11 @@ async def _handle_magnet_resolve_sweep(payload: dict) -> dict:
     crash/restart kills the detached resolution task but leaves the row in
     "pending"/"running" forever (the claim UPDATE and the manual-retry
     endpoint both exclude those states). The staleness bound is the
-    worst-case legit attempt duration — (1 + max_attempts) * timeout +
-    max_attempts * 60s backoff + a 600s safety margin — which a live attempt
-    can never exceed, so reclaiming is safe. Reclaimed rows land on status
-    NULL and are picked up by the scan below in the same sweep.
+    configured attempt budget — (1 + max_attempts) * timeout +
+    max_attempts * 60s backoff + a 600s margin. This is a recovery policy,
+    not proof of process death: semaphore waits may exceed the budget.
+    Clearing the attempt identity fences subsequent old database writes.
+    Reclaimed rows land on NULL and are scanned again in the same sweep.
     """
     from datetime import timedelta
 
@@ -715,8 +742,10 @@ async def _handle_magnet_resolve_sweep(payload: dict) -> dict:
     from app.config import settings
     from app.models.file_resource import FileResource
     from app.services import magnet_resolve
+    from app.services.task_queue import ExecutionOwnershipLostError, require_execution_ownership
     from app.utils.time import utcnow
 
+    await require_execution_ownership()
     await _refresh_runtime_config()
 
     stale_before = utcnow() - timedelta(
@@ -728,6 +757,7 @@ async def _handle_magnet_resolve_sweep(payload: dict) -> dict:
         )
     )
     async with committed_session() as session:
+        await require_execution_ownership()
         reclaimed = (
             await session.execute(
                 update(FileResource)
@@ -738,6 +768,7 @@ async def _handle_magnet_resolve_sweep(payload: dict) -> dict:
                 )
                 .values(
                     magnet_resolve_status=None,
+                    magnet_resolve_attempt_id=None,
                     magnet_resolve_attempts=0,
                     magnet_resolve_error=(
                         "previous attempt interrupted (worker restarted)"
@@ -746,6 +777,7 @@ async def _handle_magnet_resolve_sweep(payload: dict) -> dict:
                 )
             )
         ).rowcount or 0
+        await require_execution_ownership()
     if reclaimed:
         logger.info("[magnet] sweep reclaimed %d stuck rows", reclaimed)
 
@@ -763,14 +795,18 @@ async def _handle_magnet_resolve_sweep(payload: dict) -> dict:
     enqueued = 0
     for resource_id in rows:
         try:
+            await require_execution_ownership()
             await magnet_resolve.enqueue_resolution(resource_id)
             enqueued += 1
+        except ExecutionOwnershipLostError:
+            raise
         except Exception as e:  # noqa: BLE001 — one bad row must not stop the sweep
             logger.warning(
                 "[magnet] sweep enqueue failed for %s: %s", resource_id, e
             )
     if enqueued:
         logger.info("[magnet] sweep enqueued %d resolutions", enqueued)
+    await require_execution_ownership()
     return {"status": "done", "enqueued": enqueued, "reclaimed": reclaimed}
 
 

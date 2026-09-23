@@ -1,0 +1,102 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+______ test_metadata_backfill_waits_for_siblings_before_raising[channel] _______
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fb506c0d010>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fb506e5aea0>
+scope = 'channel'
+
+    @pytest.mark.parametrize("scope", ["channel", "global"])
+    async def test_metadata_backfill_waits_for_siblings_before_raising(db_session, monkeypatch, scope):
+        import asyncio
+    
+        from app.models.channel import Channel
+        from app.models.file_resource import FileResource
+        from app.services import fetch_service
+    
+        channel = Channel(name="Drain", type="rss_feed", url="https://example.invalid",
+                          field_mapping={}, metadata_agent_enabled=True)
+        db_session.add(channel)
+        await db_session.flush()
+        rows = [FileResource(channel_id=channel.id, guid=str(i), title_raw="Synthetic",
+                             torrent_url="magnet:?xt=synthetic") for i in range(2)]
+        db_session.add_all(rows)
+        await db_session.commit()
+        entered, release, finished = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        first_id = rows[0].id
+    
+        async def process(resource_id, *args, **kwargs):
+            if resource_id == first_id:
+                await entered.wait()
+                raise task_queue.ExecutionOwnershipLostError("Expired sibling")
+            entered.set()
+            await release.wait()
+            finished.set()
+    
+        monkeypatch.setattr(fetch_service, "_process_resource_metadata", process)
+        operation = (fetch_service.backfill_unmatched_resources_global(db_session) if scope == "global"
+                     else fetch_service._backfill_unmatched_resources(channel, db_session, asyncio.Semaphore(2), force=True))
+        parent = asyncio.create_task(operation)
+        try:
+            await asyncio.wait_for(entered.wait(), 2)
+            done, _ = await asyncio.wait({parent}, timeout=0.05)
+>           assert not done, "Parent returned while a metadata sibling was still running"
+E           AssertionError: Parent returned while a metadata sibling was still running
+E           assert not {<Task finished name='Task-6' coro=<_backfill_unmatched_resources() done, defined at /tmp/rssripple-v14-dispatch-lx/app/services/fetch_service.py:442> exception=ExecutionOwnershipLostError('Expired sibling')>}
+
+tests/unit/test_queue_metadata_ownership.py:46: AssertionError
+_______ test_metadata_backfill_waits_for_siblings_before_raising[global] _______
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fb504f26990>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fb504f3a250>
+scope = 'global'
+
+    @pytest.mark.parametrize("scope", ["channel", "global"])
+    async def test_metadata_backfill_waits_for_siblings_before_raising(db_session, monkeypatch, scope):
+        import asyncio
+    
+        from app.models.channel import Channel
+        from app.models.file_resource import FileResource
+        from app.services import fetch_service
+    
+        channel = Channel(name="Drain", type="rss_feed", url="https://example.invalid",
+                          field_mapping={}, metadata_agent_enabled=True)
+        db_session.add(channel)
+        await db_session.flush()
+        rows = [FileResource(channel_id=channel.id, guid=str(i), title_raw="Synthetic",
+                             torrent_url="magnet:?xt=synthetic") for i in range(2)]
+        db_session.add_all(rows)
+        await db_session.commit()
+        entered, release, finished = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        first_id = rows[0].id
+    
+        async def process(resource_id, *args, **kwargs):
+            if resource_id == first_id:
+                await entered.wait()
+                raise task_queue.ExecutionOwnershipLostError("Expired sibling")
+            entered.set()
+            await release.wait()
+            finished.set()
+    
+        monkeypatch.setattr(fetch_service, "_process_resource_metadata", process)
+        operation = (fetch_service.backfill_unmatched_resources_global(db_session) if scope == "global"
+                     else fetch_service._backfill_unmatched_resources(channel, db_session, asyncio.Semaphore(2), force=True))
+        parent = asyncio.create_task(operation)
+        try:
+            await asyncio.wait_for(entered.wait(), 2)
+            done, _ = await asyncio.wait({parent}, timeout=0.05)
+>           assert not done, "Parent returned while a metadata sibling was still running"
+E           AssertionError: Parent returned while a metadata sibling was still running
+E           assert not {<Task finished name='Task-19' coro=<backfill_unmatched_resources_global() done, defined at /tmp/rssripple-v14-dispatch-lx/app/services/fetch_service.py:526> exception=ExecutionOwnershipLostError('Expired sibling')>}
+
+tests/unit/test_queue_metadata_ownership.py:46: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_queue_metadata_ownership.py::test_metadata_backfill_waits_for_siblings_before_raising[channel]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_queue_metadata_ownership.py::test_metadata_backfill_waits_for_siblings_before_raising[channel]
+FAILED tests/unit/test_queue_metadata_ownership.py::test_metadata_backfill_waits_for_siblings_before_raising[global]
+2 failed, 23 deselected, 1 warning in 1.06s

@@ -1,0 +1,26 @@
+{
+  "project": "rssripple-v14-final-ti",
+  "tests_exit": 0,
+  "passed": 3169,
+  "skipped": 17,
+  "warnings": 8,
+  "duration_seconds": 1885.85,
+  "app_exit": 0,
+  "app_llm_exit": 0,
+  "coverage_exit": 0,
+  "coverage": {
+    "version": "7.14.3",
+    "timestamp": "1790166837202",
+    "lines-valid": "23345",
+    "lines-covered": "20652",
+    "line-rate": "0.8846",
+    "branches-covered": "0",
+    "branches-valid": "0",
+    "branch-rate": "0",
+    "complexity": "0"
+  },
+  "export_exit": 0,
+  "cleanup_exit": 0,
+  "frozen_files": 3086,
+  "changed_frozen_files": []
+}

@@ -54,6 +54,26 @@ async def _wait_for(predicate, timeout: float = 5.0, interval: float = 0.05):
 # ---------------------------------------------------------------------------
 
 
+async def test_claimed_handler_can_publish_progress():
+    q = _make_queue()
+    observed = []
+
+    async def work(payload):
+        await q.update_progress("owned-progress", {"pct": 50})
+        observed.append((await q.status("owned-progress"))["result"])
+        return {"pct": 100}
+
+    q.register("work", work)
+    await q.start()
+    try:
+        await q.enqueue("work", "owned-progress", {})
+        assert await _wait_for(lambda: _status_is(q, "owned-progress", JobStatus.DONE))
+        assert observed == [{"pct": 50}]
+        assert (await q.status("owned-progress"))["result"] == {"pct": 100}
+    finally:
+        await q.stop()
+
+
 async def test_enqueue_dedup_priority_and_status():
     q = _make_queue()
     q.register("fetch", _async_noop)
@@ -75,7 +95,8 @@ async def test_enqueue_dedup_priority_and_status():
         assert await q.status("missing") is None
 
         await q.update_progress("key-1", {"pct": 50})
-        assert (await q.status("key-1"))["result"] == {"pct": 50}
+        # Enqueue alone grants no execution ownership.
+        assert (await q.status("key-1"))["result"] is None
         # 不存在的 key：静默忽略
         await q.update_progress("missing", {})
 
@@ -197,6 +218,7 @@ async def test_orphan_recovery_requeues_dead_consumer_jobs():
         dead = "dead-consumer:1"
         # 死消费者的 processing 描述符 + 对应 RUNNING 状态哈希
         msg = _msg("j-orphan", "k-orphan")
+        await r.set(f"{_ACTIVE_PFX}k-orphan", "j-orphan", ex=60)
         await r.lpush(f"{_PROCESSING_PFX}{dead}", msg)
         await r.hset(f"{_JOB_PFX}k-orphan", mapping={
             "job_id": "j-orphan", "job_type": "work", "key": "k-orphan",
@@ -268,6 +290,7 @@ async def test_startup_recovery_runs_before_worker_loop():
     dead = "dead:start"
     msg = _msg("j-start", "k-start")
     r = q._redis
+    await r.set(f"{_ACTIVE_PFX}k-start", "j-start", ex=60)
     await r.lpush(f"{_PROCESSING_PFX}{dead}", msg)
     await r.hset(f"{_JOB_PFX}k-start", mapping={
         "job_id": "j-start", "job_type": "work", "key": "k-start",
@@ -431,6 +454,7 @@ async def test_orphan_recovery_requeues_priority_job_at_front():
         r = q._redis
         dead = "dead:prio"
         msg = _msg("j-prio", "k-prio-orphan", job_type="download_notifications")
+        await r.set(f"{_ACTIVE_PFX}k-prio-orphan", "j-prio", ex=60)
         await r.lpush(f"{_PROCESSING_PFX}{dead}", msg)
         await r.hset(f"{_JOB_PFX}k-prio-orphan", mapping={
             "job_id": "j-prio", "job_type": "download_notifications",

@@ -1,0 +1,40 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________________ test_stale_manual_retry_preserves_new_claim __________________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f9366845550>
+sample_channel = <app.models.channel.Channel object at 0x7f9366845400>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f9366906ea0>
+
+    async def test_stale_manual_retry_preserves_new_claim(db_session, sample_channel, monkeypatch):
+        from app.api.v1.resources import resolve_magnet_metadata
+        from app.database import async_session_factory
+        from app.models.file_resource import FileResource
+    
+        monkeypatch.setattr(mr, "lt", _fake_lt())
+        enqueue = AsyncMock()
+        monkeypatch.setattr(mr, "enqueue_resolution", enqueue)
+        resource = await _make_magnet_resource(db_session, sample_channel.id, magnet_resolve_status="failed")
+        new_attempt = str(uuid.uuid4())
+        async with async_session_factory() as other:
+            row = await other.get(FileResource, resource.id)
+            row.magnet_resolve_status = "pending"
+            row.magnet_resolve_attempt_id = new_attempt
+            row.magnet_resolve_attempts = 2
+            await other.commit()
+        assert resource.magnet_resolve_status == "failed", "exercise the stale identity-map read"
+        response = await resolve_magnet_metadata(resource.id, db=db_session)
+>       assert response.status_code == 409
+               ^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'dict' object has no attribute 'status_code'
+
+tests/unit/test_magnet_resolve.py:245: AttributeError
+=============================== warnings summary ===============================
+tests/unit/test_magnet_resolve.py::test_stale_manual_retry_preserves_new_claim
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_magnet_resolve.py::test_stale_manual_retry_preserves_new_claim
+1 failed, 62 deselected, 1 warning in 0.78s

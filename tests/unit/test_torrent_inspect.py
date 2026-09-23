@@ -10,6 +10,7 @@ plus maybe_inspect_torrent (channel A write-back, preconditions, failures).
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -361,7 +362,7 @@ def _stub_httpx(monkeypatch, *, status: int = 200, chunks: list[bytes] | None = 
             return _Resp()
 
     async def _fake_to_thread(fn, *a, **kw):
-        return fn()
+        return fn(*a, **kw)
 
     async def _no_sleep(*a, **kw):
         return None
@@ -371,13 +372,115 @@ def _stub_httpx(monkeypatch, *, status: int = 200, chunks: list[bytes] | None = 
     monkeypatch.setattr(asyncio, "sleep", _no_sleep)
 
 
+@pytest.mark.parametrize("phase", ["mkdir", "parse", "write"])
+async def test_fetch_cache_work_keeps_event_loop_responsive(tmp_path, monkeypatch, phase):
+    import threading
+
+    real_to_thread = asyncio.to_thread
+    source = Path("tests/fixtures/metadata_corpus_v1/torrents/987a72c09d5b0c2e934fa5016cc4dda6427a80dc5a4594e284a06ccf966acdb2.torrent")
+    payload = source.read_bytes()
+    _stub_httpx(monkeypatch, chunks=[payload])
+    monkeypatch.setattr(asyncio, "to_thread", real_to_thread)
+    monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
+    loop = asyncio.get_running_loop()
+    responsive = []
+    target, attribute = (ti, "parse_torrent_payload") if phase == "parse" else (Path, "mkdir" if phase == "mkdir" else "write_bytes")
+    original = getattr(target, attribute)
+
+    def slow_operation(*args, **kwargs):
+        heartbeat = threading.Event()
+        loop.call_soon_threadsafe(heartbeat.set)
+        responsive.append(heartbeat.wait(timeout=1))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(target, attribute, slow_operation)
+    output = await fetch_torrent_file("https://example.invalid/recorded.torrent", "responsive")
+    assert output and Path(output).read_bytes() == payload
+    assert responsive and all(responsive), "event loop could not run while cache work was blocked"
+
+
+async def test_cancelled_cache_writer_cannot_overwrite_replacement(tmp_path, monkeypatch):
+    import threading
+
+    real_to_thread = asyncio.to_thread
+    old = _single_torrent("Old.S01E01.mkv", 500 * MB)
+    new = _single_torrent("New.S01E01.mkv", 500 * MB)
+    _stub_httpx_counting(monkeypatch, [("respond", 200, [old]), ("respond", 200, [new])])
+    monkeypatch.setattr(asyncio, "to_thread", real_to_thread)
+    monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
+    entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+    original = Path.write_bytes
+
+    def delayed_write(path, content):
+        if content == old:
+            entered.set()
+            try:
+                assert release.wait(5), "test writer was not released"
+                return original(path, content)
+            finally:
+                finished.set()
+        return original(path, content)
+
+    monkeypatch.setattr(Path, "write_bytes", delayed_write)
+    task = asyncio.create_task(fetch_torrent_file("https://example.invalid/old", "same-resource"))
+    try:
+        assert await real_to_thread(entered.wait, 3)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        replacement = await fetch_torrent_file("https://example.invalid/new", "same-resource")
+    finally:
+        release.set()
+        await real_to_thread(finished.wait, 3)
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+    assert replacement and Path(replacement).read_bytes() == new
+
+
+async def test_failed_cache_write_never_publishes_partial_file(tmp_path, monkeypatch):
+    payload = _single_torrent("Show.S01E01.mkv", 500 * MB)
+    _stub_httpx(monkeypatch, chunks=[payload])
+    monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
+    original = Path.write_bytes
+
+    def partial_write(path, content):
+        original(path, content[:4])
+        raise OSError("injected partial write")
+
+    monkeypatch.setattr(Path, "write_bytes", partial_write)
+    assert await fetch_torrent_file("https://example.invalid/partial", "partial") is None
+    assert list(tmp_path.iterdir()) == []
+
+
+async def test_existing_cache_validation_keeps_event_loop_responsive(tmp_path, monkeypatch):
+    import threading
+
+    path = tmp_path / "existing.torrent"
+    path.write_bytes(_single_torrent("Show.S01E01.mkv", 500 * MB))
+    resource = SimpleNamespace(torrent_file=str(path), torrent_url="https://example.invalid", id="existing")
+    original = ti.parse_torrent_files
+    loop = asyncio.get_running_loop()
+    responsive = []
+
+    def slow_parse(path):
+        heartbeat = threading.Event()
+        loop.call_soon_threadsafe(heartbeat.set)
+        responsive.append(heartbeat.wait(1))
+        return original(path)
+
+    monkeypatch.setattr(ti, "parse_torrent_files", slow_parse)
+    assert await ensure_torrent_cached(resource) == str(path)
+    assert responsive == [True], "existing cache parsing blocked the event loop"
+
+
 async def test_fetch_success(tmp_path, monkeypatch):
     monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
     payload = _single_torrent("Show.S01E01.mkv", 500 * MB)
     _stub_httpx(monkeypatch, chunks=[payload])
     out = await fetch_torrent_file("https://x/abc.torrent", "rid-1")
-    assert out == str(tmp_path / "rid-1.torrent")
-    assert (tmp_path / "rid-1.torrent").read_bytes() == payload
+    assert out == str(tmp_path / f"rid-1-{hashlib.sha256(payload).hexdigest()}.torrent")
+    assert Path(out).read_bytes() == payload
 
 
 async def test_fetch_invalid_bencode_is_not_written(tmp_path, monkeypatch):
@@ -425,7 +528,7 @@ async def test_fetch_network_error_returns_none(tmp_path, monkeypatch):
             raise ti.httpx.ConnectError("connection refused")
 
     async def _fake_to_thread(fn, *a, **kw):
-        return fn()
+        return fn(*a, **kw)
 
     async def _no_sleep(*a, **kw):
         return None
@@ -478,7 +581,7 @@ def _stub_httpx_counting(monkeypatch, behaviors):
             return _Resp(status, chunks)
 
     async def _fake_to_thread(fn, *a, **kw):
-        return fn()
+        return fn(*a, **kw)
 
     async def _no_sleep(*a, **kw):
         return None
@@ -497,7 +600,7 @@ async def test_fetch_retries_transient_failure_then_succeeds(tmp_path, monkeypat
         ("respond", 200, [payload]),
     ])
     out = await fetch_torrent_file("https://x/retry.torrent", "rid-retry")
-    assert out == str(tmp_path / "rid-retry.torrent")
+    assert out == str(tmp_path / f"rid-retry-{hashlib.sha256(payload).hexdigest()}.torrent")
     assert calls[0] == 2
 
 
@@ -572,6 +675,30 @@ def _stub_pipeline(monkeypatch, files, path="/tmp/rid-a.torrent"):
 
     monkeypatch.setattr(ti, "fetch_torrent_file", _fake_fetch)
     monkeypatch.setattr(ti, "parse_torrent_files", lambda p: files)
+
+
+@pytest.mark.parametrize("operation", ["parse_torrent_files", "analyze_torrent_files"])
+async def test_inspection_keeps_event_loop_responsive(tmp_path, monkeypatch, operation):
+    import threading
+
+    source = Path("tests/fixtures/metadata_corpus_v1/torrents/987a72c09d5b0c2e934fa5016cc4dda6427a80dc5a4594e284a06ccf966acdb2.torrent")
+    path = tmp_path / "recorded.torrent"
+    path.write_bytes(source.read_bytes())
+    resource = _resource(torrent_file=str(path))
+    original = getattr(ti, operation)
+    loop = asyncio.get_running_loop()
+    responsive = []
+
+    def slow_operation(*args):
+        heartbeat = threading.Event()
+        loop.call_soon_threadsafe(heartbeat.set)
+        responsive.append(heartbeat.wait(1))
+        return original(*args)
+
+    monkeypatch.setattr(ti, operation, slow_operation)
+    await maybe_inspect_torrent(None, resource)
+    assert responsive and all(responsive), "inspection blocked the queue event loop"
+    assert resource.torrent_file == str(path)
 
 
 async def test_inspect_season_pack_full_flow(monkeypatch):

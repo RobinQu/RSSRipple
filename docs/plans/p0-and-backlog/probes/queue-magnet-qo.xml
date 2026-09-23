@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.784" timestamp="2026-09-23T08:21:55.760531+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_magnet_resolve" name="test_stale_manual_retry_preserves_new_claim" time="0.642"><failure message="AttributeError: 'dict' object has no attribute 'status_code'">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f9366845550&gt;
+sample_channel = &lt;app.models.channel.Channel object at 0x7f9366845400&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f9366906ea0&gt;
+
+    async def test_stale_manual_retry_preserves_new_claim(db_session, sample_channel, monkeypatch):
+        from app.api.v1.resources import resolve_magnet_metadata
+        from app.database import async_session_factory
+        from app.models.file_resource import FileResource
+    
+        monkeypatch.setattr(mr, "lt", _fake_lt())
+        enqueue = AsyncMock()
+        monkeypatch.setattr(mr, "enqueue_resolution", enqueue)
+        resource = await _make_magnet_resource(db_session, sample_channel.id, magnet_resolve_status="failed")
+        new_attempt = str(uuid.uuid4())
+        async with async_session_factory() as other:
+            row = await other.get(FileResource, resource.id)
+            row.magnet_resolve_status = "pending"
+            row.magnet_resolve_attempt_id = new_attempt
+            row.magnet_resolve_attempts = 2
+            await other.commit()
+        assert resource.magnet_resolve_status == "failed", "exercise the stale identity-map read"
+        response = await resolve_magnet_metadata(resource.id, db=db_session)
+&gt;       assert response.status_code == 409
+               ^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'dict' object has no attribute 'status_code'
+
+tests/unit/test_magnet_resolve.py:245: AttributeError</failure></testcase></testsuite></testsuites>

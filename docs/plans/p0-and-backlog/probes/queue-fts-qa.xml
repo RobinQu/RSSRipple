@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.713" timestamp="2026-09-23T07:35:01.248600+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_fts" name="test_reconcile_loss_stops_after_first_shadow_table" time="0.596"><failure message="Failed: DID NOT RAISE ExecutionOwnershipLostError">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f5aa8c53a10&gt;
+sample_series = &lt;app.models.series.TVSeries object at 0x7f5aa8990050&gt;
+sample_movie = &lt;app.models.movie.Movie object at 0x7f5aa89916a0&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f5aa8c55810&gt;
+
+    async def test_reconcile_loss_stops_after_first_shadow_table(db_session, sample_series, sample_movie, monkeypatch):
+        import pytest
+        from sqlalchemy import text
+    
+        from app.services import fts, scheduler, task_queue
+    
+        await db_session.commit()
+        await backfill_fts_if_empty(db_session)
+        engine = fts._get_fts_engine()
+        async with engine.begin() as conn:
+            await conn.execute(text("DELETE FROM tv_series_fts"))
+            await conn.execute(text("DELETE FROM movie_fts"))
+        expired = False
+        writes = []
+        write = fts._shadow_write
+    
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired after first table")
+    
+        async def write_then_expire(statements):
+            nonlocal expired
+            await write(statements)
+            writes.append(statements)
+            expired = True
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr(fts, "_shadow_write", write_then_expire)
+&gt;       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_fts.py:315: Failed</failure></testcase></testsuite></testsuites>

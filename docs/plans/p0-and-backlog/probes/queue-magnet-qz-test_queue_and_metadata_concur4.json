@@ -1,0 +1,34 @@
+{
+  "backend": "postgresql",
+  "cases": [
+    {
+      "case": "legacy_migration_twice",
+      "passed": true
+    },
+    {
+      "case": "manual_retry",
+      "passed": true
+    },
+    {
+      "case": "inspection",
+      "passed": true
+    },
+    {
+      "case": "reclaimed",
+      "passed": true
+    },
+    {
+      "case": "entry",
+      "passed": true
+    },
+    {
+      "case": "after_update",
+      "passed": true
+    },
+    {
+      "case": "enqueue",
+      "passed": true
+    }
+  ],
+  "data": "synthetic resources; real concurrent database sessions; mocked libtorrent and inspection"
+}

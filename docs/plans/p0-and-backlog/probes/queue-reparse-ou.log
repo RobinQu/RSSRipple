@@ -1,0 +1,1502 @@
+FFFF                                                                     [100%]
+=================================== FAILURES ===================================
+____ test_reparse_only_current_execution_clears_confirmation_marker[before] ____
+
+self = <turso.lib.Cursor object at 0x7f759e3eb390>
+
+    def _fetchone_tuple(self) -> Optional[tuple[Any, ...]]:
+        """
+        Fetch one row as a plain Python tuple, or return None if no more rows.
+        """
+        if not self._active_has_rows or self._active_stmt is None:
+            return None
+        try:
+>           status = _step_once_with_io(self._active_stmt, self._connection.extra_io)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:823: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+stmt = <builtins.PyTursoStatement object at 0x7f759e383070>, extra_io = None
+
+    def _step_once_with_io(stmt: PyTursoStatement, extra_io: Optional[Callable[[], None]]) -> PyTursoStatusCode:
+        """
+        Run PyTursoStatement.step() once handling potential async IO loops.
+        """
+        while True:
+>           status = stmt.step()
+                     ^^^^^^^^^^^
+E           turso.Constraint: NOT NULL constraint failed: file_resources.torrent_url (19)
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:200: Constraint
+
+During handling of the above exception, another exception occurred:
+
+self = <sqlalchemy.engine.base.Connection object at 0x7f759e4f6d70>
+dialect = <app.db_turso_dialect.CompatAioTursoDialect object at 0x7f75a01c1450>
+context = <sqlalchemy.dialects.sqlite.aiosqlite.SQLiteExecutionContext_aiosqlite object at 0x7f759e3fef90>
+statement = <sqlalchemy.dialects.sqlite.base.SQLiteCompiler object at 0x7f759e47e550>
+parameters = [('753d7a88-0920-44f7-96d2-1f1d2f798990', '6d2b585f-924b-43d4-a9f9-39c0744730d8', 'reparse', 'Synthetic', None, None, ...)]
+
+    def _exec_single_context(
+        self,
+        dialect: Dialect,
+        context: ExecutionContext,
+        statement: Union[str, Compiled],
+        parameters: Optional[_AnyMultiExecuteParams],
+    ) -> CursorResult[Any]:
+        """continue the _execute_context() method for a single DBAPI
+        cursor.execute() or cursor.executemany() call.
+    
+        """
+        if dialect.bind_typing is BindTyping.SETINPUTSIZES:
+            generic_setinputsizes = context._prepare_set_input_sizes()
+    
+            if generic_setinputsizes:
+                try:
+                    dialect.do_set_input_sizes(
+                        context.cursor, generic_setinputsizes, context
+                    )
+                except BaseException as e:
+                    self._handle_dbapi_exception(
+                        e, str(statement), parameters, None, context
+                    )
+    
+        cursor, str_statement, parameters = (
+            context.cursor,
+            context.statement,
+            context.parameters,
+        )
+    
+        effective_parameters: Optional[_AnyExecuteParams]
+    
+        if not context.executemany:
+            effective_parameters = parameters[0]
+        else:
+            effective_parameters = parameters
+    
+        if self._has_events or self.engine._has_events:
+            for fn in self.dispatch.before_cursor_execute:
+                str_statement, effective_parameters = fn(
+                    self,
+                    cursor,
+                    str_statement,
+                    effective_parameters,
+                    context,
+                    context.executemany,
+                )
+    
+        if self._echo:
+            self._log_info(str_statement)
+    
+            stats = context._get_cache_stats()
+    
+            if not self.engine.hide_parameters:
+                self._log_info(
+                    "[%s] %r",
+                    stats,
+                    sql_util._repr_params(
+                        effective_parameters,
+                        batches=10,
+                        ismulti=context.executemany,
+                    ),
+                )
+            else:
+                self._log_info(
+                    "[%s] [SQL parameters hidden due to hide_parameters=True]",
+                    stats,
+                )
+    
+        evt_handled: bool = False
+        try:
+            if context.execute_style is ExecuteStyle.EXECUTEMANY:
+                effective_parameters = cast(
+                    "_CoreMultiExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_executemany:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_executemany(
+                        cursor,
+                        str_statement,
+                        effective_parameters,
+                        context,
+                    )
+            elif not effective_parameters and context.no_parameters:
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute_no_params:
+                        if fn(cursor, str_statement, context):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_execute_no_params(
+                        cursor, str_statement, context
+                    )
+            else:
+                effective_parameters = cast(
+                    "_CoreSingleExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+>                   self.dialect.do_execute(
+                        cursor, str_statement, effective_parameters, context
+                    )
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1969: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:230: in execute
+    self._adapt_connection._handle_exception(error)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:368: in _handle_exception
+    raise error.with_traceback(exc_info[2])
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:228: in execute
+    return self.await_(self._execute_async(operation, parameters))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:254: in _execute_async
+    self._rows = collections.deque(await self._cursor.fetchall())
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:303: in fetchall
+    return await self._connection._run(_all)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:95: in _run
+    return await fut
+           ^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/worker.py:38: in run
+    result = func()
+             ^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:301: in _all
+    return list(self._bcursor.fetchall())  # type: ignore[union-attr]
+                ^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:879: in fetchall
+    row = self._fetchone_tuple()
+          ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <turso.lib.Cursor object at 0x7f759e3eb390>
+
+    def _fetchone_tuple(self) -> Optional[tuple[Any, ...]]:
+        """
+        Fetch one row as a plain Python tuple, or return None if no more rows.
+        """
+        if not self._active_has_rows or self._active_stmt is None:
+            return None
+        try:
+            status = _step_once_with_io(self._active_stmt, self._connection.extra_io)
+            if status == Status.Row:
+                row_tuple = tuple(self._active_stmt.row())  # type: ignore[call-arg]
+                return row_tuple
+            # status == Done: finalize and clean up
+            self._active_stmt.finalize()
+            self._active_stmt = None
+            self._active_has_rows = False
+            return None
+        except Exception as exc:  # noqa: BLE001
+            # Finalize and clean up on error
+            try:
+                if self._active_stmt is not None:
+                    self._active_stmt.finalize()
+            except Exception:
+                pass
+            self._active_stmt = None
+            self._active_has_rows = False
+>           raise _map_turso_exception(exc)
+E           turso.lib.IntegrityError: NOT NULL constraint failed: file_resources.torrent_url (19)
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:841: IntegrityError
+
+The above exception was the direct cause of the following exception:
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f75a025cc20>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f75a03bb230>
+phase = 'before'
+
+    @pytest.mark.parametrize("phase", ["before", "during", "success", "failure"])
+    async def test_reparse_only_current_execution_clears_confirmation_marker(db_session, monkeypatch, phase):
+        from app.database import async_session_factory
+        from app.models.channel import Channel
+        from app.models.file_resource import FileResource
+        from app.utils.time import utcnow
+    
+        channel = Channel(name="Reparse", type="rss_feed", url="https://example.invalid", field_mapping={})
+        db_session.add(channel)
+        await db_session.flush()
+        marker = utcnow()
+        resource = FileResource(channel_id=channel.id, guid="reparse", title_raw="Synthetic", confirmation_ignored_at=marker)
+        db_session.add(resource)
+>       await db_session.commit()
+
+tests/unit/test_queue_metadata_ownership.py:25: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/ext/asyncio/session.py:999: in commit
+    await greenlet_spawn(self.sync_session.commit)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:2035: in commit
+    trans.commit(_to_root=True)
+<string>:2: in commit
+    ???
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:1316: in commit
+    self._prepare_impl()
+<string>:2: in _prepare_impl
+    ???
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:1290: in _prepare_impl
+    self.session.flush()
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:4353: in flush
+    self._flush(objects)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:4488: in _flush
+    with util.safe_reraise():
+         ^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/langhelpers.py:122: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:4449: in _flush
+    flush_context.execute()
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/unitofwork.py:465: in execute
+    rec.execute(self)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/unitofwork.py:641: in execute
+    util.preloaded.orm_persistence.save_obj(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/persistence.py:94: in save_obj
+    _emit_insert_statements(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/persistence.py:1234: in _emit_insert_statements
+    result = connection.execute(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1421: in execute
+    return meth(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/sql/elements.py:526: in _execute_on_connection
+    return connection._execute_clauseelement(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1643: in _execute_clauseelement
+    ret = self._execute_context(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1848: in _execute_context
+    return self._exec_single_context(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1988: in _exec_single_context
+    self._handle_dbapi_exception(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:2365: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1969: in _exec_single_context
+    self.dialect.do_execute(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:230: in execute
+    self._adapt_connection._handle_exception(error)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:368: in _handle_exception
+    raise error.with_traceback(exc_info[2])
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:228: in execute
+    return self.await_(self._execute_async(operation, parameters))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:254: in _execute_async
+    self._rows = collections.deque(await self._cursor.fetchall())
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:303: in fetchall
+    return await self._connection._run(_all)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:95: in _run
+    return await fut
+           ^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/worker.py:38: in run
+    result = func()
+             ^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:301: in _all
+    return list(self._bcursor.fetchall())  # type: ignore[union-attr]
+                ^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:879: in fetchall
+    row = self._fetchone_tuple()
+          ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <turso.lib.Cursor object at 0x7f759e3eb390>
+
+    def _fetchone_tuple(self) -> Optional[tuple[Any, ...]]:
+        """
+        Fetch one row as a plain Python tuple, or return None if no more rows.
+        """
+        if not self._active_has_rows or self._active_stmt is None:
+            return None
+        try:
+            status = _step_once_with_io(self._active_stmt, self._connection.extra_io)
+            if status == Status.Row:
+                row_tuple = tuple(self._active_stmt.row())  # type: ignore[call-arg]
+                return row_tuple
+            # status == Done: finalize and clean up
+            self._active_stmt.finalize()
+            self._active_stmt = None
+            self._active_has_rows = False
+            return None
+        except Exception as exc:  # noqa: BLE001
+            # Finalize and clean up on error
+            try:
+                if self._active_stmt is not None:
+                    self._active_stmt.finalize()
+            except Exception:
+                pass
+            self._active_stmt = None
+            self._active_has_rows = False
+>           raise _map_turso_exception(exc)
+E           sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) NOT NULL constraint failed: file_resources.torrent_url (19)
+E           [SQL: INSERT INTO file_resources (id, channel_id, guid, title_raw, title_cn, title_en, search_title, subtitle_group, subtitle_groups_source, episode, season, title_year, is_batch, episode_start, episode_end, batch_scope, absolute_episode, episode_confidence, resolution, source, video_codec, audio_codec, subtitle_type, container, file_size, torrent_url, torrent_file, magnet_resolve_status, magnet_resolve_error, magnet_resolve_attempts, magnet_resolve_updated_at, detail_url, published_at, parsed_at, series_id, movie_id, audio_work_id, collection_id, metadata_matched_at, metadata_attempts, last_metadata_attempt_at, metadata_failure_type, confirmation_ignored_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]
+E           [parameters: ('753d7a88-0920-44f7-96d2-1f1d2f798990', '6d2b585f-924b-43d4-a9f9-39c0744730d8', 'reparse', 'Synthetic', None, None, None, None, None, None, None, None, 0, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, 0, None, None, None, None, None, None, None, None, None, 0, None, None, '2026-09-23 06:26:59.347271')]
+E           (Background on this error at: https://sqlalche.me/e/20/gkpj)
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:841: IntegrityError
+____ test_reparse_only_current_execution_clears_confirmation_marker[during] ____
+
+self = <turso.lib.Cursor object at 0x7f759c77be30>
+
+    def _fetchone_tuple(self) -> Optional[tuple[Any, ...]]:
+        """
+        Fetch one row as a plain Python tuple, or return None if no more rows.
+        """
+        if not self._active_has_rows or self._active_stmt is None:
+            return None
+        try:
+>           status = _step_once_with_io(self._active_stmt, self._connection.extra_io)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:823: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+stmt = <builtins.PyTursoStatement object at 0x7f757f8da8d0>, extra_io = None
+
+    def _step_once_with_io(stmt: PyTursoStatement, extra_io: Optional[Callable[[], None]]) -> PyTursoStatusCode:
+        """
+        Run PyTursoStatement.step() once handling potential async IO loops.
+        """
+        while True:
+>           status = stmt.step()
+                     ^^^^^^^^^^^
+E           turso.Constraint: NOT NULL constraint failed: file_resources.torrent_url (19)
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:200: Constraint
+
+During handling of the above exception, another exception occurred:
+
+self = <sqlalchemy.engine.base.Connection object at 0x7f759e47ed50>
+dialect = <app.db_turso_dialect.CompatAioTursoDialect object at 0x7f75a01c3390>
+context = <sqlalchemy.dialects.sqlite.aiosqlite.SQLiteExecutionContext_aiosqlite object at 0x7f759ce98d10>
+statement = <sqlalchemy.dialects.sqlite.base.SQLiteCompiler object at 0x7f759ce80050>
+parameters = [('b86c897d-3f54-4355-89c5-652d38305d38', 'e5f7d7c8-b0fb-49cd-8daf-ab3003440510', 'reparse', 'Synthetic', None, None, ...)]
+
+    def _exec_single_context(
+        self,
+        dialect: Dialect,
+        context: ExecutionContext,
+        statement: Union[str, Compiled],
+        parameters: Optional[_AnyMultiExecuteParams],
+    ) -> CursorResult[Any]:
+        """continue the _execute_context() method for a single DBAPI
+        cursor.execute() or cursor.executemany() call.
+    
+        """
+        if dialect.bind_typing is BindTyping.SETINPUTSIZES:
+            generic_setinputsizes = context._prepare_set_input_sizes()
+    
+            if generic_setinputsizes:
+                try:
+                    dialect.do_set_input_sizes(
+                        context.cursor, generic_setinputsizes, context
+                    )
+                except BaseException as e:
+                    self._handle_dbapi_exception(
+                        e, str(statement), parameters, None, context
+                    )
+    
+        cursor, str_statement, parameters = (
+            context.cursor,
+            context.statement,
+            context.parameters,
+        )
+    
+        effective_parameters: Optional[_AnyExecuteParams]
+    
+        if not context.executemany:
+            effective_parameters = parameters[0]
+        else:
+            effective_parameters = parameters
+    
+        if self._has_events or self.engine._has_events:
+            for fn in self.dispatch.before_cursor_execute:
+                str_statement, effective_parameters = fn(
+                    self,
+                    cursor,
+                    str_statement,
+                    effective_parameters,
+                    context,
+                    context.executemany,
+                )
+    
+        if self._echo:
+            self._log_info(str_statement)
+    
+            stats = context._get_cache_stats()
+    
+            if not self.engine.hide_parameters:
+                self._log_info(
+                    "[%s] %r",
+                    stats,
+                    sql_util._repr_params(
+                        effective_parameters,
+                        batches=10,
+                        ismulti=context.executemany,
+                    ),
+                )
+            else:
+                self._log_info(
+                    "[%s] [SQL parameters hidden due to hide_parameters=True]",
+                    stats,
+                )
+    
+        evt_handled: bool = False
+        try:
+            if context.execute_style is ExecuteStyle.EXECUTEMANY:
+                effective_parameters = cast(
+                    "_CoreMultiExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_executemany:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_executemany(
+                        cursor,
+                        str_statement,
+                        effective_parameters,
+                        context,
+                    )
+            elif not effective_parameters and context.no_parameters:
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute_no_params:
+                        if fn(cursor, str_statement, context):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_execute_no_params(
+                        cursor, str_statement, context
+                    )
+            else:
+                effective_parameters = cast(
+                    "_CoreSingleExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+>                   self.dialect.do_execute(
+                        cursor, str_statement, effective_parameters, context
+                    )
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1969: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:230: in execute
+    self._adapt_connection._handle_exception(error)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:368: in _handle_exception
+    raise error.with_traceback(exc_info[2])
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:228: in execute
+    return self.await_(self._execute_async(operation, parameters))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:254: in _execute_async
+    self._rows = collections.deque(await self._cursor.fetchall())
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:303: in fetchall
+    return await self._connection._run(_all)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:95: in _run
+    return await fut
+           ^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/worker.py:38: in run
+    result = func()
+             ^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:301: in _all
+    return list(self._bcursor.fetchall())  # type: ignore[union-attr]
+                ^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:879: in fetchall
+    row = self._fetchone_tuple()
+          ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <turso.lib.Cursor object at 0x7f759c77be30>
+
+    def _fetchone_tuple(self) -> Optional[tuple[Any, ...]]:
+        """
+        Fetch one row as a plain Python tuple, or return None if no more rows.
+        """
+        if not self._active_has_rows or self._active_stmt is None:
+            return None
+        try:
+            status = _step_once_with_io(self._active_stmt, self._connection.extra_io)
+            if status == Status.Row:
+                row_tuple = tuple(self._active_stmt.row())  # type: ignore[call-arg]
+                return row_tuple
+            # status == Done: finalize and clean up
+            self._active_stmt.finalize()
+            self._active_stmt = None
+            self._active_has_rows = False
+            return None
+        except Exception as exc:  # noqa: BLE001
+            # Finalize and clean up on error
+            try:
+                if self._active_stmt is not None:
+                    self._active_stmt.finalize()
+            except Exception:
+                pass
+            self._active_stmt = None
+            self._active_has_rows = False
+>           raise _map_turso_exception(exc)
+E           turso.lib.IntegrityError: NOT NULL constraint failed: file_resources.torrent_url (19)
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:841: IntegrityError
+
+The above exception was the direct cause of the following exception:
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f759e4a2990>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f75a018a8b0>
+phase = 'during'
+
+    @pytest.mark.parametrize("phase", ["before", "during", "success", "failure"])
+    async def test_reparse_only_current_execution_clears_confirmation_marker(db_session, monkeypatch, phase):
+        from app.database import async_session_factory
+        from app.models.channel import Channel
+        from app.models.file_resource import FileResource
+        from app.utils.time import utcnow
+    
+        channel = Channel(name="Reparse", type="rss_feed", url="https://example.invalid", field_mapping={})
+        db_session.add(channel)
+        await db_session.flush()
+        marker = utcnow()
+        resource = FileResource(channel_id=channel.id, guid="reparse", title_raw="Synthetic", confirmation_ignored_at=marker)
+        db_session.add(resource)
+>       await db_session.commit()
+
+tests/unit/test_queue_metadata_ownership.py:25: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/ext/asyncio/session.py:999: in commit
+    await greenlet_spawn(self.sync_session.commit)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:2035: in commit
+    trans.commit(_to_root=True)
+<string>:2: in commit
+    ???
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:1316: in commit
+    self._prepare_impl()
+<string>:2: in _prepare_impl
+    ???
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:1290: in _prepare_impl
+    self.session.flush()
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:4353: in flush
+    self._flush(objects)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:4488: in _flush
+    with util.safe_reraise():
+         ^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/langhelpers.py:122: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:4449: in _flush
+    flush_context.execute()
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/unitofwork.py:465: in execute
+    rec.execute(self)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/unitofwork.py:641: in execute
+    util.preloaded.orm_persistence.save_obj(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/persistence.py:94: in save_obj
+    _emit_insert_statements(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/persistence.py:1234: in _emit_insert_statements
+    result = connection.execute(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1421: in execute
+    return meth(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/sql/elements.py:526: in _execute_on_connection
+    return connection._execute_clauseelement(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1643: in _execute_clauseelement
+    ret = self._execute_context(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1848: in _execute_context
+    return self._exec_single_context(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1988: in _exec_single_context
+    self._handle_dbapi_exception(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:2365: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1969: in _exec_single_context
+    self.dialect.do_execute(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:230: in execute
+    self._adapt_connection._handle_exception(error)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:368: in _handle_exception
+    raise error.with_traceback(exc_info[2])
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:228: in execute
+    return self.await_(self._execute_async(operation, parameters))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:254: in _execute_async
+    self._rows = collections.deque(await self._cursor.fetchall())
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:303: in fetchall
+    return await self._connection._run(_all)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:95: in _run
+    return await fut
+           ^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/worker.py:38: in run
+    result = func()
+             ^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:301: in _all
+    return list(self._bcursor.fetchall())  # type: ignore[union-attr]
+                ^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:879: in fetchall
+    row = self._fetchone_tuple()
+          ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <turso.lib.Cursor object at 0x7f759c77be30>
+
+    def _fetchone_tuple(self) -> Optional[tuple[Any, ...]]:
+        """
+        Fetch one row as a plain Python tuple, or return None if no more rows.
+        """
+        if not self._active_has_rows or self._active_stmt is None:
+            return None
+        try:
+            status = _step_once_with_io(self._active_stmt, self._connection.extra_io)
+            if status == Status.Row:
+                row_tuple = tuple(self._active_stmt.row())  # type: ignore[call-arg]
+                return row_tuple
+            # status == Done: finalize and clean up
+            self._active_stmt.finalize()
+            self._active_stmt = None
+            self._active_has_rows = False
+            return None
+        except Exception as exc:  # noqa: BLE001
+            # Finalize and clean up on error
+            try:
+                if self._active_stmt is not None:
+                    self._active_stmt.finalize()
+            except Exception:
+                pass
+            self._active_stmt = None
+            self._active_has_rows = False
+>           raise _map_turso_exception(exc)
+E           sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) NOT NULL constraint failed: file_resources.torrent_url (19)
+E           [SQL: INSERT INTO file_resources (id, channel_id, guid, title_raw, title_cn, title_en, search_title, subtitle_group, subtitle_groups_source, episode, season, title_year, is_batch, episode_start, episode_end, batch_scope, absolute_episode, episode_confidence, resolution, source, video_codec, audio_codec, subtitle_type, container, file_size, torrent_url, torrent_file, magnet_resolve_status, magnet_resolve_error, magnet_resolve_attempts, magnet_resolve_updated_at, detail_url, published_at, parsed_at, series_id, movie_id, audio_work_id, collection_id, metadata_matched_at, metadata_attempts, last_metadata_attempt_at, metadata_failure_type, confirmation_ignored_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]
+E           [parameters: ('b86c897d-3f54-4355-89c5-652d38305d38', 'e5f7d7c8-b0fb-49cd-8daf-ab3003440510', 'reparse', 'Synthetic', None, None, None, None, None, None, None, None, 0, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, 0, None, None, None, None, None, None, None, None, None, 0, None, None, '2026-09-23 06:27:00.074652')]
+E           (Background on this error at: https://sqlalche.me/e/20/gkpj)
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:841: IntegrityError
+___ test_reparse_only_current_execution_clears_confirmation_marker[success] ____
+
+self = <turso.lib.Cursor object at 0x7f759ce758b0>
+
+    def _fetchone_tuple(self) -> Optional[tuple[Any, ...]]:
+        """
+        Fetch one row as a plain Python tuple, or return None if no more rows.
+        """
+        if not self._active_has_rows or self._active_stmt is None:
+            return None
+        try:
+>           status = _step_once_with_io(self._active_stmt, self._connection.extra_io)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:823: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+stmt = <builtins.PyTursoStatement object at 0x7f757fd700d0>, extra_io = None
+
+    def _step_once_with_io(stmt: PyTursoStatement, extra_io: Optional[Callable[[], None]]) -> PyTursoStatusCode:
+        """
+        Run PyTursoStatement.step() once handling potential async IO loops.
+        """
+        while True:
+>           status = stmt.step()
+                     ^^^^^^^^^^^
+E           turso.Constraint: NOT NULL constraint failed: file_resources.torrent_url (19)
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:200: Constraint
+
+During handling of the above exception, another exception occurred:
+
+self = <sqlalchemy.engine.base.Connection object at 0x7f759ce84f30>
+dialect = <app.db_turso_dialect.CompatAioTursoDialect object at 0x7f75a01c2e90>
+context = <sqlalchemy.dialects.sqlite.aiosqlite.SQLiteExecutionContext_aiosqlite object at 0x7f759cdcc350>
+statement = <sqlalchemy.dialects.sqlite.base.SQLiteCompiler object at 0x7f759ce82250>
+parameters = [('36ad4c24-b4f6-46e1-b600-8fc4a57afb3c', 'db6e4bf3-e79c-4897-bc4e-547c1e58c080', 'reparse', 'Synthetic', None, None, ...)]
+
+    def _exec_single_context(
+        self,
+        dialect: Dialect,
+        context: ExecutionContext,
+        statement: Union[str, Compiled],
+        parameters: Optional[_AnyMultiExecuteParams],
+    ) -> CursorResult[Any]:
+        """continue the _execute_context() method for a single DBAPI
+        cursor.execute() or cursor.executemany() call.
+    
+        """
+        if dialect.bind_typing is BindTyping.SETINPUTSIZES:
+            generic_setinputsizes = context._prepare_set_input_sizes()
+    
+            if generic_setinputsizes:
+                try:
+                    dialect.do_set_input_sizes(
+                        context.cursor, generic_setinputsizes, context
+                    )
+                except BaseException as e:
+                    self._handle_dbapi_exception(
+                        e, str(statement), parameters, None, context
+                    )
+    
+        cursor, str_statement, parameters = (
+            context.cursor,
+            context.statement,
+            context.parameters,
+        )
+    
+        effective_parameters: Optional[_AnyExecuteParams]
+    
+        if not context.executemany:
+            effective_parameters = parameters[0]
+        else:
+            effective_parameters = parameters
+    
+        if self._has_events or self.engine._has_events:
+            for fn in self.dispatch.before_cursor_execute:
+                str_statement, effective_parameters = fn(
+                    self,
+                    cursor,
+                    str_statement,
+                    effective_parameters,
+                    context,
+                    context.executemany,
+                )
+    
+        if self._echo:
+            self._log_info(str_statement)
+    
+            stats = context._get_cache_stats()
+    
+            if not self.engine.hide_parameters:
+                self._log_info(
+                    "[%s] %r",
+                    stats,
+                    sql_util._repr_params(
+                        effective_parameters,
+                        batches=10,
+                        ismulti=context.executemany,
+                    ),
+                )
+            else:
+                self._log_info(
+                    "[%s] [SQL parameters hidden due to hide_parameters=True]",
+                    stats,
+                )
+    
+        evt_handled: bool = False
+        try:
+            if context.execute_style is ExecuteStyle.EXECUTEMANY:
+                effective_parameters = cast(
+                    "_CoreMultiExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_executemany:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_executemany(
+                        cursor,
+                        str_statement,
+                        effective_parameters,
+                        context,
+                    )
+            elif not effective_parameters and context.no_parameters:
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute_no_params:
+                        if fn(cursor, str_statement, context):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_execute_no_params(
+                        cursor, str_statement, context
+                    )
+            else:
+                effective_parameters = cast(
+                    "_CoreSingleExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+>                   self.dialect.do_execute(
+                        cursor, str_statement, effective_parameters, context
+                    )
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1969: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:230: in execute
+    self._adapt_connection._handle_exception(error)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:368: in _handle_exception
+    raise error.with_traceback(exc_info[2])
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:228: in execute
+    return self.await_(self._execute_async(operation, parameters))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:254: in _execute_async
+    self._rows = collections.deque(await self._cursor.fetchall())
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:303: in fetchall
+    return await self._connection._run(_all)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:95: in _run
+    return await fut
+           ^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/worker.py:38: in run
+    result = func()
+             ^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:301: in _all
+    return list(self._bcursor.fetchall())  # type: ignore[union-attr]
+                ^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:879: in fetchall
+    row = self._fetchone_tuple()
+          ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <turso.lib.Cursor object at 0x7f759ce758b0>
+
+    def _fetchone_tuple(self) -> Optional[tuple[Any, ...]]:
+        """
+        Fetch one row as a plain Python tuple, or return None if no more rows.
+        """
+        if not self._active_has_rows or self._active_stmt is None:
+            return None
+        try:
+            status = _step_once_with_io(self._active_stmt, self._connection.extra_io)
+            if status == Status.Row:
+                row_tuple = tuple(self._active_stmt.row())  # type: ignore[call-arg]
+                return row_tuple
+            # status == Done: finalize and clean up
+            self._active_stmt.finalize()
+            self._active_stmt = None
+            self._active_has_rows = False
+            return None
+        except Exception as exc:  # noqa: BLE001
+            # Finalize and clean up on error
+            try:
+                if self._active_stmt is not None:
+                    self._active_stmt.finalize()
+            except Exception:
+                pass
+            self._active_stmt = None
+            self._active_has_rows = False
+>           raise _map_turso_exception(exc)
+E           turso.lib.IntegrityError: NOT NULL constraint failed: file_resources.torrent_url (19)
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:841: IntegrityError
+
+The above exception was the direct cause of the following exception:
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f759e4a3c50>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f759e3daa80>
+phase = 'success'
+
+    @pytest.mark.parametrize("phase", ["before", "during", "success", "failure"])
+    async def test_reparse_only_current_execution_clears_confirmation_marker(db_session, monkeypatch, phase):
+        from app.database import async_session_factory
+        from app.models.channel import Channel
+        from app.models.file_resource import FileResource
+        from app.utils.time import utcnow
+    
+        channel = Channel(name="Reparse", type="rss_feed", url="https://example.invalid", field_mapping={})
+        db_session.add(channel)
+        await db_session.flush()
+        marker = utcnow()
+        resource = FileResource(channel_id=channel.id, guid="reparse", title_raw="Synthetic", confirmation_ignored_at=marker)
+        db_session.add(resource)
+>       await db_session.commit()
+
+tests/unit/test_queue_metadata_ownership.py:25: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/ext/asyncio/session.py:999: in commit
+    await greenlet_spawn(self.sync_session.commit)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:2035: in commit
+    trans.commit(_to_root=True)
+<string>:2: in commit
+    ???
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:1316: in commit
+    self._prepare_impl()
+<string>:2: in _prepare_impl
+    ???
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:1290: in _prepare_impl
+    self.session.flush()
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:4353: in flush
+    self._flush(objects)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:4488: in _flush
+    with util.safe_reraise():
+         ^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/langhelpers.py:122: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:4449: in _flush
+    flush_context.execute()
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/unitofwork.py:465: in execute
+    rec.execute(self)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/unitofwork.py:641: in execute
+    util.preloaded.orm_persistence.save_obj(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/persistence.py:94: in save_obj
+    _emit_insert_statements(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/persistence.py:1234: in _emit_insert_statements
+    result = connection.execute(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1421: in execute
+    return meth(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/sql/elements.py:526: in _execute_on_connection
+    return connection._execute_clauseelement(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1643: in _execute_clauseelement
+    ret = self._execute_context(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1848: in _execute_context
+    return self._exec_single_context(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1988: in _exec_single_context
+    self._handle_dbapi_exception(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:2365: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1969: in _exec_single_context
+    self.dialect.do_execute(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:230: in execute
+    self._adapt_connection._handle_exception(error)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:368: in _handle_exception
+    raise error.with_traceback(exc_info[2])
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:228: in execute
+    return self.await_(self._execute_async(operation, parameters))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:254: in _execute_async
+    self._rows = collections.deque(await self._cursor.fetchall())
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:303: in fetchall
+    return await self._connection._run(_all)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:95: in _run
+    return await fut
+           ^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/worker.py:38: in run
+    result = func()
+             ^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:301: in _all
+    return list(self._bcursor.fetchall())  # type: ignore[union-attr]
+                ^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:879: in fetchall
+    row = self._fetchone_tuple()
+          ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <turso.lib.Cursor object at 0x7f759ce758b0>
+
+    def _fetchone_tuple(self) -> Optional[tuple[Any, ...]]:
+        """
+        Fetch one row as a plain Python tuple, or return None if no more rows.
+        """
+        if not self._active_has_rows or self._active_stmt is None:
+            return None
+        try:
+            status = _step_once_with_io(self._active_stmt, self._connection.extra_io)
+            if status == Status.Row:
+                row_tuple = tuple(self._active_stmt.row())  # type: ignore[call-arg]
+                return row_tuple
+            # status == Done: finalize and clean up
+            self._active_stmt.finalize()
+            self._active_stmt = None
+            self._active_has_rows = False
+            return None
+        except Exception as exc:  # noqa: BLE001
+            # Finalize and clean up on error
+            try:
+                if self._active_stmt is not None:
+                    self._active_stmt.finalize()
+            except Exception:
+                pass
+            self._active_stmt = None
+            self._active_has_rows = False
+>           raise _map_turso_exception(exc)
+E           sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) NOT NULL constraint failed: file_resources.torrent_url (19)
+E           [SQL: INSERT INTO file_resources (id, channel_id, guid, title_raw, title_cn, title_en, search_title, subtitle_group, subtitle_groups_source, episode, season, title_year, is_batch, episode_start, episode_end, batch_scope, absolute_episode, episode_confidence, resolution, source, video_codec, audio_codec, subtitle_type, container, file_size, torrent_url, torrent_file, magnet_resolve_status, magnet_resolve_error, magnet_resolve_attempts, magnet_resolve_updated_at, detail_url, published_at, parsed_at, series_id, movie_id, audio_work_id, collection_id, metadata_matched_at, metadata_attempts, last_metadata_attempt_at, metadata_failure_type, confirmation_ignored_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]
+E           [parameters: ('36ad4c24-b4f6-46e1-b600-8fc4a57afb3c', 'db6e4bf3-e79c-4897-bc4e-547c1e58c080', 'reparse', 'Synthetic', None, None, None, None, None, None, None, None, 0, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, 0, None, None, None, None, None, None, None, None, None, 0, None, None, '2026-09-23 06:27:00.715771')]
+E           (Background on this error at: https://sqlalche.me/e/20/gkpj)
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:841: IntegrityError
+___ test_reparse_only_current_execution_clears_confirmation_marker[failure] ____
+
+self = <turso.lib.Cursor object at 0x7f757fd95810>
+
+    def _fetchone_tuple(self) -> Optional[tuple[Any, ...]]:
+        """
+        Fetch one row as a plain Python tuple, or return None if no more rows.
+        """
+        if not self._active_has_rows or self._active_stmt is None:
+            return None
+        try:
+>           status = _step_once_with_io(self._active_stmt, self._connection.extra_io)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:823: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+stmt = <builtins.PyTursoStatement object at 0x7f757f9e1350>, extra_io = None
+
+    def _step_once_with_io(stmt: PyTursoStatement, extra_io: Optional[Callable[[], None]]) -> PyTursoStatusCode:
+        """
+        Run PyTursoStatement.step() once handling potential async IO loops.
+        """
+        while True:
+>           status = stmt.step()
+                     ^^^^^^^^^^^
+E           turso.Constraint: NOT NULL constraint failed: file_resources.torrent_url (19)
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:200: Constraint
+
+During handling of the above exception, another exception occurred:
+
+self = <sqlalchemy.engine.base.Connection object at 0x7f759d0b44b0>
+dialect = <app.db_turso_dialect.CompatAioTursoDialect object at 0x7f759e4a39d0>
+context = <sqlalchemy.dialects.sqlite.aiosqlite.SQLiteExecutionContext_aiosqlite object at 0x7f759cdcfe90>
+statement = <sqlalchemy.dialects.sqlite.base.SQLiteCompiler object at 0x7f759d014150>
+parameters = [('a7cb98d4-dd15-4d69-b5d9-b740db15643d', '5862c7f8-b146-440e-8cd3-3d144d396d16', 'reparse', 'Synthetic', None, None, ...)]
+
+    def _exec_single_context(
+        self,
+        dialect: Dialect,
+        context: ExecutionContext,
+        statement: Union[str, Compiled],
+        parameters: Optional[_AnyMultiExecuteParams],
+    ) -> CursorResult[Any]:
+        """continue the _execute_context() method for a single DBAPI
+        cursor.execute() or cursor.executemany() call.
+    
+        """
+        if dialect.bind_typing is BindTyping.SETINPUTSIZES:
+            generic_setinputsizes = context._prepare_set_input_sizes()
+    
+            if generic_setinputsizes:
+                try:
+                    dialect.do_set_input_sizes(
+                        context.cursor, generic_setinputsizes, context
+                    )
+                except BaseException as e:
+                    self._handle_dbapi_exception(
+                        e, str(statement), parameters, None, context
+                    )
+    
+        cursor, str_statement, parameters = (
+            context.cursor,
+            context.statement,
+            context.parameters,
+        )
+    
+        effective_parameters: Optional[_AnyExecuteParams]
+    
+        if not context.executemany:
+            effective_parameters = parameters[0]
+        else:
+            effective_parameters = parameters
+    
+        if self._has_events or self.engine._has_events:
+            for fn in self.dispatch.before_cursor_execute:
+                str_statement, effective_parameters = fn(
+                    self,
+                    cursor,
+                    str_statement,
+                    effective_parameters,
+                    context,
+                    context.executemany,
+                )
+    
+        if self._echo:
+            self._log_info(str_statement)
+    
+            stats = context._get_cache_stats()
+    
+            if not self.engine.hide_parameters:
+                self._log_info(
+                    "[%s] %r",
+                    stats,
+                    sql_util._repr_params(
+                        effective_parameters,
+                        batches=10,
+                        ismulti=context.executemany,
+                    ),
+                )
+            else:
+                self._log_info(
+                    "[%s] [SQL parameters hidden due to hide_parameters=True]",
+                    stats,
+                )
+    
+        evt_handled: bool = False
+        try:
+            if context.execute_style is ExecuteStyle.EXECUTEMANY:
+                effective_parameters = cast(
+                    "_CoreMultiExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_executemany:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_executemany(
+                        cursor,
+                        str_statement,
+                        effective_parameters,
+                        context,
+                    )
+            elif not effective_parameters and context.no_parameters:
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute_no_params:
+                        if fn(cursor, str_statement, context):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_execute_no_params(
+                        cursor, str_statement, context
+                    )
+            else:
+                effective_parameters = cast(
+                    "_CoreSingleExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+>                   self.dialect.do_execute(
+                        cursor, str_statement, effective_parameters, context
+                    )
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1969: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:230: in execute
+    self._adapt_connection._handle_exception(error)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:368: in _handle_exception
+    raise error.with_traceback(exc_info[2])
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:228: in execute
+    return self.await_(self._execute_async(operation, parameters))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:254: in _execute_async
+    self._rows = collections.deque(await self._cursor.fetchall())
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:303: in fetchall
+    return await self._connection._run(_all)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:95: in _run
+    return await fut
+           ^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/worker.py:38: in run
+    result = func()
+             ^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:301: in _all
+    return list(self._bcursor.fetchall())  # type: ignore[union-attr]
+                ^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:879: in fetchall
+    row = self._fetchone_tuple()
+          ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <turso.lib.Cursor object at 0x7f757fd95810>
+
+    def _fetchone_tuple(self) -> Optional[tuple[Any, ...]]:
+        """
+        Fetch one row as a plain Python tuple, or return None if no more rows.
+        """
+        if not self._active_has_rows or self._active_stmt is None:
+            return None
+        try:
+            status = _step_once_with_io(self._active_stmt, self._connection.extra_io)
+            if status == Status.Row:
+                row_tuple = tuple(self._active_stmt.row())  # type: ignore[call-arg]
+                return row_tuple
+            # status == Done: finalize and clean up
+            self._active_stmt.finalize()
+            self._active_stmt = None
+            self._active_has_rows = False
+            return None
+        except Exception as exc:  # noqa: BLE001
+            # Finalize and clean up on error
+            try:
+                if self._active_stmt is not None:
+                    self._active_stmt.finalize()
+            except Exception:
+                pass
+            self._active_stmt = None
+            self._active_has_rows = False
+>           raise _map_turso_exception(exc)
+E           turso.lib.IntegrityError: NOT NULL constraint failed: file_resources.torrent_url (19)
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:841: IntegrityError
+
+The above exception was the direct cause of the following exception:
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f759c8f35c0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f759cfe2210>
+phase = 'failure'
+
+    @pytest.mark.parametrize("phase", ["before", "during", "success", "failure"])
+    async def test_reparse_only_current_execution_clears_confirmation_marker(db_session, monkeypatch, phase):
+        from app.database import async_session_factory
+        from app.models.channel import Channel
+        from app.models.file_resource import FileResource
+        from app.utils.time import utcnow
+    
+        channel = Channel(name="Reparse", type="rss_feed", url="https://example.invalid", field_mapping={})
+        db_session.add(channel)
+        await db_session.flush()
+        marker = utcnow()
+        resource = FileResource(channel_id=channel.id, guid="reparse", title_raw="Synthetic", confirmation_ignored_at=marker)
+        db_session.add(resource)
+>       await db_session.commit()
+
+tests/unit/test_queue_metadata_ownership.py:25: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/ext/asyncio/session.py:999: in commit
+    await greenlet_spawn(self.sync_session.commit)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:2035: in commit
+    trans.commit(_to_root=True)
+<string>:2: in commit
+    ???
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:1316: in commit
+    self._prepare_impl()
+<string>:2: in _prepare_impl
+    ???
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:1290: in _prepare_impl
+    self.session.flush()
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:4353: in flush
+    self._flush(objects)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:4488: in _flush
+    with util.safe_reraise():
+         ^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/langhelpers.py:122: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:4449: in _flush
+    flush_context.execute()
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/unitofwork.py:465: in execute
+    rec.execute(self)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/unitofwork.py:641: in execute
+    util.preloaded.orm_persistence.save_obj(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/persistence.py:94: in save_obj
+    _emit_insert_statements(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/persistence.py:1234: in _emit_insert_statements
+    result = connection.execute(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1421: in execute
+    return meth(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/sql/elements.py:526: in _execute_on_connection
+    return connection._execute_clauseelement(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1643: in _execute_clauseelement
+    ret = self._execute_context(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1848: in _execute_context
+    return self._exec_single_context(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1988: in _exec_single_context
+    self._handle_dbapi_exception(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:2365: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1969: in _exec_single_context
+    self.dialect.do_execute(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:230: in execute
+    self._adapt_connection._handle_exception(error)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:368: in _handle_exception
+    raise error.with_traceback(exc_info[2])
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:228: in execute
+    return self.await_(self._execute_async(operation, parameters))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:254: in _execute_async
+    self._rows = collections.deque(await self._cursor.fetchall())
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:303: in fetchall
+    return await self._connection._run(_all)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:95: in _run
+    return await fut
+           ^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/worker.py:38: in run
+    result = func()
+             ^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:301: in _all
+    return list(self._bcursor.fetchall())  # type: ignore[union-attr]
+                ^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:879: in fetchall
+    row = self._fetchone_tuple()
+          ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <turso.lib.Cursor object at 0x7f757fd95810>
+
+    def _fetchone_tuple(self) -> Optional[tuple[Any, ...]]:
+        """
+        Fetch one row as a plain Python tuple, or return None if no more rows.
+        """
+        if not self._active_has_rows or self._active_stmt is None:
+            return None
+        try:
+            status = _step_once_with_io(self._active_stmt, self._connection.extra_io)
+            if status == Status.Row:
+                row_tuple = tuple(self._active_stmt.row())  # type: ignore[call-arg]
+                return row_tuple
+            # status == Done: finalize and clean up
+            self._active_stmt.finalize()
+            self._active_stmt = None
+            self._active_has_rows = False
+            return None
+        except Exception as exc:  # noqa: BLE001
+            # Finalize and clean up on error
+            try:
+                if self._active_stmt is not None:
+                    self._active_stmt.finalize()
+            except Exception:
+                pass
+            self._active_stmt = None
+            self._active_has_rows = False
+>           raise _map_turso_exception(exc)
+E           sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) NOT NULL constraint failed: file_resources.torrent_url (19)
+E           [SQL: INSERT INTO file_resources (id, channel_id, guid, title_raw, title_cn, title_en, search_title, subtitle_group, subtitle_groups_source, episode, season, title_year, is_batch, episode_start, episode_end, batch_scope, absolute_episode, episode_confidence, resolution, source, video_codec, audio_codec, subtitle_type, container, file_size, torrent_url, torrent_file, magnet_resolve_status, magnet_resolve_error, magnet_resolve_attempts, magnet_resolve_updated_at, detail_url, published_at, parsed_at, series_id, movie_id, audio_work_id, collection_id, metadata_matched_at, metadata_attempts, last_metadata_attempt_at, metadata_failure_type, confirmation_ignored_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]
+E           [parameters: ('a7cb98d4-dd15-4d69-b5d9-b740db15643d', '5862c7f8-b146-440e-8cd3-3d144d396d16', 'reparse', 'Synthetic', None, None, None, None, None, None, None, None, 0, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, 0, None, None, None, None, None, None, None, None, None, 0, None, None, '2026-09-23 06:27:01.422248')]
+E           (Background on this error at: https://sqlalche.me/e/20/gkpj)
+
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:841: IntegrityError
+=============================== warnings summary ===============================
+tests/unit/test_queue_metadata_ownership.py::test_reparse_only_current_execution_clears_confirmation_marker[before]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_queue_metadata_ownership.py::test_reparse_only_current_execution_clears_confirmation_marker[before]
+FAILED tests/unit/test_queue_metadata_ownership.py::test_reparse_only_current_execution_clears_confirmation_marker[during]
+FAILED tests/unit/test_queue_metadata_ownership.py::test_reparse_only_current_execution_clears_confirmation_marker[success]
+FAILED tests/unit/test_queue_metadata_ownership.py::test_reparse_only_current_execution_clears_confirmation_marker[failure]
+4 failed, 15 deselected, 1 warning in 2.88s

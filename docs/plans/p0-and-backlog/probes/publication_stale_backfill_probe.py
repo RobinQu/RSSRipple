@@ -8,8 +8,6 @@ from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-from app.services.agent_publication_progress import reset_progress
-from app.services.resource_publication import publish_resource
 from sqlalchemy import select
 
 import app.database as database
@@ -20,6 +18,8 @@ from app.models.channel import Channel
 from app.models.download_task import DownloadTask
 from app.models.downloader import DownloaderInstance
 from app.models.movie import Movie
+from app.services.agent_publication_progress import reset_progress
+from app.services.resource_publication import publish_resource
 from app.utils.time import utcnow
 from tests.unit.test_agent_service import _make_resource
 

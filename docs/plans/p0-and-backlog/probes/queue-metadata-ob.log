@@ -1,0 +1,55 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_specials_fallback_preserves_concurrent_manual_date ____________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7ffaff0dcd70>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7ffaff1a6d70>
+
+    async def test_specials_fallback_preserves_concurrent_manual_date(db_session, monkeypatch):
+        from datetime import date
+    
+        from app.database import async_session_factory
+        from app.models.series import TVSeries
+        from app.models.work_collection import WorkCollection
+        from app.services import metadata_search
+    
+        collection = WorkCollection(title_cn="Series")
+        db_session.add(collection)
+        await db_session.flush()
+        regular = TVSeries(title_cn="Season 1", season_number=1, collection_id=collection.id,
+                           start_date=date(2020, 1, 1))
+        special = TVSeries(title_cn="Special", season_number=0, collection_id=collection.id)
+        db_session.add_all([regular, special])
+        await db_session.commit()
+        special_id = special.id
+        fallback = metadata_search._collection_fallback_start_date
+    
+        async def compute_then_edit(*args):
+            result = await fallback(*args)
+            async with async_session_factory() as editor:
+                latest = await editor.get(TVSeries, special_id)
+                latest.start_date = date(2024, 5, 6)
+                latest.manually_edited_fields = ["start_date"]
+                await editor.commit()
+            return result
+    
+        monkeypatch.setattr(metadata_search, "_collection_fallback_start_date", compute_then_edit)
+        [result] = await job_handlers._refresh_works_batch(
+            [{"id": special_id, "content_type": "tv"}], "tmdb",
+        )
+>       assert result["found"] and result["applied"] == []
+E       AssertionError: assert (True and ['start_date'] == []
+E         
+E         Left contains one more item: 'start_date'
+E         Use -v to get more diff)
+
+tests/unit/test_queue_metadata_ownership.py:221: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_queue_metadata_ownership.py::test_specials_fallback_preserves_concurrent_manual_date
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_queue_metadata_ownership.py::test_specials_fallback_preserves_concurrent_manual_date
+1 failed, 8 deselected, 1 warning in 0.72s

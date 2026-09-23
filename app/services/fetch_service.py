@@ -190,6 +190,20 @@ async def reset_channel_metadata_for_source_change(
     return reset
 
 
+async def _gather_metadata(*operations) -> None:
+    """Drain started resource tasks before propagating a batch failure."""
+    from app.services.task_queue import ExecutionOwnershipLostError
+
+    results = await asyncio.gather(*operations, return_exceptions=True)
+    # Ownership loss must not be hidden behind an unrelated resource error.
+    for result in results:
+        if isinstance(result, ExecutionOwnershipLostError):
+            raise result
+    for result in results:
+        if isinstance(result, BaseException):
+            raise result
+
+
 async def _process_resource_metadata(
     resource_id: str,
     channel_id: str,
@@ -199,6 +213,7 @@ async def _process_resource_metadata(
 ) -> None:
     """Retry an uncommitted metadata transaction with a fresh session."""
     from app.database import retry_on_lock
+    from app.services.task_queue import ExecutionOwnershipLostError
 
     try:
         await retry_on_lock(
@@ -206,6 +221,8 @@ async def _process_resource_metadata(
                 resource_id, channel_id, semaphore, force_refresh=force_refresh
             )
         )
+    except ExecutionOwnershipLostError:
+        raise
     except Exception as exc:
         logger.warning("[metadata-task] retries exhausted for %s: %s", resource_id, exc)
 
@@ -232,9 +249,11 @@ async def _process_resource_metadata_once(
     from app.models.series import TVSeries
     from app.services.metadata_agent import get_agent
     from app.services.metadata_service import download_and_cache_poster
+    from app.services.task_queue import ExecutionOwnershipLostError, require_execution_ownership
     from app.services.torrent_inspect import ensure_torrent_cached, maybe_inspect_torrent
 
     async with semaphore:
+        await require_execution_ownership()
         async with async_session_factory() as task_db:
             metadata_committed = False
             try:
@@ -250,6 +269,7 @@ async def _process_resource_metadata_once(
                 # Cache the .torrent for every resource (http(s) direct links
                 # only) so later file-listing lookups never re-download.
                 await ensure_torrent_cached(resource)
+                await require_execution_ownership()
                 # magnet: links have no .torrent to fetch — kick off background
                 # metadata resolution (libtorrent, metadata-only) so the torrent
                 # cache / Channel A inspection can work later. Never blocks fetch.
@@ -271,11 +291,14 @@ async def _process_resource_metadata_once(
                 await maybe_inspect_torrent(task_db, resource, channel)
                 work_key = normalize_title(resource.search_title or extract_search_title(resource))
                 async with _work_metadata_lock(work_key):
+                    await require_execution_ownership()
                     if channel.metadata_agent_enabled:
                         try:
                             await get_agent().process(
                                 resource, channel, task_db, force_refresh=force_refresh
                             )
+                        except ExecutionOwnershipLostError:
+                            raise
                         except Exception as e:
                             logger.warning("MetadataAgent failed for %s: %s", resource_id, e)
                             base_title = _simple_title_clean(resource.title_raw)
@@ -284,8 +307,11 @@ async def _process_resource_metadata_once(
                     else:
                         try:
                             await fetch_and_link_metadata(task_db, resource, channel)
+                        except ExecutionOwnershipLostError:
+                            raise
                         except Exception as e:
                             logger.warning("Metadata linking failed for %s: %s", resource_id, e)
+                    await require_execution_ownership()
                     # Final shape guard shared by every metadata route. Cache
                     # hits and known-work title shortcuts bypass the repository
                     # write-back branch and may otherwise restore a flat FK
@@ -341,6 +367,8 @@ async def _process_resource_metadata_once(
                             )
 
                             await expand_bangumi_series_graph(task_db, resource)
+                        except ExecutionOwnershipLostError:
+                            raise
                         except Exception as e:  # noqa: BLE001 — never a downgrade
                             logger.warning(
                                 "[bangumi-graph] expansion failed for %s: %s",
@@ -360,6 +388,8 @@ async def _process_resource_metadata_once(
                             )
 
                             await bind_hint_clusters(task_db, resource, channel)
+                        except ExecutionOwnershipLostError:
+                            raise
                         except Exception as e:  # noqa: BLE001 — enrichment only
                             logger.warning(
                                 "[cluster-bind] post-graph pass failed for %s: %s",
@@ -378,6 +408,8 @@ async def _process_resource_metadata_once(
                             await dedupe_resource_movies(
                                 task_db, resource, channel=channel
                             )
+                        except ExecutionOwnershipLostError:
+                            raise
                         except Exception as e:  # noqa: BLE001 — enrichment only
                             logger.warning(
                                 "[franchise] movie dedup failed for %s: %s",
@@ -385,9 +417,11 @@ async def _process_resource_metadata_once(
                             )
                     from app.services.resource_publication import publish_resource
 
+                    await require_execution_ownership()
                     await publish_resource(task_db, resource.id, kind="metadata")
                     # Commit inside the lock: the next same-work task's lookup
                     # must see this task's series/movie row.
+                    await require_execution_ownership()
                     await task_db.commit()
                     metadata_committed = True
 
@@ -405,6 +439,7 @@ async def _process_resource_metadata_once(
                         local = await download_and_cache_poster(movie.poster_url)
                         if local:
                             movie.poster_url = local
+                await require_execution_ownership()
                 await task_db.commit()
             except Exception as e:
                 logger.warning("[metadata-task] failed for %s: %s", resource_id, e)
@@ -412,6 +447,8 @@ async def _process_resource_metadata_once(
                     await task_db.rollback()
                 except Exception:
                     pass
+                if isinstance(e, ExecutionOwnershipLostError):
+                    raise
                 if not metadata_committed and _is_retryable_lock_error(e):
                     raise
 
@@ -491,7 +528,7 @@ async def _backfill_unmatched_resources(
         # external calls only stalls concurrent writers and startup DDL
         # (PostgreSQL queues lock requests behind a waiting ALTER).
         await db.commit()
-        await asyncio.gather(
+        await _gather_metadata(
             *(
                 _process_resource_metadata(rid, channel.id, semaphore, force_refresh=True)
                 for rid in eligible_ids
@@ -576,7 +613,7 @@ async def backfill_unmatched_resources_global(db: AsyncSession, limit: int = MAX
         # persist all results.
         await db.commit()
         semaphore = asyncio.Semaphore(MAX_METADATA_CONCURRENCY)
-        await asyncio.gather(
+        await _gather_metadata(
             *(
                 _process_resource_metadata(rid, cid, semaphore, force_refresh=True)
                 for rid, cid in eligible
@@ -612,7 +649,9 @@ async def reconcile_stale_raw_episodes(
         apply_episode_reconcile,
         seasons_map_for_work,
     )
+    from app.services.task_queue import require_execution_ownership
 
+    await require_execution_ownership()
     resources = (
         await db.execute(
             select(FileResource)
@@ -687,7 +726,9 @@ async def reconcile_stale_raw_episodes(
         # Acquire channel counters in a consistent order across concurrent sweeps.
         for row in sorted(resources, key=lambda row: (row.channel_id, row.id)):
             if row.id in changed:
+                await require_execution_ownership()
                 await publish_resource(db, row.id, kind="metadata")
+        await require_execution_ownership()
         await db.commit()
     return changed_ids if return_resource_ids else len(changed_ids)
 
@@ -702,6 +743,9 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
     ``force`` bypasses the not_found/transient cooldowns in the backfill phase
     (so a manual fetch reprocesses unresolved items instead of skipping them).
     """
+    from app.services.task_queue import ExecutionOwnershipLostError, require_execution_ownership
+
+    await require_execution_ownership()
     channel.last_fetch_status = "running"
     channel.last_fetch_error = None
     await db.commit()
@@ -720,6 +764,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
         logger.warning("[fetch:%s] feed fetch failed: %s", channel.id, e)
         feed_error = str(e)[:2000]
 
+    await require_execution_ownership()
     if feed is not None and feed.bozo and not feed.entries:
         exc = getattr(feed, "bozo_exception", None)
         feed_error = f"Failed to fetch RSS feed '{channel.url}': {exc or 'unknown error'}"
@@ -749,6 +794,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
     new_resource_ids: list[str] = []
 
     for entry in entries:
+        await require_execution_ownership()
         guid = getattr(entry, "id", None) or entry.get("link") or entry.get("title", "")
         if not guid or guid in existing_guids:
             continue
@@ -881,6 +927,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
         from app.services.resource_publication import publish_resource
 
         await publish_resource(db, resource.id, kind="created")
+        await require_execution_ownership()
         # Commit the new resource immediately so the SQLite write lock is
         # released *before* the metadata ReAct loop below. agent.process runs
         # many LLM + external search calls (tens of messages per resource when
@@ -915,7 +962,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
     # metadata work to ``MAX_METADATA_CONCURRENCY``.
     semaphore = asyncio.Semaphore(MAX_METADATA_CONCURRENCY)
     if new_resource_ids:
-        await asyncio.gather(
+        await _gather_metadata(
             *(
                 _process_resource_metadata(rid, channel.id, semaphore)
                 for rid in new_resource_ids
@@ -938,9 +985,12 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
             # paying for every newly-seen entry twice in the same job.
             exclude_ids=set(new_resource_ids),
         )
+    except ExecutionOwnershipLostError:
+        raise
     except Exception as e:
         logger.warning("[fetch:%s] backfill phase failed: %s", channel.id, e)
 
+    await require_execution_ownership()
     # Finalize channel status - only mark success when the feed fetch succeeded.
     if feed_error is None:
         channel.last_fetched_at = utcnow()
@@ -953,6 +1003,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
     # Enqueue agent runs (fire-and-forget)
     from app.services.task_queue import task_queue
     for agent in channel.agents:
+        await require_execution_ownership()
         if agent.status != "active":
             continue
         try:

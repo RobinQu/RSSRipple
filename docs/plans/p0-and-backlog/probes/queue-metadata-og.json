@@ -1,0 +1,52 @@
+{
+  "backend": "postgresql",
+  "cases": [
+    {
+      "case": "manual_title",
+      "variant": false,
+      "passed": true
+    },
+    {
+      "case": "manual_title",
+      "variant": true,
+      "passed": true
+    },
+    {
+      "case": "specials",
+      "variant": "manual_date",
+      "passed": true
+    },
+    {
+      "case": "specials",
+      "variant": "delete",
+      "passed": true
+    },
+    {
+      "case": "specials",
+      "variant": "season",
+      "passed": true
+    },
+    {
+      "case": "specials",
+      "variant": "collection",
+      "passed": true
+    },
+    {
+      "case": "candidate_scope",
+      "variant": "season",
+      "passed": true
+    },
+    {
+      "case": "candidate_scope",
+      "variant": "collection",
+      "passed": true
+    },
+    {
+      "case": "candidate_scope",
+      "variant": "delete",
+      "passed": true
+    }
+  ],
+  "data": "synthetic works/candidates, real independent database sessions",
+  "network": "poster/search replaced by deterministic barriers"
+}

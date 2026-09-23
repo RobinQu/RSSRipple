@@ -132,8 +132,32 @@ services:
     image: rssripple-itest-test-server:latest
     volumes:
     - ./tests/integration/server:/app/server:ro
+  queue-recovery-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: probe
+      POSTGRES_PASSWORD: probe
+      POSTGRES_DB: queue_recovery
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U probe -d queue_recovery']
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    networks: [integration-gate]
+  queue-recovery-redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    networks: [integration-gate]
   test-runner:
     environment:
+      QUEUE_RECOVERY_REQUIRED: '1'
+      QUEUE_RECOVERY_POSTGRES_URL: postgresql://probe:probe@queue-recovery-postgres:5432/queue_recovery
+      QUEUE_RECOVERY_REDIS_URL: redis://queue-recovery-redis:6379/0
       LLM_API_KEY: ''
       TMDB_API_KEY: ''
       BANGUMI_API_KEY: ''
@@ -156,6 +180,10 @@ services:
     - ./scripts:/app/scripts:ro
     - ./.coveragerc:/app/.coveragerc:ro
     depends_on:
+      queue-recovery-postgres:
+        condition: service_healthy
+      queue-recovery-redis:
+        condition: service_healthy
       app:
         condition: service_healthy
       app-llm:

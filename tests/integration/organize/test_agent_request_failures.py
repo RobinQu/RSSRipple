@@ -30,6 +30,104 @@ async def seed(db, tmp_path):
     return chain
 
 
+@pytest.mark.parametrize("failure_mode", ["result", "exception"])
+async def test_expired_incremental_run_preserves_publications_for_replacement(
+    db_session, session_factory, monkeypatch, failure_mode,
+):
+    from app.models.agent import Agent
+    from app.models.agent_publication_progress import AgentPublicationProgress
+    from app.services import agent_publication_progress as progress
+    from app.services import agent_service
+    from tests.unit.test_agent_publication_progress import next_resource, setup
+
+    agent, _ = await setup(db_session)
+    resource = await next_resource(db_session, agent.channel_id)
+    agent_id, channel_id, resource_id = agent.id, agent.channel_id, resource.id
+    await db_session.commit()
+    async with session_factory() as observer:
+        before = await observer.scalar(select(AgentPublicationProgress.cursor).where(
+            AgentPublicationProgress.agent_id == agent_id,
+        ))
+        watermark = (await observer.get(Agent, agent_id)).last_consumed_at
+    expired = False
+    original_process = agent_service.process_resources
+    original_ack = progress.acknowledge_publications
+
+    async def guard():
+        if expired:
+            raise queue_module.ExecutionOwnershipLostError("Expired before publication commit")
+
+    async def process(*args, **kwargs):
+        nonlocal expired
+        result = await original_process(*args, **kwargs)
+        if failure_mode == "result":
+            expired = True
+        return result
+
+    async def acknowledge(*args, **kwargs):
+        nonlocal expired
+        result = await original_ack(*args, **kwargs)
+        expired = True
+        return result
+
+    monkeypatch.setattr(queue_module, "require_execution_ownership", guard)
+    monkeypatch.setattr(agent_service, "process_resources", process)
+    if failure_mode == "exception":
+        monkeypatch.setattr(progress, "acknowledge_publications", acknowledge)
+    with pytest.raises(queue_module.ExecutionOwnershipLostError):
+        await _handle_run_agent({"agent_id": agent_id})
+    async with session_factory() as observer:
+        assert await observer.scalar(select(AgentPublicationProgress.cursor).where(
+            AgentPublicationProgress.agent_id == agent_id,
+        )) == before
+        assert (await observer.get(Agent, agent_id)).last_consumed_at == watermark
+        assert (await progress.snapshot_publications(observer, agent_id, channel_id)).resource_ids == (resource_id,)
+
+    expired = False
+    monkeypatch.setattr(agent_service, "process_resources", original_process)
+    monkeypatch.setattr(progress, "acknowledge_publications", original_ack)
+    result = await _handle_run_agent({"agent_id": agent_id})
+    assert result["total_resources"] == 1
+    async with session_factory() as observer:
+        assert not (await progress.snapshot_publications(observer, agent_id, channel_id)).resource_ids
+        runs = list(await observer.scalars(select(AgentRun).where(AgentRun.agent_id == agent_id)))
+        assert sorted(run.status for run in runs) == ["running", "success"]
+
+
+@pytest.mark.parametrize("failure_mode", ["result", "exception"])
+async def test_expired_agent_does_not_acknowledge_or_defer_requests(
+    db_session, session_factory, tmp_path, monkeypatch, failure_mode,
+):
+    from app.services import agent_service
+
+    chain = await seed(db_session, tmp_path)
+    await requests.request_resources(db_session, [chain.agent.id], [chain.resource.id])
+    await db_session.commit()
+    expired = False
+
+    async def guard():
+        if expired:
+            raise queue_module.ExecutionOwnershipLostError("Expired during processing")
+
+    async def process(*args, **kwargs):
+        nonlocal expired
+        expired = True
+        if failure_mode == "exception":
+            raise queue_module.ExecutionOwnershipLostError("Expired during dispatch")
+        return agent_service.RunResult()
+
+    monkeypatch.setattr(queue_module, "require_execution_ownership", guard)
+    monkeypatch.setattr(agent_service, "process_resources", process)
+    with pytest.raises(queue_module.ExecutionOwnershipLostError):
+        await _handle_run_agent({"agent_id": chain.agent.id, "pending_requests": True})
+    async with session_factory() as observer:
+        pending = (await observer.scalars(select(AgentResourceRequest))).one()
+        assert pending.attempt_count == 0
+        assert pending.next_attempt_at is None and pending.error_message is None
+        run = (await observer.scalars(select(AgentRun))).one()
+        assert run.status == "running" and run.finished_at is None
+
+
 @pytest.mark.parametrize("method,suffix,body", [
     ("PATCH", "", {"resolution": "2160p"}),
     ("PATCH", "/episode", {"episode": 10}),
