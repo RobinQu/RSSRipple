@@ -1,0 +1,19 @@
+{
+  "exit_code": 1,
+  "failed": 5,
+  "passed": 3,
+  "script_executed_sha256": "d281f8dffbc3ff3f9b110a3ecdfc11633d80bf141a0b14fdf65b4421257c7c2b",
+  "failures": [
+    "only_special_unknown",
+    "only_first_unknown",
+    "only_third_unknown",
+    "only_first_multiseason",
+    "empty_unknown"
+  ],
+  "positive_controls": [
+    "multiple_unknown",
+    "explicit_third",
+    "verified_single"
+  ],
+  "data": "Synthetic titles/source counts; real Turso upsert and independent persisted row counts"
+}

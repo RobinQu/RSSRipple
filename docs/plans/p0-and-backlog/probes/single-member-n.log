@@ -1,0 +1,64 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+______ test_series_level_unknown_season_cannot_use_outer_defaults[False] _______
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f7d333f57f0>
+existing_work = False
+
+    @pytest.mark.parametrize('existing_work', [False, True])
+    async def test_series_level_unknown_season_cannot_use_outer_defaults(db_session, existing_work):
+        """Missing season evidence cannot be replaced by fresh/one-title defaults."""
+        title = 'Synthetic undecided series-level candidate'
+        if existing_work:
+            collection = WorkCollection(title_cn='Synthetic differently named collection')
+            db_session.add(collection)
+            await db_session.flush()
+            db_session.add(TVSeries(title_cn=title, collection_id=collection.id,
+                                    season_number=3, is_anime=False))
+        await db_session.commit()
+        selected = await create_or_update_series_from_external(db_session, {
+            'title_cn': title, 'content_type': 'tv', 'external_source': 'tmdb',
+            'external_id': 'tmdb:90006485', 'is_anime': False,
+        })
+        await db_session.commit()
+>       assert selected is None, 'Series-level identity supplies no season number'
+E       AssertionError: Series-level identity supplies no season number
+E       assert <app.models.series.TVSeries object at 0x7f7d333f6f90> is None
+
+tests/unit/test_collection_member_season_evidence.py:175: AssertionError
+_______ test_series_level_unknown_season_cannot_use_outer_defaults[True] _______
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f7d332ecb90>
+existing_work = True
+
+    @pytest.mark.parametrize('existing_work', [False, True])
+    async def test_series_level_unknown_season_cannot_use_outer_defaults(db_session, existing_work):
+        """Missing season evidence cannot be replaced by fresh/one-title defaults."""
+        title = 'Synthetic undecided series-level candidate'
+        if existing_work:
+            collection = WorkCollection(title_cn='Synthetic differently named collection')
+            db_session.add(collection)
+            await db_session.flush()
+            db_session.add(TVSeries(title_cn=title, collection_id=collection.id,
+                                    season_number=3, is_anime=False))
+        await db_session.commit()
+        selected = await create_or_update_series_from_external(db_session, {
+            'title_cn': title, 'content_type': 'tv', 'external_source': 'tmdb',
+            'external_id': 'tmdb:90006485', 'is_anime': False,
+        })
+        await db_session.commit()
+>       assert selected is None, 'Series-level identity supplies no season number'
+E       AssertionError: Series-level identity supplies no season number
+E       assert <app.models.series.TVSeries object at 0x7f7d306ac410> is None
+
+tests/unit/test_collection_member_season_evidence.py:175: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_collection_member_season_evidence.py::test_series_level_unknown_season_cannot_use_outer_defaults[False]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_collection_member_season_evidence.py::test_series_level_unknown_season_cannot_use_outer_defaults[False]
+FAILED tests/unit/test_collection_member_season_evidence.py::test_series_level_unknown_season_cannot_use_outer_defaults[True]
+2 failed, 34 deselected, 1 warning in 3.01s

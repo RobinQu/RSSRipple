@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="2.118" timestamp="2026-09-23T13:40:16.739764+00:00" hostname="dl-workstation-albert"><testcase classname="tests.integration.metadata.test_manual_mapping_concurrency" name="test_manual_mapping_turso[shape_edit]" time="2.041"><failure message="AssertionError: {'recorded_case': '00e48de8-b5fd-4e99-8467-d384bd4a3183'}&#10;  {'editor_http_status': 200}&#10;  {'resource': '1c6c64eb-adf0-4168-9551-32889079480c', 'expected_movie': '42f61766-02e7-444c-8bc5-6e4a90c47fcd', 'actual_movie': '86965135-0884-4264-b4ac-150085104de7', 'search_title': 'Synthetic old automatic target'}&#10;  [metadata_agent] channel c765a458-ba96-49cb-b4b0-7f86cc6231c7 source='tmdb' is not available (disabled or missing credentials); search will return no external candidates&#10;  [fts] drain write failed for 2 rows (reconcile will heal): (turso.lib.DatabaseError) Parse error: no such table: movie_fts&#10;  [SQL: DELETE FROM movie_fts WHERE entity_id = ?]&#10;  [parameters: ('42f61766-02e7-444c-8bc5-6e4a90c47fcd',)]&#10;  (Background on this error at: https://sqlalche.me/e/20/4xp6)&#10;  [fts] search_series_fts failed for 'mission: impossible - ghost protocol 2011 2160p ai 60fps h26': (turso.lib.DatabaseError) Parse error: no such table: tv_series_fts&#10;  [SQL: SELECT entity_id FROM tv_series_fts WHERE fts_match(title_cn, title_en, original_title, aliases, ?) LIMIT ?]&#10;  [parameters: ('mission: impossible - ghost protocol 2011 2160p ai 60fps h265 10bit sdr_marjenbo', 30)]&#10;  (Background on this error at: https://sqlalche.me/e/20/4xp6)&#10;  Traceback (most recent call last):&#10;    File &quot;&lt;frozen runpy&gt;&quot;, line 198, in _run_module_as_main&#10;    File &quot;&lt;frozen runpy&gt;&quot;, line 88, in _run_code&#10;    File &quot;/tmp/rssripple-v15-manual-mapping/tests/integration/metadata/manual_mapping_driver.py&quot;, line 246, in &lt;module&gt;&#10;      asyncio.run(main())&#10;      ~~~~~~~~~~~^^^^^^^^&#10;    File &quot;/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py&quot;, line 195, in run&#10;      return runner.run(main)&#10;             ~~~~~~~~~~^^^^^^&#10;    File &quot;/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py&quot;, line 118, in run&#10;      return self._loop.run_until_complete(task)&#10;             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^&#10;    File &quot;/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py&quot;, line 719, in run_until_complete&#10;      return future.result()&#10;             ~~~~~~~~~~~~~^^&#10;    File &quot;/tmp/rssripple-v15-manual-mapping/tests/integration/metadata/manual_mapping_driver.py&quot;, line 212, in main&#10;      assert saved.movie_id is None and saved.series_id is None, &quot;Old lookup overwrote batch shape&quot;&#10;             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^&#10;  AssertionError: Old lookup overwrote batch shape&#10;  &#10;assert 1 == 0&#10; +  where 1 = CompletedProcess(args=['/workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python', '-m', 'tests.integration.metada...e&quot;\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Old lookup overwrote batch shape\n').returncode">tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1538/test_manual_mapping_turso_shap0')
+case = 'shape_edit'
+
+    @pytest.mark.parametrize("case", ["shape_edit", "edit_during_lookup", "existing_mapping_edit", "cached_result_edit", "known_work_edit", "merge_during_lookup"])
+    async def test_manual_mapping_turso(tmp_path, case):
+&gt;       await _run_case(tmp_path, case, "sqlite+aioturso:///" + str(tmp_path / "manual_mapping_test.db"))
+
+tests/integration/metadata/test_manual_mapping_concurrency.py:65: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1538/test_manual_mapping_turso_shap0')
+case = 'shape_edit'
+database_url = 'sqlite+aioturso:////tmp/pytest-of-robinqu/pytest-1538/test_manual_mapping_turso_shap0/manual_mapping_test.db'
+
+    async def _run_case(tmp_path, case, database_url):
+        env = dict(os.environ)
+        for key in ("EDITOR_API", "EDITOR_SHAPE", "PREEXISTING_MAPPING", "SHORTCUT", "MERGE_API", "LATE_MAPPING", "REVERSE_API", "INJECT_UNIQUE", "MAPPING_ONLY"):
+            env.pop(key, None)
+        env.update(CASES[case])
+        env.update(DATABASE_URL=database_url,
+                   RECORDED_TITLE="1")
+        result = await asyncio.to_thread(
+            subprocess.run,
+            [sys.executable, "-m", "tests.integration.metadata.manual_mapping_driver"],
+            cwd=Path(__file__).resolve().parents[3], env=env,
+            capture_output=True, text=True, timeout=45,
+        )
+        (tmp_path / "driver.log").write_text(result.stdout + result.stderr)
+&gt;       assert result.returncode == 0, result.stdout + result.stderr
+E       AssertionError: {'recorded_case': '00e48de8-b5fd-4e99-8467-d384bd4a3183'}
+E         {'editor_http_status': 200}
+E         {'resource': '1c6c64eb-adf0-4168-9551-32889079480c', 'expected_movie': '42f61766-02e7-444c-8bc5-6e4a90c47fcd', 'actual_movie': '86965135-0884-4264-b4ac-150085104de7', 'search_title': 'Synthetic old automatic target'}
+E         [metadata_agent] channel c765a458-ba96-49cb-b4b0-7f86cc6231c7 source='tmdb' is not available (disabled or missing credentials); search will return no external candidates
+E         [fts] drain write failed for 2 rows (reconcile will heal): (turso.lib.DatabaseError) Parse error: no such table: movie_fts
+E         [SQL: DELETE FROM movie_fts WHERE entity_id = ?]
+E         [parameters: ('42f61766-02e7-444c-8bc5-6e4a90c47fcd',)]
+E         (Background on this error at: https://sqlalche.me/e/20/4xp6)
+E         [fts] search_series_fts failed for 'mission: impossible - ghost protocol 2011 2160p ai 60fps h26': (turso.lib.DatabaseError) Parse error: no such table: tv_series_fts
+E         [SQL: SELECT entity_id FROM tv_series_fts WHERE fts_match(title_cn, title_en, original_title, aliases, ?) LIMIT ?]
+E         [parameters: ('mission: impossible - ghost protocol 2011 2160p ai 60fps h265 10bit sdr_marjenbo', 30)]
+E         (Background on this error at: https://sqlalche.me/e/20/4xp6)
+E         Traceback (most recent call last):
+E           File "&lt;frozen runpy&gt;", line 198, in _run_module_as_main
+E           File "&lt;frozen runpy&gt;", line 88, in _run_code
+E           File "/tmp/rssripple-v15-manual-mapping/tests/integration/metadata/manual_mapping_driver.py", line 246, in &lt;module&gt;
+E             asyncio.run(main())
+E             ~~~~~~~~~~~^^^^^^^^
+E           File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 195, in run
+E             return runner.run(main)
+E                    ~~~~~~~~~~^^^^^^
+E           File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 118, in run
+E             return self._loop.run_until_complete(task)
+E                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+E           File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 719, in run_until_complete
+E             return future.result()
+E                    ~~~~~~~~~~~~~^^
+E           File "/tmp/rssripple-v15-manual-mapping/tests/integration/metadata/manual_mapping_driver.py", line 212, in main
+E             assert saved.movie_id is None and saved.series_id is None, "Old lookup overwrote batch shape"
+E                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         AssertionError: Old lookup overwrote batch shape
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['/workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python', '-m', 'tests.integration.metada...e"\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Old lookup overwrote batch shape\n').returncode
+
+tests/integration/metadata/test_manual_mapping_concurrency.py:60: AssertionError</failure></testcase></testsuite></testsuites>

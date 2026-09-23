@@ -1,0 +1,15 @@
+{
+  "prototype": "/tmp/rssripple-v16-rebased",
+  "base_prototype": "/tmp/rssripple-v15-vu",
+  "status": "rebase regression pending",
+  "files": {
+    "app/services/metadata_service.py": "2d4a0f941c6c5b919179f8287f2ac001820d0b5297c1258d9ba77a2c85bed2b6",
+    "tests/unit/test_collection_member_season_evidence.py": "88f110818867be95bd2474867741f2f4946a8b673c0e4aaa9482cc3442946858",
+    "docs/design/business-logic.md": "98d663753087f036d4e4f5e8b90f9dd70cd5d8ca0b8ca5a1aa866b10a0b42ae6",
+    "docs/design/per-season-works.md": "8d5d43e6411117331173e73f7c0fa83f660bbf53a6aa9f997054ebc6f6c7a696",
+    "tests/unit/test_metadata_service.py": "432cc7fa0879bd86c28a3d4bf9e1128d98f2d65e606c6f66c6d34890ac4182f2",
+    "tests/integration/metadata/season_evidence_driver.py": "478f4d8df7e49a73a93e25820a45633839b4ab02ba5a9d89e75ee8fcc0583286",
+    "tests/integration/metadata/test_collection_season_evidence.py": "958b79b89e3cd8213b8bd4282c374b81bbd7b9b90af8cf8ff860d31cff5da7f2",
+    "docs/testing/integration-inventory.md": "7bf7937ca1bff622753e02d14d8e801e1c9927db710f02a63928fff0413bc1e6"
+  }
+}

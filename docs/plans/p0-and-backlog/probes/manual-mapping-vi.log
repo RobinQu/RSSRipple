@@ -1,0 +1,316 @@
+FFFFFFFF                                                                 [100%]
+=================================== FAILURES ===================================
+_____________ test_manual_mapping_concurrency[edit_during_lookup] ______________
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1534/test_manual_mapping_concurrenc0')
+case = 'edit_during_lookup'
+
+    @pytest.mark.parametrize("case", CASES)
+    async def test_manual_mapping_concurrency(tmp_path, case):
+        admin_url = os.environ.get("QUEUE_RECOVERY_POSTGRES_URL")
+        if not admin_url:
+            if os.environ.get("QUEUE_RECOVERY_REQUIRED") == "1":
+                pytest.fail("Manual mapping gate requires dedicated PostgreSQL")
+            pytest.skip("Run the isolated integration gate for PostgreSQL interleavings")
+        parts = urlsplit(admin_url)
+        assert parts.path == "/queue_recovery", "Refuse a non-test admin database"
+        name = "manual_mapping_" + uuid.uuid4().hex
+        admin = await asyncpg.connect(admin_url)
+        try:
+            await admin.execute(f'CREATE DATABASE "{name}"')
+            env = dict(os.environ)
+            for key in ("EDITOR_API", "PREEXISTING_MAPPING", "SHORTCUT", "MERGE_API", "LATE_MAPPING", "REVERSE_API", "INJECT_UNIQUE", "MAPPING_ONLY"):
+                env.pop(key, None)
+            env.update(CASES[case])
+            env.update(DATABASE_URL=urlunsplit(parts._replace(scheme="postgresql+asyncpg", path="/" + name)),
+                       RECORDED_TITLE="1")
+            result = await asyncio.to_thread(
+                subprocess.run,
+                [sys.executable, "-m", "tests.integration.metadata.manual_mapping_driver"],
+                cwd=Path(__file__).resolve().parents[3], env=env,
+                capture_output=True, text=True, timeout=45,
+            )
+            (tmp_path / "driver.log").write_text(result.stdout + result.stderr)
+>           assert result.returncode == 0, result.stdout + result.stderr
+E           AssertionError: /workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python: No module named tests.integration.metadata.manual_mapping_driver
+E             
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['/workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python', '-m', 'tests.integration.metada...dropbox/github/robinqu/RSSRipple/.venv/bin/python: No module named tests.integration.metadata.manual_mapping_driver\n').returncode
+
+tests/integration/metadata/test_manual_mapping_concurrency.py:52: AssertionError
+____________ test_manual_mapping_concurrency[existing_mapping_edit] ____________
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1534/test_manual_mapping_concurrenc1')
+case = 'existing_mapping_edit'
+
+    @pytest.mark.parametrize("case", CASES)
+    async def test_manual_mapping_concurrency(tmp_path, case):
+        admin_url = os.environ.get("QUEUE_RECOVERY_POSTGRES_URL")
+        if not admin_url:
+            if os.environ.get("QUEUE_RECOVERY_REQUIRED") == "1":
+                pytest.fail("Manual mapping gate requires dedicated PostgreSQL")
+            pytest.skip("Run the isolated integration gate for PostgreSQL interleavings")
+        parts = urlsplit(admin_url)
+        assert parts.path == "/queue_recovery", "Refuse a non-test admin database"
+        name = "manual_mapping_" + uuid.uuid4().hex
+        admin = await asyncpg.connect(admin_url)
+        try:
+            await admin.execute(f'CREATE DATABASE "{name}"')
+            env = dict(os.environ)
+            for key in ("EDITOR_API", "PREEXISTING_MAPPING", "SHORTCUT", "MERGE_API", "LATE_MAPPING", "REVERSE_API", "INJECT_UNIQUE", "MAPPING_ONLY"):
+                env.pop(key, None)
+            env.update(CASES[case])
+            env.update(DATABASE_URL=urlunsplit(parts._replace(scheme="postgresql+asyncpg", path="/" + name)),
+                       RECORDED_TITLE="1")
+            result = await asyncio.to_thread(
+                subprocess.run,
+                [sys.executable, "-m", "tests.integration.metadata.manual_mapping_driver"],
+                cwd=Path(__file__).resolve().parents[3], env=env,
+                capture_output=True, text=True, timeout=45,
+            )
+            (tmp_path / "driver.log").write_text(result.stdout + result.stderr)
+>           assert result.returncode == 0, result.stdout + result.stderr
+E           AssertionError: /workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python: No module named tests.integration.metadata.manual_mapping_driver
+E             
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['/workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python', '-m', 'tests.integration.metada...dropbox/github/robinqu/RSSRipple/.venv/bin/python: No module named tests.integration.metadata.manual_mapping_driver\n').returncode
+
+tests/integration/metadata/test_manual_mapping_concurrency.py:52: AssertionError
+_____________ test_manual_mapping_concurrency[cached_result_edit] ______________
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1534/test_manual_mapping_concurrenc2')
+case = 'cached_result_edit'
+
+    @pytest.mark.parametrize("case", CASES)
+    async def test_manual_mapping_concurrency(tmp_path, case):
+        admin_url = os.environ.get("QUEUE_RECOVERY_POSTGRES_URL")
+        if not admin_url:
+            if os.environ.get("QUEUE_RECOVERY_REQUIRED") == "1":
+                pytest.fail("Manual mapping gate requires dedicated PostgreSQL")
+            pytest.skip("Run the isolated integration gate for PostgreSQL interleavings")
+        parts = urlsplit(admin_url)
+        assert parts.path == "/queue_recovery", "Refuse a non-test admin database"
+        name = "manual_mapping_" + uuid.uuid4().hex
+        admin = await asyncpg.connect(admin_url)
+        try:
+            await admin.execute(f'CREATE DATABASE "{name}"')
+            env = dict(os.environ)
+            for key in ("EDITOR_API", "PREEXISTING_MAPPING", "SHORTCUT", "MERGE_API", "LATE_MAPPING", "REVERSE_API", "INJECT_UNIQUE", "MAPPING_ONLY"):
+                env.pop(key, None)
+            env.update(CASES[case])
+            env.update(DATABASE_URL=urlunsplit(parts._replace(scheme="postgresql+asyncpg", path="/" + name)),
+                       RECORDED_TITLE="1")
+            result = await asyncio.to_thread(
+                subprocess.run,
+                [sys.executable, "-m", "tests.integration.metadata.manual_mapping_driver"],
+                cwd=Path(__file__).resolve().parents[3], env=env,
+                capture_output=True, text=True, timeout=45,
+            )
+            (tmp_path / "driver.log").write_text(result.stdout + result.stderr)
+>           assert result.returncode == 0, result.stdout + result.stderr
+E           AssertionError: /workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python: No module named tests.integration.metadata.manual_mapping_driver
+E             
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['/workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python', '-m', 'tests.integration.metada...dropbox/github/robinqu/RSSRipple/.venv/bin/python: No module named tests.integration.metadata.manual_mapping_driver\n').returncode
+
+tests/integration/metadata/test_manual_mapping_concurrency.py:52: AssertionError
+_______________ test_manual_mapping_concurrency[known_work_edit] _______________
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1534/test_manual_mapping_concurrenc3')
+case = 'known_work_edit'
+
+    @pytest.mark.parametrize("case", CASES)
+    async def test_manual_mapping_concurrency(tmp_path, case):
+        admin_url = os.environ.get("QUEUE_RECOVERY_POSTGRES_URL")
+        if not admin_url:
+            if os.environ.get("QUEUE_RECOVERY_REQUIRED") == "1":
+                pytest.fail("Manual mapping gate requires dedicated PostgreSQL")
+            pytest.skip("Run the isolated integration gate for PostgreSQL interleavings")
+        parts = urlsplit(admin_url)
+        assert parts.path == "/queue_recovery", "Refuse a non-test admin database"
+        name = "manual_mapping_" + uuid.uuid4().hex
+        admin = await asyncpg.connect(admin_url)
+        try:
+            await admin.execute(f'CREATE DATABASE "{name}"')
+            env = dict(os.environ)
+            for key in ("EDITOR_API", "PREEXISTING_MAPPING", "SHORTCUT", "MERGE_API", "LATE_MAPPING", "REVERSE_API", "INJECT_UNIQUE", "MAPPING_ONLY"):
+                env.pop(key, None)
+            env.update(CASES[case])
+            env.update(DATABASE_URL=urlunsplit(parts._replace(scheme="postgresql+asyncpg", path="/" + name)),
+                       RECORDED_TITLE="1")
+            result = await asyncio.to_thread(
+                subprocess.run,
+                [sys.executable, "-m", "tests.integration.metadata.manual_mapping_driver"],
+                cwd=Path(__file__).resolve().parents[3], env=env,
+                capture_output=True, text=True, timeout=45,
+            )
+            (tmp_path / "driver.log").write_text(result.stdout + result.stderr)
+>           assert result.returncode == 0, result.stdout + result.stderr
+E           AssertionError: /workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python: No module named tests.integration.metadata.manual_mapping_driver
+E             
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['/workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python', '-m', 'tests.integration.metada...dropbox/github/robinqu/RSSRipple/.venv/bin/python: No module named tests.integration.metadata.manual_mapping_driver\n').returncode
+
+tests/integration/metadata/test_manual_mapping_concurrency.py:52: AssertionError
+_______________ test_manual_mapping_concurrency[edit_after_lock] _______________
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1534/test_manual_mapping_concurrenc4')
+case = 'edit_after_lock'
+
+    @pytest.mark.parametrize("case", CASES)
+    async def test_manual_mapping_concurrency(tmp_path, case):
+        admin_url = os.environ.get("QUEUE_RECOVERY_POSTGRES_URL")
+        if not admin_url:
+            if os.environ.get("QUEUE_RECOVERY_REQUIRED") == "1":
+                pytest.fail("Manual mapping gate requires dedicated PostgreSQL")
+            pytest.skip("Run the isolated integration gate for PostgreSQL interleavings")
+        parts = urlsplit(admin_url)
+        assert parts.path == "/queue_recovery", "Refuse a non-test admin database"
+        name = "manual_mapping_" + uuid.uuid4().hex
+        admin = await asyncpg.connect(admin_url)
+        try:
+            await admin.execute(f'CREATE DATABASE "{name}"')
+            env = dict(os.environ)
+            for key in ("EDITOR_API", "PREEXISTING_MAPPING", "SHORTCUT", "MERGE_API", "LATE_MAPPING", "REVERSE_API", "INJECT_UNIQUE", "MAPPING_ONLY"):
+                env.pop(key, None)
+            env.update(CASES[case])
+            env.update(DATABASE_URL=urlunsplit(parts._replace(scheme="postgresql+asyncpg", path="/" + name)),
+                       RECORDED_TITLE="1")
+            result = await asyncio.to_thread(
+                subprocess.run,
+                [sys.executable, "-m", "tests.integration.metadata.manual_mapping_driver"],
+                cwd=Path(__file__).resolve().parents[3], env=env,
+                capture_output=True, text=True, timeout=45,
+            )
+            (tmp_path / "driver.log").write_text(result.stdout + result.stderr)
+>           assert result.returncode == 0, result.stdout + result.stderr
+E           AssertionError: /workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python: No module named tests.integration.metadata.manual_mapping_driver
+E             
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['/workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python', '-m', 'tests.integration.metada...dropbox/github/robinqu/RSSRipple/.venv/bin/python: No module named tests.integration.metadata.manual_mapping_driver\n').returncode
+
+tests/integration/metadata/test_manual_mapping_concurrency.py:52: AssertionError
+_____________ test_manual_mapping_concurrency[merge_during_lookup] _____________
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1534/test_manual_mapping_concurrenc5')
+case = 'merge_during_lookup'
+
+    @pytest.mark.parametrize("case", CASES)
+    async def test_manual_mapping_concurrency(tmp_path, case):
+        admin_url = os.environ.get("QUEUE_RECOVERY_POSTGRES_URL")
+        if not admin_url:
+            if os.environ.get("QUEUE_RECOVERY_REQUIRED") == "1":
+                pytest.fail("Manual mapping gate requires dedicated PostgreSQL")
+            pytest.skip("Run the isolated integration gate for PostgreSQL interleavings")
+        parts = urlsplit(admin_url)
+        assert parts.path == "/queue_recovery", "Refuse a non-test admin database"
+        name = "manual_mapping_" + uuid.uuid4().hex
+        admin = await asyncpg.connect(admin_url)
+        try:
+            await admin.execute(f'CREATE DATABASE "{name}"')
+            env = dict(os.environ)
+            for key in ("EDITOR_API", "PREEXISTING_MAPPING", "SHORTCUT", "MERGE_API", "LATE_MAPPING", "REVERSE_API", "INJECT_UNIQUE", "MAPPING_ONLY"):
+                env.pop(key, None)
+            env.update(CASES[case])
+            env.update(DATABASE_URL=urlunsplit(parts._replace(scheme="postgresql+asyncpg", path="/" + name)),
+                       RECORDED_TITLE="1")
+            result = await asyncio.to_thread(
+                subprocess.run,
+                [sys.executable, "-m", "tests.integration.metadata.manual_mapping_driver"],
+                cwd=Path(__file__).resolve().parents[3], env=env,
+                capture_output=True, text=True, timeout=45,
+            )
+            (tmp_path / "driver.log").write_text(result.stdout + result.stderr)
+>           assert result.returncode == 0, result.stdout + result.stderr
+E           AssertionError: /workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python: No module named tests.integration.metadata.manual_mapping_driver
+E             
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['/workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python', '-m', 'tests.integration.metada...dropbox/github/robinqu/RSSRipple/.venv/bin/python: No module named tests.integration.metadata.manual_mapping_driver\n').returncode
+
+tests/integration/metadata/test_manual_mapping_concurrency.py:52: AssertionError
+_____________ test_manual_mapping_concurrency[merge_before_write] ______________
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1534/test_manual_mapping_concurrenc6')
+case = 'merge_before_write'
+
+    @pytest.mark.parametrize("case", CASES)
+    async def test_manual_mapping_concurrency(tmp_path, case):
+        admin_url = os.environ.get("QUEUE_RECOVERY_POSTGRES_URL")
+        if not admin_url:
+            if os.environ.get("QUEUE_RECOVERY_REQUIRED") == "1":
+                pytest.fail("Manual mapping gate requires dedicated PostgreSQL")
+            pytest.skip("Run the isolated integration gate for PostgreSQL interleavings")
+        parts = urlsplit(admin_url)
+        assert parts.path == "/queue_recovery", "Refuse a non-test admin database"
+        name = "manual_mapping_" + uuid.uuid4().hex
+        admin = await asyncpg.connect(admin_url)
+        try:
+            await admin.execute(f'CREATE DATABASE "{name}"')
+            env = dict(os.environ)
+            for key in ("EDITOR_API", "PREEXISTING_MAPPING", "SHORTCUT", "MERGE_API", "LATE_MAPPING", "REVERSE_API", "INJECT_UNIQUE", "MAPPING_ONLY"):
+                env.pop(key, None)
+            env.update(CASES[case])
+            env.update(DATABASE_URL=urlunsplit(parts._replace(scheme="postgresql+asyncpg", path="/" + name)),
+                       RECORDED_TITLE="1")
+            result = await asyncio.to_thread(
+                subprocess.run,
+                [sys.executable, "-m", "tests.integration.metadata.manual_mapping_driver"],
+                cwd=Path(__file__).resolve().parents[3], env=env,
+                capture_output=True, text=True, timeout=45,
+            )
+            (tmp_path / "driver.log").write_text(result.stdout + result.stderr)
+>           assert result.returncode == 0, result.stdout + result.stderr
+E           AssertionError: /workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python: No module named tests.integration.metadata.manual_mapping_driver
+E             
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['/workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python', '-m', 'tests.integration.metada...dropbox/github/robinqu/RSSRipple/.venv/bin/python: No module named tests.integration.metadata.manual_mapping_driver\n').returncode
+
+tests/integration/metadata/test_manual_mapping_concurrency.py:52: AssertionError
+___________ test_manual_mapping_concurrency[unique_error_propagates] ___________
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1534/test_manual_mapping_concurrenc7')
+case = 'unique_error_propagates'
+
+    @pytest.mark.parametrize("case", CASES)
+    async def test_manual_mapping_concurrency(tmp_path, case):
+        admin_url = os.environ.get("QUEUE_RECOVERY_POSTGRES_URL")
+        if not admin_url:
+            if os.environ.get("QUEUE_RECOVERY_REQUIRED") == "1":
+                pytest.fail("Manual mapping gate requires dedicated PostgreSQL")
+            pytest.skip("Run the isolated integration gate for PostgreSQL interleavings")
+        parts = urlsplit(admin_url)
+        assert parts.path == "/queue_recovery", "Refuse a non-test admin database"
+        name = "manual_mapping_" + uuid.uuid4().hex
+        admin = await asyncpg.connect(admin_url)
+        try:
+            await admin.execute(f'CREATE DATABASE "{name}"')
+            env = dict(os.environ)
+            for key in ("EDITOR_API", "PREEXISTING_MAPPING", "SHORTCUT", "MERGE_API", "LATE_MAPPING", "REVERSE_API", "INJECT_UNIQUE", "MAPPING_ONLY"):
+                env.pop(key, None)
+            env.update(CASES[case])
+            env.update(DATABASE_URL=urlunsplit(parts._replace(scheme="postgresql+asyncpg", path="/" + name)),
+                       RECORDED_TITLE="1")
+            result = await asyncio.to_thread(
+                subprocess.run,
+                [sys.executable, "-m", "tests.integration.metadata.manual_mapping_driver"],
+                cwd=Path(__file__).resolve().parents[3], env=env,
+                capture_output=True, text=True, timeout=45,
+            )
+            (tmp_path / "driver.log").write_text(result.stdout + result.stderr)
+>           assert result.returncode == 0, result.stdout + result.stderr
+E           AssertionError: /workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python: No module named tests.integration.metadata.manual_mapping_driver
+E             
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['/workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python', '-m', 'tests.integration.metada...dropbox/github/robinqu/RSSRipple/.venv/bin/python: No module named tests.integration.metadata.manual_mapping_driver\n').returncode
+
+tests/integration/metadata/test_manual_mapping_concurrency.py:52: AssertionError
+=========================== short test summary info ============================
+FAILED tests/integration/metadata/test_manual_mapping_concurrency.py::test_manual_mapping_concurrency[edit_during_lookup]
+FAILED tests/integration/metadata/test_manual_mapping_concurrency.py::test_manual_mapping_concurrency[existing_mapping_edit]
+FAILED tests/integration/metadata/test_manual_mapping_concurrency.py::test_manual_mapping_concurrency[cached_result_edit]
+FAILED tests/integration/metadata/test_manual_mapping_concurrency.py::test_manual_mapping_concurrency[known_work_edit]
+FAILED tests/integration/metadata/test_manual_mapping_concurrency.py::test_manual_mapping_concurrency[edit_after_lock]
+FAILED tests/integration/metadata/test_manual_mapping_concurrency.py::test_manual_mapping_concurrency[merge_during_lookup]
+FAILED tests/integration/metadata/test_manual_mapping_concurrency.py::test_manual_mapping_concurrency[merge_before_write]
+FAILED tests/integration/metadata/test_manual_mapping_concurrency.py::test_manual_mapping_concurrency[unique_error_propagates]
+8 failed in 0.69s

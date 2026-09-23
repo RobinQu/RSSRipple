@@ -1,0 +1,13 @@
+{
+  "commit": "7781a81",
+  "ancestor_of_main": true,
+  "final_manifest_hash_match": {
+    "app/services/metadata_search.py": true,
+    "tests/integration/queue_recovery/metadata_driver.py": true
+  },
+  "evidence": [
+    "queue-unit-th.xml",
+    "queue-integration-ti.xml"
+  ],
+  "todo_removed": "P1 元数据刷新并发覆盖人工标题"
+}

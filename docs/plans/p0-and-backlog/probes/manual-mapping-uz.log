@@ -1,0 +1,4 @@
+{'recorded_case': '00e48de8-b5fd-4e99-8467-d384bd4a3183'}
+[metadata_agent] channel 7fb81465-8aba-4db9-8125-af88f0cc9f57 source='tmdb' is not available (disabled or missing credentials); search will return no external candidates
+{'merge_http_status': 200}
+{'resource': '4d6eca7b-06d4-4eaa-8dd7-ba54a98e1623', 'expected_movie': '5c808c95-b284-4e7d-bcb3-bebbab3a559b', 'actual_movie': None, 'search_title': None}

@@ -1,0 +1,6 @@
+{'recorded_case': '00e48de8-b5fd-4e99-8467-d384bd4a3183'}
+{'merge_http_status': 200}
+{'merge_committed_before_candidate_write': True}
+{'resource': 'fb359191-b744-4841-86cf-d0e6a101f4e7', 'expected_movie': '83f941e3-48db-41c7-b006-0890c1f922b2', 'actual_movie': None, 'search_title': None}
+{'retry_linked_to_survivor': True}
+[metadata_agent] channel b5d12427-1bcf-4667-af7c-4be023fcc9a9 source='tmdb' is not available (disabled or missing credentials); search will return no external candidates

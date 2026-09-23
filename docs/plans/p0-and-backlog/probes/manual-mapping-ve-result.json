@@ -1,0 +1,5 @@
+{
+  "exit_code": 1,
+  "cleanup_exit_code": 0,
+  "note": "Actual candidate write fails FK after merge commits"
+}

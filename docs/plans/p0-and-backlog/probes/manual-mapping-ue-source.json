@@ -1,0 +1,10 @@
+{
+  "script": "docs/plans/p0-and-backlog/probes/manual_mapping_concurrency_probe.py",
+  "sha256": "f70f61e3574470a06c7b8b298216cc58936982557bb520ab02fdac64e8cadb1e",
+  "base_commit": "9b9a5fa",
+  "prototype": "/tmp/rssripple-v15-manual-mapping",
+  "result": "red: committed manual resource link overwritten after synthetic automatic lookup",
+  "test_exit": 1,
+  "cleanup_exit": 0,
+  "data": "Synthetic titles, identities and lookup response; real PostgreSQL independent sessions"
+}

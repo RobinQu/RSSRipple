@@ -1,0 +1,71 @@
+.F                                                                       [100%]
+=================================== FAILURES ===================================
+_ test_forced_mapping_is_applied_only_after_external_lookup[[ASMR] Synthetic deferred release] _
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f0bce444550>
+sample_channel = <app.models.channel.Channel object at 0x7f0bce444a50>
+raw_title = '[ASMR] Synthetic deferred release'
+
+    @pytest.mark.parametrize("raw_title", ["Synthetic deferred release", "[ASMR] Synthetic deferred release"])
+    async def test_forced_mapping_is_applied_only_after_external_lookup(db_session, sample_channel, raw_title):
+        sample_channel.metadata_source = "tmdb"
+        movie = Movie(title_en="Synthetic deferred manual target", is_anime=False)
+        resource = FileResource(channel_id=sample_channel.id, guid=str(uuid.uuid4()),
+                                title_raw=raw_title, torrent_url="")
+        db_session.add_all([movie, resource])
+        await db_session.flush()
+        db_session.add(ChannelRawTitleMapping(
+            channel_id=sample_channel.id, raw_title=resource.title_raw,
+            search_title_key=normalize_title(extract_search_title(resource)),
+            movie_id=movie.id, content_type="movie",
+        ))
+        await db_session.commit()
+        agent = UnifiedMetadataAgent()
+        agent._ensure_genre = AsyncMock()
+        agent._resolve_audio_work = AsyncMock(side_effect=AssertionError("Manual movie identity bypassed by audio resolver"))
+    
+        async def lookup(*args, **kwargs):
+            assert resource.movie_id is None
+            assert not db_session.dirty, "Manual link must not be written before external I/O"
+            return ({"found": False, "clean_title": "Synthetic rejected candidate"},
+                    {"method": "synthetic", "data_sources_used": [], "source_errors": {}, "error": None})
+    
+        agent._run_react = AsyncMock(side_effect=lookup)
+>       result = await agent.process(resource, sample_channel, db_session, force_refresh=True)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_manual_title_mapping.py:318: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/services/metadata_agent.py:789: in process
+    meta = await self._resolve_audio_work(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <AsyncMock id='139688698265680'>
+args = (<app.models.file_resource.FileResource object at 0x7f0bb78a3750>, <app.models.channel.Channel object at 0x7f0bce444a50>, <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f0bce444550>, 'asmr', True)
+kwargs = {}
+
+    async def _execute_mock_call(self, /, *args, **kwargs):
+        # This is nearly just like super(), except for special handling
+        # of coroutines
+    
+        _call = _Call((args, kwargs), two=True)
+        self.await_count += 1
+        self.await_args = _call
+        self.await_args_list.append(_call)
+    
+        effect = self.side_effect
+        if effect is not None:
+            if _is_exception(effect):
+>               raise effect
+E               AssertionError: Manual movie identity bypassed by audio resolver
+
+/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/unittest/mock.py:2321: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_manual_title_mapping.py::test_forced_mapping_is_applied_only_after_external_lookup[Synthetic deferred release]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_manual_title_mapping.py::test_forced_mapping_is_applied_only_after_external_lookup[[ASMR] Synthetic deferred release]
+1 failed, 1 passed, 1 warning in 1.79s

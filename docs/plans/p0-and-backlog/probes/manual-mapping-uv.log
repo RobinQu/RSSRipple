@@ -1,0 +1,20 @@
+{'recorded_case': '00e48de8-b5fd-4e99-8467-d384bd4a3183'}
+{'editor_http_status': 200}
+{'resource': 'd9829126-af33-44ef-a1f0-957605e1492b', 'expected_movie': '70815511-49d6-4416-aa19-732b6b287ae2', 'actual_movie': '4eee2bde-4b02-4cd3-b38a-c4f01dcb822e', 'search_title': 'Mission: Impossible - Ghost Protocol 2011 2160p AI 60FPS H265 10bit SDR_Marjenbo'}
+Traceback (most recent call last):
+  File "/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/manual_mapping_concurrency_probe.py", line 168, in <module>
+    asyncio.run(main())
+    ~~~~~~~~~~~^^^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 719, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/manual_mapping_concurrency_probe.py", line 159, in main
+    assert saved.movie_id == mid, "Old lookup overwrote the committed manual choice"
+           ^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Old lookup overwrote the committed manual choice

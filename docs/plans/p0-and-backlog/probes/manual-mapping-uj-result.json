@@ -1,0 +1,17 @@
+{
+  "exit_code": 0,
+  "cleanup_exit_code": 0,
+  "script_sha256": "ab8852821ca0674979e584faab9d65fc161aef7d3d74e788fb3a78a14a3e78bb",
+  "candidate_hashes": {
+    "app/services/metadata_service.py": "abd5b64e88f2103642c7b04356fb58db640f549c1f87fd85dc69fe42c9294d23",
+    "app/services/metadata_agent.py": "bb5cadc01e1638441070be6b4392b0a79a496f62b0267a927421eb1523eedf54",
+    "tests/unit/test_metadata_agent.py": "8700a59c23bec2dcbbd28f1248c8dce25aa9a3dee602dba6b59e4d19edd8d717",
+    "tests/unit/test_manual_title_mapping.py": "9655a94ae6a7e59613e4590c5916e3be152ecbd72e9dd4d4f09d3508ce1f3b39",
+    "app/services/metadata_repository.py": "6ed096408b895bf271eea7afaff1340387feedbbddc366e05629aca98d37a558",
+    "tests/unit/test_manual_mapping_batches.py": "c54a0bc653553f82fb94e773f4f0671ff80a24d0d3543eb46235c51f410b3aa9",
+    "docs/design/business-logic.md": "0752db4368b10835aa77843692c767ccabcfc0f3ca047d6b9ed324ba2beefed6",
+    "tests/unit/test_manual_mapping_identity.py": "392700777eb2f0352d753c473b98718ad7f70505d199687ed41856b2190d6e9f"
+  },
+  "result": "Committed mapping-only insert detected; old result rejected; resource remains unlinked",
+  "limitations": "No claim of atomic mapping check and commit; synthetic provider response"
+}

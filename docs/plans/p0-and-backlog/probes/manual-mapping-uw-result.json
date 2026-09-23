@@ -1,0 +1,8 @@
+{
+  "exit_code": 0,
+  "cleanup_exit_code": 0,
+  "shortcut": "cache",
+  "recorded_case": "00e48de8-b5fd-4e99-8467-d384bd4a3183",
+  "script_sha256": "ecaf7b92fbc94128fa03ea153d75c9e50b1e074ac9588940a6af1b8a883df4e1",
+  "boundary": "Real API router, association service, PostgreSQL commits; shortcut lookup result and queue enqueue replaced"
+}

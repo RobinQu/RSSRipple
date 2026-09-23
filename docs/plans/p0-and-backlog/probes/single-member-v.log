@@ -1,0 +1,21 @@
+........................................................................ [ 23%]
+........................................................................ [ 47%]
+........................................................................ [ 70%]
+........................................................................ [ 94%]
+.................                                                        [100%]
+=============================== warnings summary ===============================
+tests/unit/test_metadata_service.py::test_extract_search_title_prefers_parsed_titles
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+tests/integration/organize/test_p0_season_persistence.py::test_model_season_cannot_pollute_persisted_work[1-2-1]
+tests/integration/organize/test_p0_season_persistence.py::test_model_season_cannot_pollute_persisted_work[99-2-None]
+tests/integration/organize/test_p0_season_persistence.py::test_model_season_cannot_pollute_persisted_work[99-None-None]
+tests/integration/organize/test_p0_season_persistence.py::test_model_season_cannot_pollute_persisted_work[99-1-1]
+tests/integration/organize/test_p0_season_persistence.py::test_model_season_cannot_pollute_persisted_work[None-None-None]
+tests/integration/organize/test_p0_season_persistence.py::test_model_season_cannot_pollute_persisted_work[None-1-1]
+  /tmp/rssripple-v16-rebased/app/services/metadata_agent.py:445: LangGraphDeprecatedSinceV10: create_react_agent has been moved to `langchain.agents`. Please update your import to `from langchain.agents import create_agent`. Deprecated in LangGraph V1.0 to be removed in V2.0.
+    self._agents[source] = create_react_agent(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+305 passed, 7 warnings in 366.96s (0:06:06)

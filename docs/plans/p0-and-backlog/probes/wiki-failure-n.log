@@ -1,0 +1,16 @@
+.F                                                                       [100%]
+=================================== FAILURES ===================================
+_____________ test_total_wiki_failure_does_not_poison_cache[True] ______________
+tests/unit/test_wiki_failure_cache.py:48: in test_total_wiki_failure_does_not_poison_cache
+    assert not cached, "all source requests timed out but negative cache was persisted"
+E   AssertionError: all source requests timed out but negative cache was persisted
+E   assert not [<app.models.metadata_cache.MetadataCache object at 0x7f63daa75350>]
+=============================== warnings summary ===============================
+tests/unit/test_wiki_failure_cache.py::test_total_wiki_failure_does_not_poison_cache[False]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_wiki_failure_cache.py::test_total_wiki_failure_does_not_poison_cache[True]
+1 failed, 1 passed, 5 deselected, 1 warning in 4.25s

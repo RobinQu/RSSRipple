@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="2" time="2.309" timestamp="2026-09-23T14:52:10.952915+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_wiki_failure_cache" name="test_total_wiki_failure_does_not_poison_cache" time="1.741" /><testcase classname="tests.unit.test_wiki_failure_cache" name="test_failed_page_lookup_cannot_become_definitive_miss" time="0.003"><failure message="AssertionError: assert 'not_found' == 'transient'&#10;  &#10;  - transient&#10;  + not_found">tests/unit/test_wiki_failure_cache.py:69: in test_failed_page_lookup_cannot_become_definitive_miss
+    assert _classify_failure(ResourceMetadata(**verdict, search_error=info.get("error"))) == "transient"
+E   AssertionError: assert 'not_found' == 'transient'
+E     
+E     - transient
+E     + not_found</failure></testcase></testsuite></testsuites>

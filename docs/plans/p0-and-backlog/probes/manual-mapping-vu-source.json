@@ -1,0 +1,24 @@
+{
+  "prototype": "/tmp/rssripple-v15-vu",
+  "base_commit": "9b9a5fab113cb5c3c123a39eae1defd1ebba08ad",
+  "files": {
+    "app/services/metadata_service.py": "abd5b64e88f2103642c7b04356fb58db640f549c1f87fd85dc69fe42c9294d23",
+    "app/services/metadata_agent.py": "f632a299f718ae53bcc370d6002d078100c8a6279714f7a269bc01e77eaca89c",
+    "tests/unit/test_metadata_agent.py": "8700a59c23bec2dcbbd28f1248c8dce25aa9a3dee602dba6b59e4d19edd8d717",
+    "tests/unit/test_manual_title_mapping.py": "0bea3b1585da4e1a33cd31c037da221a356fd1487be59a048928b869b1d6c43d",
+    "app/services/metadata_repository.py": "6ed096408b895bf271eea7afaff1340387feedbbddc366e05629aca98d37a558",
+    "tests/unit/test_manual_mapping_batches.py": "c54a0bc653553f82fb94e773f4f0671ff80a24d0d3543eb46235c51f410b3aa9",
+    "docs/design/business-logic.md": "03c6dc9e8f0c8c8a266beec8b86da4aa5089ba4e87878bc5091d16a196c5c74c",
+    "tests/unit/test_manual_mapping_identity.py": "392700777eb2f0352d753c473b98718ad7f70505d199687ed41856b2190d6e9f",
+    "tests/integration/metadata/manual_mapping_driver.py": "1475504f1574be2d81ac824ae6386338d9d85f7aeb0b04d03888410b5f321bb4",
+    "tests/integration/metadata/test_manual_mapping_concurrency.py": "553ff092f9b4b755ba0f42f58da4143b33c7694beecb1e533b5b266c541746ae",
+    "docs/testing/integration-inventory.md": "7c66801008681c113484446bfe1454d3f7558ee42614fc08da6567242b2a7ccf",
+    "tests/unit/test_tmdb_episodes.py": "7b1a992d73c0ccaf45db6715e9d02f2d70116cfa24fe498d6859811c73fcf272",
+    "tests/integration/metadata/test_metadata_agent_coverage.py": "1295f563663e0598a723196055c8bfe328ab2c9bfdc213dc567972fdd6d0566f",
+    "tests/fixtures/metadata_corpus_v2/manifest.json": "f7f934a4e7e4595c03e6993febc46407d14e731d6a3b2511ce063938912cbbd6",
+    "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_collection_guard.json.gz": "b1533646c9a0ecc7cf10833a149f0e4e317147b08bbd53c933295245b87fe774",
+    "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_collection_guard.audit.json": "ea45c5b241926884ee11e287426567d0937b1e6e4de116777bc6effd503e1b51",
+    "docs/testing/metadata-corpus.md": "d17dd6e1449325d47db3e5de95e3c19a28b3d8e8b988b00cfdba02c99296833d"
+  },
+  "status": "vv79 and vw3 passed; vx regression running; full gates pending"
+}

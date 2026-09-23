@@ -1,0 +1,19 @@
+{
+  "prototype": "/tmp/rssripple-v15-vu",
+  "freeze": "manual-mapping-vy-frozen.json",
+  "unit": {
+    "session": 37266,
+    "log": "/tmp/rssripple-v15-unit-vy.log",
+    "threshold": 95
+  },
+  "integration": {
+    "session": 61155,
+    "project": "rssripple-v15-final-vz",
+    "log": "/tmp/rssripple-v15-integration-vz.log",
+    "startup_exit": 0,
+    "threshold": 85
+  },
+  "focused_session": 49318,
+  "m2_regression_session": 58115,
+  "accepted": false
+}

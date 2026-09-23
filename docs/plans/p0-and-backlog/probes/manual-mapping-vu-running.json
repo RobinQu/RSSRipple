@@ -1,0 +1,13 @@
+{
+  "prototype": "/tmp/rssripple-v15-vu",
+  "base": "/tmp/rssripple-v15-manual-mapping",
+  "status": "running",
+  "session": 15846,
+  "log": "/tmp/rssripple-v15-vu.log",
+  "unchanged_candidate_diagnostic_session": 93257,
+  "candidate_hashes": {
+    "app/services/metadata_agent.py": "f632a299f718ae53bcc370d6002d078100c8a6279714f7a269bc01e77eaca89c",
+    "tests/unit/test_tmdb_episodes.py": "7b1a992d73c0ccaf45db6715e9d02f2d70116cfa24fe498d6859811c73fcf272",
+    "tests/integration/metadata/test_metadata_agent_coverage.py": "1295f563663e0598a723196055c8bfe328ab2c9bfdc213dc567972fdd6d0566f"
+  }
+}

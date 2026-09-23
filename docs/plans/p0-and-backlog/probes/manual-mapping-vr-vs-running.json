@@ -1,0 +1,16 @@
+{
+  "unit": {
+    "session_id": 81952,
+    "log": "/tmp/rssripple-v15-unit-vr.log",
+    "coverage_min": 95
+  },
+  "integration": {
+    "session_id": 13955,
+    "project": "rssripple-v15-final-vs",
+    "startup_exit_code": 0,
+    "log": "/tmp/rssripple-v15-integration-vs.log",
+    "coverage_min": 85
+  },
+  "prototype": "/tmp/rssripple-v15-manual-mapping",
+  "status": "running; do not edit frozen candidate"
+}

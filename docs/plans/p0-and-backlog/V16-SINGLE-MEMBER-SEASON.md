@@ -1,0 +1,95 @@
+# V16：单成员合集不等于单季证据（P1-M2）
+
+## 必要性复核
+
+独立临时 Turso 的真实 `create_or_update_series_from_external` 调用已复现：仅有一个 season_number=3 的合集，没有 season_hint、季数、逐季列表或外部身份，按合集标题匹配的候选仍返回该第 3 季。明确断言失败，退出 1；真实 upsert 和 commit 未替换，作品/标题为合成夹具，不能宣称生产资源已错误绑定。证据 `probes/single_member_season_probe.py`、`single-member-a.log`、`single-member-a-result.json`，数据库已清理。首次探针尚未使用录制输入，后续需增加真实无季标题回放。
+
+维持 P1：违反季号不猜测，可能将合集级候选/资源写到碰巧已入库的一季；当前实验不证明文件丢失，不能仅据不变量上调 P0。修复的重点是证据语义，不能把 `len(members)==1` 改成 `season_number==1` 就宣称解决。
+
+## 方案论证
+
+- 季号由显式 hint、季级身份、可信标题季标记或经校验的单季证据确定；库内成员数量不构成来源季数证据。
+- 合集身份/标题已确定但季号未知时，应保持 collection 身份并返回未定季状态；不自动选择现存唯一成员，也不增加替代季作品。
+- 显式季号和季级 identity 仍应命中准确季，可信单季证据的既有入口需保留。需审查空合集 fallback，避免同一种无证据默认 S1 从另一条路径回流。
+- M1 已有 expected_series_id 约束也引用单成员条件；M1 验收完成后以合入代码为基线统一更新，不改当前冻结候选。
+
+## 严格验收矩阵
+
+覆盖现有唯一成员 S0/S1/S3、零/多成员；无季数/可信单季/多季矛盾证据；显式 hint 与季级身份的正反例；集合级身份袋和精确标题两入口。断言真实返回值、资源工作 FK 与 collection_id、作品数量和身份袋归属，拒绝路径实际 commit 后再用独立会话核验。加入录制无季标题及明确标注的来源响应替身。先在原代码红测，再双库及实际 metadata/fetch 入口验证；最终完整单元/API ≥95%、隔离集成 ≥85%，跳过项/退出/清理/冻结哈希均通过后才关闭 TODO。
+
+当前只有必要性红测和方案，尚未修改实现；M1 vr/vs 正在完整门禁，禁止改其 app/tests/scripts/config。
+
+
+## b：季证据边界矩阵
+
+独立 Turso 扩大八场景：**5 failed、3 passed，退出 1**（脚本收集全部结果后统一断言，不是 pytest 计数）。失败为无证据唯一 S0/S1/S3、来源明确三季但本地唯一 S1、空合集无证据默认创建 S1。通过为多成员未知季保持未定、显式 hint=3 正确选 S3、可信单季 count=1 选 S1。每项实际 commit，再独立会话核对作品数量；空合集错误新增一行，其余错误选择既有季。记录 `probes/single-member-b.log` 和 `single-member-b-result.json`，临时库已清理，原执行脚本哈希保留后才修正 lint 换行。
+
+因此修复必须同时去掉已匹配合集的无证据空库 S1 fallback，保留正例；不能仅在单成员条件上增加一个判断。候选 `number_of_seasons` 只作为外部证据输入，未写入退役 ORM 列。此矩阵仍是合成数据，不把录制语料中的历史 season=1 作为真值；后续真实标题回放应只复用原始输入、独立设置证据与期望。
+
+
+M1 衔接约束：`expected_series_id` 来自明确人工目标，其单季身份本身是用户指定证据，应与“仅因合集当前有一个成员而自动猜季”区分。V16 不应因禁止基数推断而破坏有效人工目标的同身份补全；若需要定季，应从已确认的目标作品取得季号并验证归属/身份，禁止再通过成员数量代替证据。此路径需在正式正例矩阵单独覆盖。
+
+
+## c/e：独立原型与正式季证据测试
+
+已从冻结 M1 复制到 `/tmp/rssripple-v16-single-member`，不修改 M1 文件。`_resolve_collection_member` 对未知季直接保留合集身份并返回 None，取消单成员选季和空合集默认 S1；明确 expected_series_id 在同合集且季号/身份兼容时，从用户指定作品取得季号。原八场景 c 全部通过（脚本断言，退出 0），独立库已清理。
+
+正式 `test_collection_member_season_evidence.py` 覆盖标题/合集身份袋两入口 × 八种证据组合，以及明确人工 S3 目标在单/多成员合集内的补全：**18 passed、1 warning，29.51 秒，退出 0**；相关 Ruff 通过，业务与单季设计已在原型同步。证据 `probes/single-member-c.log`、`single-member-e.log/.xml`，原型补丁及基线/候选哈希 `single-member-prototype.patch`、`single-member-source.json`。此补丁基于尚未合入的 M1 原型，不可直接应用 main。
+
+d 扩大 metadata_service/人工映射/身份回归已终态：210 passed、3 failed、1 warning，167.31 秒，退出 1。M1 vr/vs 门禁仍在原冻结副本运行。
+
+
+## d–g：旧测试契约复核
+
+三项失败逐项核实：两个跨语言 Wikipedia 身份归并测试未提供季号，却要求落同一季作品；为保留其身份归并目标，在两次 upsert 均明确 season_hint=1，保留原 work ID、英文标题和别名断言。第三项测试直接要求“空合集无证据创建 S1”，与本次修复目标相反；改为不建季作品，真实 commit 后独立会话验证合集无成员、TMDB 身份仍归合集。没有以降低断言覆盖掩盖问题。
+
+f 相关三项加十八项正式矩阵：20 passed、1 failed、30.32 秒；唯一失败为新独立查询漏导入 select（测试错误），修正后 g 单项通过，1.77 秒。保留 f 失败记录，结果不相加冒充完整一轮通过。相关 Ruff 通过。下一步正式 PostgreSQL/真实资源入口和录制输入回放，最终重跑完整回归及全量门禁；尚未验收合入。M1 冻结文件仍保持不变。
+
+
+## h/i：录制标题与真实资源持久化、双库正式测试
+
+复用录制原始标题 case `011c6d44-68cf-43a8-bad3-f0398ce20a95`，不使用其历史 season 作为真值；TMDB ID、合集季成员与来源响应为合成。新增 repository/强制 MetadataAgent × 空/唯一 S3 合集 × 未知/明确 S3 八项：真实 upsert、资源写入及 commit 后独立会话检查，未知季工作 FK 空、挂合集、season=None、ambiguous，不增作品；明确季号必须正确创建/关联 S3，身份袋归合集。
+
+h Turso 正式文件 **26 passed、1 warning，38.34 秒，退出 0**。i 正式 PostgreSQL 集成驱动复用全部 26 项断言，pytest **1 passed，4.30 秒，退出 0**（不得称 pytest 26 passed），包含独立建库与 finally 清理；容器清理退出 0，相关 Ruff 通过。证据 `probes/single-member-h*`、`single-member-i*`；集成清单已更新原型，仍未合入。
+
+尚需扩大默认缓存/抓取路径、审查更外层的无证据兜底、完整回归及最终两道覆盖率门禁。M1 vr/vs 仍在运行且禁止修改其冻结文件。
+
+
+## j–m：默认缓存与真实抓取事务
+
+j 成功缓存四项通过（6.72 秒）：真实写入 MetadataCache 后调用默认 Agent，明确断言不调用外部 ReAct，同时保持未知季待确认/显式 S3 正例。随后接入实际 `_process_resource_metadata_once` 的独立会话和 commit，外部 torrent 缓存/inspection 为替身，实际 Agent/repository/发布未替换。
+
+k 四项失败均因夹具没有 B7 要求的初始 created publication，生产函数按契约回滚；补齐真实 `publish_resource(kind=created)` 后，断言 metadata publication 恰有一条且资源/身份袋最终符合季证据。l 完整 Turso 文件 **34 passed、1 warning，48.97 秒**；m 正式 PostgreSQL 驱动 **1 passed，5.68 秒**，内含同组 34 项实际断言。两轮退出 0，专用 PG 容器清理退出 0，失败/成功日志和 JUnit 均保留 `probes/single-member-j*` 至 `-m*`。不把 mock 网络组件解释为实际 torrent 或实时提供者验收。
+
+M2 尚需最终扩大回归、合入前审查及完整覆盖率门禁；原型运行实现本轮未变化，仅扩大正式断言。M1 vr/vs 仍在运行，冻结候选未修改。
+
+
+## n/o：外层同名与新建路径也存在默认选季
+
+审查新增两条真实 upsert 红测：系列级 TMDB 候选、未知季数/季号，①无既有合集/作品时默认新建 S1；②合集名不匹配但仅有同名 S3 时，绕过合集成员函数直接选择 S3。n **2 failed、34 deselected，3.01 秒**，原局部修复不能覆盖两条路径。
+
+对没有可信单季证据的系列级候选，外层同名匹配只归并到合集，无法唯一确定合集时保留独立合集身份；新系列同样先保留合集身份，不创建默认 S1。明确季号、可信单季及季级来源身份沿用正常分支。o 完整 Turso 季证据文件 **36 passed、1 warning，53.38 秒，退出 0**。权威业务/单季文档已在独立原型同步，未改 M1。
+
+p 扩大 metadata_service/repository/三份人工映射回归正在 session 3996，日志 `/tmp/rssripple-v16-regression-p.log`、JUnit 同前缀 `.xml`。PG 正式驱动已增加两项外层断言至 36 项，但尚未重跑；之前 m 的 34 项只证明修正前基线，不挪作当前运行实现的最终证据。还须等待 p 结果逐项处理兼容性、完成双库和完整门禁。
+
+## p 扩大回归结果
+
+255 passed、5 failed，退出 1；原始日志和 JUnit 已保存。失败涉及人工映射更新、LLM fallback、别名合并、人工身份保护和无共享合集多候选。须逐项区分无季证据的预期变化与实际回归，不得统一改断言绕过。M2 尚未验收或合入。
+
+## q 定向验证准备
+
+p 五项失败均缺少季证据。四项映射/别名/身份保护测试补充显式 season=1 或 season_hint=1，保留原行为断言；多候选测试保留无季号输入，要求返回 None、现有 S1/S2 数量不变并保存合集身份。未修改运行代码。定向五项测试句柄 60195，日志 `/tmp/rssripple-v16-q.log`，仍在运行；不能视为通过。
+
+q 环境中止后重跑 r：4 passed、1 failed（2.97 秒）。剩余多候选测试无新季作品断言已通过，新增外部身份袋断言 NoResultFound；须检查 llm_search / wikipedia:999 合成身份是否符合规范，不可直接删除身份归属断言。
+
+r 身份袋失败源于旧合成输入使用 llm_search（身份袋明确排除该非规范源）。改用合成 TMDB 系列身份 tmdb:90006486，保留身份归属断言；s 五项通过，2.82 秒。t 扩大回归（含 36 项季证据）句柄 58115，未完成完整验收。
+
+## t / u 扩大验证通过
+
+t 回归 296 passed，208.23 秒，包含完整 service/repository/manual mapping 与 36 项季证据。u 正式 PostgreSQL 父测试 1 passed，8.52 秒，驱动实际执行全部 36 项断言；结果 JSON 与驱动日志已归档。专用容器 rssripple-v16-evidence-u 已删除（含测试卷），仍需在 M1 验收后同步基线并执行 M2 完整门禁。
+
+## v 最新 M1 基线重放
+
+独立目录 `/tmp/rssripple-v16-rebased` 已将八文件 M2 差异移到冻结 M1 vu 基线。非冲突文件逐一核对旧/新基线相同；business-logic 两边仅末尾追加，保留两段完整内容。v 扩大回归含 P0 季号和严格语料，句柄 42944，日志 /tmp/rssripple-v16-v.log。M1 冻结候选未改。
+
+v 最新基线扩大回归：305 passed，366.96 秒，含 P0 季号与严格语料。合入审查发现现方案保留 season-granularity 外层兜底，单季条目身份不等于已知系列季号，与禁止猜季要求存在潜在冲突。新增 w 两项真实数据库反例（合成 Bangumi 身份，无季号；空库/同标题 S3），结果见日志；该边界解决前不启动 M2 最终门禁，不将旧通过矩阵当作完整修复。新测试位于 /tmp/rssripple-v16-rebased，旧候选归档为历史。

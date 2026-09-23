@@ -1,0 +1,5 @@
+{'recorded_case': '00e48de8-b5fd-4e99-8467-d384bd4a3183'}
+{'merge_http_status': 200}
+{'resource': 'fdf96cde-c3e1-4969-94ce-4666d7faad0b', 'expected_movie': '1e6cfb46-a31b-4a39-bc25-f2354e3f1406', 'actual_movie': None, 'search_title': None}
+{'retry_linked_to_survivor': True}
+[metadata_agent] channel c61a8d92-749a-487e-8372-65379d2cc4e6 source='tmdb' is not available (disabled or missing credentials); search will return no external candidates

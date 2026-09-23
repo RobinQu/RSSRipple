@@ -1,0 +1,515 @@
+--- a/app/services/metadata_wiki_judge.py
++++ b/app/services/metadata_wiki_judge.py
+@@ -225,7 +225,22 @@
+         *(_execute_search_wikipedia(q, lang) for (q, lang) in queries),
+         return_exceptions=True,
+     )
++    # A model no-match cannot turn a failed lookup into a definitive miss.
++    search_lookup_failed = not all(
++        isinstance(result, dict) and result.get("success") for result in raw_results
++    )
+     source_errors: dict[str, str] = {}
++    page_lookup_failed = False
++
++    async def retry_with_react():
++        verdict, info = await react_runner(msg_builder(raw_title, source), source)
++        info = dict(info)
++        info["source_errors"] = {**source_errors, **(info.get("source_errors") or {})}
++        # A grounded successful retry supersedes earlier lookup errors. A
++        # negative verdict alone cannot establish absence after incomplete I/O.
++        if (search_lookup_failed or page_lookup_failed) and not verdict.get("found"):
++            info["error"] = info.get("error") or "Wikipedia request failed: incomplete lookup"
++        return verdict, info
+     # Page IDs are unique only within a language edition.
+     seen_pids: set[tuple[str, str]] = set()
+     top: list[dict] = []
+@@ -279,7 +294,13 @@
+             if d.get("langlink_pageids"):
+                 entry["langlink_pageids"] = d["langlink_pageids"]
+         elif isinstance(pres, Exception):
++            page_lookup_failed = True
+             source_errors[f"page:{cand.get('lang')}"] = f"{type(pres).__name__}: {pres}"[:200]
++        elif isinstance(pres, dict) and not pres.get("success"):
++            error = str(pres.get("error") or "page lookup failed")[:200]
++            source_errors[f"page:{cand.get('lang')}"] = error
++            if not error.startswith("Page not found:"):
++                page_lookup_failed = True
+         evidence.append(entry)
+ 
+     # Deterministic auto-link: when a search result's title clearly matches
+@@ -410,9 +431,7 @@
+             "[metadata_agent] judge call failed for %r: %s; falling back to ReAct",
+             raw_title[:80], e,
+         )
+-        return await react_runner(
+-            msg_builder(raw_title, source), source
+-        )
++        return await retry_with_react()
+     content = getattr(resp, "content", "") or ""
+     if isinstance(content, list):  # some models return structured content
+         content = "".join(getattr(c, "text", str(c)) for c in content)
+@@ -422,9 +441,7 @@
+             "[metadata_agent] judge returned unparseable JSON for %r; falling back to ReAct",
+             raw_title[:80],
+         )
+-        return await react_runner(
+-            msg_builder(raw_title, source), source
+-        )
++        return await retry_with_react()
+     # The single-call judge (especially on a mini model) can be conservative
+     # and return found=False despite relevant evidence existing - a false
+     # negative ReAct's multi-turn reasoning would catch. When that happens,
+@@ -487,9 +504,7 @@
+             "[metadata_agent] judge found=False with %d candidates for %r; ReAct second opinion",
+             len(evidence), raw_title[:80],
+         )
+-        return await react_runner(
+-            msg_builder(raw_title, source), source
+-        )
++        return await retry_with_react()
+     # B3: carry the matched page's categories onto matched_entity so
+     # process() can defense-check the entity kind. The judge returns
+     # external_id "wikipedia:<lang>:<page_id>" (legacy "wikipedia:<page_id>");
+@@ -527,5 +542,8 @@
+         "method": "search_then_judge",
+         "data_sources_used": ["wikipedia"],
+         "source_errors": source_errors,
+-        "error": None,
++        "error": (
++            "Wikipedia request failed: incomplete lookup"
++            if (search_lookup_failed or page_lookup_failed) and not finalize_dict.get("found") else None
++        ),
+     }
+--- a/app/services/metadata_search_agent.py
++++ b/app/services/metadata_search_agent.py
+@@ -179,7 +179,7 @@
+     if cached is not None:
+         return cached
+ 
+-    async def _search_lang(lang: str) -> list[dict]:
++    async def _search_lang(lang: str) -> list[dict] | None:
+         """Run a single-language search_multi call."""
+         try:
+             async with httpx.AsyncClient(timeout=15) as client:
+@@ -200,22 +200,24 @@
+                 "[metadata_agent] TMDB search failed for lang=%s title=%r: %s",
+                 lang, title[:60], e,
+             )
+-            return []
++            return None
+         except Exception as e:
+             logger.warning(
+                 "[metadata_agent] TMDB search unexpected error lang=%s title=%r: %s",
+                 lang, title[:60], e,
+             )
+-            return []
++            return None
+ 
+     zh_task = asyncio.create_task(_search_lang("zh-CN"))
+     en_task = asyncio.create_task(_search_lang("en-US"))
+     zh_results, en_results = await asyncio.gather(zh_task, en_task, return_exceptions=True)
+ 
+-    if isinstance(zh_results, BaseException):
+-        zh_results = []
+-    if isinstance(en_results, BaseException):
+-        en_results = []
++    for result in (zh_results, en_results):
++        if isinstance(result, BaseException):
++            raise result
++    complete = zh_results is not None and en_results is not None
++    zh_results = zh_results or []
++    en_results = en_results or []
+ 
+     # Merge by TMDB ID: prefer zh-CN for title_cn, en-US for title_en
+     merged: dict[int, dict] = {}
+@@ -281,6 +283,8 @@
+     _ingest(en_results, "en-US")
+ 
+     if not merged:
++        if not complete:
++            raise RuntimeError("TMDB request failed: incomplete search")
+         _cache_set("tmdb", title, [])
+         return []
+ 
+@@ -330,7 +334,10 @@
+         if _validate_candidate(candidate):
+             candidates.append(candidate)
+ 
+-    _cache_set("tmdb", title, candidates)
++    if complete:
++        _cache_set("tmdb", title, candidates)
++    elif not candidates:
++        raise RuntimeError("TMDB request failed: incomplete search")
+     return candidates
+ 
+ 
+--- a/tests/unit/test_wiki_failure_cache.py
++++ b/tests/unit/test_wiki_failure_cache.py
+@@ -0,0 +1,170 @@
++"""Recorded title; source timeout and model no-match are synthetic faults."""
++import json
++import uuid
++from types import SimpleNamespace
++from unittest.mock import AsyncMock
++
++import pytest
++from sqlalchemy import select
++from sqlalchemy.ext.asyncio import async_sessionmaker
++
++from app.models.file_resource import FileResource
++from app.models.metadata_cache import MetadataCache
++from app.services.metadata_agent import UnifiedMetadataAgent
++from tests.metadata_corpus.dataset import load_corpus
++
++
++@pytest.mark.parametrize("partial_failure", [False, True])
++async def test_total_wiki_failure_does_not_poison_cache(
++    db_session, sample_channel, monkeypatch, partial_failure,
++):
++    case = next(c for c in load_corpus()[1]["cases"]
++                if c["id"] == "011c6d44-68cf-43a8-bad3-f0398ce20a95")
++    sample_channel.metadata_source = "wikipedia"
++    sample_channel.metadata_fallback_sources = []
++    resource = FileResource(channel_id=sample_channel.id, guid=str(uuid.uuid4()),
++                            title_raw=case["input"]["title_raw"], torrent_url="https://unused.invalid/file")
++    db_session.add(resource)
++    await db_session.commit()
++    source = AsyncMock(return_value={"success": False, "error": "Wikipedia request failed: timeout"})
++    if partial_failure:
++        async def search(query, language):
++            return ({"success": True, "data": []} if language == "en" else
++                    {"success": False, "error": "Wikipedia request failed: timeout"})
++        source.side_effect = search
++    monkeypatch.setattr("app.services.metadata_wiki_judge._execute_search_wikipedia", source)
++    monkeypatch.setattr("app.services.metadata_wiki_judge.web_fallback_judge", AsyncMock(return_value=None))
++    agent = UnifiedMetadataAgent()
++    agent._model = AsyncMock()
++    agent._model.ainvoke.return_value = SimpleNamespace(content=json.dumps({
++        "found": False, "reason": "No matching work found", "content_type": "tv",
++    }))
++    result = await agent.process(resource, sample_channel, db_session)
++    await db_session.commit()
++    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
++    async with factory() as observer:
++        cached = (await observer.execute(select(MetadataCache))).scalars().all()
++        stored = await observer.get(FileResource, resource.id)
++        assert not cached, "all source requests timed out but negative cache was persisted"
++        assert stored.metadata_failure_type == "transient"
++    assert result.search_error
++    before = source.await_count
++    # Recovery to a successful empty response must actually query the source.
++    source.side_effect = None
++    source.return_value = {"success": True, "data": []}
++    await agent.process(resource, sample_channel, db_session)
++    await db_session.commit()
++    assert source.await_count > before
++    async with factory() as observer:
++        assert len((await observer.execute(select(MetadataCache))).scalars().all()) == 1
++
++
++@pytest.mark.parametrize("recovered", [False, True])
++async def test_failed_page_lookup_preserves_retry_outcome(monkeypatch, recovered):
++    from app.services.metadata_agent import ResourceMetadata, _classify_failure
++    from app.services.metadata_wiki_judge import run_search_then_judge
++
++    monkeypatch.setattr("app.services.metadata_wiki_judge._candidate_queries", lambda *_: [("Recorded query", "en")])
++    monkeypatch.setattr("app.services.metadata_wiki_judge._execute_search_wikipedia", AsyncMock(return_value={
++        "success": True, "data": [{"title": "Synthetic candidate", "page_id": 90007001}],
++    }))
++    monkeypatch.setattr("app.services.metadata_wiki_judge._execute_get_wikipedia_page", AsyncMock(return_value={
++        "success": False, "data": {}, "error": "Wikipedia request failed: timeout",
++    }))
++    monkeypatch.setattr("app.services.metadata_wiki_judge.web_fallback_judge", AsyncMock(return_value=None))
++    model = AsyncMock()
++    model.ainvoke.return_value = SimpleNamespace(content=json.dumps({"found": False, "reason": "No match"}))
++    retry = {"found": recovered, "clean_title": "Synthetic fault query", "reason": "No match"}
++    if recovered:
++        retry["matched_entity"] = {"external_source": "wikipedia", "external_id": "wikipedia:en:90007001"}
++    react = AsyncMock(return_value=(retry, {"error": None}))
++    verdict, info = await run_search_then_judge(model, "Synthetic fault query", react_runner=react,
++                                               msg_builder=lambda *args: "synthetic message")
++    assert _classify_failure(ResourceMetadata(**verdict, search_error=info.get("error"))) == (None if recovered else "transient")
++    assert "page:en" in info["source_errors"]
++
++
++@pytest.mark.parametrize("failed_languages", [{"zh-CN", "en-US"}, {"zh-CN"}])
++async def test_tmdb_failed_search_is_not_negative_cached(monkeypatch, failed_languages):
++    import httpx
++
++    from app.services import metadata_search_agent as msa
++
++    case = next(c for c in load_corpus()[1]["cases"]
++                if c["id"] == "011c6d44-68cf-43a8-bad3-f0398ce20a95")
++    title = case["input"]["title_raw"]
++    monkeypatch.setattr(msa, "_cache", {})
++    monkeypatch.setattr("app.services.runtime_config._overrides", {"tmdb_api_key": "synthetic"})
++    calls = []
++
++    async def get(self, url, **kwargs):
++        language = kwargs["params"]["language"]
++        calls.append(language)
++        if language in failed_languages:
++            raise httpx.ReadTimeout("synthetic timeout")
++        return httpx.Response(200, json={"results": []}, request=httpx.Request("GET", url))
++
++    monkeypatch.setattr(httpx.AsyncClient, "get", get)
++    from app.services.metadata_source_io import _execute_search_tmdb
++
++    failed = await _execute_search_tmdb(title)
++    assert failed["success"] is False
++    assert "request failed" in failed["error"]
++    assert msa._cache_get("tmdb", title) is None
++    failed_languages = set()
++    assert await msa._search_tmdb(title) == []
++    assert len(calls) == 4
++    assert msa._cache_get("tmdb", title) == []
++
++
++async def test_tmdb_partial_success_retains_candidate_without_caching(monkeypatch):
++    import httpx
++
++    from app.services import metadata_search_agent as msa
++    from app.services.metadata_source_io import _execute_search_tmdb
++
++    monkeypatch.setattr(msa, "_cache", {})
++    monkeypatch.setattr("app.services.runtime_config._overrides", {"tmdb_api_key": "synthetic"})
++    monkeypatch.setattr(msa, "_tmdb_image_base", lambda *_: "https://unused.invalid/")
++    monkeypatch.setattr(msa, "_tmdb_genre_map", lambda *_: {})
++
++    async def get(self, url, **kwargs):
++        if kwargs["params"]["language"] == "zh-CN":
++            raise httpx.ReadTimeout("synthetic timeout")
++        return httpx.Response(200, json={"results": [{
++            "media_type": "movie", "id": 90007002, "title": "Synthetic success",
++        }]}, request=httpx.Request("GET", url))
++
++    monkeypatch.setattr(httpx.AsyncClient, "get", get)
++    result = await _execute_search_tmdb("Synthetic success")
++    assert result["success"] is True
++    assert [item["external_id"] for item in result["data"]] == ["tmdb:90007002"]
++    assert msa._cache_get("tmdb", "Synthetic success") is None
++
++
++async def test_wiki_partial_failure_keeps_grounded_success(monkeypatch):
++    from app.services.metadata_agent import ResourceMetadata, _classify_failure
++    from app.services.metadata_wiki_judge import run_search_then_judge
++
++    monkeypatch.setattr("app.services.metadata_wiki_judge._candidate_queries",
++                        lambda *_: [("Recorded query", "zh"), ("Recorded query", "en")])
++    async def search(query, language):
++        if language == "zh":
++            return {"success": False, "error": "Wikipedia request failed: timeout"}
++        return {"success": True, "data": [{"title": "Synthetic movie", "page_id": 90007003}]}
++    monkeypatch.setattr("app.services.metadata_wiki_judge._execute_search_wikipedia", search)
++    monkeypatch.setattr("app.services.metadata_wiki_judge._execute_get_wikipedia_page", AsyncMock(return_value={
++        "success": True, "data": {"title": "Synthetic movie", "categories": ["2024 films"]},
++    }))
++    model = AsyncMock()
++    model.ainvoke.return_value = SimpleNamespace(content=json.dumps({
++        "found": True, "content_type": "movie", "clean_title": "Synthetic movie",
++        "matched_entity": {"external_source": "wikipedia", "external_id": "wikipedia:en:90007003"},
++    }))
++    verdict, info = await run_search_then_judge(model, "Synthetic fault query", react_runner=AsyncMock(),
++                                               msg_builder=lambda *args: "synthetic message")
++    assert verdict["found"] is True
++    assert verdict["matched_entity"]["external_id"] == "wikipedia:en:90007003"
++    assert "wikipedia:zh" in info["source_errors"]
++    assert info["error"] is None
++    assert _classify_failure(ResourceMetadata(**verdict, search_error=info["error"])) is None
+--- a/tests/unit/test_metadata_search_agent.py
++++ b/tests/unit/test_metadata_search_agent.py
+@@ -297,11 +297,9 @@
+         patch("httpx.AsyncClient", MagicMock(return_value=client)),
+         patch.object(msa, "_cache_set") as cache_set,
+     ):
+-        candidates = await msa._search_tmdb("Boom")
+-
+-    assert candidates == []
+-    # No results → empty result is cached.
+-    cache_set.assert_called_once_with("tmdb", "Boom", [])
++        with pytest.raises(RuntimeError, match="TMDB request failed"):
++            await msa._search_tmdb("Boom")
++    cache_set.assert_not_called()
+ 
+ 
+ async def test_search_tmdb_language_timeout_returns_empty():
+@@ -316,9 +314,8 @@
+         patch("httpx.AsyncClient", MagicMock(return_value=client)),
+         patch.object(msa, "_cache_set"),
+     ):
+-        candidates = await msa._search_tmdb("Timeout")
+-
+-    assert candidates == []
++        with pytest.raises(RuntimeError, match="TMDB request failed"):
++            await msa._search_tmdb("Timeout")
+ 
+ 
+ async def test_search_tmdb_language_http_status_error_returns_empty():
+@@ -331,9 +328,8 @@
+         patch("httpx.AsyncClient", MagicMock(return_value=client)),
+         patch.object(msa, "_cache_set"),
+     ):
+-        candidates = await msa._search_tmdb("Http")
+-
+-    assert candidates == []
++        with pytest.raises(RuntimeError, match="TMDB request failed"):
++            await msa._search_tmdb("Http")
+ 
+ 
+ async def test_search_tmdb_en_us_provides_original_title():
+@@ -431,9 +427,9 @@
+     resp = MagicMock()
+     resp.raise_for_status.return_value = None
+     resp.json.return_value = json_results
+-    client.get.return_value = resp
+-    client.__aenter__ = MagicMock(return_value=client)
+-    client.__aexit__ = MagicMock(return_value=False)
++    client.get = AsyncMock(return_value=resp)
++    client.__aenter__ = AsyncMock(return_value=client)
++    client.__aexit__ = AsyncMock(return_value=False)
+     return client
+ 
+ 
+@@ -451,10 +447,10 @@
+         patch("httpx.AsyncClient", MagicMock(return_value=client)),
+         patch.object(msa, "_cache_set") as cache_set,
+     ):
+-        candidates = await msa._search_tmdb("Explode")
+-
+-    assert candidates == []
+-    cache_set.assert_called_once_with("tmdb", "Explode", [])
++        with pytest.raises(asyncio.CancelledError):
++            await msa._search_tmdb("Explode")
++
++    cache_set.assert_not_called()
+ 
+ 
+ # ---------------------------------------------------------------------------
+--- a/tests/integration/metadata/wiki_failure_driver.py
++++ b/tests/integration/metadata/wiki_failure_driver.py
+@@ -0,0 +1,62 @@
++"""Run cache failure assertions in a dedicated empty PostgreSQL database."""
++import asyncio
++import json
++import os
++from pathlib import Path
++from urllib.parse import urlsplit
++
++url = os.environ["WIKI_FAILURE_DATABASE_URL"]
++assert urlsplit(url).path.startswith("/wiki_failure_")
++os.environ["DATABASE_URL"] = url
++
++import pytest  # noqa: E402
++from sqlalchemy import inspect, text  # noqa: E402
++
++from app import database  # noqa: E402
++from app.models.channel import Channel  # noqa: E402
++from tests.unit.test_wiki_failure_cache import (  # noqa: E402
++    test_failed_page_lookup_preserves_retry_outcome,
++    test_tmdb_failed_search_is_not_negative_cached,
++    test_tmdb_partial_success_retains_candidate_without_caching,
++    test_total_wiki_failure_does_not_poison_cache,
++    test_wiki_partial_failure_keeps_grounded_success,
++)
++
++
++async def main():
++    results = []
++    try:
++        async with database.engine.begin() as conn:
++            assert not await conn.run_sync(lambda c: inspect(c).has_table("metadata_cache"))
++            await conn.run_sync(database.Base.metadata.create_all)
++        tables = ", ".join('"' + name + '"' for name in database.Base.metadata.tables)
++        for partial_failure in (False, True):
++            async with database.engine.begin() as conn:
++                await conn.execute(text("TRUNCATE TABLE " + tables + " CASCADE"))
++            async with database.async_session_factory() as db:
++                channel = Channel(name="Synthetic failure channel", url="https://unused.invalid/feed", field_mapping={})
++                db.add(channel)
++                await db.commit()
++                with pytest.MonkeyPatch.context() as patch:
++                    await test_total_wiki_failure_does_not_poison_cache(db, channel, patch, partial_failure)
++                results.append("real_database_failure_recovery_" + str(partial_failure))
++        for recovered in (False, True):
++            with pytest.MonkeyPatch.context() as patch:
++                await test_failed_page_lookup_preserves_retry_outcome(patch, recovered)
++            results.append("page_retry_" + str(recovered))
++        for languages in ({"zh-CN", "en-US"}, {"zh-CN"}):
++            with pytest.MonkeyPatch.context() as patch:
++                await test_tmdb_failed_search_is_not_negative_cached(patch, languages)
++            results.append("tmdb_failed_" + str(len(languages)))
++        with pytest.MonkeyPatch.context() as patch:
++            await test_tmdb_partial_success_retains_candidate_without_caching(patch)
++        results.append("tmdb_partial_success")
++        with pytest.MonkeyPatch.context() as patch:
++            await test_wiki_partial_failure_keeps_grounded_success(patch)
++        results.append("wiki_partial_success")
++        Path(os.environ["WIKI_FAILURE_RESULT"]).write_text(json.dumps({"cases": results}))
++    finally:
++        await database.engine.dispose()
++
++
++asyncio.run(main())
+--- a/tests/integration/metadata/test_wiki_failure_cache.py
++++ b/tests/integration/metadata/test_wiki_failure_cache.py
+@@ -0,0 +1,40 @@
++"""Mandatory PostgreSQL counterpart of the Turso season-evidence matrix."""
++import asyncio
++import json
++import os
++import subprocess
++import sys
++import uuid
++from pathlib import Path
++from urllib.parse import urlsplit, urlunsplit
++
++import asyncpg
++import pytest
++
++
++async def test_wiki_failure_cache_postgres(tmp_path):
++    url = os.environ.get('QUEUE_RECOVERY_POSTGRES_URL')
++    if not url:
++        if os.environ.get('QUEUE_RECOVERY_REQUIRED') == '1':
++            pytest.fail('Metadata failure cache gate requires dedicated PostgreSQL')
++        pytest.skip('Run the isolated integration gate for PostgreSQL')
++    parts = urlsplit(url)
++    assert parts.path == '/queue_recovery'
++    name = 'wiki_failure_' + uuid.uuid4().hex
++    admin = await asyncpg.connect(url)
++    try:
++        await admin.execute(f'CREATE DATABASE "{name}"')
++        output = tmp_path / 'result.json'
++        env = dict(os.environ,
++                   WIKI_FAILURE_DATABASE_URL=urlunsplit(parts._replace(scheme='postgresql+asyncpg', path='/' + name)),
++                   WIKI_FAILURE_RESULT=str(output))
++        result = await asyncio.to_thread(subprocess.run,
++            [sys.executable, '-m', 'tests.integration.metadata.wiki_failure_driver'],
++            cwd=Path(__file__).resolve().parents[3], env=env,
++            capture_output=True, text=True, timeout=120)
++        (tmp_path / 'driver.log').write_text(result.stdout + result.stderr)
++        assert result.returncode == 0, result.stdout + result.stderr
++        assert len(json.loads(output.read_text())['cases']) == 8
++    finally:
++        await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
++        await admin.close()
+--- a/docs/design/business-logic.md
++++ b/docs/design/business-logic.md
+@@ -855,3 +855,9 @@
+ 候选扩展前记录作品季号和合集，写保护后重读值若不同则拒绝旧候选。直接 apply 返回 409；后台刷新返回 found=false、scope_changed=true、applied=[]，不标为 identity_conflict。作品已删除继续按未找到处理。这只验证当前应用调用期间的归属变化，不替代跨请求 preview/apply 的版本契约。
+ 
+ 人工映射与已链接资源的 Agent 短路返回必须携带协调后的 season、episode 和 season_ambiguous，避免返回状态与持久化资源不一致。已由 torrent inspection 识别为 franchise 的资源保留合集/文件指派，不再执行整包标题的单作品匹配。
++
++维基来源失败候选契约：所有搜索变体失败时，LLM 的未命中不构成可靠负结果。页面请求的失败字典和异常均保留 source_errors；明确 Page not found 与瞬态请求失败分开。后续 ReAct 未命中保留先前不完整查询的瞬态状态，不写负缓存；成功结果不因先前失败被降级。当前候选仍待双库和完整门禁验证。
++
++TMDB 双语言搜索保留失败与空响应区别：不完整搜索无候选时抛出来源错误，工具层 success=false；有可用候选则返回候选，但不缓存不完整结果。成功双语言空响应可缓存；取消信号继续传播。
++
++维基任一搜索变体请求失败且最终没有成功候选时，也属于不完整查询，不能仅因另一语言成功空响应就缓存未命中；有可接地成功候选则继续接受，不受其他语言错误影响。
+--- a/docs/testing/integration-inventory.md
++++ b/docs/testing/integration-inventory.md
+@@ -342,3 +342,5 @@
+ 
+ 
+ M1 正式 `metadata/test_manual_mapping_concurrency.py` 包含 PostgreSQL 九项和 Turso 六项。使用录制发布标题 `00e48de8-b5fd-4e99-8467-d384bd4a3183`、真实 associations/works-merge ASGI 路由和独立数据库会话；作品、候选响应与缓存/本地命中结果为合成，队列唤醒替换，不覆盖认证中间件或实时提供者。覆盖外部查询期间编辑（含改为 franchise 的形态编辑）、已有人工映射、缓存/本地快捷返回、查询期间合并及后续恢复；PostgreSQL 另验证资源锁等待、候选写入前合并及唯一约束错误不被吞。沿用隔离门禁 `QUEUE_RECOVERY_POSTGRES_URL` 和 `QUEUE_RECOVERY_REQUIRED=1`：缺 PostgreSQL 时必失败；每项独立建库，finally DROP DATABASE。Turso 使用 pytest 临时文件并启用 MVCC，简化建库未配置 FTS sidecar，FTS 正常路径仍由现有套件承担。
++
++M3 候选 `metadata/test_wiki_failure_cache.py`：专用 PostgreSQL scratch database、独立进程运行 8 项断言，其中 Agent→真实缓存数据库故障/恢复 2 项（全部搜索失败、部分失败且其余无结果），其余为页面重试与 TMDB 源适配器编排。录制原始标题，来源响应和模型故障显式合成；缺专用数据库且 REQUIRED=1 时失败，最后删除测试库，不代表公网识别质量。

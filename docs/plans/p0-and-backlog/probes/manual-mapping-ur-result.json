@@ -1,0 +1,9 @@
+{
+  "exit_code": 0,
+  "cleanup_exit_code": 0,
+  "recorded_case": "00e48de8-b5fd-4e99-8467-d384bd4a3183",
+  "script_sha256": "6d99e4e9fc9d8edf37543cb786e47e2a12f92fc220d7a9f67ba9102f46af462e",
+  "agent_sha256": "80e87d1b9e508a7f574e067d6e2f47bd9926c74d3c4279770d003ece6d68e496",
+  "mode": "EDITOR_API=1 PREEXISTING_MAPPING=1 RECORDED_TITLE=1",
+  "result": "HTTP 200 during lookup; committed manual movie and title retained"
+}

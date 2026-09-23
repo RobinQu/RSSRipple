@@ -1,0 +1,27 @@
+{'recorded_case': '00e48de8-b5fd-4e99-8467-d384bd4a3183'}
+[metadata_agent] channel 8f9ac2c8-3d37-46eb-8856-9f7d9e0826cd source='tmdb' is not available (disabled or missing credentials); search will return no external candidates
+{'merge_http_status': 200}
+Traceback (most recent call last):
+  File "/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/manual_mapping_concurrency_probe.py", line 223, in <module>
+    asyncio.run(main())
+    ~~~~~~~~~~~^^^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 719, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/manual_mapping_concurrency_probe.py", line 184, in main
+    result = await asyncio.wait_for(agent.process(resource, channel, db, force_refresh=not bool(shortcut)), 15)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/tasks.py", line 507, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "/tmp/rssripple-v15-manual-mapping/app/services/metadata_agent.py", line 916, in process
+    await self._apply_to_resource(meta, resource, channel, db)
+  File "/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/manual_mapping_concurrency_probe.py", line 175, in apply_after_edit
+    raise AssertionError("Editor committed before automatic lock released")
+AssertionError: Editor committed before automatic lock released

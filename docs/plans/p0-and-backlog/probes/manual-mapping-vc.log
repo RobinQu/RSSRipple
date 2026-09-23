@@ -1,0 +1,11 @@
+{'recorded_case': '00e48de8-b5fd-4e99-8467-d384bd4a3183'}
+[fts] drain write failed for 2 rows (reconcile will heal): (turso.lib.DatabaseError) Parse error: no such table: movie_fts
+[SQL: DELETE FROM movie_fts WHERE entity_id = ?]
+[parameters: ('239fafc2-8df9-4430-85c8-1bb53bcecb27',)]
+(Background on this error at: https://sqlalche.me/e/20/4xp6)
+[fts] search_series_fts failed for 'mission: impossible - ghost protocol 2011 2160p ai 60fps h26': (turso.lib.DatabaseError) Parse error: no such table: tv_series_fts
+[SQL: SELECT entity_id FROM tv_series_fts WHERE fts_match(title_cn, title_en, original_title, aliases, ?) LIMIT ?]
+[parameters: ('mission: impossible - ghost protocol 2011 2160p ai 60fps h265 10bit sdr_marjenbo', 30)]
+(Background on this error at: https://sqlalche.me/e/20/4xp6)
+{'editor_http_status': 200}
+{'resource': '6b7203a1-e2e9-4f65-a96e-7f6f8a4a40dc', 'expected_movie': '239fafc2-8df9-4430-85c8-1bb53bcecb27', 'actual_movie': '239fafc2-8df9-4430-85c8-1bb53bcecb27', 'search_title': 'User-selected title'}

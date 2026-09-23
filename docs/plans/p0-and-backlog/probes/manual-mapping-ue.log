@@ -1,0 +1,19 @@
+[metadata_agent] channel 68cbc3f1-1416-439c-9213-12954b7e52e6 source='tmdb' is not available (disabled or missing credentials); search will return no external candidates
+{'resource': '64faf23c-4bda-4868-9e5f-18bc93b24fe9', 'expected_movie': '36dda8aa-d2d7-4a00-9ee6-47b8fc199439', 'actual_movie': '51b73c1b-4b24-4904-9eff-77a4faf89741', 'search_title': 'Synthetic old automatic target'}
+Traceback (most recent call last):
+  File "/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/manual_mapping_concurrency_probe.py", line 66, in <module>
+    asyncio.run(main())
+    ~~~~~~~~~~~^^^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 719, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/manual_mapping_concurrency_probe.py", line 60, in main
+    assert saved.movie_id == mid, "Old lookup overwrote the committed manual choice"
+           ^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Old lookup overwrote the committed manual choice

@@ -864,3 +864,8 @@ sb：完整 tests/unit tests/api，--cov=app --cov-fail-under=95；session 86184
 sc：唯一项目 rssripple-v14-final-sc，启动日志 /tmp/rssripple-v14-integration-sc-start.log，启动 session 66608 正常退出 0，app/app-llm/test-server/transmission/PG/Redis 均健康。完整 test-runner session 47946，输出 /tmp/rssripple-v14-integration-sc.log，尚无终态。结束后即使测试失败也要导出 JUnit/覆盖率数据，SIGINT 两应用并确认正常退出，汇总四份覆盖率（阈值 85%），导出全部报告，再 down -v。不得提前清理 gate-data 卷。
 
 最终对照冻结哈希；任何测试失败或后续代码变更均需重新确定验收基线，不能沿用局部绿测关闭 B4。此阶段未合入 main、未推送远端。
+
+
+## 人工标题保护待办同步复核
+
+清单原先仍引用 nv 红测，遗漏了后续修复的收尾。现已确认 main 的 metadata_search.py 与正式 metadata_driver.py 哈希等于 th/ti 最终冻结清单，代码提交 `7781a81` 为 main 祖先。th 单元报告中 concurrent_manual_edit 的 override False/True 两项通过；ti 集成报告中 queue_and_metadata_concurrency[metadata] 通过，实际驱动包含同一双会话矩阵。加上本节前记载的 nw/nx 与后续双库/失权证据，该特定待办已在 B4 完成，现从 pending-only TODO 删除。此为已验收修复的清单同步，不是以仍在运行的 M1 门禁代替验收。

@@ -1,0 +1,40 @@
+..F..................                                                    [100%]
+=================================== FAILURES ===================================
+_____________ test_series_upsert_parks_unverified_empty_collection _____________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fc591ec7c50>
+
+    async def test_series_upsert_parks_unverified_empty_collection(db_session):
+        from app.services.external_ids import add_external_id
+    
+        coll = WorkCollection(id=_uuid(), title_cn="空合集", external_source="series_group")
+        db_session.add(coll)
+        await db_session.flush()
+        await add_external_id(db_session, "collection", coll.id, "tmdb", "tmdb:778")
+        with patch(
+            "app.services.metadata_service.download_and_cache_poster",
+            new_callable=AsyncMock, return_value=None,
+        ):
+            work = await ms.create_or_update_series_from_external(db_session, {
+                "content_type": "tv", "title_cn": "剧", "title_en": "Show",
+                "external_id": "tmdb:778", "external_source": "tmdb",
+            })
+        assert work is None
+        await db_session.commit()
+        from app.database import async_session_factory
+        from app.models.work_external_id import WorkExternalId
+        async with async_session_factory() as observer:
+>           assert not (await observer.scalars(select(TVSeries).where(TVSeries.collection_id == coll.id))).all()
+                                               ^^^^^^
+E           NameError: name 'select' is not defined. Did you forget to import 'select'?
+
+tests/unit/test_metadata_service.py:2919: NameError
+=============================== warnings summary ===============================
+tests/unit/test_metadata_service.py::test_create_or_update_series_converges_cross_language_wiki_pages
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_metadata_service.py::test_series_upsert_parks_unverified_empty_collection
+1 failed, 20 passed, 1 warning in 30.32s

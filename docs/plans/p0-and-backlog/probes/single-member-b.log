@@ -1,0 +1,25 @@
+{'case': 'only_special_unknown', 'members': [0], 'hint': None, 'source_count': None, 'expected_season': None, 'actual_season': 0, 'rows_after_commit': 1, 'passed': False}
+{'case': 'only_first_unknown', 'members': [1], 'hint': None, 'source_count': None, 'expected_season': None, 'actual_season': 1, 'rows_after_commit': 1, 'passed': False}
+{'case': 'only_third_unknown', 'members': [3], 'hint': None, 'source_count': None, 'expected_season': None, 'actual_season': 3, 'rows_after_commit': 1, 'passed': False}
+{'case': 'only_first_multiseason', 'members': [1], 'hint': None, 'source_count': 3, 'expected_season': None, 'actual_season': 1, 'rows_after_commit': 1, 'passed': False}
+{'case': 'empty_unknown', 'members': [], 'hint': None, 'source_count': None, 'expected_season': None, 'actual_season': 1, 'rows_after_commit': 1, 'passed': False}
+{'case': 'multiple_unknown', 'members': [1, 3], 'hint': None, 'source_count': None, 'expected_season': None, 'actual_season': None, 'rows_after_commit': 2, 'passed': True}
+{'case': 'explicit_third', 'members': [3], 'hint': 3, 'source_count': None, 'expected_season': 3, 'actual_season': 3, 'rows_after_commit': 1, 'passed': True}
+{'case': 'verified_single', 'members': [1], 'hint': None, 'source_count': 1, 'expected_season': 1, 'actual_season': 1, 'rows_after_commit': 1, 'passed': True}
+Traceback (most recent call last):
+  File "/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/single_member_matrix_probe.py", line 65, in <module>
+    asyncio.run(main())
+    ~~~~~~~~~~~^^^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 719, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/single_member_matrix_probe.py", line 60, in main
+    assert not failures, failures
+           ^^^^^^^^^^^^
+AssertionError: ['only_special_unknown', 'only_first_unknown', 'only_third_unknown', 'only_first_multiseason', 'empty_unknown']

@@ -1,0 +1,8 @@
+{
+  "script": "manual_mapping_concurrency_probe.py",
+  "script_sha256": "f70f61e3574470a06c7b8b298216cc58936982557bb520ab02fdac64e8cadb1e",
+  "runtime_agent_sha256": "b4984472a42817c3e9841c12b4fa6c2af3494e6fda3bec29e9ecdc53047da739",
+  "exit_code": 0,
+  "cleanup_exit_code": 0,
+  "boundary": "Resource link and search_title changed during lookup; independent PostgreSQL editor commit preserved"
+}

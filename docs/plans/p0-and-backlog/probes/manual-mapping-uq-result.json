@@ -1,0 +1,6 @@
+{
+  "exit_code": 1,
+  "cleanup_exit_code": 0,
+  "recorded_case": "00e48de8-b5fd-4e99-8467-d384bd4a3183",
+  "note": "Preexisting mapping + forced lookup: editor API timed out during autoflush"
+}

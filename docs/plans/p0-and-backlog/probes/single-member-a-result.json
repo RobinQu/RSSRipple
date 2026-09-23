@@ -1,0 +1,7 @@
+{
+  "exit_code": 1,
+  "script_executed_sha256": "9f9cde992532cfc79f2f544848c81d9b03d189f4edad3884d6342895b41c6350",
+  "source_sha256": "ea846b437061bcb13052c8ec28800ab485f71d447c7cb2d44a1521a065ff6dd3",
+  "data": "Synthetic collection and season-3 work; no season hint or verified count; real Turso upsert and commit",
+  "failure": "Single stored season was treated as season evidence"
+}

@@ -1,0 +1,11 @@
+{
+  "exit_code": 1,
+  "cleanup_exit_code": 0,
+  "mode": {
+    "MAPPING_ONLY": "1",
+    "LATE_MAPPING": "1"
+  },
+  "script_sha256": "b1c44bb3485941135cbb36b2a63343be7a0952ae88ab572a743754a1b9de0184",
+  "failure": "Old lookup ignored the committed mapping",
+  "scope": "Direct ORM mapping insertion after final check; real PostgreSQL commits; not an existing HTTP edit flow"
+}

@@ -1,0 +1,12 @@
+{'recorded_case': '00e48de8-b5fd-4e99-8467-d384bd4a3183'}
+{'editor_http_status': 200}
+{'resource': '3e81d785-5079-4d27-bf98-76b9b452ff32', 'expected_movie': '5c476cc4-aca5-4395-bd86-e46c34674925', 'actual_movie': '5c476cc4-aca5-4395-bd86-e46c34674925', 'search_title': 'User-selected title'}
+[metadata_agent] channel 5a62a168-17b0-4074-aac4-09fe2ade1c14 source='tmdb' is not available (disabled or missing credentials); search will return no external candidates
+[fts] drain write failed for 2 rows (reconcile will heal): (turso.lib.DatabaseError) Parse error: no such table: movie_fts
+[SQL: DELETE FROM movie_fts WHERE entity_id = ?]
+[parameters: ('b70dff54-4572-4cf1-b64b-b40fc77a38e3',)]
+(Background on this error at: https://sqlalche.me/e/20/4xp6)
+[fts] search_series_fts failed for 'mission: impossible - ghost protocol 2011 2160p ai 60fps h26': (turso.lib.DatabaseError) Parse error: no such table: tv_series_fts
+[SQL: SELECT entity_id FROM tv_series_fts WHERE fts_match(title_cn, title_en, original_title, aliases, ?) LIMIT ?]
+[parameters: ('mission: impossible - ghost protocol 2011 2160p ai 60fps h265 10bit sdr_marjenbo', 30)]
+(Background on this error at: https://sqlalche.me/e/20/4xp6)

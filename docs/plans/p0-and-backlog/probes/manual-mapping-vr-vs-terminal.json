@@ -1,0 +1,45 @@
+{
+  "accepted": false,
+  "unit": {
+    "exit": 1,
+    "passed": 3985,
+    "failed": 6,
+    "skipped": 15
+  },
+  "integration": {
+    "exit": 1,
+    "passed": 3174,
+    "failed": 10,
+    "skipped": 17
+  },
+  "app_exit_codes": [
+    0,
+    0
+  ],
+  "coverage_report_exit": 0,
+  "coverage": {
+    "unit": {
+      "version": "7.14.3",
+      "timestamp": "1790173469725",
+      "lines-valid": "23485",
+      "lines-covered": "22852",
+      "line-rate": "0.973",
+      "branches-covered": "0",
+      "branches-valid": "0",
+      "branch-rate": "0",
+      "complexity": "0"
+    },
+    "integration": {
+      "version": "7.14.3",
+      "timestamp": "1790173556700",
+      "lines-valid": "23485",
+      "lines-covered": "20704",
+      "line-rate": "0.8816",
+      "branches-covered": "0",
+      "branches-valid": "0",
+      "branch-rate": "0",
+      "complexity": "0"
+    }
+  },
+  "cleanup_exit": 0
+}

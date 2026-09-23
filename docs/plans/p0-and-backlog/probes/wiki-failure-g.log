@@ -1,0 +1,29 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+______ test_tmdb_failed_search_is_not_negative_cached[failed_languages0] _______
+tests/unit/test_wiki_failure_cache.py:99: in test_tmdb_failed_search_is_not_negative_cached
+    assert msa._cache_get("tmdb", title) is None
+E   AssertionError: assert [] is None
+E    +  where [] = <function _cache_get at 0x7fd1312b1940>('tmdb', '[LoliHouse] 攻壳机动队 / The Ghost in the Shell - 06 [WebRip 1080p HEVC-10bit AAC][简繁内封字幕]')
+E    +    where <function _cache_get at 0x7fd1312b1940> = <module 'app.services.metadata_search_agent' from '/tmp/rssripple-v17-wiki-failure/app/services/metadata_search_agent.py'>._cache_get
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.metadata_search_agent:metadata_search_agent.py:199 [metadata_agent] TMDB search failed for lang=zh-CN title='[LoliHouse] 攻壳机动队 / The Ghost in the Shell - 06 [WebRip 1080': synthetic timeout
+WARNING  app.services.metadata_search_agent:metadata_search_agent.py:199 [metadata_agent] TMDB search failed for lang=en-US title='[LoliHouse] 攻壳机动队 / The Ghost in the Shell - 06 [WebRip 1080': synthetic timeout
+______ test_tmdb_failed_search_is_not_negative_cached[failed_languages1] _______
+tests/unit/test_wiki_failure_cache.py:99: in test_tmdb_failed_search_is_not_negative_cached
+    assert msa._cache_get("tmdb", title) is None
+E   AssertionError: assert [] is None
+E    +  where [] = <function _cache_get at 0x7fd1312b1940>('tmdb', '[LoliHouse] 攻壳机动队 / The Ghost in the Shell - 06 [WebRip 1080p HEVC-10bit AAC][简繁内封字幕]')
+E    +    where <function _cache_get at 0x7fd1312b1940> = <module 'app.services.metadata_search_agent' from '/tmp/rssripple-v17-wiki-failure/app/services/metadata_search_agent.py'>._cache_get
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.metadata_search_agent:metadata_search_agent.py:199 [metadata_agent] TMDB search failed for lang=zh-CN title='[LoliHouse] 攻壳机动队 / The Ghost in the Shell - 06 [WebRip 1080': synthetic timeout
+=============================== warnings summary ===============================
+tests/unit/test_wiki_failure_cache.py::test_tmdb_failed_search_is_not_negative_cached[failed_languages0]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_wiki_failure_cache.py::test_tmdb_failed_search_is_not_negative_cached[failed_languages0]
+FAILED tests/unit/test_wiki_failure_cache.py::test_tmdb_failed_search_is_not_negative_cached[failed_languages1]
+2 failed, 3 deselected, 1 warning in 0.82s

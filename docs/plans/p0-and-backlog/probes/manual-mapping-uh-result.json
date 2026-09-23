@@ -1,0 +1,8 @@
+{
+  "exit_code": 1,
+  "cleanup_exit_code": 0,
+  "expected_failure": "Old lookup ignored the committed mapping",
+  "script_sha256": "ab8852821ca0674979e584faab9d65fc161aef7d3d74e788fb3a78a14a3e78bb",
+  "data": "Synthetic titles and provider response; real PostgreSQL independent sessions",
+  "prototype": "/tmp/rssripple-v15-manual-mapping"
+}

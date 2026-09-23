@@ -1,0 +1,5 @@
+{
+  "exit_code": 1,
+  "cleanup_exit_code": 0,
+  "note": "Initial savepoint recovery failed with MissingGreenlet on expired resource"
+}

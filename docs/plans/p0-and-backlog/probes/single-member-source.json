@@ -1,0 +1,25 @@
+{
+  "prototype": "/tmp/rssripple-v16-single-member",
+  "base_prototype": "/tmp/rssripple-v15-manual-mapping",
+  "status": "t296passed; u PostgreSQL36assertions passed; M1 rebase and full gates pending",
+  "base_hashes": {
+    "app/services/metadata_service.py": "abd5b64e88f2103642c7b04356fb58db640f549c1f87fd85dc69fe42c9294d23",
+    "tests/unit/test_collection_member_season_evidence.py": null,
+    "docs/design/business-logic.md": "1f7fff2c8b49b849b022554493ec6ccf7230097f4466c35d4b411291553c5199",
+    "docs/design/per-season-works.md": "9c2c4aeb0f1ad3121b387cec290356e5da9ebce580f7f604e5cc8a5a4ae39ba6",
+    "tests/unit/test_metadata_service.py": "54f1e3a785713508d4f094813c76672140afb40fe48bc14e121a3db1151c7569",
+    "tests/integration/metadata/season_evidence_driver.py": null,
+    "tests/integration/metadata/test_collection_season_evidence.py": null,
+    "docs/testing/integration-inventory.md": "7c66801008681c113484446bfe1454d3f7558ee42614fc08da6567242b2a7ccf"
+  },
+  "candidate_hashes": {
+    "app/services/metadata_service.py": "2d4a0f941c6c5b919179f8287f2ac001820d0b5297c1258d9ba77a2c85bed2b6",
+    "tests/unit/test_collection_member_season_evidence.py": "88f110818867be95bd2474867741f2f4946a8b673c0e4aaa9482cc3442946858",
+    "docs/design/business-logic.md": "8af36c8e25be6d970f45960130698b77dc6e9aa1c5720d3e31ae6aa1731ced95",
+    "docs/design/per-season-works.md": "8d5d43e6411117331173e73f7c0fa83f660bbf53a6aa9f997054ebc6f6c7a696",
+    "tests/unit/test_metadata_service.py": "432cc7fa0879bd86c28a3d4bf9e1128d98f2d65e606c6f66c6d34890ac4182f2",
+    "tests/integration/metadata/season_evidence_driver.py": "478f4d8df7e49a73a93e25820a45633839b4ab02ba5a9d89e75ee8fcc0583286",
+    "tests/integration/metadata/test_collection_season_evidence.py": "958b79b89e3cd8213b8bd4282c374b81bbd7b9b90af8cf8ff860d31cff5da7f2",
+    "docs/testing/integration-inventory.md": "7bf7937ca1bff622753e02d14d8e801e1c9927db710f02a63928fff0413bc1e6"
+  }
+}

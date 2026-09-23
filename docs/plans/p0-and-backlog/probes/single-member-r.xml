@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="5" time="2.972" timestamp="2026-09-23T14:37:42.331251+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_metadata_service" name="test_manual_link_updates_existing_mapping" time="0.582" /><testcase classname="tests.unit.test_metadata_service" name="test_llm_fallback_when_metadata_agent_enabled" time="0.823" /><testcase classname="tests.unit.test_metadata_service" name="test_create_or_update_series_merges_aliases" time="0.380" /><testcase classname="tests.unit.test_metadata_service" name="test_upsert_preserves_manually_edited_identity_series" time="0.555" /><testcase classname="tests.unit.test_metadata_service" name="test_series_upsert_multi_candidate_no_shared_collection" time="0.422"><failure message="sqlalchemy.exc.NoResultFound: No row was found when one was required">tests/unit/test_metadata_service.py:2206: in test_series_upsert_multi_candidate_no_shared_collection
+    ))).scalar_one()
+        ^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/result.py:1518: in scalar_one
+    return self._only_one_row(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/result.py:799: in _only_one_row
+    raise exc.NoResultFound(
+E   sqlalchemy.exc.NoResultFound: No row was found when one was required</failure></testcase></testsuite></testsuites>

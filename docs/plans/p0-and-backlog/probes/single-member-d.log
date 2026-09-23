@@ -1,0 +1,107 @@
+...........................................FF........................... [ 33%]
+........................................................................ [ 67%]
+....................F................................................    [100%]
+=================================== FAILURES ===================================
+_______ test_create_or_update_series_converges_cross_language_wiki_pages _______
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f7b32cc3a10>
+
+    async def test_create_or_update_series_converges_cross_language_wiki_pages(db_session):
+        """The same work matched once via its zhwiki page and once via its enwiki
+        page (different external_ids, disjoint title slots) must upsert into ONE
+        row when the second match carries langlink alt_titles."""
+        with patch(
+            "app.services.metadata_service.download_and_cache_poster",
+            new_callable=AsyncMock, return_value=None,
+        ):
+            s1 = await ms.create_or_update_series_from_external(db_session, {
+                "content_type": "tv",
+                "title_cn": "黃泉使者",
+                "title_en": None,
+                "external_id": "wikipedia:7727654",
+                "external_source": "wikipedia",
+            })
+            await db_session.flush()
+    
+            s2 = await ms.create_or_update_series_from_external(db_session, {
+                "content_type": "tv",
+                "title_cn": "黃泉使者",  # backfilled from langlinks by the judge
+                "title_en": "Daemons of the Shadow Realm",
+                "alt_titles": ["黃泉使者"],
+                "external_id": "wikipedia:70545449",
+                "external_source": "wikipedia",
+            })
+            await db_session.flush()
+    
+>       assert s1.id == s2.id
+                        ^^^^^
+E       AttributeError: 'NoneType' object has no attribute 'id'
+
+tests/unit/test_metadata_service.py:786: AttributeError
+___________ test_create_or_update_series_alt_titles_alone_can_bridge ___________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f7b1f3a2b10>
+
+    async def test_create_or_update_series_alt_titles_alone_can_bridge(db_session):
+        """Even if the judge only supplied the en title in the en slot, an
+        alt_titles entry equal to the existing row's title_cn still converges."""
+        with patch(
+            "app.services.metadata_service.download_and_cache_poster",
+            new_callable=AsyncMock, return_value=None,
+        ):
+            s1 = await ms.create_or_update_series_from_external(db_session, {
+                "content_type": "tv",
+                "title_cn": "黃泉使者",
+                "external_id": "wikipedia:7727654",
+                "external_source": "wikipedia",
+            })
+            await db_session.flush()
+    
+            s2 = await ms.create_or_update_series_from_external(db_session, {
+                "content_type": "tv",
+                "title_en": "Daemons of the Shadow Realm",
+                "alt_titles": ["黃泉使者"],
+                "external_id": "wikipedia:70545449",
+                "external_source": "wikipedia",
+            })
+            await db_session.flush()
+    
+>       assert s1.id == s2.id
+                        ^^^^^
+E       AttributeError: 'NoneType' object has no attribute 'id'
+
+tests/unit/test_metadata_service.py:815: AttributeError
+_______ test_series_upsert_creates_season_1_unverified_empty_collection ________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f7b1d98adb0>
+
+    async def test_series_upsert_creates_season_1_unverified_empty_collection(db_session):
+        from app.services.external_ids import add_external_id
+    
+        coll = WorkCollection(id=_uuid(), title_cn="空合集", external_source="series_group")
+        db_session.add(coll)
+        await db_session.flush()
+        await add_external_id(db_session, "collection", coll.id, "tmdb", "tmdb:778")
+        with patch(
+            "app.services.metadata_service.download_and_cache_poster",
+            new_callable=AsyncMock, return_value=None,
+        ):
+            work = await ms.create_or_update_series_from_external(db_session, {
+                "content_type": "tv", "title_cn": "剧", "title_en": "Show",
+                "external_id": "tmdb:778", "external_source": "tmdb",
+            })
+>       assert work is not None
+E       assert None is not None
+
+tests/unit/test_metadata_service.py:2914: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_metadata_service.py::test_extract_search_title_prefers_parsed_titles
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_metadata_service.py::test_create_or_update_series_converges_cross_language_wiki_pages
+FAILED tests/unit/test_metadata_service.py::test_create_or_update_series_alt_titles_alone_can_bridge
+FAILED tests/unit/test_metadata_service.py::test_series_upsert_creates_season_1_unverified_empty_collection
+3 failed, 210 passed, 1 warning in 167.31s (0:02:47)

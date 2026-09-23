@@ -1,0 +1,6 @@
+{
+  "exit_code": 0,
+  "cleanup_exit_code": 0,
+  "recorded_case": "00e48de8-b5fd-4e99-8467-d384bd4a3183",
+  "note": "Setup edit failed due wrong relative path; preexisting mapping branch NOT executed; excluded from that coverage"
+}

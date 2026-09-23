@@ -1,0 +1,5 @@
+{
+  "exit_code": 1,
+  "cleanup_exit_code": 0,
+  "note": "Test assumption failed: merge need not wait for unflushed resource link"
+}

@@ -1,0 +1,7 @@
+{'recorded_case': '00e48de8-b5fd-4e99-8467-d384bd4a3183'}
+{'merge_http_status': 200}
+{'merge_committed_before_candidate_write': True}
+{'unrelated_unique_error_propagated': True}
+{'resource': '0f624e15-1ea9-4107-ad82-cbdaafc74be2', 'expected_movie': '541df55a-0871-4bd6-8b72-de93264107a8', 'actual_movie': None, 'search_title': None}
+{'retry_linked_to_survivor': True}
+[metadata_agent] channel a2bc8a58-cad4-4ac4-bbc4-9041d2c38ce0 source='tmdb' is not available (disabled or missing credentials); search will return no external candidates

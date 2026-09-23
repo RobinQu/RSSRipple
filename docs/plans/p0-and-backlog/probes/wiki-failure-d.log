@@ -1,0 +1,16 @@
+.F                                                                       [100%]
+=================================== FAILURES ===================================
+____________ test_failed_page_lookup_cannot_become_definitive_miss _____________
+tests/unit/test_wiki_failure_cache.py:69: in test_failed_page_lookup_cannot_become_definitive_miss
+    assert _classify_failure(ResourceMetadata(**verdict, search_error=info.get("error"))) == "transient"
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: ResourceMetadata.__init__() missing 1 required positional argument: 'clean_title'
+=============================== warnings summary ===============================
+tests/unit/test_wiki_failure_cache.py::test_total_wiki_failure_does_not_poison_cache
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_wiki_failure_cache.py::test_failed_page_lookup_cannot_become_definitive_miss
+1 failed, 1 passed, 1 warning in 2.36s

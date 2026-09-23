@@ -1,0 +1,2 @@
+[metadata_agent] channel 2dd01c55-5805-4235-89e3-1ee18cc6490e source='tmdb' is not available (disabled or missing credentials); search will return no external candidates
+{'resource': '094c7130-0ba9-4ad1-9f72-3c0a3b7e57b2', 'expected_movie': '18b95d46-3020-4ec6-b702-e9018959d1a5', 'actual_movie': '18b95d46-3020-4ec6-b702-e9018959d1a5', 'search_title': 'User-selected title'}

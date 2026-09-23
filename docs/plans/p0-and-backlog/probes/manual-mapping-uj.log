@@ -1,0 +1,2 @@
+[metadata_agent] channel e1548d3f-9f33-4e29-90c6-b15e84b41008 source='tmdb' is not available (disabled or missing credentials); search will return no external candidates
+{'resource': 'b2249ad7-c870-4010-aa06-47ffd22c0c62', 'expected_movie': 'd6acf8a1-82a1-47ff-8af3-aa8cf03667e9', 'actual_movie': None, 'search_title': None}

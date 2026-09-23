@@ -1,0 +1,358 @@
+FFFF                                                                     [100%]
+=================================== FAILURES ===================================
+_______ test_recorded_title_preserves_unknown_season[None-None-pipeline] _______
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fd768b397f0>
+sample_channel = <app.models.channel.Channel object at 0x7fd768b39fd0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fd768b34770>
+entry = 'pipeline', existing_season = None, hint = None
+
+    @pytest.mark.parametrize('entry', ['repository', 'agent', 'cache', 'pipeline'])
+    @pytest.mark.parametrize('existing_season', [None, 3])
+    @pytest.mark.parametrize('hint', [None, 3])
+    async def test_recorded_title_preserves_unknown_season(db_session, sample_channel, monkeypatch,
+                                                          entry, existing_season, hint):
+        import gzip
+        import json
+        import uuid
+        from pathlib import Path
+        from unittest.mock import AsyncMock
+    
+        from app.models.file_resource import FileResource
+        from app.services.metadata_agent import UnifiedMetadataAgent
+        from app.services.metadata_repository import _apply_to_resource
+        from app.services.metadata_resource_meta import ResourceMetadata
+    
+        corpus = Path(__file__).resolve().parents[1] / 'fixtures/metadata_corpus_v1/candidates.json.gz'
+        with gzip.open(corpus, 'rt') as stream:
+            case = next(c for c in json.load(stream)['cases'] if c['id'] == '011c6d44-68cf-43a8-bad3-f0398ce20a95')
+        sample_channel.metadata_source = 'tmdb'
+        sample_channel.metadata_agent_enabled = True
+        collection = WorkCollection(title_cn='攻壳机动队')
+        db_session.add(collection)
+        await db_session.flush()
+        cid = collection.id
+        if existing_season is not None:
+            db_session.add(TVSeries(title_cn=collection.title_cn, season_number=existing_season,
+                                    collection_id=cid, is_anime=True))
+        db_session.add(WorkExternalId(work_type='collection', work_id=cid,
+                                     source='tmdb', external_id='tmdb:90006484'))
+        resource = FileResource(channel_id=sample_channel.id, guid=str(uuid.uuid4()),
+                                title_raw=case['input']['title_raw'], torrent_url='', season=hint, episode=6)
+        db_session.add(resource)
+        await db_session.commit()
+        rid = resource.id
+        entity = {'title_cn': collection.title_cn, 'content_type': 'tv', 'external_source': 'tmdb',
+                  'external_id': 'tmdb:90006484', 'is_anime': True}
+        payload = {'found': True, 'content_type': 'tv', 'clean_title': collection.title_cn, 'matched_entity': entity}
+        if entry == 'repository':
+            await _apply_to_resource(ResourceMetadata.from_dict(payload), resource, sample_channel, db_session)
+        else:
+            agent = UnifiedMetadataAgent()
+            agent._ensure_genre = AsyncMock()
+            agent._run_react = AsyncMock(return_value=(payload, {
+                'method': 'synthetic', 'data_sources_used': [], 'source_errors': {}, 'error': None,
+            }))
+            monkeypatch.setattr('app.services.metadata_agent._attach_tmdb_episode_list', AsyncMock())
+            if entry == 'cache':
+                await agent._set_cache(resource.title_raw, 'tmdb', ResourceMetadata.from_dict(payload), db_session)
+                await db_session.commit()
+            if entry == 'pipeline':
+                import asyncio
+                from app.services.fetch_service import _process_resource_metadata_once
+                monkeypatch.setattr('app.services.metadata_agent.get_agent', lambda: agent)
+                monkeypatch.setattr('app.services.torrent_inspect.ensure_torrent_cached', AsyncMock())
+                monkeypatch.setattr('app.services.torrent_inspect.maybe_inspect_torrent', AsyncMock())
+                await _process_resource_metadata_once(rid, sample_channel.id, asyncio.Semaphore(1), force_refresh=True)
+            else:
+                await agent.process(resource, sample_channel, db_session, force_refresh=entry != 'cache')
+            if entry == 'cache':
+                agent._run_react.assert_not_awaited()
+            else:
+                agent._run_react.assert_awaited_once()
+        await db_session.commit()
+        from app.database import async_session_factory
+        async with async_session_factory() as observer:
+            saved = await observer.get(FileResource, rid)
+            if entry == 'pipeline':
+                from app.models.resource_publication import ResourcePublication
+                published = (await observer.scalars(select(ResourcePublication).where(
+                    ResourcePublication.resource_id == rid, ResourcePublication.kind == 'metadata'))).all()
+>               assert len(published) == 1
+E               assert 0 == 1
+E                +  where 0 = len([])
+
+tests/unit/test_collection_member_season_evidence.py:139: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.metadata_agent:metadata_agent.py:803 [metadata_agent] channel 3021e96d-2f39-4ec0-9843-c5042cc17edb source='tmdb' is not available (disabled or missing credentials); search will return no external candidates
+WARNING  app.services.fetch_service:fetch_service.py:445 [metadata-task] failed for d7dac60f-31e4-4c26-a0d0-400ef4384cb4: Resource requires an initial publication; roll back transaction
+________ test_recorded_title_preserves_unknown_season[None-3-pipeline] _________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fd75bf62b10>
+sample_channel = <app.models.channel.Channel object at 0x7fd768a04910>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fd75bfdae50>
+entry = 'pipeline', existing_season = 3, hint = None
+
+    @pytest.mark.parametrize('entry', ['repository', 'agent', 'cache', 'pipeline'])
+    @pytest.mark.parametrize('existing_season', [None, 3])
+    @pytest.mark.parametrize('hint', [None, 3])
+    async def test_recorded_title_preserves_unknown_season(db_session, sample_channel, monkeypatch,
+                                                          entry, existing_season, hint):
+        import gzip
+        import json
+        import uuid
+        from pathlib import Path
+        from unittest.mock import AsyncMock
+    
+        from app.models.file_resource import FileResource
+        from app.services.metadata_agent import UnifiedMetadataAgent
+        from app.services.metadata_repository import _apply_to_resource
+        from app.services.metadata_resource_meta import ResourceMetadata
+    
+        corpus = Path(__file__).resolve().parents[1] / 'fixtures/metadata_corpus_v1/candidates.json.gz'
+        with gzip.open(corpus, 'rt') as stream:
+            case = next(c for c in json.load(stream)['cases'] if c['id'] == '011c6d44-68cf-43a8-bad3-f0398ce20a95')
+        sample_channel.metadata_source = 'tmdb'
+        sample_channel.metadata_agent_enabled = True
+        collection = WorkCollection(title_cn='攻壳机动队')
+        db_session.add(collection)
+        await db_session.flush()
+        cid = collection.id
+        if existing_season is not None:
+            db_session.add(TVSeries(title_cn=collection.title_cn, season_number=existing_season,
+                                    collection_id=cid, is_anime=True))
+        db_session.add(WorkExternalId(work_type='collection', work_id=cid,
+                                     source='tmdb', external_id='tmdb:90006484'))
+        resource = FileResource(channel_id=sample_channel.id, guid=str(uuid.uuid4()),
+                                title_raw=case['input']['title_raw'], torrent_url='', season=hint, episode=6)
+        db_session.add(resource)
+        await db_session.commit()
+        rid = resource.id
+        entity = {'title_cn': collection.title_cn, 'content_type': 'tv', 'external_source': 'tmdb',
+                  'external_id': 'tmdb:90006484', 'is_anime': True}
+        payload = {'found': True, 'content_type': 'tv', 'clean_title': collection.title_cn, 'matched_entity': entity}
+        if entry == 'repository':
+            await _apply_to_resource(ResourceMetadata.from_dict(payload), resource, sample_channel, db_session)
+        else:
+            agent = UnifiedMetadataAgent()
+            agent._ensure_genre = AsyncMock()
+            agent._run_react = AsyncMock(return_value=(payload, {
+                'method': 'synthetic', 'data_sources_used': [], 'source_errors': {}, 'error': None,
+            }))
+            monkeypatch.setattr('app.services.metadata_agent._attach_tmdb_episode_list', AsyncMock())
+            if entry == 'cache':
+                await agent._set_cache(resource.title_raw, 'tmdb', ResourceMetadata.from_dict(payload), db_session)
+                await db_session.commit()
+            if entry == 'pipeline':
+                import asyncio
+                from app.services.fetch_service import _process_resource_metadata_once
+                monkeypatch.setattr('app.services.metadata_agent.get_agent', lambda: agent)
+                monkeypatch.setattr('app.services.torrent_inspect.ensure_torrent_cached', AsyncMock())
+                monkeypatch.setattr('app.services.torrent_inspect.maybe_inspect_torrent', AsyncMock())
+                await _process_resource_metadata_once(rid, sample_channel.id, asyncio.Semaphore(1), force_refresh=True)
+            else:
+                await agent.process(resource, sample_channel, db_session, force_refresh=entry != 'cache')
+            if entry == 'cache':
+                agent._run_react.assert_not_awaited()
+            else:
+                agent._run_react.assert_awaited_once()
+        await db_session.commit()
+        from app.database import async_session_factory
+        async with async_session_factory() as observer:
+            saved = await observer.get(FileResource, rid)
+            if entry == 'pipeline':
+                from app.models.resource_publication import ResourcePublication
+                published = (await observer.scalars(select(ResourcePublication).where(
+                    ResourcePublication.resource_id == rid, ResourcePublication.kind == 'metadata'))).all()
+>               assert len(published) == 1
+E               assert 0 == 1
+E                +  where 0 = len([])
+
+tests/unit/test_collection_member_season_evidence.py:139: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.metadata_agent:metadata_agent.py:803 [metadata_agent] channel 569f0576-47c1-4b20-8997-10b12a7627a5 source='tmdb' is not available (disabled or missing credentials); search will return no external candidates
+WARNING  app.services.fetch_service:fetch_service.py:445 [metadata-task] failed for fe820876-8431-41fc-80e6-cf51a3e901d9: Resource requires an initial publication; roll back transaction
+________ test_recorded_title_preserves_unknown_season[3-None-pipeline] _________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fd75bdf4160>
+sample_channel = <app.models.channel.Channel object at 0x7fd75bf62c40>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fd7689911d0>
+entry = 'pipeline', existing_season = None, hint = 3
+
+    @pytest.mark.parametrize('entry', ['repository', 'agent', 'cache', 'pipeline'])
+    @pytest.mark.parametrize('existing_season', [None, 3])
+    @pytest.mark.parametrize('hint', [None, 3])
+    async def test_recorded_title_preserves_unknown_season(db_session, sample_channel, monkeypatch,
+                                                          entry, existing_season, hint):
+        import gzip
+        import json
+        import uuid
+        from pathlib import Path
+        from unittest.mock import AsyncMock
+    
+        from app.models.file_resource import FileResource
+        from app.services.metadata_agent import UnifiedMetadataAgent
+        from app.services.metadata_repository import _apply_to_resource
+        from app.services.metadata_resource_meta import ResourceMetadata
+    
+        corpus = Path(__file__).resolve().parents[1] / 'fixtures/metadata_corpus_v1/candidates.json.gz'
+        with gzip.open(corpus, 'rt') as stream:
+            case = next(c for c in json.load(stream)['cases'] if c['id'] == '011c6d44-68cf-43a8-bad3-f0398ce20a95')
+        sample_channel.metadata_source = 'tmdb'
+        sample_channel.metadata_agent_enabled = True
+        collection = WorkCollection(title_cn='攻壳机动队')
+        db_session.add(collection)
+        await db_session.flush()
+        cid = collection.id
+        if existing_season is not None:
+            db_session.add(TVSeries(title_cn=collection.title_cn, season_number=existing_season,
+                                    collection_id=cid, is_anime=True))
+        db_session.add(WorkExternalId(work_type='collection', work_id=cid,
+                                     source='tmdb', external_id='tmdb:90006484'))
+        resource = FileResource(channel_id=sample_channel.id, guid=str(uuid.uuid4()),
+                                title_raw=case['input']['title_raw'], torrent_url='', season=hint, episode=6)
+        db_session.add(resource)
+        await db_session.commit()
+        rid = resource.id
+        entity = {'title_cn': collection.title_cn, 'content_type': 'tv', 'external_source': 'tmdb',
+                  'external_id': 'tmdb:90006484', 'is_anime': True}
+        payload = {'found': True, 'content_type': 'tv', 'clean_title': collection.title_cn, 'matched_entity': entity}
+        if entry == 'repository':
+            await _apply_to_resource(ResourceMetadata.from_dict(payload), resource, sample_channel, db_session)
+        else:
+            agent = UnifiedMetadataAgent()
+            agent._ensure_genre = AsyncMock()
+            agent._run_react = AsyncMock(return_value=(payload, {
+                'method': 'synthetic', 'data_sources_used': [], 'source_errors': {}, 'error': None,
+            }))
+            monkeypatch.setattr('app.services.metadata_agent._attach_tmdb_episode_list', AsyncMock())
+            if entry == 'cache':
+                await agent._set_cache(resource.title_raw, 'tmdb', ResourceMetadata.from_dict(payload), db_session)
+                await db_session.commit()
+            if entry == 'pipeline':
+                import asyncio
+                from app.services.fetch_service import _process_resource_metadata_once
+                monkeypatch.setattr('app.services.metadata_agent.get_agent', lambda: agent)
+                monkeypatch.setattr('app.services.torrent_inspect.ensure_torrent_cached', AsyncMock())
+                monkeypatch.setattr('app.services.torrent_inspect.maybe_inspect_torrent', AsyncMock())
+                await _process_resource_metadata_once(rid, sample_channel.id, asyncio.Semaphore(1), force_refresh=True)
+            else:
+                await agent.process(resource, sample_channel, db_session, force_refresh=entry != 'cache')
+            if entry == 'cache':
+                agent._run_react.assert_not_awaited()
+            else:
+                agent._run_react.assert_awaited_once()
+        await db_session.commit()
+        from app.database import async_session_factory
+        async with async_session_factory() as observer:
+            saved = await observer.get(FileResource, rid)
+            if entry == 'pipeline':
+                from app.models.resource_publication import ResourcePublication
+                published = (await observer.scalars(select(ResourcePublication).where(
+                    ResourcePublication.resource_id == rid, ResourcePublication.kind == 'metadata'))).all()
+>               assert len(published) == 1
+E               assert 0 == 1
+E                +  where 0 = len([])
+
+tests/unit/test_collection_member_season_evidence.py:139: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.metadata_agent:metadata_agent.py:803 [metadata_agent] channel 02b6f77f-f39e-4cc2-bccd-ee23fdb33cde source='tmdb' is not available (disabled or missing credentials); search will return no external candidates
+WARNING  app.services.fetch_service:fetch_service.py:445 [metadata-task] failed for 62539707-a94f-4b10-ae18-43238330cacb: Resource requires an initial publication; roll back transaction
+__________ test_recorded_title_preserves_unknown_season[3-3-pipeline] __________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fd75bd41310>
+sample_channel = <app.models.channel.Channel object at 0x7fd75bf622c0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fd768b7a620>
+entry = 'pipeline', existing_season = 3, hint = 3
+
+    @pytest.mark.parametrize('entry', ['repository', 'agent', 'cache', 'pipeline'])
+    @pytest.mark.parametrize('existing_season', [None, 3])
+    @pytest.mark.parametrize('hint', [None, 3])
+    async def test_recorded_title_preserves_unknown_season(db_session, sample_channel, monkeypatch,
+                                                          entry, existing_season, hint):
+        import gzip
+        import json
+        import uuid
+        from pathlib import Path
+        from unittest.mock import AsyncMock
+    
+        from app.models.file_resource import FileResource
+        from app.services.metadata_agent import UnifiedMetadataAgent
+        from app.services.metadata_repository import _apply_to_resource
+        from app.services.metadata_resource_meta import ResourceMetadata
+    
+        corpus = Path(__file__).resolve().parents[1] / 'fixtures/metadata_corpus_v1/candidates.json.gz'
+        with gzip.open(corpus, 'rt') as stream:
+            case = next(c for c in json.load(stream)['cases'] if c['id'] == '011c6d44-68cf-43a8-bad3-f0398ce20a95')
+        sample_channel.metadata_source = 'tmdb'
+        sample_channel.metadata_agent_enabled = True
+        collection = WorkCollection(title_cn='攻壳机动队')
+        db_session.add(collection)
+        await db_session.flush()
+        cid = collection.id
+        if existing_season is not None:
+            db_session.add(TVSeries(title_cn=collection.title_cn, season_number=existing_season,
+                                    collection_id=cid, is_anime=True))
+        db_session.add(WorkExternalId(work_type='collection', work_id=cid,
+                                     source='tmdb', external_id='tmdb:90006484'))
+        resource = FileResource(channel_id=sample_channel.id, guid=str(uuid.uuid4()),
+                                title_raw=case['input']['title_raw'], torrent_url='', season=hint, episode=6)
+        db_session.add(resource)
+        await db_session.commit()
+        rid = resource.id
+        entity = {'title_cn': collection.title_cn, 'content_type': 'tv', 'external_source': 'tmdb',
+                  'external_id': 'tmdb:90006484', 'is_anime': True}
+        payload = {'found': True, 'content_type': 'tv', 'clean_title': collection.title_cn, 'matched_entity': entity}
+        if entry == 'repository':
+            await _apply_to_resource(ResourceMetadata.from_dict(payload), resource, sample_channel, db_session)
+        else:
+            agent = UnifiedMetadataAgent()
+            agent._ensure_genre = AsyncMock()
+            agent._run_react = AsyncMock(return_value=(payload, {
+                'method': 'synthetic', 'data_sources_used': [], 'source_errors': {}, 'error': None,
+            }))
+            monkeypatch.setattr('app.services.metadata_agent._attach_tmdb_episode_list', AsyncMock())
+            if entry == 'cache':
+                await agent._set_cache(resource.title_raw, 'tmdb', ResourceMetadata.from_dict(payload), db_session)
+                await db_session.commit()
+            if entry == 'pipeline':
+                import asyncio
+                from app.services.fetch_service import _process_resource_metadata_once
+                monkeypatch.setattr('app.services.metadata_agent.get_agent', lambda: agent)
+                monkeypatch.setattr('app.services.torrent_inspect.ensure_torrent_cached', AsyncMock())
+                monkeypatch.setattr('app.services.torrent_inspect.maybe_inspect_torrent', AsyncMock())
+                await _process_resource_metadata_once(rid, sample_channel.id, asyncio.Semaphore(1), force_refresh=True)
+            else:
+                await agent.process(resource, sample_channel, db_session, force_refresh=entry != 'cache')
+            if entry == 'cache':
+                agent._run_react.assert_not_awaited()
+            else:
+                agent._run_react.assert_awaited_once()
+        await db_session.commit()
+        from app.database import async_session_factory
+        async with async_session_factory() as observer:
+            saved = await observer.get(FileResource, rid)
+            if entry == 'pipeline':
+                from app.models.resource_publication import ResourcePublication
+                published = (await observer.scalars(select(ResourcePublication).where(
+                    ResourcePublication.resource_id == rid, ResourcePublication.kind == 'metadata'))).all()
+>               assert len(published) == 1
+E               assert 0 == 1
+E                +  where 0 = len([])
+
+tests/unit/test_collection_member_season_evidence.py:139: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.metadata_agent:metadata_agent.py:803 [metadata_agent] channel 5bf0a7a1-1df4-4631-89b1-127d828f265c source='tmdb' is not available (disabled or missing credentials); search will return no external candidates
+WARNING  app.services.fetch_service:fetch_service.py:445 [metadata-task] failed for be7717dc-61ce-4c56-9c96-fdf35959f503: Resource requires an initial publication; roll back transaction
+=============================== warnings summary ===============================
+tests/unit/test_collection_member_season_evidence.py::test_recorded_title_preserves_unknown_season[None-None-pipeline]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_collection_member_season_evidence.py::test_recorded_title_preserves_unknown_season[None-None-pipeline]
+FAILED tests/unit/test_collection_member_season_evidence.py::test_recorded_title_preserves_unknown_season[None-3-pipeline]
+FAILED tests/unit/test_collection_member_season_evidence.py::test_recorded_title_preserves_unknown_season[3-None-pipeline]
+FAILED tests/unit/test_collection_member_season_evidence.py::test_recorded_title_preserves_unknown_season[3-3-pipeline]
+4 failed, 30 deselected, 1 warning in 7.15s

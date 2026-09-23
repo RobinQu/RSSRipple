@@ -1,0 +1,5 @@
+{
+  "before_sha256": "55f7683e7e1c7da462bd3097c18e00da52f281e65b8bbe83b728ed4eaee1a833",
+  "after_sha256": "f26acc6340da4ca24e94565e2e469d1e7f2c41e345c5f10f165c79f48320b75f",
+  "change": "Ruff import/format only; historical failure log retains original line numbers"
+}

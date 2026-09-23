@@ -1,0 +1,20 @@
+[metadata_agent] TMDB search failed for lang=zh-CN title='[LoliHouse] 攻壳机动队 / The Ghost in the Shell - 06 [WebRip 1080': synthetic timeout
+[metadata_agent] TMDB search failed for lang=en-US title='[LoliHouse] 攻壳机动队 / The Ghost in the Shell - 06 [WebRip 1080': synthetic timeout
+[metadata_agent] search_tmdb failed for query=[LoliHouse] 攻壳机动队 / The Ghost in the Shell - 06 [WebRip 1080p HEVC-10bit AAC][简繁内封字幕]: TMDB request failed: incomplete search
+Traceback (most recent call last):
+  File "/tmp/rssripple-v17-wiki-failure/app/services/metadata_source_io.py", line 31, in _execute_search_tmdb
+    results = await _search_tmdb(query)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v17-wiki-failure/app/services/metadata_search_agent.py", line 287, in _search_tmdb
+    raise RuntimeError("TMDB request failed: incomplete search")
+RuntimeError: TMDB request failed: incomplete search
+[metadata_agent] TMDB search failed for lang=zh-CN title='[LoliHouse] 攻壳机动队 / The Ghost in the Shell - 06 [WebRip 1080': synthetic timeout
+[metadata_agent] search_tmdb failed for query=[LoliHouse] 攻壳机动队 / The Ghost in the Shell - 06 [WebRip 1080p HEVC-10bit AAC][简繁内封字幕]: TMDB request failed: incomplete search
+Traceback (most recent call last):
+  File "/tmp/rssripple-v17-wiki-failure/app/services/metadata_source_io.py", line 31, in _execute_search_tmdb
+    results = await _search_tmdb(query)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v17-wiki-failure/app/services/metadata_search_agent.py", line 287, in _search_tmdb
+    raise RuntimeError("TMDB request failed: incomplete search")
+RuntimeError: TMDB request failed: incomplete search
+[metadata_agent] TMDB search failed for lang=zh-CN title='Synthetic success': synthetic timeout

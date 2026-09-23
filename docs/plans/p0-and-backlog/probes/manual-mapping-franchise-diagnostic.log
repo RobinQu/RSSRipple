@@ -1,0 +1,5 @@
+[metadata_agent] dropped unverified inferred_season=2 for 'Initial D Second Stage' (seasons=[], number_of_seasons=None)
+[bangumi-graph] subject 364252 ('MFゴースト', relation='续集') fails the same-IP gate; skipped and not traversed
+[external_ids] mal:mal:19613 already maps to movie 39f4923a-e094-48cd-8a72-56e9d4eba526 — NOT re-pointing to movie 192a0efe-1c88-4c41-90d8-2aa87787f823 (dedup candidate)
+[external_ids] mal:mal:28881 already maps to movie 8eb79fd1-d5ca-42cc-bd08-ee959c28df81 — NOT re-pointing to movie a0383fc0-8119-49db-8b56-f39e8eec9a41 (dedup candidate)
+[external_ids] mal:mal:30952 already maps to movie 79508121-8fcc-442f-b743-81325c56e4c1 — NOT re-pointing to movie a27c54c2-b3db-43b1-ab87-dcc135097903 (dedup candidate)

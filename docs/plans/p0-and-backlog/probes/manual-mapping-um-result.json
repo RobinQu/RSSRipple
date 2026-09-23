@@ -1,0 +1,9 @@
+{
+  "exit_code": 0,
+  "cleanup_exit_code": 0,
+  "mode": "EDITOR_API=1",
+  "script_sha256": "e27c1e42dc7f4302d77cf373417f6b34f788811f498e81cdb9feb634a38d265b",
+  "source": "/tmp/rssripple-v15-manual-mapping",
+  "agent_sha256": "bb5cadc01e1638441070be6b4392b0a79a496f62b0267a927421eb1523eedf54",
+  "boundary": "Real FastAPI router and PostgreSQL editor commit; only queue enqueue and external candidate generation replaced; synthetic titles and identities; auth middleware not under test"
+}

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="3.010" timestamp="2026-09-23T14:16:22.123433+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_collection_member_season_evidence" name="test_series_level_unknown_season_cannot_use_outer_defaults[False]" time="1.482"><failure message="AssertionError: Series-level identity supplies no season number&#10;assert &lt;app.models.series.TVSeries object at 0x7f7d333f6f90&gt; is None">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f7d333f57f0&gt;
+existing_work = False
+
+    @pytest.mark.parametrize('existing_work', [False, True])
+    async def test_series_level_unknown_season_cannot_use_outer_defaults(db_session, existing_work):
+        """Missing season evidence cannot be replaced by fresh/one-title defaults."""
+        title = 'Synthetic undecided series-level candidate'
+        if existing_work:
+            collection = WorkCollection(title_cn='Synthetic differently named collection')
+            db_session.add(collection)
+            await db_session.flush()
+            db_session.add(TVSeries(title_cn=title, collection_id=collection.id,
+                                    season_number=3, is_anime=False))
+        await db_session.commit()
+        selected = await create_or_update_series_from_external(db_session, {
+            'title_cn': title, 'content_type': 'tv', 'external_source': 'tmdb',
+            'external_id': 'tmdb:90006485', 'is_anime': False,
+        })
+        await db_session.commit()
+&gt;       assert selected is None, 'Series-level identity supplies no season number'
+E       AssertionError: Series-level identity supplies no season number
+E       assert &lt;app.models.series.TVSeries object at 0x7f7d333f6f90&gt; is None
+
+tests/unit/test_collection_member_season_evidence.py:175: AssertionError</failure></testcase><testcase classname="tests.unit.test_collection_member_season_evidence" name="test_series_level_unknown_season_cannot_use_outer_defaults[True]" time="1.384"><failure message="AssertionError: Series-level identity supplies no season number&#10;assert &lt;app.models.series.TVSeries object at 0x7f7d306ac410&gt; is None">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f7d332ecb90&gt;
+existing_work = True
+
+    @pytest.mark.parametrize('existing_work', [False, True])
+    async def test_series_level_unknown_season_cannot_use_outer_defaults(db_session, existing_work):
+        """Missing season evidence cannot be replaced by fresh/one-title defaults."""
+        title = 'Synthetic undecided series-level candidate'
+        if existing_work:
+            collection = WorkCollection(title_cn='Synthetic differently named collection')
+            db_session.add(collection)
+            await db_session.flush()
+            db_session.add(TVSeries(title_cn=title, collection_id=collection.id,
+                                    season_number=3, is_anime=False))
+        await db_session.commit()
+        selected = await create_or_update_series_from_external(db_session, {
+            'title_cn': title, 'content_type': 'tv', 'external_source': 'tmdb',
+            'external_id': 'tmdb:90006485', 'is_anime': False,
+        })
+        await db_session.commit()
+&gt;       assert selected is None, 'Series-level identity supplies no season number'
+E       AssertionError: Series-level identity supplies no season number
+E       assert &lt;app.models.series.TVSeries object at 0x7f7d306ac410&gt; is None
+
+tests/unit/test_collection_member_season_evidence.py:175: AssertionError</failure></testcase></testsuite></testsuites>

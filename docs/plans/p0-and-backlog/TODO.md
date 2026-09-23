@@ -6,7 +6,7 @@
 > 本文件仅列出尚未完成的 P1–P3 项。**每条是一个复选框；完成并验证后直接删除该条**，规则见文末。
 > 行号基于评审时工作树，可能随改动漂移；以现象与函数名为准。
 
-> 2026-09-23 主干复核：当前 P0（P0-1/2/3/7/8/9）及 B9 的提交 `4c804ed` 已包含在本地 `main`；原 P0-4、P0-6 降级后的修复 `7fd8121`、`e535e1f` 也已包含。原 P0-5 仍按 P2 保留。最新核验基线 `e536656`，本地领先本地记录的 `origin/main` 19 个提交，未推送远端；详情见 [PLAN.md](PLAN.md#p0-主干复核2026-09-23)。
+> 2026-09-23 主干复核：当前 P0（P0-1/2/3/7/8/9）及 B9 的提交 `4c804ed` 已包含在本地 `main`；原 P0-4、P0-6 降级后的修复 `7fd8121`、`e535e1f` 也已包含。原 P0-5 仍按 P2 保留。最新核验基线 `9b9a5fa`，B4 修复 `7781a81` 亦已合入；本地领先本地记录的 `origin/main` 21 个提交，未推送远端；详情见 [PLAN.md](PLAN.md#p0-主干复核2026-09-23)。
 
 > B7 已完成 V13 全量验收，合入记录见 [V13](V13-CONSUMPTION-PROGRESS.md)。B4 已完成严格验收并合入本地 main（`7781a81`），见 [V14](V14-QUEUE-OWNERSHIP.md)；下一批继续 [V15 M1](V15-MANUAL-MAPPING.md)。
 
@@ -31,14 +31,12 @@
 
 ### 后台执行 / 调度 / 队列
 
-- [ ] **P1 元数据刷新并发覆盖人工标题**：`apply_work_metadata` 在海报请求前按旧对象计算并修改字段；请求期间另一事务提交人工标题和保护标记后，旧刷新仍覆盖标题。真实 PostgreSQL 双会话已复现，见 [V14 nv](V14-QUEUE-OWNERSHIP.md#postgresql-并发人工标题被刷新覆盖nv未修复)。网络完成后须在短事务内重新读取并保护作品行，再计算/应用差异；不得跨网络持有写锁。
-
 - [ ] **P1-M1 默认 MetadataAgent 路径未统一人工标题映射优先级**：默认分支未走
       `fetch_and_link_metadata` 的 ChannelRawTitleMapping；Agent 已有本地匹配、回退白名单及
       repository 的 season_hint 传递，不能宣称这些均失效。统一人工映射→本地匹配→Agent 的入口和测试。
-      2026-09-23 已用真实 Turso 和录制标题动态复现：普通路径落到人工映射电影，默认 Agent 的成功缓存却持久化到另一部电影，独立会话读取确认；必要性红测 `probes/manual_mapping_cache_probe.py`，失败证据 `probes/manual-mapping-sq.log`。冲突作品/映射/缓存为合成夹具，外部服务未参与；so/sp 为探针配置错误，不作为产品缺陷证据。下一批仍须覆盖标准化标题跨集匹配、旧 raw_title 回退、force_refresh、电影/季作品及合集资源形态保护。方案应共用人工映射解析入口并置于缓存/自动匹配之前，不能简单禁用缓存或跳过最终季号 reconciliation。V15 独立原型已加入电影/季作品目标保护和保存点，tt 完整映射矩阵 36 passed；ub Agent/Repository/抓取/映射回归 348 passed，合集 9 项及外部身份 6 项补验通过。并发与完整入口集成仍待补齐，未合入 main。
+      2026-09-23 已用真实 Turso 和录制标题动态复现：普通路径落到人工映射电影，默认 Agent 的成功缓存却持久化到另一部电影，独立会话读取确认；必要性红测 `probes/manual_mapping_cache_probe.py`，失败证据 `probes/manual-mapping-sq.log`。冲突作品/映射/缓存为合成夹具，外部服务未参与；so/sp 为探针配置错误，不作为产品缺陷证据。下一批仍须覆盖标准化标题跨集匹配、旧 raw_title 回退、force_refresh、电影/季作品及合集资源形态保护。方案应共用人工映射解析入口并置于缓存/自动匹配之前，不能简单禁用缓存或跳过最终季号 reconciliation。V15 独立原型已加入电影/季作品目标保护和保存点，tt 完整映射矩阵 36 passed；ub Agent/Repository/抓取/映射回归 348 passed，合集 9 项及外部身份 6 项补验通过。uj PostgreSQL 映射新增并发探针已转绿，旧候选被放弃；提交阶段合并恢复已验证，正式双库集成 vq 15 项及相关回归 vp 243 项通过；候选已冻结，完整单元/API vr 为 3985 passed / 6 failed，隔离集成 vs 为 3174 passed / 10 failed；原失败轮门禁未通过；补修后 vv 79 项与严格语料 vw 3 项通过，冻结候选的完整 vy/vz 门禁已启动，未合入 main。
 - [ ] **P1-M2 单成员合集被当作可验证单季**：`app/services/metadata_service.py:1564-1575` 在
-      `len(members)==1` 时直接链接，未校验 `verified_season_count`。**修复**：单成员不等于单季证据。
+      `len(members)==1` 时直接链接，未校验 `verified_season_count`。**修复**：单成员不等于单季证据。已用真实 Turso upsert 复现无季证据却返回唯一 S3 成员；独立原型与门禁见 [V16](V16-SINGLE-MEMBER-SEASON.md)：已修复合集及系列级外层无证据兜底，36 项季证据测试通过，旧 p 失败已处理；t 扩大回归 296 passed，u PostgreSQL 36 项断言通过，完整门禁仍待执行；尚未合入 main。
 - [ ] **P1-M3 维基整体故障被缓存为 `not_found`**：judge 路径硬编码 `"error": None`
       （`app/services/metadata_wiki_judge.py:481/545`），`_classify_failure` 看不到瞬态信号。
       **修复**：区分部分语言失败与所有可信路径失败，只有瞬态整体失败不缓存；成功证据不因其他源错误被丢弃。同步检查 TMDB 搜索吞异常后缓存空列表的路径。

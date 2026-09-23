@@ -2,18 +2,80 @@
 
 ## 下一步续接
 
-B4 已合入本地 main `7781a81`，当前无运行中的测试。V15 原型仍在 `/tmp/rssripple-v15-manual-mapping`，尚未合入；最近 ub 348 passed、uc 6 passed。下一步先将其未修改运行文件同步到已合入 B4（包括后补 processing 删除竞态修复），并对修改文件/业务文档做基线核对，不能把旧基础文件覆盖 main；随后补并发映射/资源身份变更及完整门禁。当前补丁/哈希用于保留进展，不是可直接盲目应用的合入凭据。
+候选已冻结，文件哈希见 `probes/manual-mapping-vr-frozen.json`。本轮审查见 [V15-FINAL-REVIEW.md](V15-FINAL-REVIEW.md)：形态编辑 vm 红测与音频映射 vo 红测均已修正；vp 243 passed（81.56 秒），vq 正式双库 15 passed（30.69 秒），全仓 Ruff 通过，vq 容器清理退出 0。
+
+完整单元/API vr 正在 session 81952，日志 `/tmp/rssripple-v15-unit-vr.log`，JUnit/coverage XML 同前缀，门槛 95%。完整隔离集成项目 `rssripple-v15-final-vs` 启动已退出 0；完整 test-runner 正在 session 13955，日志 `/tmp/rssripple-v15-integration-vs.log`，工作目录 `/tmp/rssripple-v15-manual-mapping`。运行期间不得修改候选 app/tests/scripts/config；先轮询原句柄，禁止重复启动。两轮均尚无最终验收结果，M1 未合入 main。
+
+## vi–vl：正式双库集成矩阵
+
+新增 `tests/integration/metadata/manual_mapping_driver.py` 与 `test_manual_mapping_concurrency.py`，八项 PostgreSQL + 五项 Turso 场景已进入正式集成收集。vk PG 八项通过（16.59 秒）；vl 完整新矩阵 **13 passed，26.68 秒，退出 0**，相关 Ruff 通过，PG 容器清理退出 0。最终外键限定恢复已经复跑通过；真实 23505 唯一约束错误即使映射同时变化仍上抛。候选、测试清单及业务设计已同步到原型补丁，未合入 main。
+
+vi 驱动复制时用了错误相对路径，测试缺驱动失败；vj 7 passed/1 failed 是唯一约束注入前 autoflush 先触发外键失败，尚未执行唯一约束 SQL。修正该注入为 no_autoflush 后 vk/vl 才是有效结论，保留失败日志防止混淆。vl 使用真实录制标题，数据/替身/FTS 边界已写入 integration-inventory；每个 PG 用例独立数据库并 finally 清理。证据 `probes/manual-mapping-vi*` 至 `-vl*`，成功子进程日志在 `manual-mapping-vl-drivers/`。
+
+下一步进行合入前五轴审查并整理剩余具体缺口，再冻结候选运行全量单元/API ≥95% 与完整隔离集成 ≥85%；13 项通过不能替代这两道门禁。
+
+## vd–vg：提交阶段合并实际触发外键失败
+
+vd 的“合并必然等待”假设被证伪：人工关联尚未 flush，合并重指资源时看不到它，因此可以先提交。ve 移除该假设继续真实写入，确认旧 movie_id autoflush 触发 PostgreSQL 23503 外键失败。不能把这一现象仅记录为无害的排序差异。
+
+原型把外部候选写入（含人工关联应用）包在保存点内，遇外键失败则回滚候选、显式刷新 resource，再读取映射；只有映射确已改变才放弃旧候选，否则原样上抛。vf 首次恢复因回滚后过期对象触发 MissingGreenlet；修正显式 refresh 顺序后 vg 退出 0，旧目标不存在、资源没有旧关联，后续正常 process 实际 commit 到 survivor。专用容器清理退出 0。
+
+vg 后又收紧捕获条件为 PostgreSQL 23503 / Turso foreign-key violation，其他 IntegrityError 直接上抛；该最后过滤条件尚需单独复跑，不能把 vg 归到修改后的源码。vh 四文件回归在收紧过滤前启动，已终态：257 passed、1 warning，94.67 秒，退出 0；证据 `probes/manual-mapping-vh.log/.xml`，结果须按该基线解释。下一步复跑最终恢复路径、验证无关完整性错误不会被吞，并整理正式集成驱动，暂不合入。
+
+## uz–vc：真实合并入口与 Turso 对照
+
+uz 使用真实 `POST /works/merge` 在外部查询期间合并人工映射目标：HTTP 200，mappings_updated=1；独立观察确认映射指向 survivor、旧目标不存在、旧查询被放弃，退出 0。va 增加下一次正常 process，实际 commit 后资源链接 survivor，退出 0，证明不会停留在永远不处理状态。采用同一录制标题，合并作品及外部候选仍明确合成，未替换合并服务或数据库写入。
+
+vb 首次 Turso 探针建表后未启用 MVCC，在 fixture INSERT 阶段失败，排除出产品缺陷和覆盖结论。补齐与生产一致的 PRAGMA 后 vc 通过：真实 Turso 独立会话、已有映射、录制标题、查询期间 associations API 返回 200，最终人工电影与标题保留。简化建库没有创建 FTS sidecar 表，日志有 FTS 降级，不能据此声称覆盖 FTS 正常路径。
+
+证据 `probes/manual-mapping-uz*`、`-va*`、`-vb*`、`-vc*`。所有进程终态，PostgreSQL 专用容器清理退出 0，Turso 临时文件清理记录 `manual-mapping-vc-cleanup.json`。本轮没有修改候选运行实现。下一步将这些真实入口场景整理为正式集成测试，并评估剩余候选检查到提交间的实际合并交错，再进入全量门禁。
+
+## uu–ux：缓存及本地匹配也须保护编辑
+
+录制标题和真实 associations API 交错显示：缓存返回前编辑已 commit（uu）、本地匹配返回前编辑已 commit（uv）均被旧快捷结果覆盖，两个目标断言失败。将最终外部候选的检查抽为 `_lookup_scope_is_current`，成功/非作品缓存、已知作品、确定性缓存未命中及非媒体分支在写入前复用；缓存 subtitle_group 延至相应检查后应用，避免查询本地作品时 autoflush 缓存字段。uw/ux 同一探针分别退出 0，最终人工关联和标题保留，隔离数据库清理退出 0，相关 Ruff 通过。
+
+外部/缓存/本地 lookup 结果为明确合成替身，真实资源事务与 API 写入未替换；证据 `probes/manual-mapping-uu*` 至 `-ux*`。uy 四份完整相关回归已终态：**257 passed、1 warning，86.79 秒，退出 0**；证据 `probes/manual-mapping-uy.log/.xml`。该轮不覆盖音频专用解析或其他字段并发修改，不作为完整验收。
+
+## uo/uq：录制标题、反向编辑与提前持锁
+
+uo 使用录制 case `00e48de8-b5fd-4e99-8467-d384bd4a3183` 的原始标题，作品/外部响应仍合成。自动识别先持资源锁后启动编辑 API；实际 `pg_blocking_pids` 确认编辑连接等待锁，自动事务提交后 HTTP 200，最终独立读取保留人工电影及标题，退出 0。
+
+uq 预先提交人工映射，再在 force_refresh 外部查询边界执行编辑 API，退出 1：5 秒超时，栈定位 `request_channel_resources` 查询引发的资源 autoflush 等待。原型提前应用映射后的数据库查询使外部调用开始前已有写锁，不能继续保留该编排。up 因探针编辑使用错误相对路径，未真正加入已有映射分支，虽然命令退出 0，也不计入该场景覆盖。证据 `probes/manual-mapping-uo*` / `-up*` / `-uq*`；专用容器清理退出 0。
 
 
-当前状态：必要性已动态复现，普通未链接路径已有独立原型，完整修复和验收未完成。B4 仍在独立完整集成 sn 轮，不能修改其冻结原型。问题继续保留 TODO。
+## um/un：当前编辑向导 API 红绿对照
 
-sr 初步原型位于 `/tmp/rssripple-v15-manual-mapping`，从 B4 冻结 app 副本建立、独立于运行门禁。两个入口共用 `apply_manual_title_mapping`，普通未链接资源先应用有效映射再读缓存；同一录制标题红测已转绿，退出 0，独立会话确认两路径均指向人工电影，Ruff 通过。证据 `probes/manual-mapping-sr.log`；补丁及基线/候选哈希 `manual-mapping-prototype.patch`、`manual-mapping-source.json`。
+使用真实 `PUT /api/v1/resources/{id}/associations` 路由、独立 PostgreSQL 编辑会话、真实关联服务/请求记录与 commit，在自动识别外部查询返回前提交电影及标题修订。um 原型退出 0，HTTP 200，最终独立会话确认 movie_id/search_title 均为人工选择。un 使用同一探针在未包含 M1 的当前 main 上退出 1，明确失败于 “Old lookup overwrote the committed manual choice”。因此资源快照守卫具有当前产品入口的必要性证据，区别于 ul 的直接映射表插入。
 
-这只是普通路径的部分实现，不代表 P1-M1 完成：force_refresh 的身份保持与信息补齐、已链接语义、失效映射、季作品和多作品边界及全量门禁仍待完成。原型代码暂留显式 pending 注释提醒该缺口，未合入运行主干；TODO 继续保留。
+证据 `probes/manual-mapping-um*`、`manual-mapping-un*`；测试容器清理退出 0，探针 Ruff 通过。外部候选和 genre 补全使用替身，后续 queue.enqueue 替换避免后台作业污染并发时序；HTTP 路由认证中间件未纳入本探针。标题/作品为合成夹具，真实数据回放仍由已有录制标题映射测试承担。尚须验证相反顺序（候选锁定后用户编辑）、去重/删除交错、已有映射长持锁及完整门禁，不关闭 M1。
+
+## ul：最终检查之后的写入与必要性复核
+
+ul 把独立会话的映射插入移动到真实 `_apply_to_resource` 调用之前、最终映射快照检查之后；实际落库仍执行原函数。PostgreSQL 退出 1，目标断言确认旧候选仍被提交，专用容器清理退出 0。证据 `probes/manual-mapping-ul.log`、`manual-mapping-ul-result.json`。增加读取次数无法解决这个窗口。
+
+需要修正此前对用户入口的推断：全 app 引用检查确认 `manual_link_metadata` 只有定义，旧 metadata/link API 测试已明确 skip 为退役入口。现有 `PUT /resources/{id}/associations` 调用 `apply_association_update` 修改资源、作品 links 和文件 assignments，不创建频道标题映射。因此 ul 是数据库级竞争证明，不能称为当前 UI 用户操作复现，也不能据此立即给全局映射表加锁。下一步先以现有 associations API 的真实并发编辑验证资源保护，并覆盖确实存在的去重/删除映射变更；再决定映射终态协调的最小适用范围。M1 默认消费已有人工映射的必要性仍由录制标题缓存红测证明，不受入口退役影响。
+
+## uj：查询期间映射变更保护
+
+候选在查询前后记录有效映射的 ID、series/movie 目标和覆盖标题；后读取通过 populate_existing 避免 ORM 身份缓存返回旧值，并关闭 autoflush。映射不同则刷新资源、放弃旧候选。uh 同一 MAPPING_ONLY PostgreSQL 探针 **uj 退出 0**：提交后资源保持未链接，未写入旧自动目标；容器清理退出 0，相关 Ruff 通过。证据 `probes/manual-mapping-uj.log`、`manual-mapping-uj-result.json`。
+
+这是对已提交变更的保护，尚未协调最终检查与提交间的新变更。缺失映射行插入、现有映射更新/删除、目标删除、缓存路径和长事务仍须验证；不得据此关闭 M1。uk 人工映射及 Agent 两份回归已终态，退出 0；完整计数与耗时见 `probes/manual-mapping-uk.log`，JUnit 为 `probes/manual-mapping-uk.xml`。
+
+## ui：映射查询与写入口复核
+
+已抽取 `find_manual_title_mapping`，原应用函数复用同一 normalized-key→raw-title 回退规则。新增真实 Turso 测试确认解析后资源仍未链接、标题与匹配时间不变，会话没有脏对象。映射文件回归 **37 passed、1 warning，18.51 秒，退出 0**，相关 Ruff 通过；证据 `probes/manual-mapping-ui.log/.xml`。此为方案基础重构，不关闭 uh 并发红测。
+
+写入口复核发现：除 `manual_link_metadata` 外，`metadata_dedup` 多处分支批量重指映射，series/movie 删除 API 也会清空目标，数据库 FK 的 SET NULL 同样影响映射。因此只协调人工关联入口不足。需要统一保证最终映射读取与写入之间的并发顺序，包括无行时插入；不能依靠对不存在的映射行执行 FOR UPDATE。当前仍无完整协调实现，尚不可合入。
 
 ## 必要性
 
 ### 原型回归进展
+
+uf 对 ue 同一 PG 探针已转绿，退出 0，专用容器清理退出 0。候选在网络查询后的落库入口以 SELECT FOR UPDATE 读取资源当前关联/合集/search_title，关闭 autoflush 避免把旧候选先写出；与查询前快照不一致则 refresh 并放弃旧结果，保持编辑会话提交的 movie_id 和标题。对应 I/O 方法在纯编排替身显式 mock，真实数据库路径未跳过。该实现仍只保护最终自动候选写入：缓存/本地快捷路径、映射表单独变化、删除、不同数据库并发及原本已有映射造成的提前 flush 均须继续验证，不能当作完整并发方案。ug session 60368 正在跑 Agent 及三份映射回归，日志 `/tmp/rssripple-v15-regression-ug.log`。
+
+ud 基线同步完成：V15 保留 8 个修复文件，更新 115 个未修改基线文件到本地 main `9b9a5fa`（含 B4 后补修复、测试及配置）；业务文档唯一 M1 段落先剥离验证旧基线哈希，再叠加到当前主干。新补丁 apply --check 通过，清单 `probes/manual-mapping-ud-rebase.json`。
+
+ue PostgreSQL 并发红测已确认：自动查询启动时没有映射，查询替身内部另一会话创建人工映射并更新资源 movie_id/search_title、commit 成功；旧查询返回后覆盖新 movie_id。退出 1 的目标断言为预期红测；专用 tmpfs PostgreSQL 容器已清理（退出 0）。证据 `probes/manual_mapping_concurrency_probe.py`、`manual-mapping-ue*`。标题/身份/响应均合成，两个真实会话及 ORM commit 未替换。修复必须在候选写入前刷新并校验资源/映射，而非只保存查询开始时目标；同时验证不存在跨网络长持写锁与目标编辑/删除分支。
 
 ub 五个完整相关文件回归已完成：348 passed、1 warning，278.12 秒，退出 0（Agent、Repository、fetch_service、人工映射、合集映射）。证据 `probes/manual-mapping-ub.log/.xml`。uc 外部身份六项为同期独立补验。下一步重点为并发期间映射/资源/作品身份变化及完整入口集成，尚未进入 V15 完整门禁或合入。
 
@@ -107,3 +169,31 @@ st 重跑同一现有测试文件，session **25832**，日志 `/tmp/rssripple-v
 | 无映射、失效映射、网络失败 | 原自动路径可用，不制造虚假成功或静默换作品 |
 
 回归须覆盖真实 ORM 持久化和完整 fetch/backfill/reparse 入口；外部服务使用明确替身，尽量复用录制标题与种子，不把生产旧关联当真值。必要性红测先在原实现失败，再在候选上通过；全量单元/API ≥95%、唯一项目完整集成 ≥85%、跳过项审计、正常退出和数据清理后才关闭。完成前不合入 main，不因探针通过缩小到只修成功缓存一个分支。
+
+## vr / vs 全量失败，禁止合入
+
+已确认原运行句柄退出 1：vr 单元/API 3985 passed、6 failed、15 skipped；vs 集成 3174 passed、10 failed、17 skipped。两个应用 SIGINT 后均退出 0，覆盖率汇总退出 0，报告已导出。覆盖率通过不能抵消测试失败。原始失败日志及 JUnit 已保存至 probes。
+
+6 项单元及部分集成失败涉及旧 SimpleNamespace/MagicMock 未适配人工映射查询；其余必须单独处理：initial_d_franchise 回放请求未完全消费，以及三个 P0 季号案例在已链接短路返回时丢失返回对象的 season（持久化断言此前通过，不能据此关闭返回契约回归）。继续修复原型并重跑严格门禁，未合入 main。
+
+## vu 返回契约补修候选
+
+vr 冻结的 3043 个文件重新校验无差异。独立目录 `/tmp/rssripple-v15-vu` 基于该冻结候选补齐已链接/人工映射短路返回的 season、episode、season_ambiguous；原 P0 断言保留。仅对明确使用假数据库的编排测试补齐映射/锁查询替身，真实并发测试不改。增量补丁 `probes/manual-mapping-vu-increment.patch`，专项句柄 15846，结果待定。另有旧候选诊断 vt（93257）：准备脚本因错误相对路径未执行修改，故该轮不得计为修复验证。录制 initial_d_franchise 未消费请求原因仍待定位，未放宽完整消费规则。
+
+## vv 专项结果与环境阻塞诊断
+
+vt/vu/q/合集诊断四个进程因 Turso 沙箱连接等待而中止，退出 143。纯内存 SELECT 1 对照：沙箱内 12 秒超时（124，工作线程与事件循环均等待），沙箱外立即成功（0）。重新运行 vv：79 passed，6.79 秒，含原 P0 断言；日志/JUnit 已归档。
+
+独立合集诊断最终审核图无差异，但原录制有 7 项未消费（两个 LLM judge、三个 Bangumi search、两个网络搜索）。诊断临时捕获完整消费异常以导出图，不算正式通过，正式 Cassette 规则未改。须审查这些查询是否属于已不再需要的单作品匹配，再建立新录制版本与严格回放。
+
+## vw 严格语料回放通过
+
+已审查 7 个未消费请求：全包标题的 Bangumi/Web judge、三个 Bangumi search（整包标题/BD/AV1）、两个网络搜索（整包标题/BD）。它们属于 inspection 已建立合集后多余的单作品匹配。保留原录制，新增派生 cassette 及来源哈希/移除键审计，不改变保留响应或审核答案。vw 使用正式完整消费检查：3 passed，4.58 秒。
+
+当前候选移至 `/tmp/rssripple-v15-vu`，17 文件哈希与可恢复归档见 `probes/manual-mapping-vu-source.json`、`manual-mapping-vu-candidate.tar.gz`。vx 扩大回归句柄 49318，完整门禁仍待重跑。
+
+## vy / vz 新完整门禁启动
+
+vu 候选 Ruff 全部通过，3045 文件冻结于 `manual-mapping-vy-frozen.json`。完整单元/API vy 句柄 37266，覆盖率要求 95%；完整集成 vz 句柄 61155，唯一 Compose 项目 `rssripple-v15-final-vz`（启动退出 0），汇总要求 85%。结果未定，源码不得修改。结束后必须 SIGINT 应用、核对退出、汇总覆盖率、导出报告并清理测试卷；不得把启动成功当作验收通过。vx 扩大回归及 M2 t 尚在运行。
+
+vx 扩大回归已退出 0，完整日志/JUnit 已归档；新全量 vy/vz 仍在运行。

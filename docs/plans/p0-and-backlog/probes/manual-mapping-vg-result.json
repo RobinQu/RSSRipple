@@ -1,0 +1,5 @@
+{
+  "exit_code": 0,
+  "cleanup_exit_code": 0,
+  "note": "Explicit refresh after savepoint rollback; candidate discarded and retry links survivor; predates FK-only exception filter"
+}

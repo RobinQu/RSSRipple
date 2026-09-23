@@ -1,0 +1,3 @@
+{'recorded_case': '00e48de8-b5fd-4e99-8467-d384bd4a3183'}
+{'editor_http_status': 200}
+{'resource': '730671d9-ea1e-4292-9f9d-c914f0901417', 'expected_movie': '6ee0205e-42a8-4d24-8ff2-efe5baaec7b9', 'actual_movie': '6ee0205e-42a8-4d24-8ff2-efe5baaec7b9', 'search_title': 'User-selected title'}

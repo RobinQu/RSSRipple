@@ -1,0 +1,19 @@
+[metadata_agent] channel 96bfde35-f9a2-4edc-969d-5bce978d8044 source='tmdb' is not available (disabled or missing credentials); search will return no external candidates
+{'resource': '8cb95f5a-de14-435f-9e4e-3f3f104d6180', 'expected_movie': '7f5bf1c9-38a0-41b7-99ac-59bb4b974934', 'actual_movie': '39647d84-eadc-45fa-9b07-5e5f9bba38c7', 'search_title': 'Synthetic old automatic target'}
+Traceback (most recent call last):
+  File "/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/manual_mapping_concurrency_probe.py", line 70, in <module>
+    asyncio.run(main())
+    ~~~~~~~~~~~^^^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 719, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/manual_mapping_concurrency_probe.py", line 62, in main
+    assert saved.movie_id in (None, mid), "Old lookup ignored the committed mapping"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Old lookup ignored the committed mapping

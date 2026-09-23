@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="8" time="16.520" timestamp="2026-09-23T13:35:35.234043+00:00" hostname="dl-workstation-albert"><testcase classname="tests.integration.metadata.test_manual_mapping_concurrency" name="test_manual_mapping_concurrency[edit_during_lookup]" time="2.022" /><testcase classname="tests.integration.metadata.test_manual_mapping_concurrency" name="test_manual_mapping_concurrency[existing_mapping_edit]" time="2.032" /><testcase classname="tests.integration.metadata.test_manual_mapping_concurrency" name="test_manual_mapping_concurrency[cached_result_edit]" time="2.048" /><testcase classname="tests.integration.metadata.test_manual_mapping_concurrency" name="test_manual_mapping_concurrency[known_work_edit]" time="2.036" /><testcase classname="tests.integration.metadata.test_manual_mapping_concurrency" name="test_manual_mapping_concurrency[edit_after_lock]" time="2.104" /><testcase classname="tests.integration.metadata.test_manual_mapping_concurrency" name="test_manual_mapping_concurrency[merge_during_lookup]" time="2.070" /><testcase classname="tests.integration.metadata.test_manual_mapping_concurrency" name="test_manual_mapping_concurrency[merge_before_write]" time="2.046" /><testcase classname="tests.integration.metadata.test_manual_mapping_concurrency" name="test_manual_mapping_concurrency[unique_error_propagates]" time="2.052"><failure message="AssertionError: {'recorded_case': '00e48de8-b5fd-4e99-8467-d384bd4a3183'}&#10;  {'merge_http_status': 200}&#10;  {'merge_committed_before_candidate_write': True}&#10;  [metadata_agent] channel 04db246a-6347-4cb9-961d-be9979c7c349 source='tmdb' is not available (disabled or missing credentials); search will return no external candidates&#10;  Traceback (most recent call last):&#10;    File &quot;&lt;frozen runpy&gt;&quot;, line 198, in _run_module_as_main&#10;    File &quot;&lt;frozen runpy&gt;&quot;, line 88, in _run_code&#10;    File &quot;/tmp/rssripple-v15-manual-mapping/tests/integration/metadata/manual_mapping_driver.py&quot;, line 240, in &lt;module&gt;&#10;      asyncio.run(main())&#10;      ~~~~~~~~~~~^^^^^^^^&#10;    File &quot;/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py&quot;, line 195, in run&#10;      return runner.run(main)&#10;             ~~~~~~~~~~^^^^^^&#10;    File &quot;/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py&quot;, line 118, in run&#10;      return self._loop.run_until_complete(task)&#10;             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^&#10;    File &quot;/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py&quot;, line 719, in run_until_complete&#10;      return future.result()&#10;             ~~~~~~~~~~~~~^^&#10;    File &quot;/tmp/rssripple-v15-manual-mapping/tests/integration/metadata/manual_mapping_driver.py&quot;, line 199, in main&#10;      assert os.environ.get(&quot;INJECT_UNIQUE&quot;) != &quot;1&quot;, &quot;Unique constraint failure was swallowed&quot;&#10;             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^&#10;  AssertionError: Unique constraint failure was swallowed&#10;  &#10;assert 1 == 0&#10; +  where 1 = CompletedProcess(args=['/workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python', '-m', 'tests.integration.metada...llowed&quot;\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Unique constraint failure was swallowed\n').returncode">tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1535/test_manual_mapping_concurrenc7')
+case = 'unique_error_propagates'
+
+    @pytest.mark.parametrize("case", CASES)
+    async def test_manual_mapping_concurrency(tmp_path, case):
+        admin_url = os.environ.get("QUEUE_RECOVERY_POSTGRES_URL")
+        if not admin_url:
+            if os.environ.get("QUEUE_RECOVERY_REQUIRED") == "1":
+                pytest.fail("Manual mapping gate requires dedicated PostgreSQL")
+            pytest.skip("Run the isolated integration gate for PostgreSQL interleavings")
+        parts = urlsplit(admin_url)
+        assert parts.path == "/queue_recovery", "Refuse a non-test admin database"
+        name = "manual_mapping_" + uuid.uuid4().hex
+        admin = await asyncpg.connect(admin_url)
+        try:
+            await admin.execute(f'CREATE DATABASE "{name}"')
+            env = dict(os.environ)
+            for key in ("EDITOR_API", "PREEXISTING_MAPPING", "SHORTCUT", "MERGE_API", "LATE_MAPPING", "REVERSE_API", "INJECT_UNIQUE", "MAPPING_ONLY"):
+                env.pop(key, None)
+            env.update(CASES[case])
+            env.update(DATABASE_URL=urlunsplit(parts._replace(scheme="postgresql+asyncpg", path="/" + name)),
+                       RECORDED_TITLE="1")
+            result = await asyncio.to_thread(
+                subprocess.run,
+                [sys.executable, "-m", "tests.integration.metadata.manual_mapping_driver"],
+                cwd=Path(__file__).resolve().parents[3], env=env,
+                capture_output=True, text=True, timeout=45,
+            )
+            (tmp_path / "driver.log").write_text(result.stdout + result.stderr)
+&gt;           assert result.returncode == 0, result.stdout + result.stderr
+E           AssertionError: {'recorded_case': '00e48de8-b5fd-4e99-8467-d384bd4a3183'}
+E             {'merge_http_status': 200}
+E             {'merge_committed_before_candidate_write': True}
+E             [metadata_agent] channel 04db246a-6347-4cb9-961d-be9979c7c349 source='tmdb' is not available (disabled or missing credentials); search will return no external candidates
+E             Traceback (most recent call last):
+E               File "&lt;frozen runpy&gt;", line 198, in _run_module_as_main
+E               File "&lt;frozen runpy&gt;", line 88, in _run_code
+E               File "/tmp/rssripple-v15-manual-mapping/tests/integration/metadata/manual_mapping_driver.py", line 240, in &lt;module&gt;
+E                 asyncio.run(main())
+E                 ~~~~~~~~~~~^^^^^^^^
+E               File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 195, in run
+E                 return runner.run(main)
+E                        ~~~~~~~~~~^^^^^^
+E               File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 118, in run
+E                 return self._loop.run_until_complete(task)
+E                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+E               File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 719, in run_until_complete
+E                 return future.result()
+E                        ~~~~~~~~~~~~~^^
+E               File "/tmp/rssripple-v15-manual-mapping/tests/integration/metadata/manual_mapping_driver.py", line 199, in main
+E                 assert os.environ.get("INJECT_UNIQUE") != "1", "Unique constraint failure was swallowed"
+E                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E             AssertionError: Unique constraint failure was swallowed
+E             
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['/workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python', '-m', 'tests.integration.metada...llowed"\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Unique constraint failure was swallowed\n').returncode
+
+tests/integration/metadata/test_manual_mapping_concurrency.py:52: AssertionError</failure></testcase></testsuite></testsuites>

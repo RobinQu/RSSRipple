@@ -1,0 +1,6 @@
+{
+  "exit_code": 1,
+  "note": "Setup failure: missing MVCC pragma; no product behavior covered",
+  "recorded_case": "00e48de8-b5fd-4e99-8467-d384bd4a3183",
+  "runtime_agent_sha256": "4b8731bbf81d8caa1bfef639b1330217c6406ccb47a476a05241f779c33b01f8"
+}

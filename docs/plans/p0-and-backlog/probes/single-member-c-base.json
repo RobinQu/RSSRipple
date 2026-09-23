@@ -1,0 +1,7 @@
+{
+  "prototype": "/tmp/rssripple-v16-single-member",
+  "base_prototype": "/tmp/rssripple-v15-manual-mapping",
+  "base_metadata_service_sha256": "abd5b64e88f2103642c7b04356fb58db640f549c1f87fd85dc69fe42c9294d23",
+  "candidate_metadata_service_sha256": "ac2ae96f5a5d4040329b48e13d530d8ef0c85c87bd0f38d571b5e437917d05b5",
+  "status": "independent prototype; M1 frozen files unchanged"
+}

@@ -1,0 +1,8 @@
+
+==================================== ERRORS ====================================
+____________ ERROR collecting tests/unit/test_wiki_failure_cache.py ____________
+In tests/unit/test_wiki_failure_cache.py::test_total_wiki_failure_does_not_poison_cache: function already takes an argument 'partial_failure' with a default value
+=========================== short test summary info ============================
+ERROR tests/unit/test_wiki_failure_cache.py - Failed: In tests/unit/test_wiki...
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 error in 0.61s

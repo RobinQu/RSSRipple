@@ -1,0 +1,11 @@
+{
+  "postgres_container": "rssripple-v15-mapping-uz",
+  "container_cleanup_exit_code": 0,
+  "removed_temporary_files": [
+    "/tmp/manual_mapping_vb.db",
+    "/tmp/manual_mapping_vb.db-wal",
+    "/tmp/manual_mapping_vc.db",
+    "/tmp/manual_mapping_vc.db-log",
+    "/tmp/manual_mapping_vc.db-wal"
+  ]
+}

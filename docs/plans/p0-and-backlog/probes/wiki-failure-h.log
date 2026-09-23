@@ -1,0 +1,21 @@
+............................................F....                        [100%]
+=================================== FAILURES ===================================
+____________________ test_search_tmdb_empty_results_cached _____________________
+tests/unit/test_metadata_search_agent.py:377: in test_search_tmdb_empty_results_cached
+    candidates = await msa._search_tmdb("Empty")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/metadata_search_agent.py:287: in _search_tmdb
+    raise RuntimeError("TMDB request failed: incomplete search")
+E   RuntimeError: TMDB request failed: incomplete search
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.metadata_search_agent:metadata_search_agent.py:205 [metadata_agent] TMDB search unexpected error lang=zh-CN title='Empty': 'async with' received an object from __aenter__ that does not implement __await__: MagicMock
+WARNING  app.services.metadata_search_agent:metadata_search_agent.py:205 [metadata_agent] TMDB search unexpected error lang=en-US title='Empty': 'async with' received an object from __aenter__ that does not implement __await__: MagicMock
+=============================== warnings summary ===============================
+tests/unit/test_wiki_failure_cache.py::test_total_wiki_failure_does_not_poison_cache
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_metadata_search_agent.py::test_search_tmdb_empty_results_cached
+1 failed, 48 passed, 1 warning in 5.68s

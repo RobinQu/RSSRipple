@@ -1,0 +1,5 @@
+{'recorded_case': '00e48de8-b5fd-4e99-8467-d384bd4a3183'}
+[metadata_agent] channel 5acdfae1-c039-4223-b02a-27013e4ba9ee source='tmdb' is not available (disabled or missing credentials); search will return no external candidates
+{'editor_blocked_by_transaction': True}
+{'editor_http_status': 200}
+{'resource': '42b43916-f324-4d82-9ddd-dc5e78502d9c', 'expected_movie': '3f56d34f-6fe0-45b5-8646-3df3e1b326aa', 'actual_movie': '3f56d34f-6fe0-45b5-8646-3df3e1b326aa', 'search_title': 'User-selected title'}

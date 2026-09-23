@@ -1,0 +1,28 @@
+{
+  "old_sessions": {
+    "93257": 143,
+    "15846": 143,
+    "60671": 143,
+    "60195": 143
+  },
+  "cause": "Turso sandbox connection wait; minimal SELECT 1 timed out (124), identical escalated in-memory query succeeded (0)",
+  "vv": {
+    "session": 32357,
+    "exit": 0,
+    "passed": 79
+  },
+  "m2_r": {
+    "session": 87642,
+    "exit": 1,
+    "passed": 4,
+    "failed": 1
+  },
+  "franchise_diagnostic": {
+    "session": 24399,
+    "exit": 0,
+    "graph_differences": [],
+    "unconsumed_requests": 7,
+    "diagnostic_only": true
+  },
+  "accepted": false
+}

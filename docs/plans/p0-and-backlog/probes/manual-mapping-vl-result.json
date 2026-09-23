@@ -1,0 +1,20 @@
+{
+  "passed": 13,
+  "seconds": 26.68,
+  "exit_code": 0,
+  "postgres_cleanup_exit_code": 0,
+  "candidate_hashes": {
+    "app/services/metadata_service.py": "abd5b64e88f2103642c7b04356fb58db640f549c1f87fd85dc69fe42c9294d23",
+    "app/services/metadata_agent.py": "9cc93a81aecf3f70ec19fbdfb9b051eb7d9411e0bd7e6ee782f06b22ca22873e",
+    "tests/unit/test_metadata_agent.py": "8700a59c23bec2dcbbd28f1248c8dce25aa9a3dee602dba6b59e4d19edd8d717",
+    "tests/unit/test_manual_title_mapping.py": "7cd9a0e2b5edc9d33f073e38e99fd1e538e0b9ea571c8ca95aed8364862a670d",
+    "app/services/metadata_repository.py": "6ed096408b895bf271eea7afaff1340387feedbbddc366e05629aca98d37a558",
+    "tests/unit/test_manual_mapping_batches.py": "c54a0bc653553f82fb94e773f4f0671ff80a24d0d3543eb46235c51f410b3aa9",
+    "docs/design/business-logic.md": "a503302a03707791206f6c62fd6f096c0959617709dfe9d0e34fd9ae2c657b4d",
+    "tests/unit/test_manual_mapping_identity.py": "392700777eb2f0352d753c473b98718ad7f70505d199687ed41856b2190d6e9f",
+    "tests/integration/metadata/manual_mapping_driver.py": "977885a18e817d3f0c8b1f408800f48fce9dfb38ae090804761d2e2c52c95273",
+    "tests/integration/metadata/test_manual_mapping_concurrency.py": "8c872ec51e881ce6cef1b73197a014254c33d784daadffae522bb38894655547",
+    "docs/testing/integration-inventory.md": "8a61e5581ceab91f3ae56feb09c0e91335f68ef0dae82221c300c15366cefc1f"
+  },
+  "scope": "8 PostgreSQL + 5 Turso formal integration cases; not full coverage gate"
+}

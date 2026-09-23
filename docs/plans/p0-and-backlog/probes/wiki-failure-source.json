@@ -1,0 +1,16 @@
+{
+  "prototype": "/tmp/rssripple-v17-wiki-failure",
+  "base": "/tmp/rssripple-v15-vu",
+  "files": {
+    "app/services/metadata_wiki_judge.py": "a90061401099b073d7b2f507749402c305355e5440516cc15ea493296d562f73",
+    "app/services/metadata_search_agent.py": "b82aa3899b2b112b960cce7b100b72c3b2d8623a6c2d455c7f84835134712889",
+    "tests/unit/test_wiki_failure_cache.py": "9f98815f9eae725a0d667661ab762e17463a1850fa5c1b122067529b07afc021",
+    "tests/unit/test_metadata_search_agent.py": "269d1a51565ecee0888bfd35c966537b9677255736459578872e2164b9ea1238",
+    "tests/integration/metadata/wiki_failure_driver.py": "113b882b865ef9b1ea4371a93332677070564252823f4f8e179d8b8713221d78",
+    "tests/integration/metadata/test_wiki_failure_cache.py": "a394dbec6a9218c6cdff7086d4e302fd2d00135e6f0a94ee40bb1c5cecbfce5b",
+    "docs/design/business-logic.md": "b3a05de13da0fc0c4d548bfb77cda582cdc79a69dfaad4d2a09b1ef91676a62e",
+    "docs/testing/integration-inventory.md": "59e70b31f055538b5b9fcd2e38a4f56614aa2bef318338fcfa31a810282138a1"
+  },
+  "status": "o52passed; p PostgreSQL8assertions passed; expanded regression and full gates pending",
+  "session": 52084
+}
