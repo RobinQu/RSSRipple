@@ -1,0 +1,36 @@
+{
+  "unit_exit": 0,
+  "passed": 3991,
+  "skips": {
+    "tests.unit.test_database_migrations::test_create_tables_postgres_path": "PostgreSQL unavailable: ConnectionRefusedError(111, \"Connect call failed ('127.0.0.1', 5432)\")",
+    "tests.unit.test_database_migrations::test_light_migrations_postgres_legacy_shapes": "PostgreSQL unavailable: ConnectionRefusedError(111, \"Connect call failed ('127.0.0.1', 5432)\")",
+    "tests.unit.test_database_migrations::test_light_migrations_postgres_legacy_delivery_columns_nullable": "PostgreSQL unavailable: ConnectionRefusedError(111, \"Connect call failed ('127.0.0.1', 5432)\")",
+    "tests.unit.test_decision_migration::test_postgres_startup_rejects_unreviewed_then_accepts_review": "PostgreSQL startup DDL branch; embedded startup tested through CLI subprocess",
+    "tests.api.test_api_coverage3.TestResourcesMore::test_search_metadata_via_manual": "resource-scoped metadata search replaced by /api/v1/metadata/search",
+    "tests.api.test_api_coverage3.TestResourcesMore::test_link_metadata_error_path": "resource-scoped metadata link replaced by work metadata apply/associations",
+    "tests.api.test_api_coverage3.TestResourcesMore::test_link_metadata_movie": "resource-scoped metadata link replaced by work metadata apply/associations",
+    "tests.api.test_resources.TestResourceSearchLink::test_search_404": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+    "tests.api.test_resources.TestResourceSearchLink::test_search_returns_results": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+    "tests.api.test_resources.TestResourceSearchLink::test_search_result_none_genre_coerced": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+    "tests.api.test_resources.TestResourceSearchLink::test_search_forwards_source_and_fallback_sites": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+    "tests.api.test_resources.TestResourceSearchLink::test_search_llm_error_returns_502": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+    "tests.api.test_resources.TestResourceSearchLink::test_link_creates_series": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+    "tests.api.test_resources.TestResourceSearchLink::test_link_404": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+    "tests.api.test_resources.TestResourceSearchLink::test_link_movie_clears_ambiguous": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+  },
+  "new_skips": [],
+  "coverage": {
+    "version": "7.14.3",
+    "timestamp": "1790177184778",
+    "lines-valid": "23485",
+    "lines-covered": "22852",
+    "line-rate": "0.973",
+    "branches-covered": "0",
+    "branches-valid": "0",
+    "branch-rate": "0",
+    "complexity": "0"
+  },
+  "frozen_unchanged": 3045,
+  "integration": "manual-mapping-vz-terminal.json",
+  "accepted": true
+}

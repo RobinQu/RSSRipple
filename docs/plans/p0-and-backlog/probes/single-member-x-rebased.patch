@@ -1,0 +1,594 @@
+--- a/app/services/metadata_service.py
++++ b/app/services/metadata_service.py
+@@ -1560,13 +1560,10 @@
+     series_level_id: str | None,
+     expected_series_id: str | None = None,
+ ) -> TVSeries | None:
+-    """Select (or lazily create) the collection member for the target season.
+-
+-    Season unknown: a single-member collection is verifiably single-season →
+-    its member; a multi-member collection (or a multi-season entity over an
+-    empty collection) cannot be pinned — the series-level ids are bagged on
+-    the collection and None is returned so the caller parks the resource on
+-    the collection for Channel confirmation (挂合集待确认).
++    """Resolve an evidenced season; collection size never determines a season.
++
++    An explicit manual target can supply its own season identity. Otherwise
++    unknown-season candidates keep their identity on the collection.
+     """
+     # Serialize member discovery and lazy creation on the existing parent.
+     # Refresh after waiting so a second matcher sees the first transaction's
+@@ -1574,26 +1571,22 @@
+     await db.refresh(collection, with_for_update=True)
+     members = await _collection_members(db, collection.id)
+     if expected_series_id is not None:
+-        selected = next((m for m in members if m.season_number == season), None)
+-        if season is None and len(members) == 1 and not _has_unresolved_title_qualifier(data):
+-            selected = members[0]
++        selected = next((m for m in members if m.id == expected_series_id
++                         and (season is None or m.season_number == season)), None)
++        if season is None and _has_unresolved_title_qualifier(data):
++            selected = None
+         _require_series_target(expected_series_id, selected)
+         if await _has_conflicting_identity(db, "series", selected, raw_source, data.get("external_id")):
+             raise MetadataTargetMismatchError("Metadata identity conflicts with selected season work")
++        season = selected.season_number
+     _merge_collection_aliases(collection, data)
+     work: TVSeries | None = None
+     if season is None:
+-        qualified = _has_unresolved_title_qualifier(data)
+-        if len(members) == 1 and not qualified:
+-            work = members[0]
+-        elif len(members) >= 1 or (verified_season_count(data) or 0) > 1:
+-            await _bag_entity_ids_by_granularity(
+-                db, work=None, collection=collection, data=data,
+-                series_level_id=series_level_id,
+-            )
+-            return None
+-        else:
+-            season = 1
++        await _bag_entity_ids_by_granularity(
++            db, work=None, collection=collection, data=data,
++            series_level_id=series_level_id,
++        )
++        return None
+     if work is None:
+         work = next((m for m in members if m.season_number == season), None)
+     if work is not None and await _has_conflicting_identity(
+@@ -1825,6 +1818,18 @@
+                 continue
+             kept.append(candidate)
+         candidates = kept
++    if candidates and season is None and expected_series_id is None:
++        # Title similarity and source identity granularity supply no ordinal.
++        coll_ids = {candidate.collection_id for candidate in candidates if candidate.collection_id}
++        collection = await db.get(WorkCollection, next(iter(coll_ids))) if len(coll_ids) == 1 else None
++        if collection is None:
++            collection = await _create_series_collection(db, data)
++        _merge_collection_aliases(collection, data)
++        await _bag_entity_ids_by_granularity(
++            db, work=None, collection=collection, data=data,
++            series_level_id=series_level_id,
++        )
++        return None
+     if candidates:
+         if season is not None:
+             exact = [c for c in candidates if (c.season_number or 1) == season]
+@@ -1908,13 +1913,11 @@
+         db, data, preserve_full_title=qualified
+     )
+     if season is None:
+-        if (verified_season_count(data) or 0) > 1:
+-            await _bag_entity_ids_by_granularity(
+-                db, work=None, collection=collection, data=data,
+-                series_level_id=series_level_id,
+-            )
+-            return None
+-        season = 1
++        await _bag_entity_ids_by_granularity(
++            db, work=None, collection=collection, data=data,
++            series_level_id=series_level_id,
++        )
++        return None
+     return await _create_season_work(
+         db, data, collection, season,
+         raw_source=raw_source, raw_external_id=raw_external_id,
+--- a/tests/unit/test_collection_member_season_evidence.py
++++ b/tests/unit/test_collection_member_season_evidence.py
+@@ -0,0 +1,205 @@
++"""Collection membership is inventory, not evidence of a resource's season."""
++import pytest
++from sqlalchemy import select
++
++from app.models.series import TVSeries
++from app.models.work_collection import WorkCollection
++from app.models.work_external_id import WorkExternalId
++from app.services.metadata_service import create_or_update_series_from_external
++
++
++@pytest.mark.parametrize('route', ['title', 'collection_bag'])
++@pytest.mark.parametrize('members,hint,count,expected', [
++    ([0], None, None, None), ([1], None, None, None), ([3], None, None, None),
++    ([1], None, 3, None), ([], None, None, None), ([1, 3], None, None, None),
++    ([3], 3, None, 3), ([1], None, 1, 1),
++])
++async def test_collection_size_does_not_supply_season(db_session, route, members, hint, count, expected):
++    collection = WorkCollection(title_cn='Synthetic evidence family')
++    db_session.add(collection)
++    await db_session.flush()
++    cid = collection.id
++    db_session.add_all([TVSeries(title_cn=collection.title_cn, collection_id=cid,
++                                season_number=n, is_anime=False) for n in members])
++    entity = {'title_cn': collection.title_cn, 'content_type': 'tv', 'external_source': 'tmdb', 'is_anime': False}
++    if route == 'collection_bag':
++        entity.update(title_cn='Synthetic source title', external_id='tmdb:90006001')
++        db_session.add(WorkExternalId(work_type='collection', work_id=cid,
++                                     source='tmdb', external_id=entity['external_id']))
++    if count is not None:
++        entity['number_of_seasons'] = count
++    await db_session.commit()
++    selected = await create_or_update_series_from_external(db_session, entity, season_hint=hint)
++    assert (selected.season_number if selected else None) == expected
++    await db_session.commit()
++    from app.database import async_session_factory
++    async with async_session_factory() as observer:
++        seasons = list((await observer.scalars(select(TVSeries.season_number).where(
++            TVSeries.collection_id == cid))).all())
++        assert sorted(seasons) == sorted(members)
++        if expected is None and route == 'collection_bag':
++            identities = list((await observer.scalars(select(WorkExternalId).where(
++                WorkExternalId.source == 'tmdb', WorkExternalId.external_id == entity['external_id']))).all())
++            assert [(row.work_type, row.work_id) for row in identities] == [('collection', cid)]
++
++
++@pytest.mark.parametrize('with_sibling', [False, True])
++async def test_explicit_manual_target_supplies_its_season(db_session, with_sibling):
++    collection = WorkCollection(title_cn='Synthetic manually selected family')
++    db_session.add(collection)
++    await db_session.flush()
++    target = TVSeries(title_cn=collection.title_cn, collection_id=collection.id,
++                      season_number=3, is_anime=False)
++    db_session.add(target)
++    if with_sibling:
++        db_session.add(TVSeries(title_cn=collection.title_cn, collection_id=collection.id,
++                               season_number=1, is_anime=False))
++    await db_session.commit()
++    selected = await create_or_update_series_from_external(db_session, {
++        'title_cn': collection.title_cn, 'content_type': 'tv', 'external_source': 'tmdb',
++        'is_anime': False, 'description': 'Same family, explicit manual season identity',
++    }, expected_series_id=target.id)
++    assert selected.id == target.id and selected.season_number == 3
++    await db_session.commit()
++    await db_session.refresh(target)
++    assert target.description == 'Same family, explicit manual season identity'
++
++
++@pytest.mark.parametrize('entry', ['repository', 'agent', 'cache', 'pipeline'])
++@pytest.mark.parametrize('existing_season', [None, 3])
++@pytest.mark.parametrize('hint', [None, 3])
++async def test_recorded_title_preserves_unknown_season(db_session, sample_channel, monkeypatch,
++                                                      entry, existing_season, hint):
++    import gzip
++    import json
++    import uuid
++    from pathlib import Path
++    from unittest.mock import AsyncMock
++
++    from app.models.file_resource import FileResource
++    from app.services.metadata_agent import UnifiedMetadataAgent
++    from app.services.metadata_repository import _apply_to_resource
++    from app.services.metadata_resource_meta import ResourceMetadata
++
++    corpus = Path(__file__).resolve().parents[1] / 'fixtures/metadata_corpus_v1/candidates.json.gz'
++    with gzip.open(corpus, 'rt') as stream:
++        case = next(c for c in json.load(stream)['cases'] if c['id'] == '011c6d44-68cf-43a8-bad3-f0398ce20a95')
++    sample_channel.metadata_source = 'tmdb'
++    sample_channel.metadata_agent_enabled = True
++    collection = WorkCollection(title_cn='攻壳机动队')
++    db_session.add(collection)
++    await db_session.flush()
++    cid = collection.id
++    if existing_season is not None:
++        db_session.add(TVSeries(title_cn=collection.title_cn, season_number=existing_season,
++                                collection_id=cid, is_anime=True))
++    db_session.add(WorkExternalId(work_type='collection', work_id=cid,
++                                 source='tmdb', external_id='tmdb:90006484'))
++    resource = FileResource(channel_id=sample_channel.id, guid=str(uuid.uuid4()),
++                            title_raw=case['input']['title_raw'], torrent_url='', season=hint, episode=6)
++    db_session.add(resource)
++    if entry == 'pipeline':
++        from app.services.resource_publication import publish_resource
++        await db_session.flush()
++        await publish_resource(db_session, resource.id, kind='created')
++    await db_session.commit()
++    rid = resource.id
++    entity = {'title_cn': collection.title_cn, 'content_type': 'tv', 'external_source': 'tmdb',
++              'external_id': 'tmdb:90006484', 'is_anime': True}
++    payload = {'found': True, 'content_type': 'tv', 'clean_title': collection.title_cn, 'matched_entity': entity}
++    if entry == 'repository':
++        await _apply_to_resource(ResourceMetadata.from_dict(payload), resource, sample_channel, db_session)
++    else:
++        agent = UnifiedMetadataAgent()
++        agent._ensure_genre = AsyncMock()
++        agent._run_react = AsyncMock(return_value=(payload, {
++            'method': 'synthetic', 'data_sources_used': [], 'source_errors': {}, 'error': None,
++        }))
++        monkeypatch.setattr('app.services.metadata_agent._attach_tmdb_episode_list', AsyncMock())
++        if entry == 'cache':
++            await agent._set_cache(resource.title_raw, 'tmdb', ResourceMetadata.from_dict(payload), db_session)
++            await db_session.commit()
++        if entry == 'pipeline':
++            import asyncio
++
++            from app.services.fetch_service import _process_resource_metadata_once
++            monkeypatch.setattr('app.services.metadata_agent.get_agent', lambda: agent)
++            monkeypatch.setattr('app.services.torrent_inspect.ensure_torrent_cached', AsyncMock())
++            monkeypatch.setattr('app.services.torrent_inspect.maybe_inspect_torrent', AsyncMock())
++            await _process_resource_metadata_once(rid, sample_channel.id, asyncio.Semaphore(1), force_refresh=True)
++        else:
++            await agent.process(resource, sample_channel, db_session, force_refresh=entry != 'cache')
++        if entry == 'cache':
++            agent._run_react.assert_not_awaited()
++        else:
++            agent._run_react.assert_awaited_once()
++    await db_session.commit()
++    from app.database import async_session_factory
++    async with async_session_factory() as observer:
++        saved = await observer.get(FileResource, rid)
++        if entry == 'pipeline':
++            from app.models.resource_publication import ResourcePublication
++            published = (await observer.scalars(select(ResourcePublication).where(
++                ResourcePublication.resource_id == rid, ResourcePublication.kind == 'metadata'))).all()
++            assert len(published) == 1
++        works = (await observer.scalars(select(TVSeries).where(TVSeries.collection_id == cid))).all()
++        if hint is None:
++            assert saved.series_id is None and saved.movie_id is None
++            assert saved.collection_id == cid and saved.season is None
++            assert saved.episode_confidence == 'ambiguous'
++            assert len(works) == int(existing_season is not None)
++        else:
++            assert saved.series_id == works[0].id and saved.season == 3
++            assert len(works) == 1 and works[0].season_number == 3
++        identities = (await observer.scalars(select(WorkExternalId).where(
++            WorkExternalId.source == 'tmdb', WorkExternalId.external_id == 'tmdb:90006484'))).all()
++        assert [(r.work_type, r.work_id) for r in identities] == [('collection', cid)]
++
++
++@pytest.mark.parametrize('existing_work', [False, True])
++async def test_series_level_unknown_season_cannot_use_outer_defaults(db_session, existing_work):
++    """Missing season evidence cannot be replaced by fresh/one-title defaults."""
++    title = 'Synthetic undecided series-level candidate'
++    if existing_work:
++        collection = WorkCollection(title_cn='Synthetic differently named collection')
++        db_session.add(collection)
++        await db_session.flush()
++        db_session.add(TVSeries(title_cn=title, collection_id=collection.id,
++                                season_number=3, is_anime=False))
++    await db_session.commit()
++    selected = await create_or_update_series_from_external(db_session, {
++        'title_cn': title, 'content_type': 'tv', 'external_source': 'tmdb',
++        'external_id': 'tmdb:90006485', 'is_anime': False,
++    })
++    await db_session.commit()
++    assert selected is None, 'Series-level identity supplies no season number'
++    from app.database import async_session_factory
++    async with async_session_factory() as observer:
++        works = (await observer.scalars(select(TVSeries))).all()
++        assert len(works) == int(existing_work)
++        identities = (await observer.scalars(select(WorkExternalId).where(
++            WorkExternalId.source == 'tmdb', WorkExternalId.external_id == 'tmdb:90006485'))).all()
++        assert len(identities) == 1 and identities[0].work_type == 'collection'
++
++
++@pytest.mark.parametrize('existing_work', [False, True])
++async def test_season_identity_does_not_supply_season_number(db_session, existing_work):
++    """A synthetic Bangumi subject identifies a season, not its series ordinal."""
++    title = 'Synthetic ordinal-free season subject'
++    if existing_work:
++        collection = WorkCollection(title_cn='Synthetic differently named collection')
++        db_session.add(collection)
++        await db_session.flush()
++        db_session.add(TVSeries(title_cn=title, collection_id=collection.id,
++                                season_number=3, is_anime=False))
++    await db_session.commit()
++    selected = await create_or_update_series_from_external(db_session, {
++        'title_cn': title, 'content_type': 'tv', 'external_source': 'bangumi',
++        'external_id': 'bangumi:90006487', 'is_anime': False,
++    })
++    await db_session.commit()
++    assert selected is None, 'Season-granularity identity supplies no ordinal'
++    from app.database import async_session_factory
++    async with async_session_factory() as observer:
++        works = (await observer.scalars(select(TVSeries))).all()
++        assert len(works) == int(existing_work)
+--- a/docs/design/business-logic.md
++++ b/docs/design/business-logic.md
+@@ -855,3 +855,10 @@
+ 候选扩展前记录作品季号和合集，写保护后重读值若不同则拒绝旧候选。直接 apply 返回 409；后台刷新返回 found=false、scope_changed=true、applied=[]，不标为 identity_conflict。作品已删除继续按未找到处理。这只验证当前应用调用期间的归属变化，不替代跨请求 preview/apply 的版本契约。
+ 
+ 人工映射与已链接资源的 Agent 短路返回必须携带协调后的 season、episode 和 season_ambiguous，避免返回状态与持久化资源不一致。已由 torrent inspection 识别为 franchise 的资源保留合集/文件指派，不再执行整包标题的单作品匹配。
++
++
++已匹配合集的成员数量不构成季号证据：season_hint、季级身份、可信标题季标记及经校验单季证据均不能确定季号时，保留合集身份并返回未定季状态；即使合集只有一个成员（含 S0/S1/S3）或尚无成员，也不自动选择/创建 S1。明确人工目标 expected_series_id 是用户指定的季作品身份，可在验证同合集、季号和外部身份兼容后补全该目标，不依赖合集成员数量。
++
++系列级候选没有季数/季号证据时，唯一同名季作品也不等于季身份；仅能归并到其合集。新系列同样先建合集并保留身份，不默认创建 S1。明确季号、已验证单季以及季级来源身份的既有语义保留。
++
++季粒度来源（如 Bangumi）只说明条目对应一季，不提供系列季号；未命中已知身份、无显式季证据时不能用同标题成员或新建默认 S1 兜底。未知季保留合集待确认，明确季号或已存在的季身份关联仍可使用。
+--- a/docs/design/per-season-works.md
++++ b/docs/design/per-season-works.md
+@@ -257,3 +257,10 @@
+ ### 已确认单季作品的退役计数清理
+ 
+ 创建/更新 API 显式拒绝 seasons 和 number_of_seasons（含 null），只读响应兼容保留，去重不继承退役计数。历史数据清理必须逐作品人工复核；流程见 db-migration.md「退役季数的人工复核清理」。清理保留原 seasons 与关联，只清计数并以 manually_edited_fields 中的 season_number 记录明确确认。work_verified_season 先拒绝真正未拆季证据，再接受有效人工确认，避免清空 count=1 后丢失 S1 的已确认身份；缺少季号或畸形人工字段不据此猜季。
++
++
++已匹配合集的成员数量不构成季号证据：season_hint、季级身份、可信标题季标记及经校验单季证据均不能确定季号时，保留合集身份并返回未定季状态；即使合集只有一个成员（含 S0/S1/S3）或尚无成员，也不自动选择/创建 S1。明确人工目标 expected_series_id 是用户指定的季作品身份，可在验证同合集、季号和外部身份兼容后补全该目标，不依赖合集成员数量。
++
++系列级候选没有季数/季号证据时，唯一同名季作品也不等于季身份；仅能归并到其合集。新系列同样先建合集并保留身份，不默认创建 S1。明确季号、已验证单季以及季级来源身份的既有语义保留。
++
++季粒度来源（如 Bangumi）只说明条目对应一季，不提供系列季号；未命中已知身份、无显式季证据时不能用同标题成员或新建默认 S1 兜底。未知季保留合集待确认，明确季号或已存在的季身份关联仍可使用。
+--- a/tests/unit/test_metadata_service.py
++++ b/tests/unit/test_metadata_service.py
+@@ -378,7 +378,7 @@
+ 
+ async def test_manual_link_updates_existing_mapping(db_session, channel):
+     """Calling manual_link a second time updates the existing mapping row."""
+-    res = _resource(channel.id, title_raw="[G] Show 01")
++    res = _resource(channel.id, season=1, title_raw="[G] Show 01")
+     db_session.add(res)
+     await db_session.flush()
+     sel = {
+@@ -426,7 +426,7 @@
+         "external_id": "llm_1",
+         "external_source": "llm_search",
+     }]
+-    res = _resource(channel.id, search_title="some new show")
++    res = _resource(channel.id, season=1, search_title="some new show")
+     db_session.add(res)
+     await db_session.flush()
+     with patch(
+@@ -577,7 +577,7 @@
+         "app.services.metadata_service.download_and_cache_poster",
+         new_callable=AsyncMock, return_value=None,
+     ):
+-        s1 = await ms.create_or_update_series_from_external(db_session, data)
++        s1 = await ms.create_or_update_series_from_external(db_session, data, season_hint=1)
+     await db_session.flush()
+     # Update with new alias
+     data2 = dict(data)
+@@ -586,7 +586,7 @@
+         "app.services.metadata_service.download_and_cache_poster",
+         new_callable=AsyncMock, return_value=None,
+     ):
+-        s2 = await ms.create_or_update_series_from_external(db_session, data2)
++        s2 = await ms.create_or_update_series_from_external(db_session, data2, season_hint=1)
+     await db_session.flush()
+     assert s1.id == s2.id
+     assert "剧A别名" in (s2.aliases or [])
+@@ -770,7 +770,7 @@
+             "title_en": None,
+             "external_id": "wikipedia:7727654",
+             "external_source": "wikipedia",
+-        })
++        }, season_hint=1)
+         await db_session.flush()
+ 
+         s2 = await ms.create_or_update_series_from_external(db_session, {
+@@ -780,7 +780,7 @@
+             "alt_titles": ["黃泉使者"],
+             "external_id": "wikipedia:70545449",
+             "external_source": "wikipedia",
+-        })
++        }, season_hint=1)
+         await db_session.flush()
+ 
+     assert s1.id == s2.id
+@@ -800,7 +800,7 @@
+             "title_cn": "黃泉使者",
+             "external_id": "wikipedia:7727654",
+             "external_source": "wikipedia",
+-        })
++        }, season_hint=1)
+         await db_session.flush()
+ 
+         s2 = await ms.create_or_update_series_from_external(db_session, {
+@@ -809,7 +809,7 @@
+             "alt_titles": ["黃泉使者"],
+             "external_id": "wikipedia:70545449",
+             "external_source": "wikipedia",
+-        })
++        }, season_hint=1)
+         await db_session.flush()
+ 
+     assert s1.id == s2.id
+@@ -1388,7 +1388,7 @@
+         "app.services.metadata_service.download_and_cache_poster",
+         new_callable=AsyncMock, return_value=None,
+     ):
+-        updated = await ms.create_or_update_series_from_external(db_session, data)
++        updated = await ms.create_or_update_series_from_external(db_session, data, season_hint=1)
+     assert updated.id == work.id
+     assert updated.external_id == "tmdb:900"  # manual edit preserved
+     assert updated.external_source == "tmdb"
+@@ -2190,11 +2190,22 @@
+     ):
+         work = await ms.create_or_update_series_from_external(db_session, {
+             "content_type": "tv", "title_cn": "剧集",
+-            "external_source": "llm_search", "external_id": "wikipedia:999",
++            "external_source": "tmdb", "external_id": "tmdb:90006486",
+             "number_of_seasons": 2,
+         })
+-    assert work is not None
+-    assert work.season_number == 1
++    # Neither candidate cardinality nor a multi-season count supplies a season.
++    assert work is None
++    await db_session.commit()
++    from sqlalchemy import select
++    from app.models.work_external_id import WorkExternalId
++
++    works = (await db_session.execute(select(TVSeries))).scalars().all()
++    assert sorted(row.season_number for row in works) == [1, 2]
++    identity = (await db_session.execute(select(WorkExternalId).where(
++        WorkExternalId.external_id == "tmdb:90006486",
++    ))).scalar_one()
++    assert identity.work_type == "collection"
++    assert await db_session.get(WorkCollection, identity.work_id) is not None
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -2896,7 +2907,9 @@
+     assert ("collection", "imdb", "imdb:tt999") in by
+ 
+ 
+-async def test_series_upsert_creates_season_1_unverified_empty_collection(db_session):
++async def test_series_upsert_parks_unverified_empty_collection(db_session):
++    from sqlalchemy import select
++
+     from app.services.external_ids import add_external_id
+ 
+     coll = WorkCollection(id=_uuid(), title_cn="空合集", external_source="series_group")
+@@ -2911,9 +2924,16 @@
+             "content_type": "tv", "title_cn": "剧", "title_en": "Show",
+             "external_id": "tmdb:778", "external_source": "tmdb",
+         })
+-    assert work is not None
+-    assert work.season_number == 1
+-    assert work.collection_id == coll.id
++    assert work is None
++    await db_session.commit()
++    from app.database import async_session_factory
++    from app.models.work_external_id import WorkExternalId
++    async with async_session_factory() as observer:
++        assert not (await observer.scalars(select(TVSeries).where(TVSeries.collection_id == coll.id))).all()
++        identity = (await observer.scalars(select(WorkExternalId).where(
++            WorkExternalId.source == "tmdb", WorkExternalId.external_id == "tmdb:778"
++        ))).one()
++        assert identity.work_type == "collection" and identity.work_id == coll.id
+ 
+ 
+ async def test_verify_is_anime_via_bangumi_skips_determined_work(db_session, channel, monkeypatch):
+--- a/tests/integration/metadata/season_evidence_driver.py
++++ b/tests/integration/metadata/season_evidence_driver.py
+@@ -0,0 +1,70 @@
++"""Dedicated PostgreSQL: reuse season evidence assertions with real commits."""
++import asyncio
++import json
++import os
++from pathlib import Path
++from urllib.parse import urlsplit
++
++url = os.environ["SEASON_EVIDENCE_DATABASE_URL"]
++assert urlsplit(url).path.startswith("/season_evidence_")
++os.environ["DATABASE_URL"] = url
++
++import pytest  # noqa: E402
++from sqlalchemy import inspect, text  # noqa: E402
++
++from app import database  # noqa: E402
++from app.models.channel import Channel  # noqa: E402
++from tests.unit.test_collection_member_season_evidence import (  # noqa: E402
++    test_collection_size_does_not_supply_season,
++    test_explicit_manual_target_supplies_its_season,
++    test_recorded_title_preserves_unknown_season,
++    test_series_level_unknown_season_cannot_use_outer_defaults,
++)
++
++
++async def main():
++    results = []
++    try:
++        async with database.engine.begin() as conn:
++            assert not await conn.run_sync(lambda c: inspect(c).has_table("tv_series"))
++            await conn.run_sync(database.Base.metadata.create_all)
++        table_names = ", ".join('"' + name + '"' for name in database.Base.metadata.tables)
++        async def reset():
++            async with database.engine.begin() as conn:
++                await conn.execute(text("TRUNCATE TABLE " + table_names + " CASCADE"))
++        cases = [([0], None, None, None), ([1], None, None, None), ([3], None, None, None),
++                 ([1], None, 3, None), ([], None, None, None), ([1, 3], None, None, None),
++                 ([3], 3, None, 3), ([1], None, 1, 1)]
++        for route in ("title", "collection_bag"):
++            for members, hint, count, expected in cases:
++                await reset()
++                async with database.async_session_factory() as db:
++                    await test_collection_size_does_not_supply_season(db, route, members, hint, count, expected)
++                results.append({"case": "evidence", "route": route, "members": members, "hint": hint, "count": count})
++        for sibling in (False, True):
++            await reset()
++            async with database.async_session_factory() as db:
++                await test_explicit_manual_target_supplies_its_season(db, sibling)
++            results.append({"case": "manual_target", "sibling": sibling})
++        for entry in ("repository", "agent", "cache", "pipeline"):
++            for member in (None, 3):
++                for hint in (None, 3):
++                    await reset()
++                    async with database.async_session_factory() as db:
++                        channel = Channel(name="Synthetic recorded-title channel", url="https://example.invalid", field_mapping={})
++                        db.add(channel)
++                        await db.commit()
++                        with pytest.MonkeyPatch.context() as patch:
++                            await test_recorded_title_preserves_unknown_season(db, channel, patch, entry, member, hint)
++                    results.append({"case": "recorded_resource", "entry": entry, "member": member, "hint": hint})
++        for existing in (False, True):
++            await reset()
++            async with database.async_session_factory() as db:
++                await test_series_level_unknown_season_cannot_use_outer_defaults(db, existing)
++            results.append({"case": "outer_series_default", "existing": existing})
++        Path(os.environ["SEASON_EVIDENCE_RESULT"]).write_text(json.dumps({"cases": results}))
++    finally:
++        await database.engine.dispose()
++
++
++asyncio.run(main())
+--- a/tests/integration/metadata/test_collection_season_evidence.py
++++ b/tests/integration/metadata/test_collection_season_evidence.py
+@@ -0,0 +1,40 @@
++"""Mandatory PostgreSQL counterpart of the Turso season-evidence matrix."""
++import asyncio
++import json
++import os
++import subprocess
++import sys
++import uuid
++from pathlib import Path
++from urllib.parse import urlsplit, urlunsplit
++
++import asyncpg
++import pytest
++
++
++async def test_collection_season_evidence_postgres(tmp_path):
++    url = os.environ.get('QUEUE_RECOVERY_POSTGRES_URL')
++    if not url:
++        if os.environ.get('QUEUE_RECOVERY_REQUIRED') == '1':
++            pytest.fail('Season evidence gate requires dedicated PostgreSQL')
++        pytest.skip('Run the isolated integration gate for PostgreSQL')
++    parts = urlsplit(url)
++    assert parts.path == '/queue_recovery'
++    name = 'season_evidence_' + uuid.uuid4().hex
++    admin = await asyncpg.connect(url)
++    try:
++        await admin.execute(f'CREATE DATABASE "{name}"')
++        output = tmp_path / 'result.json'
++        env = dict(os.environ,
++                   SEASON_EVIDENCE_DATABASE_URL=urlunsplit(parts._replace(scheme='postgresql+asyncpg', path='/' + name)),
++                   SEASON_EVIDENCE_RESULT=str(output))
++        result = await asyncio.to_thread(subprocess.run,
++            [sys.executable, '-m', 'tests.integration.metadata.season_evidence_driver'],
++            cwd=Path(__file__).resolve().parents[3], env=env,
++            capture_output=True, text=True, timeout=120)
++        (tmp_path / 'driver.log').write_text(result.stdout + result.stderr)
++        assert result.returncode == 0, result.stdout + result.stderr
++        assert len(json.loads(output.read_text())['cases']) == 36
++    finally:
++        await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
++        await admin.close()
+--- a/docs/testing/integration-inventory.md
++++ b/docs/testing/integration-inventory.md
+@@ -342,3 +342,6 @@
+ 
+ 
+ M1 正式 `metadata/test_manual_mapping_concurrency.py` 包含 PostgreSQL 九项和 Turso 六项。使用录制发布标题 `00e48de8-b5fd-4e99-8467-d384bd4a3183`、真实 associations/works-merge ASGI 路由和独立数据库会话；作品、候选响应与缓存/本地命中结果为合成，队列唤醒替换，不覆盖认证中间件或实时提供者。覆盖外部查询期间编辑（含改为 franchise 的形态编辑）、已有人工映射、缓存/本地快捷返回、查询期间合并及后续恢复；PostgreSQL 另验证资源锁等待、候选写入前合并及唯一约束错误不被吞。沿用隔离门禁 `QUEUE_RECOVERY_POSTGRES_URL` 和 `QUEUE_RECOVERY_REQUIRED=1`：缺 PostgreSQL 时必失败；每项独立建库，finally DROP DATABASE。Turso 使用 pytest 临时文件并启用 MVCC，简化建库未配置 FTS sidecar，FTS 正常路径仍由现有套件承担。
++
++
++M2 正式 `metadata/test_collection_season_evidence.py` 在专用 PostgreSQL 子库执行 34 项真实断言：标题/合集身份袋的 16 种季证据组合、2 种显式人工目标、16 种录制标题经 repository/MetadataAgent/成功缓存/实际抓取元数据事务的资源写入。复用 Turso 单元矩阵的断言并独立 commit/观察，不把 mock upsert 当作持久化证据。原始标题取录制 case `011c6d44-68cf-43a8-bad3-f0398ce20a95`；合集成员、TMDB ID 和来源响应明确合成，语料中历史候选 season 不作为真值。未知季必须保持 resource 工作 FK 空、collection 关联与 ambiguous，且不新增季作品；显式季号正例须实际创建/关联。沿用 QUEUE_RECOVERY_REQUIRED=1 缺 PG 必失败，独立建库与 finally 删除，子进程超时 120 秒。

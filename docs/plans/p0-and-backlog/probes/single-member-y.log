@@ -1,0 +1,72 @@
+........................................................................ [ 23%]
+........................................................................ [ 46%]
+........................................................................ [ 70%]
+........................................................................ [ 93%]
+..................F                                                      [100%]
+=================================== FAILURES ===================================
+_____________ test_production_reconstruction[initial_d_franchise] ______________
+tests/integration/metadata_corpus/test_scenarios.py:20: in test_production_reconstruction
+    result = await run_reported_scenario(ROOT, scenario, database_url, corpus_report_dir)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/metadata_corpus/reporting.py:13: in run_reported_scenario
+    result = await run_scenario(root, scenario, database_url)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/metadata_corpus/runner.py:261: in run_scenario
+    cassette.assert_complete()
+tests/metadata_corpus/replay.py:233: in assert_complete
+    raise ReplayError("\n".join(sorted(set(self.errors))))
+E   tests.metadata_corpus.replay.ReplayError: recorded request not fully consumed: 439a5c717c358facce09b8e3441a68867d01bcdeedb11556935e071047994846
+E   recorded request not fully consumed: 4aca9aad35b0ea75384ddd25e4f3f290eb85e43c28c7b7406527fad2d0eeb6f6
+E   recorded request not fully consumed: 6b3d0af928a5ad6bccf55b3d283bb64756512566ad09aac4b56c1a3bb51ba278
+E   recorded request not fully consumed: 852e3c933732cad437eee41674f6ddccb700842e93ee07c684e7085b46b1c248
+E   recorded request not fully consumed: a876e57317b58c878ac349c6d2f6677b38d6c26dce240665e787d414032ecca9
+E   recorded request not fully consumed: b8d3215c279ceabe53ad4e6c314aca8a93c40b4717301715567e82a6335ace34
+E   recorded request not fully consumed: fb338b176f581de95bb5848cc72e4ce085819e6ace458dc627d90e158332b25c
+E   recorded request overused: 439a5c717c358facce09b8e3441a68867d01bcdeedb11556935e071047994846
+E   recorded request overused: 4aca9aad35b0ea75384ddd25e4f3f290eb85e43c28c7b7406527fad2d0eeb6f6
+E   recorded request overused: 6b3d0af928a5ad6bccf55b3d283bb64756512566ad09aac4b56c1a3bb51ba278
+E   recorded request overused: 852e3c933732cad437eee41674f6ddccb700842e93ee07c684e7085b46b1c248
+E   recorded request overused: a876e57317b58c878ac349c6d2f6677b38d6c26dce240665e787d414032ecca9
+E   recorded request overused: fb338b176f581de95bb5848cc72e4ce085819e6ace458dc627d90e158332b25c
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.metadata_agent:metadata_agent.py:251 [metadata_agent] dropped unverified inferred_season=2 for 'Initial D Second Stage' (seasons=[], number_of_seasons=None)
+WARNING  app.services.metadata_web_fallback:metadata_web_fallback.py:89 [metadata_agent][web_fallback] search failed: recorded request overused: 852e3c933732cad437eee41674f6ddccb700842e93ee07c684e7085b46b1c248
+WARNING  app.services.metadata_web_fallback:metadata_web_fallback.py:300 [metadata_agent][web_fallback] web search failed: ReplayError: recorded request overused: 852e3c933732cad437eee41674f6ddccb700842e93ee07c684e7085b46b1c248 for 'Initial D Battle Stage'
+WARNING  app.services.metadata_agent:metadata_agent.py:1217 [metadata_agent] tmdb found=False and web fallback failed for 'Initial D Battle Stage' (web search failed: ReplayError: recorded request overused: 852e3c933732cad437eee41674f6ddccb700842e93ee07c684e7085b46b1c248); treating as transient
+WARNING  app.services.metadata_web_fallback:metadata_web_fallback.py:89 [metadata_agent][web_fallback] search failed: recorded request overused: 439a5c717c358facce09b8e3441a68867d01bcdeedb11556935e071047994846
+WARNING  app.services.metadata_web_fallback:metadata_web_fallback.py:300 [metadata_agent][web_fallback] web search failed: ReplayError: recorded request overused: 439a5c717c358facce09b8e3441a68867d01bcdeedb11556935e071047994846 for 'Initial D Battle Stage 2'
+WARNING  app.services.metadata_agent:metadata_agent.py:1217 [metadata_agent] tmdb found=False and web fallback failed for 'Initial D Battle Stage 2' (web search failed: ReplayError: recorded request overused: 439a5c717c358facce09b8e3441a68867d01bcdeedb11556935e071047994846); treating as transient
+WARNING  app.services.metadata_web_fallback:metadata_web_fallback.py:89 [metadata_agent][web_fallback] search failed: recorded request overused: a876e57317b58c878ac349c6d2f6677b38d6c26dce240665e787d414032ecca9
+WARNING  app.services.metadata_web_fallback:metadata_web_fallback.py:300 [metadata_agent][web_fallback] web search failed: ReplayError: recorded request overused: a876e57317b58c878ac349c6d2f6677b38d6c26dce240665e787d414032ecca9 for 'Initial D Extra Stage 2'
+WARNING  app.services.metadata_agent:metadata_agent.py:1217 [metadata_agent] tmdb found=False and web fallback failed for 'Initial D Extra Stage 2' (web search failed: ReplayError: recorded request overused: a876e57317b58c878ac349c6d2f6677b38d6c26dce240665e787d414032ecca9); treating as transient
+WARNING  app.services.bangumi_relations:bangumi_relations.py:643 [bangumi-graph] subject 364252 ('MFゴースト', relation='续集') fails the same-IP gate; skipped and not traversed
+WARNING  app.services.metadata_web_fallback:metadata_web_fallback.py:89 [metadata_agent][web_fallback] search failed: recorded request overused: 852e3c933732cad437eee41674f6ddccb700842e93ee07c684e7085b46b1c248
+WARNING  app.services.metadata_web_fallback:metadata_web_fallback.py:300 [metadata_agent][web_fallback] web search failed: ReplayError: recorded request overused: 852e3c933732cad437eee41674f6ddccb700842e93ee07c684e7085b46b1c248 for 'Initial D Battle Stage'
+WARNING  app.services.metadata_agent:metadata_agent.py:1217 [metadata_agent] tmdb found=False and web fallback failed for 'Initial D Battle Stage' (web search failed: ReplayError: recorded request overused: 852e3c933732cad437eee41674f6ddccb700842e93ee07c684e7085b46b1c248); treating as transient
+WARNING  app.services.metadata_web_fallback:metadata_web_fallback.py:89 [metadata_agent][web_fallback] search failed: recorded request overused: 439a5c717c358facce09b8e3441a68867d01bcdeedb11556935e071047994846
+WARNING  app.services.metadata_web_fallback:metadata_web_fallback.py:300 [metadata_agent][web_fallback] web search failed: ReplayError: recorded request overused: 439a5c717c358facce09b8e3441a68867d01bcdeedb11556935e071047994846 for 'Initial D Battle Stage 2'
+WARNING  app.services.metadata_agent:metadata_agent.py:1217 [metadata_agent] tmdb found=False and web fallback failed for 'Initial D Battle Stage 2' (web search failed: ReplayError: recorded request overused: 439a5c717c358facce09b8e3441a68867d01bcdeedb11556935e071047994846); treating as transient
+WARNING  app.services.metadata_web_fallback:metadata_web_fallback.py:89 [metadata_agent][web_fallback] search failed: recorded request overused: a876e57317b58c878ac349c6d2f6677b38d6c26dce240665e787d414032ecca9
+WARNING  app.services.metadata_web_fallback:metadata_web_fallback.py:300 [metadata_agent][web_fallback] web search failed: ReplayError: recorded request overused: a876e57317b58c878ac349c6d2f6677b38d6c26dce240665e787d414032ecca9 for 'Initial D Extra Stage 2'
+WARNING  app.services.metadata_agent:metadata_agent.py:1217 [metadata_agent] tmdb found=False and web fallback failed for 'Initial D Extra Stage 2' (web search failed: ReplayError: recorded request overused: a876e57317b58c878ac349c6d2f6677b38d6c26dce240665e787d414032ecca9); treating as transient
+WARNING  app.services.external_ids:external_ids.py:150 [external_ids] mal:mal:30952 already maps to movie 84c74d93-35fa-405a-8fd8-b70c4140de8f — NOT re-pointing to movie 7007dc68-3a53-4ab3-b3e3-336a5fd30560 (dedup candidate)
+WARNING  app.services.external_ids:external_ids.py:150 [external_ids] mal:mal:28881 already maps to movie bc42abe9-b9d1-4f95-b310-ff9fd5c39aa7 — NOT re-pointing to movie 601fa076-7ee5-43b1-9e1c-fb61a995cd4e (dedup candidate)
+WARNING  app.services.external_ids:external_ids.py:150 [external_ids] mal:mal:19613 already maps to movie d589b321-280c-4086-a160-7fd9224921a8 — NOT re-pointing to movie ac45df45-9520-4871-9a49-ba6e03ea15a7 (dedup candidate)
+=============================== warnings summary ===============================
+tests/unit/test_metadata_service.py::test_extract_search_title_prefers_parsed_titles
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+tests/integration/organize/test_p0_season_persistence.py::test_model_season_cannot_pollute_persisted_work[1-2-1]
+tests/integration/organize/test_p0_season_persistence.py::test_model_season_cannot_pollute_persisted_work[99-2-None]
+tests/integration/organize/test_p0_season_persistence.py::test_model_season_cannot_pollute_persisted_work[99-None-None]
+tests/integration/organize/test_p0_season_persistence.py::test_model_season_cannot_pollute_persisted_work[99-1-1]
+tests/integration/organize/test_p0_season_persistence.py::test_model_season_cannot_pollute_persisted_work[None-None-None]
+tests/integration/organize/test_p0_season_persistence.py::test_model_season_cannot_pollute_persisted_work[None-1-1]
+  /tmp/rssripple-v16-rebased/app/services/metadata_agent.py:445: LangGraphDeprecatedSinceV10: create_react_agent has been moved to `langchain.agents`. Please update your import to `from langchain.agents import create_agent`. Deprecated in LangGraph V1.0 to be removed in V2.0.
+    self._agents[source] = create_react_agent(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/integration/metadata_corpus/test_scenarios.py::test_production_reconstruction[initial_d_franchise]
+1 failed, 306 passed, 7 warnings in 372.39s (0:06:12)

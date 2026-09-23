@@ -1,0 +1,18 @@
+{
+  "runner_exit": 0,
+  "passed": 3184,
+  "skipped": 17,
+  "failed": 0,
+  "app_exit_codes": [
+    0,
+    0
+  ],
+  "coverage_report_exit": 0,
+  "lines_covered": 20730,
+  "lines_valid": 23485,
+  "coverage_percent": 88.27,
+  "cleanup_exit": 0,
+  "frozen_files_unchanged": 3045,
+  "unit_gate": "still running session37266",
+  "accepted": false
+}

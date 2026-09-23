@@ -93,3 +93,15 @@ t 回归 296 passed，208.23 秒，包含完整 service/repository/manual mappin
 独立目录 `/tmp/rssripple-v16-rebased` 已将八文件 M2 差异移到冻结 M1 vu 基线。非冲突文件逐一核对旧/新基线相同；business-logic 两边仅末尾追加，保留两段完整内容。v 扩大回归含 P0 季号和严格语料，句柄 42944，日志 /tmp/rssripple-v16-v.log。M1 冻结候选未改。
 
 v 最新基线扩大回归：305 passed，366.96 秒，含 P0 季号与严格语料。合入审查发现现方案保留 season-granularity 外层兜底，单季条目身份不等于已知系列季号，与禁止猜季要求存在潜在冲突。新增 w 两项真实数据库反例（合成 Bangumi 身份，无季号；空库/同标题 S3），结果见日志；该边界解决前不启动 M2 最终门禁，不将旧通过矩阵当作完整修复。新测试位于 /tmp/rssripple-v16-rebased，旧候选归档为历史。
+
+## x 取消来源粒度猜季
+
+去掉外层按 granularity=season 放行的无证据标题匹配和新建 S1 兜底；明确季证据在前置阶段计算，已链接身份仍可复用。x 38 passed，57.21 秒。y 扩大调用链/P0/录制语料回归已启动（日志 /tmp/rssripple-v16-y.log），需检查旧兜底依赖，不可只改预期掩盖产品问题。PG 驱动待扩到 38 项后重跑。文档检查点提交 36cfdf6 仅含计划/证据，运行代码仍未合入。
+
+z 正式 PostgreSQL 驱动 38 项断言通过（父测试 1 passed，9.08 秒），含新增季粒度身份无季号的空库/同标题两项反例。结果 JSON、驱动日志和 JUnit 已保存，专用容器及卷已清理。y 扩大回归仍运行（79858），未验收。
+
+y 扩大回归退出 1：306 passed、1 failed（372.39 秒），唯一失败 initial_d_franchise 的录制请求过用/未消费。aa 独立诊断临时放宽已有请求的次数上限（不改变响应、不允许新请求），以避免过用异常污染最终关联观察；随后恢复原计数记录严格错误，不能当作正式验收。诊断句柄 53293，输出 /tmp/rssripple-v16-franchise-aa.json。须分析最终图和请求原因后再决定修复，不能直接更新审核答案。
+
+aa 诊断结束：最终图仅三个 OVA 的 MAL 壳作品/指派发生差异（mal:821、3931、5228，旧预期均为 S1；新结果不建季作品，三个文件 work/season=None）。普通六季、已有特典与电影关联保持一致；13 个请求计数变化。需逐条审查录制源是否有明确季证据以及原审核答案的 S1 依据，不能恢复默认猜季，也不能把诊断次数放宽直接用于验收。
+
+aa 录制源重审：原 evidence_note 明确三 MAL 条目为 identity-only，三个录制 finalize 的 inferred_season=null，均无 S1 依据。新增独立 review/cassette 版本，保留旧版；仅移除三默认 S1 壳作品期望，三个文件 work/season=null，原其他字段与未知覆盖不派发断言保持不变。调整精确录制请求次数（不改响应），来源哈希/旧指派/计数差异均留审计。ab 正式严格回放 3 passed，6.80 秒。当前 13 文件哈希与可恢复归档见 single-member-v-rebase.json、single-member-ab-candidate.tar.gz；尚待最终审查/完整门禁。

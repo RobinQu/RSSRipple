@@ -1,15 +1,20 @@
 {
   "prototype": "/tmp/rssripple-v16-rebased",
   "base_prototype": "/tmp/rssripple-v15-vu",
-  "status": "rebase regression pending",
+  "status": "x38passed zPG38passed; y306passed1failed; ab strict corpus3passed after source-bound review; full gates pending",
   "files": {
-    "app/services/metadata_service.py": "2d4a0f941c6c5b919179f8287f2ac001820d0b5297c1258d9ba77a2c85bed2b6",
-    "tests/unit/test_collection_member_season_evidence.py": "88f110818867be95bd2474867741f2f4946a8b673c0e4aaa9482cc3442946858",
-    "docs/design/business-logic.md": "98d663753087f036d4e4f5e8b90f9dd70cd5d8ca0b8ca5a1aa866b10a0b42ae6",
-    "docs/design/per-season-works.md": "8d5d43e6411117331173e73f7c0fa83f660bbf53a6aa9f997054ebc6f6c7a696",
+    "app/services/metadata_service.py": "89a4acac2b1dd57e967af01f2c73f66788773f1d0d9a0267eb7e92c83a1c6bfb",
+    "tests/unit/test_collection_member_season_evidence.py": "c8b6747def0b4b11cea57146b6082090514159cd401a7dcd80f0bcc12ef2c2fe",
+    "docs/design/business-logic.md": "81916b2814f339112fcc5bca965b9d237956d8406853ccbec6011025e19b49d9",
+    "docs/design/per-season-works.md": "f434769e9a3385f76a905acf84c554a02b3faf765128f733c4bf1263b6e576a6",
     "tests/unit/test_metadata_service.py": "432cc7fa0879bd86c28a3d4bf9e1128d98f2d65e606c6f66c6d34890ac4182f2",
-    "tests/integration/metadata/season_evidence_driver.py": "478f4d8df7e49a73a93e25820a45633839b4ab02ba5a9d89e75ee8fcc0583286",
-    "tests/integration/metadata/test_collection_season_evidence.py": "958b79b89e3cd8213b8bd4282c374b81bbd7b9b90af8cf8ff860d31cff5da7f2",
-    "docs/testing/integration-inventory.md": "7bf7937ca1bff622753e02d14d8e801e1c9927db710f02a63928fff0413bc1e6"
+    "tests/integration/metadata/season_evidence_driver.py": "70fd85d35f9b61d9cd593c223102a09e0f2d2b4b22097cf313b69141eaf4fac9",
+    "tests/integration/metadata/test_collection_season_evidence.py": "6b7061e17a5c80b2a2f7cf521c8c011f905dd0c9750c8725ec2ba3690f181be3",
+    "docs/testing/integration-inventory.md": "436dfc1256730d2343fd54d10525111aa44c20456b7c1d50b9d3be4fa58e633a",
+    "tests/fixtures/metadata_corpus_v2/manifest.json": "9e9c25a4ea2c8e49b7d188dc25c7731537f50fa88e0b8b889eb8eee69d36730e",
+    "tests/fixtures/metadata_corpus_v2/reviews-season-evidence.json": "923cf9820579ce7c7fe0e1d7208497f3e51a84171cf1b6ce6e06126c010f3f70",
+    "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_season_evidence.json.gz": "7b37f1c5218c311c769783516c8f717816db0acde3601f8b867a35822b427fd2",
+    "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_season_evidence.audit.json": "9949e452480481824105d7a504bd11cf0fd528f65b225256fee72ca09f8aa10b",
+    "docs/testing/metadata-corpus.md": "bc1a0398429195f854da6b38a3402cc114a8dfff2b4435cd0876e2653fa5e607"
   }
 }
