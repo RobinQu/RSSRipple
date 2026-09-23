@@ -5,9 +5,18 @@
     "tests/unit/test_anime_signals.py": "a4a7ab702c241595d99fe389444a00243273bca57d43a7c74b9d01c1b6a5ed4c",
     "tests/unit/test_external_ids.py": "7484798e01d6d03a8a0e98442b56bad996c57a26deec24056ad51433e42a35c5",
     "tests/unit/test_franchise_service.py": "9b60452ddb7fefcc2b5dad8eaa4189918089c6408b7d23bc90454cd88b64dd2c",
-    "tests/unit/test_genre_registry.py": "fbe138bd574e3c887bfa90e9950dd3fe424b73c0a4bc189d2e8212c6bfe48de6"
+    "tests/unit/test_genre_registry.py": "fbe138bd574e3c887bfa90e9950dd3fe424b73c0a4bc189d2e8212c6bfe48de6",
+    "docs/design/business-logic.md": "9b0002d6bbe89f46ad25ce3ca278d8f1fb5e8c94caafba60fa931b88674ccb03"
   },
-  "status": "ag running; ac/ad full gates remain running; no merge",
+  "status": "ag passed; ac/ad full gates remain running; no merge",
   "session": 42037,
-  "log": "/tmp/rssripple-v16-ag.log"
+  "log": "/tmp/rssripple-v16-ag.log",
+  "review": "Fixture inputs use real season_hint/title-season contracts; original field/identity assertions preserved; unknown-season negative cases forbid work/link creation. Authoritative franchise text removes obsolete default-S1 expectations. No runtime changes.",
+  "result": {
+    "passed": 160,
+    "failures": 0,
+    "errors": 0,
+    "seconds": 128.49,
+    "exit_code": 0
+  }
 }
