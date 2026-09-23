@@ -1,0 +1,16 @@
+{
+  "backend": "postgresql",
+  "http_requests": 2,
+  "first_worker_exit": 0,
+  "second_worker_exit": 0,
+  "same_job_id": true,
+  "recovery_seconds": 15.741377677768469,
+  "default_lease_seconds": 15,
+  "default_heartbeat_seconds": 5,
+  "final_status": "done",
+  "attempt_count": 0,
+  "distinct_committed_tokens": true,
+  "data": "synthetic notification payload",
+  "mode": "pause",
+  "scope": "independent workers, natural lease recovery, real Redis/PG/HTTP"
+}

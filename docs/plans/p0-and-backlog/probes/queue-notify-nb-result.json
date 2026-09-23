@@ -1,0 +1,19 @@
+{
+  "backend": "postgresql",
+  "http_requests": 2,
+  "older": {
+    "delivered": 0,
+    "failed": 0,
+    "skipped": 1
+  },
+  "newer": {
+    "delivered": 1,
+    "failed": 0,
+    "skipped": 0
+  },
+  "final_status": "done",
+  "attempt_count": 0,
+  "distinct_committed_tokens": true,
+  "data": "synthetic notification payload",
+  "scope": "two independent DB sessions, real loopback HTTP; no Redis or process takeover"
+}

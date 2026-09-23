@@ -194,3 +194,85 @@ mq 使用同项目真实 PG/Redis：三条退休/缺失/替换的孤立预留删
 mr 增加实际队列上下文/测试数据库的两种隔离：同逻辑作业内不同 Agent，及同 key 的新逻辑作业。下载器替身均返回同一 torrent ID，但分别保留两条不同任务 UUID 与正确 Agent 归属；新作业 ID 独立且为 32 hex。准入/漂移/隔离测试文件 13 passed、1 warning、5.80 秒，Ruff 通过。
 
 aggregate patch/source 与候选权威文档/集成清单已刷新。当前无运行测试/专用栈；下一步集中审核其余 handler 的业务副作用与阻塞路径，不能把共享下载入口的覆盖等同于 B4 全部完成。
+
+## 通知发送与结果确认的队列边界（ms / mt / mu / mv）
+
+必要性：在真实队列上下文撤销 token，生产 deliver_due_deliveries 仍发送 HTTP；若发送过程中失权，仍将 pending 标记 done。ms 两参数红测 2 failed、1 warning、1.33 秒；使用 HTTP 替身，无外部消息发送。原型在 semaphore 内发送前及 commit_lock 内结果变更前调用 require_execution_ownership，失权不进入普通 HTTP 失败退避。mt 新旧通知回归 48 passed、19.08 秒。
+
+新增异常路径暴露 gather 提前返回问题：一条失权错误向外传播时，其他 HTTP 仍在途，共享会话可能先被释放。mu 专门交错测试 1 failed、0.85 秒。改为等待所有在途协程结果后再传播首个异常；mv 49 passed、1 warning、19.90 秒，Ruff 通过。fixtures 复用改用模块别名消除 F811。日志/JUnit queue-notify-* 已保存，相关运行代码、测试、通知权威文档纳入最新 aggregate patch。
+
+边界：无法撤销已经发出的 HTTP，两个执行之间的校验/提交窗口与远端幂等仍需专门验证，不将此称为 exactly-once。下一步为真实通知接管竞争和单条 delivery 状态并发更新；另外通知快照生成时的停种/文件获取及其余 handler 仍未完成审核。
+
+文件整理源码复核：execute_plan 使用 registered_domain + async_plan_lock 的跨进程 flock，run_execution 经 owned_thread 在线程执行，finish_before_cancel 保持线程真实结束及结果确认前不释放锁；结果按 revision/owner CAS 写入。此为此前 P0 机制，本轮未改写，也不据源码阅读声称已完成队列接管组合测试。当前所有测试终态，没有运行中的专用栈。
+
+## 通知结果覆盖复现（mw，未修复）
+
+必要性复核：最终 Redis 检查与数据库提交不原子。新增确定性交错测试，在旧执行第二次 guard 内用不刷新 ORM identity map 的直接 UPDATE 提交另一执行的 done，然后让旧执行处理 HTTP 失败。notify_max_attempts=1 时最终实际为 failed，期望 done：1 failed、3 deselected、1 warning、0.75 秒，退出 1。日志和 JUnit 保存为 queue-notify-mw.*；红测纳入候选 aggregate patch，当前候选不满足合入条件。
+
+证据范围：真实测试数据库及生产投递入口，HTTP 替身、人工控制交错；不是独立进程/真实 Redis 或真实 HTTP 接管测试。它证明旧 ORM 快照能覆盖已提交成功结果，不证明接管调度的完整时序。
+
+方案要求：发送前建立每条 delivery 的持久尝试身份，结果仅允许匹配该身份的条件更新；人工 retry 与 regenerate 必须使旧身份失效。仅追加 status=pending 条件可保护 done，却不能区分重置后再次 pending 的新一代，不能作为完整修复。须检查三个重置入口及快照更新的一致性，数据库锁不跨 HTTP；崩溃后的尝试恢复不能永久卡住 pending。实施后至少覆盖旧失败/新成功、旧成功/新重试、快照重新生成、进程崩溃恢复与并发 fan-out，两后端验证条件更新/迁移，再使用本地 HTTP 服务完成真实接管验证。继续保持至少一次投递语义，不能承诺远端恰好一次。
+
+当前 mw 测试已终态，没有因此启动 Compose 栈。下一步是上述尝试身份协议的设计和实现，B4 仍保留待办。
+
+## 持久投递尝试身份与快照失效（mx / my / mz）
+
+方案实施在隔离候选中：WebhookDelivery 新增 nullable attempt_token；发送前按 id、pending、旧 token 条件更新为 UUID 并提交，结果按 id、pending、本次 token 条件更新。每条领取/确认使用短事务及共享会话锁，HTTP 不持有数据库写锁；崩溃保留 pending，后来读取可换 token 继续尝试。人工 retry 换 token，两个 regenerate 在更新快照同一事务中使全部关联 delivery 失效。旧 schema 新列为强制启动迁移，失败不能吞掉，部署须停旧 worker。
+
+mx 原通知与所有权回归 50 passed、1 warning、20.88 秒，mw 覆盖缺陷转绿。my 新增三个实际 retry/regenerate 入口在途交错，2 failed、5 passed、3.83 秒：关系集合可能在 fan-out 之前缓存为空，遍历 existing.deliveries 漏掉需失效的投递。改为按 notification_id 直接 SQL 更新持久集合，保留该失败证据。
+
+mz 同一集合加正式 Turso schema 集成 54 passed、1 warning、21.52 秒、退出 0；驱动从旧表删除 attempt_token，再由生产 create_tables 恢复 nullable 字段，并保留既有两次启动/派发约束验证。Ruff 通过。日志/JUnit queue-notify-mx/my/mz.*；aggregate patch 新增模型和 database.py，并同步通知、模型、迁移与集成清单文档。
+
+限制与续接：目前通知 HTTP 为替身，交错由测试控制，不是真实 Redis/独立进程 HTTP 接管证明；新字段的 PostgreSQL 升级、尝试领取并发/进程崩溃恢复、真实 HTTP 接管仍须补齐。token 条件写入并不使远端 HTTP 恰好一次；领取后失权仍存在 HTTP 发出窗口。快照生成 RPC 与其余 handler 审核、B4 冻结完整门禁及合入评审均未完成。候选未合入 main。本轮全部测试终态，没有启动 Compose 项目。
+
+## PostgreSQL 新列升级与真实 HTTP 交错（na / nb）
+
+必要性：mz 仅证明 Turso 升级和 HTTP 替身路径，不能代替 PostgreSQL UPDATE/RETURNING 及真实 HTTP 在途交错。na 在独立 rssripple-v14-schema-na PostgreSQL 16 栈执行生产 schema 驱动，旧 webhook_deliveries 删除 attempt_token 后两次 create_tables，nullable 字段恢复、旧 AppSetting 与新派发预留保留、直接 SQL 唯一/非空约束均通过，退出 0。结果 queue-schema-na-result.json。
+
+nb 使用同一隔离库、两个独立 AsyncSession 和 asyncio 本地 HTTP 服务，实际 httpx POST 两次：A 接受请求后挂起，B 领取新 token 并收到 200、确认 done，随后 A 收到 500。最终 done、attempt_count=0、error_message=NULL，token 保持 B；A 返回 skipped=1，B delivered=1，两个请求内容一致。驱动 notification_http_pg_probe.py 与 queue-notify-nb-result.json/log 已保存，退出 0。驱动随后仅做 Ruff 导入排序/格式化，Ruff 通过。
+
+数据是合成通知快照，不冒充完整媒体通知验收或真实下载样本；此轮未使用 Redis、无独立 worker 进程、未模拟领取前同时读取或 SIGKILL。证明范围仅为真实 PG/HTTP 下旧结果无法覆盖新 token 的结果。schema-na 项目 down -v 退出 0，清理日志已保存；没有本轮遗留服务。
+
+下一步：领取前同时读取的 CAS 竞争、领取后崩溃的自动恢复、Redis 独立 worker HTTP 接管；其余 handler 审核和最终完整门禁仍是 B4 必需项。不得据本轮通过关闭 B4 或合入候选。
+
+## 同快照领取与 Turso MVCC 冲突（nc / nd / ne）
+
+必要性：nb 的第二个会话在第一次领取后才读取，不能证明两方读取同 token 的竞争。nc 新增 barrier，两个独立会话都完成读取后才同时领取；真实 Turso 返回一方 Write-write conflict 而非 skipped，1 failed、7 deselected、0.74 秒。只有一次 HTTP，但失败方未能正常结束，因此保留红测。
+
+候选改为批次读完先 commit，领取/确认各用独立短会话事务，复用 retry_on_lock 仅重试数据库条件 UPDATE（固定 id/status/token 和结果），不重发 HTTP。成功后 set_committed_value 同步已加载对象，避免下一次 flush 重放状态；失败重试不 rollback 其他在途协程共用的调用者会话。nd 通知及并发回归 54 passed、1 warning、22.31 秒，Ruff 通过。
+
+ne 新隔离 rssripple-v14-schema-ne 栈重跑 PostgreSQL 旧表升级/约束与真实 loopback HTTP 两会话迟到失败测试，均退出 0；仍为两个实际请求、旧 skipped=1、新 delivered=1、最终 done/attempt_count=0。项目 down -v 退出 0，日志/结果已保存。HTTP 驱动允许显式 rssripple-v14-schema- 前缀的独立项目并验证容器标签；仍要求空投递表，不连接默认栈。
+
+当前所有测试终态，本轮栈已清理。仍须 Redis 独立进程自动接管/崩溃恢复、其余 handler 和完整冻结门禁，B4 未完成、未合入。
+
+## 通知独立进程自然接管（nf / ng）
+
+必要性：两会话 HTTP 竞争不能证明 Redis 作业恢复、进程死亡/暂停及业务 token 组合正确。nf/ng 分别使用全新 rssripple-v14-notify-nf/ng 项目，真实 PostgreSQL/Redis、本地 asyncio HTTP 服务、两个独立 Python worker。生产 RedisQueue 默认 lease=15 秒、heartbeat=5 秒未改；未删除租约、未手动调用恢复方法。
+
+nf：本地服务收到 A 的实际请求，父进程确认数据库 pending 且领取 token 已提交后 SIGKILL A（退出 -9）。B 自然恢复约 15.844 秒，退出 0。同一 job_id 最终 done；第二次 HTTP 与第一次内容一致，delivery 使用新 token，最终 done/attempt_count=0/error_message=NULL。
+
+ng：A 发出请求后 SIGSTOP，B 在自然租约过期后接管并完成（约 15.842 秒），再 SIGCONT A 并让旧请求收到 500。A 明确捕获 ExecutionOwnershipLostError；两个 worker 退出 0，但旧 handler 失权失败，不能将其写成成功投递。最终 Redis 同一 job_id 仍 done，delivery 仍由 B 的新 token 确认，attempt_count=0。日志包含恢复事件和旧 handler 失权信息。
+
+结果 queue-notify-nf/ng.json、日志、源哈希与清理日志已保存；驱动 notification_crash_pg_redis_probe.py / notification_pause_pg_redis_probe.py。五个关键文件的记录哈希在测试结束后核对不变，Ruff 通过。两项目 down -v 退出 0，所有子进程终态，本轮没有遗留栈。
+
+证据边界：合成通知 payload，无实际媒体下载/通知快照生成验证；专用 handler 调用生产 deliver_due_deliveries，并非完整 scheduler tick 或所有 17 类 handler。真实 HTTP 接受了两次，符合至少一次语义，不宣称外部恰好一次。本轮未改生产候选代码。后续须将接管回归纳入正式集成入口，继续快照生成 RPC/organize/其余 handler 审核与最终冻结门禁；B4 尚未完成或合入。
+
+## 正式通知恢复集成入口与强制门禁（nh / ni / nj）
+
+必要性：nf/ng 仅有独立探针，无法保证后续完整门禁自动回归；既有集成配置没有 Redis，且其他套件会 monkeypatch sleep。候选新增 tests/integration/queue_recovery，driver 独立进程隔离 monkeypatch；参数 kill/pause 对应真实 SIGKILL 与 SIGSTOP/SIGCONT。每例创建 queue_recovery_UUID PostgreSQL 库并 finally 删除，专用 Redis DB 0/1 先断言为空。预检非空时禁止清理别人的键；成功取得空库后才负责清理。90 秒超时终止整个 driver 进程组。
+
+候选 docker-compose.integration-isolated.yml 增加两个无宿主端口的专用 PG/Redis 服务，test-runner 依赖健康并配置 QUEUE_RECOVERY_REQUIRED=1 及显式测试地址。完整门禁缺服务地址必须失败；普通局部无服务运行可 skip，不能算完整验收。isolated-integration.md 与测试清单同步。
+
+nh 在新 rssripple-v14-notify-nh 栈只启动两个专用服务，以宿主 pytest 执行正式入口，2 passed、34.59 秒。增加预检失败不 flushdb 的保护后，ni 使用同轮专用服务和重新创建的独立数据库再跑，2 passed、34.66 秒，Ruff 通过。nj 移除两个服务地址但保留 REQUIRED=1，预期 2 failed、0.08 秒、退出 1，证明门禁不静默跳过。报告、每例 worker 日志/结果及清理日志已保存。项目 down -v 退出 0，全部测试终态。
+
+本轮未运行 test-runner 容器和全套集成，不能宣称候选完整 Compose 门禁已通过；子进程覆盖率未另行纳入原四份合并，覆盖率标准不降低。新增测试/driver/Compose/文档纳入 aggregate patch。后续继续通知快照 RPC、其余 handler 与完整冻结门禁，B4 未完成、未合入。
+
+## 快照生成 RPC 失权边界（nk / nl）
+
+必要性：投递 token 不覆盖快照生成的停种/文件列表 RPC 及自动文件映射写入。nk 对 before_pause / after_pause / after_files 三个阶段设置失权，生产 build_task_notifications 原来仍继续生成且不抛失权异常，3 failed、8 deselected、1 warning、1.68 秒。测试使用真实 Turso、下载器替身与受控 ownership guard，不是实际 Redis 租约或 Transmission 验证。
+
+候选在 _build_snapshot 起始、停种前、停种后及文件列表返回后检查队列所有权，检查位于 best-effort RPC 异常捕获之外；在构建事务删除失败记录前再次检查。build_task_notifications 对 ExecutionOwnershipLostError 直接抛出，不登记普通故障；_record_failure 也在入口和退避更新前检查，失权向外传播。手动 API 无队列上下文时原 guard 为 no-op。
+
+nl 通知回归与 notification_build_retry / notify_poison_task 两个既有集成文件联合 61 passed、1 warning、26.51 秒、退出 0，Ruff 通过；断言相应阶段后没有多余 RPC、没有快照、没有 NotificationBuildFailure。日志/JUnit 已保存，notification_build.py 纳入 aggregate patch，通知与集成清单同步。
+
+范围限制：本轮未消除 guard 到 commit/RPC 的窗口，未验证真正的 Redis 失权与下载器组合。后续应将快照 RPC 边界接入实际 Redis 上下文验证，并继续 organize、fetch/metadata、清理等 handler 的副作用审核。现注册 17 类作业，入口在 app/job_handlers.py:788 起，不能以下载/通知两个入口代替全部覆盖。本轮所有测试终态，未启动 Compose，B4 仍未验收/合入。

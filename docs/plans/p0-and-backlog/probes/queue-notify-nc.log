@@ -1,0 +1,69 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________________ test_two_readers_only_one_claims_same_delivery ________________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f4167f89fd0>
+db_engine = <sqlalchemy.ext.asyncio.engine.AsyncEngine object at 0x7f4167f83590>
+seed = namespace(channel=<app.models.channel.Channel object at 0x7f4167f8a270>, downloader=<app.models.downloader.DownloaderI...resource.FileResource object at 0x7f4167f8b230>, task=<app.models.download_task.DownloadTask object at 0x7f4164bb82f0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f4167da0d60>
+
+    async def test_two_readers_only_one_claims_same_delivery(db_session, db_engine, seed, monkeypatch):
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+    
+        from app.models.webhook_delivery import WebhookDelivery
+        from app.services import task_queue
+    
+        db_session.add(_webhook(seed.agent.id))
+        notification, _ = await notify_service.create_notification_for_task(db_session, seed.task)
+        await db_session.commit()
+        await notify_service.ensure_deliveries(db_session)
+        [delivery] = await _deliveries(db_session, notification.id)
+        delivery_id = delivery.id
+        barrier = asyncio.Barrier(2)
+        checked = set()
+        requests = []
+    
+        async def guard():
+            task = asyncio.current_task()
+            if task not in checked:
+                checked.add(task)
+                await asyncio.wait_for(barrier.wait(), 3)
+    
+        class HttpClient:
+            def __init__(self, **kwargs):
+                pass
+    
+            async def __aenter__(self):
+                return self
+    
+            async def __aexit__(self, *args):
+                return False
+    
+            async def post(self, url, json=None):
+                requests.append(json)
+                return _FakeResp()
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr(notify_service.httpx, "AsyncClient", HttpClient)
+        factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    
+        async def run():
+            async with factory() as db:
+                return await notify_service.deliver_due_deliveries(db)
+    
+        results = await asyncio.wait_for(asyncio.gather(run(), run(), return_exceptions=True), 8)
+>       assert all(isinstance(result, dict) for result in results), results
+E       AssertionError: [DatabaseError('(turso.lib.DatabaseError) Write-write conflict'), {'delivered': 1, 'failed': 0, 'skipped': 0}]
+E       assert False
+E        +  where False = all(<generator object test_two_readers_only_one_claims_same_delivery.<locals>.<genexpr> at 0x7f4164996260>)
+
+tests/unit/test_queue_notification_ownership.py:281: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_queue_notification_ownership.py::test_two_readers_only_one_claims_same_delivery
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_queue_notification_ownership.py::test_two_readers_only_one_claims_same_delivery
+1 failed, 7 deselected, 1 warning in 0.74s

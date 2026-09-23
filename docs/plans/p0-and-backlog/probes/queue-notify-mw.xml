@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.749" timestamp="2026-09-23T04:41:23.224580+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_queue_notification_ownership" name="test_late_failure_preserves_delivery_already_completed" time="0.615"><failure message="AssertionError: assert 'failed' == 'done'&#10;  &#10;  - done&#10;  + failed">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f6aeb995e80&gt;
+seed = namespace(channel=&lt;app.models.channel.Channel object at 0x7f6aeb996120&gt;, downloader=&lt;app.models.downloader.DownloaderI...resource.FileResource object at 0x7f6aeb9970e0&gt;, task=&lt;app.models.download_task.DownloadTask object at 0x7f6ae87d41a0&gt;)
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f6aeb99ce90&gt;
+
+    async def test_late_failure_preserves_delivery_already_completed(db_session, seed, monkeypatch):
+        """Model a winner committing after the loser's final queue check."""
+        from sqlalchemy import update
+    
+        from app.models.webhook_delivery import WebhookDelivery
+        from app.services import task_queue
+        from app.utils.time import utcnow
+    
+        db_session.add(_webhook(seed.agent.id))
+        notification, _ = await notify_service.create_notification_for_task(db_session, seed.task)
+        await db_session.commit()
+        await notify_service.ensure_deliveries(db_session)
+        [delivery] = await _deliveries(db_session, notification.id)
+        delivery_id = delivery.id
+        winner_time = utcnow()
+        checks = 0
+    
+        async def guard():
+            nonlocal checks
+            checks += 1
+            if checks == 2:
+                # Bypass the identity map: the losing handler still holds its
+                # original pending snapshot when the durable winner becomes done.
+                await db_session.execute(
+                    update(WebhookDelivery)
+                    .where(WebhookDelivery.id == delivery_id)
+                    .values(status="done", delivered_at=winner_time, error_message=None)
+                    .execution_options(synchronize_session=False)
+                )
+                await db_session.commit()
+    
+        class HttpClient:
+            def __init__(self, **kwargs):
+                pass
+    
+            async def __aenter__(self):
+                return self
+    
+            async def __aexit__(self, *args):
+                return False
+    
+            async def post(self, url, json=None):
+                raise RuntimeError("late failure from superseded request")
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr(notify_service.httpx, "AsyncClient", HttpClient)
+        monkeypatch.setattr(notify_service.settings, "notify_max_attempts", 1)
+        await notify_service.deliver_due_deliveries(db_session)
+        await db_session.refresh(delivery)
+        assert checks == 2
+&gt;       assert delivery.status == "done"
+E       AssertionError: assert 'failed' == 'done'
+E         
+E         - done
+E         + failed
+
+tests/unit/test_queue_notification_ownership.py:175: AssertionError</failure></testcase></testsuite></testsuites>

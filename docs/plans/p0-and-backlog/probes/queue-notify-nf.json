@@ -1,0 +1,15 @@
+{
+  "backend": "postgresql",
+  "http_requests": 2,
+  "first_worker_exit": -9,
+  "second_worker_exit": 0,
+  "same_job_id": true,
+  "recovery_seconds": 15.844387685880065,
+  "default_lease_seconds": 15,
+  "default_heartbeat_seconds": 5,
+  "final_status": "done",
+  "attempt_count": 0,
+  "distinct_committed_tokens": true,
+  "data": "synthetic notification payload",
+  "scope": "two independent workers; natural Redis lease expiry after SIGKILL; real loopback HTTP"
+}

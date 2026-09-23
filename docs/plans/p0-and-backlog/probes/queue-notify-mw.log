@@ -1,0 +1,74 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________ test_late_failure_preserves_delivery_already_completed ____________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f6aeb995e80>
+seed = namespace(channel=<app.models.channel.Channel object at 0x7f6aeb996120>, downloader=<app.models.downloader.DownloaderI...resource.FileResource object at 0x7f6aeb9970e0>, task=<app.models.download_task.DownloadTask object at 0x7f6ae87d41a0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f6aeb99ce90>
+
+    async def test_late_failure_preserves_delivery_already_completed(db_session, seed, monkeypatch):
+        """Model a winner committing after the loser's final queue check."""
+        from sqlalchemy import update
+    
+        from app.models.webhook_delivery import WebhookDelivery
+        from app.services import task_queue
+        from app.utils.time import utcnow
+    
+        db_session.add(_webhook(seed.agent.id))
+        notification, _ = await notify_service.create_notification_for_task(db_session, seed.task)
+        await db_session.commit()
+        await notify_service.ensure_deliveries(db_session)
+        [delivery] = await _deliveries(db_session, notification.id)
+        delivery_id = delivery.id
+        winner_time = utcnow()
+        checks = 0
+    
+        async def guard():
+            nonlocal checks
+            checks += 1
+            if checks == 2:
+                # Bypass the identity map: the losing handler still holds its
+                # original pending snapshot when the durable winner becomes done.
+                await db_session.execute(
+                    update(WebhookDelivery)
+                    .where(WebhookDelivery.id == delivery_id)
+                    .values(status="done", delivered_at=winner_time, error_message=None)
+                    .execution_options(synchronize_session=False)
+                )
+                await db_session.commit()
+    
+        class HttpClient:
+            def __init__(self, **kwargs):
+                pass
+    
+            async def __aenter__(self):
+                return self
+    
+            async def __aexit__(self, *args):
+                return False
+    
+            async def post(self, url, json=None):
+                raise RuntimeError("late failure from superseded request")
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr(notify_service.httpx, "AsyncClient", HttpClient)
+        monkeypatch.setattr(notify_service.settings, "notify_max_attempts", 1)
+        await notify_service.deliver_due_deliveries(db_session)
+        await db_session.refresh(delivery)
+        assert checks == 2
+>       assert delivery.status == "done"
+E       AssertionError: assert 'failed' == 'done'
+E         
+E         - done
+E         + failed
+
+tests/unit/test_queue_notification_ownership.py:175: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_queue_notification_ownership.py::test_late_failure_preserves_delivery_already_completed
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_queue_notification_ownership.py::test_late_failure_preserves_delivery_already_completed
+1 failed, 3 deselected, 1 warning in 0.75s

@@ -2,6 +2,14 @@
   "base": "f9d4a0a",
   "prototype": "/tmp/rssripple-v14-dispatch-lx",
   "files": {
+    "app/services/notification_build.py": "f9f635f1902e2ad822349e99b5ee20806dc4643ebd8cec4e6cb01ce142ca91e3",
+    "docker-compose.integration-isolated.yml": "6217b213655ad0310c6e0af692553096910864dedb0437785341cb98b7489ade",
+    "docs/testing/isolated-integration.md": "0e61e5dcc34fb936ca6f1770276ccc52d1e1a7d717ef69a06934b7c2256a56e5",
+    "tests/integration/queue_recovery/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tests/integration/queue_recovery/notification_driver.py": "cb5e6896d68d9c436615849353832fbd6c7ebf276a3967b6d1105af9979b4286",
+    "tests/integration/queue_recovery/test_notification_recovery.py": "be607755bb81212e59fbda709e1ec5d02e8ea35077dee3c09f27b7f20caf74c5",
+    "app/models/webhook_delivery.py": "cc2a8837c2b3abebc2b9bd1cd0b9803f3154ba66ec21e76ed868c807e2e69099",
+    "app/database.py": "b569bfd0f2e767f4901b1c9e432250fbf7b0234dc1ef48bb5cc6366790809d3f",
     "app/services/task_queue.py": "8aa766677154e2bd714eff80cb484f7a448d5b3f944dbc386fe2d7feacf20e9e",
     "tests/unit/test_queue_execution_ownership.py": "50bcb20aec201debed1742d915b9a89cefacd199adfb2f1836b910cc2aec7478",
     "tests/unit/test_task_queue.py": "ebe74facc00ff258bfb7636c1391fc88121eec77fad50b4d091d54055ced0a04",
@@ -12,13 +20,16 @@
     "app/models/__init__.py": "f66f655203a3f5fdfb65909a1be5f40e803aa901a0899a08b1d761bfe313c05e",
     "tests/unit/test_download_dispatch.py": "e34fdec99ef4ed7db470bc93f0c5a6e1111489d03348a0dabaa9008d538698a4",
     "docs/design/business-logic.md": "95ce3a1fafdddcd0c796e73844adfb115152078e543ad50d4a0e50461abe32e2",
-    "docs/design/data-models.md": "f433ba92ada1de31538a3e1673024ea98c785719f78617fd74325779c38c7ad1",
-    "docs/design/db-migration.md": "8cb1eccb7578c950cc29717de4c41c1882bb4de0effd1e05c8ddf22958473400",
-    "docs/testing/integration-inventory.md": "0a518b58fa06f4d464f9a360e918bcf35f4695ea69e438180cb4c98dee3229e1",
-    "tests/integration/organize/download_dispatch_schema_driver.py": "b038c71b5bae84811fe2365840a1938ac7bc3b04e85c2cd66d33f397e037218e",
+    "docs/design/data-models.md": "2ca61fd3b3fa2a3853f568ec13f1d2956bb953e04df5471dc6bfd764dc021157",
+    "docs/design/db-migration.md": "69074d2111da2e6ade3e86d7275deaf5343aca1e9e23e1918a07533a8b8e5d9d",
+    "docs/testing/integration-inventory.md": "93c78a27b625b1f08dba05d724cf914752e9a4ee39f0173bf6d613668afc3528",
+    "tests/integration/organize/download_dispatch_schema_driver.py": "9e1244e8028b0f259a3b9cb9a41385c990f51b4aacaa0d1ff7e4e3cfee119307",
     "tests/integration/organize/test_download_dispatch_schema.py": "dac7a61945edadeaed82d5d26f984129c5cfb528b1d8b823646175535ed29c57",
     "app/services/download_dispatch_cleanup.py": "7072fb2872db3301ee0436e4a3e1db550e3fc3a61f78e533bd7b467e7add4d51",
     "tests/unit/test_download_dispatch_cleanup.py": "483694f883269bbb27f2f16e158ac0af36e58b34ba13a2ff3dbb7c604d5d7eff",
-    "app/services/scheduler.py": "36cb51e6f96e2de75314f42e8ba2ce9321b356e0b9da04d731844be7732b708a"
+    "app/services/scheduler.py": "36cb51e6f96e2de75314f42e8ba2ce9321b356e0b9da04d731844be7732b708a",
+    "app/services/notify_service.py": "e148c64f76192617e8ef42654ea06b4ef8e0fb03f52c810eef0d325483943c01",
+    "tests/unit/test_queue_notification_ownership.py": "280d89483a269d76c3d2e3fd87e77598024670de25679195fb8d577e760782a7",
+    "docs/design/notifications.md": "37166cf8b4b4899ddbeb8bd1db3106369a8def93d89603f27ef5019d4b23daa7"
   }
 }

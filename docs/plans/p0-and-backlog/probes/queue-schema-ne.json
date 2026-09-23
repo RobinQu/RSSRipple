@@ -1,0 +1,14 @@
+{
+  "backend": "postgresql",
+  "legacy_row_preserved": true,
+  "startup_calls": 2,
+  "delivery_attempt_column_restored": true,
+  "reservation_row_preserved": true,
+  "raw_default_settled": false,
+  "rejected": [
+    "operation",
+    "task",
+    "null-settled"
+  ],
+  "data": "synthetic schema fixture, no RPC"
+}

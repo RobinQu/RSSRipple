@@ -1,0 +1,142 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_ test_stale_notification_execution_stops_at_side_effect_boundary[before_send] _
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fda45672270>
+seed = namespace(channel=<app.models.channel.Channel object at 0x7fda45672120>, downloader=<app.models.downloader.DownloaderI...resource.FileResource object at 0x7fda45673380>, task=<app.models.download_task.DownloadTask object at 0x7fda45514440>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fda44f38e90>
+phase = 'before_send'
+
+    @pytest.mark.parametrize("phase", ["before_send", "after_send"])
+    async def test_stale_notification_execution_stops_at_side_effect_boundary(db_session, seed, monkeypatch, phase):
+        db_session.add(_webhook(seed.agent.id))
+        notification, _ = await notify_service.create_notification_for_task(db_session, seed.task)
+        await db_session.commit()
+        await notify_service.ensure_deliveries(db_session)
+        client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+        queue = RedisQueue(redis_client=client)
+        entered, resume, finished = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        calls, errors = [], []
+    
+        async def revoke():
+            await client.hset("rssripple:job:notify-ownership", "execution_token", "replacement")
+    
+        class HttpClient:
+            def __init__(self, **kwargs):
+                pass
+    
+            async def __aenter__(self):
+                return self
+    
+            async def __aexit__(self, *args):
+                return False
+    
+            async def post(self, url, json=None):
+                calls.append(url)
+                await revoke()
+                return _FakeResp()
+    
+        monkeypatch.setattr(notify_service.httpx, "AsyncClient", HttpClient)
+    
+        async def handler(payload):
+            entered.set()
+            await resume.wait()
+            try:
+                await notify_service.deliver_due_deliveries(db_session)
+            except Exception as exc:
+                errors.append(exc)
+                raise
+            finally:
+                finished.set()
+    
+        queue.register("notification-test", handler)
+        await queue.start()
+        try:
+            await queue.enqueue("notification-test", "notify-ownership", {})
+            await asyncio.wait_for(entered.wait(), 2)
+            if phase == "before_send":
+                await revoke()
+            resume.set()
+            await asyncio.wait_for(finished.wait(), 3)
+>           assert len(calls) == (0 if phase == "before_send" else 1)
+E           AssertionError: assert 1 == 0
+E            +  where 1 = len(['http://organizer:8910/webhook'])
+
+tests/unit/test_queue_notification_ownership.py:64: AssertionError
+_ test_stale_notification_execution_stops_at_side_effect_boundary[after_send] __
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fda4568b250>
+seed = namespace(channel=<app.models.channel.Channel object at 0x7fda4568a210>, downloader=<app.models.downloader.DownloaderI...resource.FileResource object at 0x7fda453b1810>, task=<app.models.download_task.DownloadTask object at 0x7fda453b1f90>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fda4550cc50>
+phase = 'after_send'
+
+    @pytest.mark.parametrize("phase", ["before_send", "after_send"])
+    async def test_stale_notification_execution_stops_at_side_effect_boundary(db_session, seed, monkeypatch, phase):
+        db_session.add(_webhook(seed.agent.id))
+        notification, _ = await notify_service.create_notification_for_task(db_session, seed.task)
+        await db_session.commit()
+        await notify_service.ensure_deliveries(db_session)
+        client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+        queue = RedisQueue(redis_client=client)
+        entered, resume, finished = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        calls, errors = [], []
+    
+        async def revoke():
+            await client.hset("rssripple:job:notify-ownership", "execution_token", "replacement")
+    
+        class HttpClient:
+            def __init__(self, **kwargs):
+                pass
+    
+            async def __aenter__(self):
+                return self
+    
+            async def __aexit__(self, *args):
+                return False
+    
+            async def post(self, url, json=None):
+                calls.append(url)
+                await revoke()
+                return _FakeResp()
+    
+        monkeypatch.setattr(notify_service.httpx, "AsyncClient", HttpClient)
+    
+        async def handler(payload):
+            entered.set()
+            await resume.wait()
+            try:
+                await notify_service.deliver_due_deliveries(db_session)
+            except Exception as exc:
+                errors.append(exc)
+                raise
+            finally:
+                finished.set()
+    
+        queue.register("notification-test", handler)
+        await queue.start()
+        try:
+            await queue.enqueue("notification-test", "notify-ownership", {})
+            await asyncio.wait_for(entered.wait(), 2)
+            if phase == "before_send":
+                await revoke()
+            resume.set()
+            await asyncio.wait_for(finished.wait(), 3)
+            assert len(calls) == (0 if phase == "before_send" else 1)
+            [delivery] = await _deliveries(db_session, notification.id)
+>           assert delivery.status == "pending"
+E           AssertionError: assert 'done' == 'pending'
+E             
+E             - pending
+E             + done
+
+tests/unit/test_queue_notification_ownership.py:66: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_queue_notification_ownership.py::test_stale_notification_execution_stops_at_side_effect_boundary[before_send]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_queue_notification_ownership.py::test_stale_notification_execution_stops_at_side_effect_boundary[before_send]
+FAILED tests/unit/test_queue_notification_ownership.py::test_stale_notification_execution_stops_at_side_effect_boundary[after_send]
+2 failed, 1 warning in 1.33s

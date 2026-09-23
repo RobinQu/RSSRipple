@@ -1,0 +1,142 @@
+FFF                                                                      [100%]
+=================================== FAILURES ===================================
+_ test_snapshot_loss_stops_rpc_chain_without_recording_build_failure[before_pause] _
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f7efc52dfd0>
+seed = namespace(channel=<app.models.channel.Channel object at 0x7f7efc52e270>, downloader=<app.models.downloader.DownloaderI...resource.FileResource object at 0x7f7efc52f230>, task=<app.models.download_task.DownloadTask object at 0x7f7ef93402f0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f7efc520e90>
+phase = 'before_pause'
+
+    @pytest.mark.parametrize("phase", ["before_pause", "after_pause", "after_files"])
+    async def test_snapshot_loss_stops_rpc_chain_without_recording_build_failure(db_session, seed, monkeypatch, phase):
+        from sqlalchemy import select
+    
+        from app.clients.mock_downloader import MockDownloaderWrapper
+        from app.models.download_notification import DownloadNotification
+        from app.models.notification_build_failure import NotificationBuildFailure
+        from app.services import notification_build, task_queue
+    
+        lost = phase == "before_pause"
+        calls = []
+    
+        async def guard():
+            if lost:
+                raise task_queue.ExecutionOwnershipLostError("Snapshot worker lost ownership")
+    
+        async def pause(self, torrent_id):
+            nonlocal lost
+            calls.append("pause")
+            lost = phase == "after_pause"
+            return True
+    
+        async def files(self, torrent_id):
+            nonlocal lost
+            calls.append("files")
+            lost = phase == "after_files"
+            return {"name": "fixture", "files": [{"name": "fixture.mkv", "size": 10}]}
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr(MockDownloaderWrapper, "pause_torrent", pause)
+        monkeypatch.setattr(MockDownloaderWrapper, "get_torrent_files", files)
+>       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_queue_notification_ownership.py:321: Failed
+_ test_snapshot_loss_stops_rpc_chain_without_recording_build_failure[after_pause] _
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f7efc6c2c10>
+seed = namespace(channel=<app.models.channel.Channel object at 0x7f7efc6c3d90>, downloader=<app.models.downloader.DownloaderI...resource.FileResource object at 0x7f7ef92ac410>, task=<app.models.download_task.DownloadTask object at 0x7f7ef92ada90>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f7efa827650>
+phase = 'after_pause'
+
+    @pytest.mark.parametrize("phase", ["before_pause", "after_pause", "after_files"])
+    async def test_snapshot_loss_stops_rpc_chain_without_recording_build_failure(db_session, seed, monkeypatch, phase):
+        from sqlalchemy import select
+    
+        from app.clients.mock_downloader import MockDownloaderWrapper
+        from app.models.download_notification import DownloadNotification
+        from app.models.notification_build_failure import NotificationBuildFailure
+        from app.services import notification_build, task_queue
+    
+        lost = phase == "before_pause"
+        calls = []
+    
+        async def guard():
+            if lost:
+                raise task_queue.ExecutionOwnershipLostError("Snapshot worker lost ownership")
+    
+        async def pause(self, torrent_id):
+            nonlocal lost
+            calls.append("pause")
+            lost = phase == "after_pause"
+            return True
+    
+        async def files(self, torrent_id):
+            nonlocal lost
+            calls.append("files")
+            lost = phase == "after_files"
+            return {"name": "fixture", "files": [{"name": "fixture.mkv", "size": 10}]}
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr(MockDownloaderWrapper, "pause_torrent", pause)
+        monkeypatch.setattr(MockDownloaderWrapper, "get_torrent_files", files)
+>       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_queue_notification_ownership.py:321: Failed
+_ test_snapshot_loss_stops_rpc_chain_without_recording_build_failure[after_files] _
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f7ef90eb490>
+seed = namespace(channel=<app.models.channel.Channel object at 0x7f7ef92ad810>, downloader=<app.models.downloader.DownloaderI...resource.FileResource object at 0x7f7ef92ae350>, task=<app.models.download_task.DownloadTask object at 0x7f7ef8fbce90>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f7ef91660b0>
+phase = 'after_files'
+
+    @pytest.mark.parametrize("phase", ["before_pause", "after_pause", "after_files"])
+    async def test_snapshot_loss_stops_rpc_chain_without_recording_build_failure(db_session, seed, monkeypatch, phase):
+        from sqlalchemy import select
+    
+        from app.clients.mock_downloader import MockDownloaderWrapper
+        from app.models.download_notification import DownloadNotification
+        from app.models.notification_build_failure import NotificationBuildFailure
+        from app.services import notification_build, task_queue
+    
+        lost = phase == "before_pause"
+        calls = []
+    
+        async def guard():
+            if lost:
+                raise task_queue.ExecutionOwnershipLostError("Snapshot worker lost ownership")
+    
+        async def pause(self, torrent_id):
+            nonlocal lost
+            calls.append("pause")
+            lost = phase == "after_pause"
+            return True
+    
+        async def files(self, torrent_id):
+            nonlocal lost
+            calls.append("files")
+            lost = phase == "after_files"
+            return {"name": "fixture", "files": [{"name": "fixture.mkv", "size": 10}]}
+    
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr(MockDownloaderWrapper, "pause_torrent", pause)
+        monkeypatch.setattr(MockDownloaderWrapper, "get_torrent_files", files)
+>       with pytest.raises(task_queue.ExecutionOwnershipLostError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ExecutionOwnershipLostError
+
+tests/unit/test_queue_notification_ownership.py:321: Failed
+=============================== warnings summary ===============================
+tests/unit/test_queue_notification_ownership.py::test_snapshot_loss_stops_rpc_chain_without_recording_build_failure[before_pause]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_queue_notification_ownership.py::test_snapshot_loss_stops_rpc_chain_without_recording_build_failure[before_pause]
+FAILED tests/unit/test_queue_notification_ownership.py::test_snapshot_loss_stops_rpc_chain_without_recording_build_failure[after_pause]
+FAILED tests/unit/test_queue_notification_ownership.py::test_snapshot_loss_stops_rpc_chain_without_recording_build_failure[after_files]
+3 failed, 8 deselected, 1 warning in 1.68s

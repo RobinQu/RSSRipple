@@ -1,3 +1,472 @@
+--- a/app/services/notification_build.py
++++ b/app/services/notification_build.py
+@@ -12,12 +12,15 @@
+ from app.models.download_task import DownloadTask
+ from app.models.notification_build_failure import NotificationBuildFailure
+ from app.services.notify_service import create_notification_for_task
++from app.services.task_queue import ExecutionOwnershipLostError
+ from app.utils.time import utcnow
+ 
+ logger = logging.getLogger(__name__)
+ 
+ 
+ async def _attempt(task_id):
++    from app.services.task_queue import require_execution_ownership
++
+     async with committed_session() as db:
+         task = await db.get(DownloadTask, task_id)
+         if task is None or task.status != "completed":
+@@ -28,6 +31,7 @@
+         if failure is not None and failure.next_attempt_at > utcnow():
+             return None
+         notification, created = await create_notification_for_task(db, task)
++        await require_execution_ownership()
+         await db.execute(delete(NotificationBuildFailure).where(
+             NotificationBuildFailure.download_task_id == task_id,
+         ))
+@@ -35,6 +39,9 @@
+ 
+ 
+ async def _record_failure(task_id, message):
++    from app.services.task_queue import require_execution_ownership
++
++    await require_execution_ownership()
+     async with committed_session() as db:
+         task = await db.get(DownloadTask, task_id)
+         if task is None or task.status != "completed":
+@@ -55,6 +62,7 @@
+                   "error_message": message[:2048]},
+         ).returning(table.attempt_count)
+         attempts = await db.scalar(statement)
++        await require_execution_ownership()
+         delay = min(1800, 30 * 2 ** min(attempts - 1, 6))
+         await db.execute(update(table).where(table.download_task_id == task_id).values(
+             next_attempt_at=now + timedelta(seconds=delay),
+@@ -69,11 +77,15 @@
+             notification_id = await retry_on_lock(lambda: _attempt(task_id))
+             if notification_id is not None:
+                 created.append(notification_id)
++        except ExecutionOwnershipLostError:
++            raise
+         except Exception as error:
+             logger.warning("[notify] task %s snapshot generation failed: %s", task_id, error)
+             message = str(error)
+             try:
+                 await retry_on_lock(lambda: _record_failure(task_id, message))
++            except ExecutionOwnershipLostError:
++                raise
+             except Exception:
+                 logger.exception("[notify] task %s failure state could not be saved", task_id)
+     return created
+--- a/docker-compose.integration-isolated.yml
++++ b/docker-compose.integration-isolated.yml
+@@ -132,8 +132,32 @@
+     image: rssripple-itest-test-server:latest
+     volumes:
+     - ./tests/integration/server:/app/server:ro
++  queue-recovery-postgres:
++    image: postgres:16-alpine
++    environment:
++      POSTGRES_USER: probe
++      POSTGRES_PASSWORD: probe
++      POSTGRES_DB: queue_recovery
++    tmpfs: [/var/lib/postgresql/data]
++    healthcheck:
++      test: [CMD-SHELL, 'pg_isready -U probe -d queue_recovery']
++      interval: 1s
++      timeout: 3s
++      retries: 30
++    networks: [integration-gate]
++  queue-recovery-redis:
++    image: redis:7-alpine
++    healthcheck:
++      test: [CMD, redis-cli, ping]
++      interval: 1s
++      timeout: 3s
++      retries: 30
++    networks: [integration-gate]
+   test-runner:
+     environment:
++      QUEUE_RECOVERY_REQUIRED: '1'
++      QUEUE_RECOVERY_POSTGRES_URL: postgresql://probe:probe@queue-recovery-postgres:5432/queue_recovery
++      QUEUE_RECOVERY_REDIS_URL: redis://queue-recovery-redis:6379/0
+       LLM_API_KEY: ''
+       TMDB_API_KEY: ''
+       BANGUMI_API_KEY: ''
+@@ -156,6 +180,10 @@
+     - ./scripts:/app/scripts:ro
+     - ./.coveragerc:/app/.coveragerc:ro
+     depends_on:
++      queue-recovery-postgres:
++        condition: service_healthy
++      queue-recovery-redis:
++        condition: service_healthy
+       app:
+         condition: service_healthy
+       app-llm:
+--- a/docs/testing/isolated-integration.md
++++ b/docs/testing/isolated-integration.md
+@@ -39,3 +39,11 @@
+ 默认收集 `tests/integration/`，排除 `eval/`、`external/` 和实时 feed 用例，范围与原完整离线集成套件一致。汇总 app、app-llm、test-runner 和 dedup 脚本四份覆盖率，严格要求 ≥85%；单元/API ≥95% 是另一道门禁。报告包含 `metadata-corpus/integration.xml`、`coverage.xml` 及 coverage 原始数据。服务退出非零、测试失败、报告缺失或覆盖率不达标均不得记为通过。
+ 
+ 分布式 Redis 和多 worker 故障恢复需另跑 [频道调度专项](scheduler-integration.md)，本套件使用 memory 队列不能替代该证据。P0 与后续批次的必要性、来源和验收记录见 [VALIDATION.md](../plans/p0-and-backlog/VALIDATION.md)。
++
++## B4 通知队列恢复门禁（候选）
++
++完整隔离 Compose 增加 queue-recovery-postgres / queue-recovery-redis，只供队列接管回归，均不发布宿主端口。test-runner depends_on 两服务健康，固定 QUEUE_RECOVERY_REQUIRED=1，并显式传入 QUEUE_RECOVERY_POSTGRES_URL / QUEUE_RECOVERY_REDIS_URL；缺失任意地址必须失败。普通无服务的局部 pytest 可跳过，不能据此宣称完整门禁通过。
++
++`tests/integration/queue_recovery/test_notification_recovery.py` 每项创建独立 queue_recovery_UUID PostgreSQL 数据库，两个参数使用专用 Redis 的 DB 0/1；测试前要求为空，测试后清理。切勿指向非测试服务。driver 在独立进程中运行，隔离其他套件加速 sleep 的 monkeypatch，真实默认 15 秒租约/5 秒心跳。SIGKILL 与 SIGSTOP/SIGCONT 均须通过真实 loopback HTTP、作业 ID、token 和最终状态断言；90 秒超时终止整个测试进程组，临时数据库 finally 删除。整栈仍须 down --volumes 清理。
++
++此为通知投递入口的合成快照回归，不代替完整 scheduler tick 或真实媒体快照生成验证。子进程没有额外配置 coverage 自动启动，不能把其执行计入原四份覆盖率；完整覆盖率门槛保持不变。
+--- /dev/null
++++ b/tests/integration/queue_recovery/notification_driver.py
+@@ -0,0 +1,237 @@
++"""Real loopback HTTP interleaving against a dedicated PostgreSQL fixture."""
++
++import asyncio
++import json
++import os
++import signal
++import subprocess
++import sys
++import time
++import uuid
++from pathlib import Path
++from urllib.parse import urlsplit
++
++mode = os.environ["QUEUE_RECOVERY_MODE"]
++assert mode in {"kill", "pause"}
++database_url = os.environ["QUEUE_RECOVERY_DATABASE_URL"]
++assert urlsplit(database_url).path.startswith("/queue_recovery_")
++os.environ["DATABASE_URL"] = database_url
++redis_url = os.environ["QUEUE_RECOVERY_REDIS_URL"]
++
++import redis.asyncio as redis  # noqa: E402
++from sqlalchemy import select  # noqa: E402
++
++from app import database  # noqa: E402
++from app.models.agent import Agent  # noqa: E402
++from app.models.agent_webhook import AgentWebhook  # noqa: E402
++from app.models.channel import Channel  # noqa: E402
++from app.models.download_notification import DownloadNotification  # noqa: E402
++from app.models.download_task import DownloadTask  # noqa: E402
++from app.models.downloader import DownloaderInstance  # noqa: E402
++from app.models.file_resource import FileResource  # noqa: E402
++from app.models.webhook_delivery import WebhookDelivery  # noqa: E402
++from app.services.notify_service import deliver_due_deliveries  # noqa: E402
++from app.services.task_queue import ExecutionOwnershipLostError, RedisQueue  # noqa: E402
++
++
++def uid():
++    return str(uuid.uuid4())
++
++
++async def child():
++    queue = RedisQueue(redis_url=redis_url)
++    finished = asyncio.Event()
++    lost = []
++
++    async def handler(payload):
++        try:
++            async with database.async_session_factory() as db:
++                stats = await deliver_due_deliveries(db)
++            assert stats == {"delivered": 1, "failed": 0, "skipped": 0}, stats
++            return stats
++        except ExecutionOwnershipLostError:
++            lost.append(True)
++            raise
++        finally:
++            finished.set()
++
++    queue.register("notification-crash", handler)
++    try:
++        await queue.start()
++        await asyncio.wait_for(finished.wait(), 50)
++        async with asyncio.timeout(5):
++            while (await queue.status("notification-crash"))["status"] == "running":
++                await asyncio.sleep(0.01)
++        assert (await queue.status("notification-crash"))["status"] == "done"
++        assert bool(lost) == (sys.argv[1] == "A")
++    finally:
++        await queue.stop()
++        await database.engine.dispose()
++
++
++async def main():
++    first_received, release_first = asyncio.Event(), asyncio.Event()
++    requests = []
++    handlers = set()
++
++    async def handle(reader, writer):
++        handlers.add(asyncio.current_task())
++        try:
++            header = await reader.readuntil(b"\r\n\r\n")
++            length = next(
++                int(line.split(b":", 1)[1])
++                for line in header.split(b"\r\n")
++                if line.lower().startswith(b"content-length:")
++            )
++            requests.append(json.loads(await reader.readexactly(length)))
++            index = len(requests)
++            if index == 1:
++                first_received.set()
++                await (reader.read() if mode == "kill" else release_first.wait())
++                if mode == "kill":
++                    return
++            status = "500 Internal Server Error" if index == 1 else "200 OK"
++            writer.write(f"HTTP/1.1 {status}\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}".encode())
++            await writer.drain()
++        finally:
++            writer.close()
++            await writer.wait_closed()
++            handlers.discard(asyncio.current_task())
++
++    server = await asyncio.start_server(handle, "127.0.0.1", 0)
++    port = server.sockets[0].getsockname()[1]
++    children = []
++    observer = redis.from_url(redis_url, decode_responses=True)
++    queue = RedisQueue(redis_url=redis_url)
++    owns_redis = False
++    try:
++        assert await observer.dbsize() == 0
++        owns_redis = True
++        async with database.engine.begin() as conn:
++            await conn.run_sync(database.Base.metadata.create_all)
++        async with database.async_session_factory() as db:
++            assert not (await db.scalars(select(WebhookDelivery))).all()
++            channel = Channel(
++                id=uid(),
++                name="notification-race",
++                type="rss_feed",
++                url="https://example.invalid/rss",
++                field_mapping={
++                    "list_locator": {"source": "entries"},
++                    "field_mappings": {"torrent_url": {"source": "link"}},
++                },
++            )
++            downloader = DownloaderInstance(
++                id=uid(), name="fixture", type="mock", url="mock://local", download_dir="/downloads"
++            )
++            db.add_all([channel, downloader])
++            await db.flush()
++            agent = Agent(id=uid(), name="fixture", channel_id=channel.id, downloader_id=downloader.id)
++            resource = FileResource(
++                id=uid(),
++                channel_id=channel.id,
++                guid=uid(),
++                title_raw="synthetic notification race",
++                torrent_url="https://example.invalid/test.torrent",
++            )
++            db.add_all([agent, resource])
++            await db.flush()
++            task = DownloadTask(
++                id=uid(),
++                agent_id=agent.id,
++                file_resource_id=resource.id,
++                downloader_id=downloader.id,
++                download_dir="/downloads",
++                status="completed",
++            )
++            hook = AgentWebhook(id=uid(), agent_id=agent.id, url=f"http://127.0.0.1:{port}/webhook")
++            db.add_all([task, hook])
++            await db.flush()
++            notification = DownloadNotification(
++                id=uid(),
++                agent_id=agent.id,
++                download_task_id=task.id,
++                payload={"version": 2, "notification_id": uid(), "fixture": "synthetic state-race only"},
++            )
++            db.add(notification)
++            await db.flush()
++            delivery = WebhookDelivery(id=uid(), notification_id=notification.id, webhook_id=hook.id)
++            db.add(delivery)
++            await db.commit()
++            delivery_id = delivery.id
++        await queue.start(consume=False)
++        job = await queue.enqueue("notification-crash", "notification-crash", {})
++        first = subprocess.Popen([sys.executable, "-m", "tests.integration.queue_recovery.notification_driver", "A"])
++        children.append(first)
++        await asyncio.wait_for(first_received.wait(), 15)
++        assert first.poll() is None
++        async with database.async_session_factory() as db:
++            row = await db.get(WebhookDelivery, delivery_id)
++            first_token = row.attempt_token
++            assert first_token and row.status == "pending"
++        if mode == "kill":
++            first.kill()
++            assert await asyncio.to_thread(first.wait, 5) == -9
++        else:
++            os.kill(first.pid, signal.SIGSTOP)
++            assert first.poll() is None
++        started = time.monotonic()
++        second = subprocess.Popen([sys.executable, "-m", "tests.integration.queue_recovery.notification_driver", "B"])
++        children.append(second)
++        async with asyncio.timeout(50):
++            while second.poll() is None:
++                await asyncio.sleep(0.1)
++        elapsed = time.monotonic() - started
++        assert second.returncode == 0
++        if mode == "pause":
++            assert first.poll() is None
++            os.kill(first.pid, signal.SIGCONT)
++            release_first.set()
++            assert await asyncio.to_thread(first.wait, 10) == 0
++        state = await queue.status("notification-crash")
++        assert state["status"] == "done" and state["job_id"] == job["job_id"]
++        async with database.async_session_factory() as db:
++            row = await db.get(WebhookDelivery, delivery_id)
++            assert row.status == "done" and row.attempt_count == 0 and row.error_message is None
++            assert row.attempt_token and row.attempt_token != first_token
++        assert len(requests) == 2 and requests[0] == requests[1]
++        Path(os.environ["QUEUE_RECOVERY_RESULT"]).write_text(
++            json.dumps(
++                {
++                    "backend": "postgresql",
++                    "http_requests": len(requests),
++                    "first_worker_exit": first.returncode,
++                    "second_worker_exit": second.returncode,
++                    "same_job_id": state["job_id"] == job["job_id"],
++                    "recovery_seconds": elapsed,
++                    "default_lease_seconds": 15,
++                    "default_heartbeat_seconds": 5,
++                    "final_status": "done",
++                    "attempt_count": 0,
++                    "distinct_committed_tokens": True,
++                    "data": "synthetic notification payload",
++                    "mode": mode,
++                    "scope": "independent workers, natural lease recovery, real Redis/PG/HTTP",
++                },
++                indent=2,
++            )
++            + "\n"
++        )
++    finally:
++        release_first.set()
++        for process in children:
++            if process.poll() is None:
++                process.kill()
++                await asyncio.to_thread(process.wait, 5)
++        await queue.stop()
++        if owns_redis:
++            await observer.flushdb()
++        await observer.aclose()
++        server.close()
++        await server.wait_closed()
++        if handlers:
++            await asyncio.gather(*handlers, return_exceptions=True)
++        await database.engine.dispose()
++
++
++asyncio.run(child() if len(sys.argv) > 1 else main())
+--- /dev/null
++++ b/tests/integration/queue_recovery/test_notification_recovery.py
+@@ -0,0 +1,74 @@
++"""Mandatory in the isolated gate; external services are never inferred."""
++
++import asyncio
++import json
++import os
++import signal
++import subprocess
++import sys
++import uuid
++from pathlib import Path
++from urllib.parse import urlsplit, urlunsplit
++
++import asyncpg
++import pytest
++
++
++@pytest.mark.parametrize("mode", ["kill", "pause"])
++async def test_notification_recovers_after_worker_loss(tmp_path, mode):
++    admin_url = os.environ.get("QUEUE_RECOVERY_POSTGRES_URL")
++    redis_url = os.environ.get("QUEUE_RECOVERY_REDIS_URL")
++    if not admin_url or not redis_url:
++        if os.environ.get("QUEUE_RECOVERY_REQUIRED") == "1":
++            pytest.fail("Queue recovery gate requires dedicated PostgreSQL and Redis")
++        pytest.skip("Run the isolated integration gate for real queue recovery")
++    name = "queue_recovery_" + uuid.uuid4().hex
++    parts = urlsplit(admin_url)
++    assert parts.path == "/queue_recovery", "Refuse a non-test admin database"
++    admin = await asyncpg.connect(admin_url)
++    try:
++        await admin.execute(f'CREATE DATABASE "{name}"')
++        output = tmp_path / "recovery.json"
++        db_url = urlunsplit(parts._replace(scheme="postgresql+asyncpg", path="/" + name))
++        redis_parts = urlsplit(redis_url)
++        child_redis = urlunsplit(redis_parts._replace(path="/0" if mode == "kill" else "/1"))
++        env = dict(
++            os.environ,
++            QUEUE_RECOVERY_DATABASE_URL=db_url,
++            QUEUE_RECOVERY_REDIS_URL=child_redis,
++            QUEUE_RECOVERY_MODE=mode,
++            QUEUE_RECOVERY_RESULT=str(output),
++        )
++
++        def run_driver():
++            with subprocess.Popen(
++                [sys.executable, "-m", "tests.integration.queue_recovery.notification_driver"],
++                cwd=Path(__file__).resolve().parents[3],
++                env=env,
++                stdout=subprocess.PIPE,
++                stderr=subprocess.PIPE,
++                text=True,
++                start_new_session=True,
++            ) as process:
++                try:
++                    stdout, stderr = process.communicate(timeout=90)
++                except subprocess.TimeoutExpired:
++                    os.killpg(process.pid, signal.SIGKILL)
++                    stdout, stderr = process.communicate()
++                    raise AssertionError("Recovery driver timed out\n" + stdout + stderr) from None
++                return subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
++
++        result = await asyncio.to_thread(run_driver)
++        (tmp_path / "worker.log").write_text(result.stdout + result.stderr)
++        assert result.returncode == 0, result.stdout + result.stderr
++        report = json.loads(output.read_text())
++        assert report["first_worker_exit"] == (-9 if mode == "kill" else 0)
++        assert report["second_worker_exit"] == 0
++        assert report["same_job_id"] and report["distinct_committed_tokens"]
++        assert report["http_requests"] == 2
++        assert report["final_status"] == "done" and report["attempt_count"] == 0
++        if mode == "pause":
++            assert "lost ownership" in result.stderr
++    finally:
++        await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
++        await admin.close()
+--- a/app/models/webhook_delivery.py
++++ b/app/models/webhook_delivery.py
+@@ -50,6 +50,9 @@
+         default="pending",
+         nullable=False,
+     )
++    # Rotated before each send and whenever the snapshot/retry is invalidated.
++    attempt_token: Mapped[str | None] = mapped_column(String(36), nullable=True)
++
+     # Delivery bookkeeping: attempts so far and when the next one is due
+     # (exponential backoff). ``next_attempt_at`` NULL on a pending row means
+     # "due immediately".
+--- a/app/database.py
++++ b/app/database.py
+@@ -600,6 +600,8 @@
+         ("file_resources", "magnet_resolve_trackers", "TEXT" if is_turso else "JSONB"),
+     ]
+ 
++    additions.append(("webhook_deliveries", "attempt_token", "VARCHAR(36)"))
++
+     for table, column, ddl in additions:
+         if is_turso:
+             info = (await conn.execute(text(f"PRAGMA table_info({table})"))).fetchall()
+@@ -615,7 +617,7 @@
+             existing = set()
+         if column in existing:
+             continue
+-        if table in ("organize_plans", "organize_configuration"):
++        if table in ("organize_plans", "organize_configuration", "webhook_deliveries"):
+             # Ownership/version columns are safety-critical: a partial schema
+             # must fail startup rather than silently run old semantics.
+             await conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} {ddl}'))
 --- a/app/services/task_queue.py
 +++ b/app/services/task_queue.py
 @@ -21,12 +21,59 @@
@@ -1244,7 +1713,7 @@
 +数据库读取会话在 Redis 调用前关闭；删除事务再次要求任务不存在且 settled 与扫描时一致，防止与任务落库竞争。每页 500 条，以 created_at/id 游标推进，旧但仍活动的记录不会阻塞后续候选。已有任务的预留随任务保留；删除任务后的记录只有满足年龄与队列终态条件才删除。不得复用历史逻辑 job_id；清理后旧执行的结果持久化必须因预留缺失而拒绝。
 --- a/docs/design/data-models.md
 +++ b/docs/design/data-models.md
-@@ -849,3 +849,7 @@
+@@ -849,3 +849,9 @@
  每资源至多一条 created 和一条最新 metadata。创建序号永久充当 origin；metadata 替换时在同一事务删除旧事件并写入更高序号，不重编号。资源删除级联清理事件，频道计数器不回退。
  
  baseline 和 cursor 分别表示历史准入与消费确认，不要求 cursor>=baseline。普通频道切换 cursor=0，baseline 取新频道当前前缀，历史时间下界沿用旧 last_consumed_at；显式回填清空历史下界。指定扫描可扩展历史准入并在处理前回退 cursor 以保留失败重试，确认只在同 generation 内前进。全历史以 datetime.min 表示下界。业务协议见 business-logic.md，升级步骤见 db-migration.md。
@@ -1252,9 +1721,11 @@
 +### DownloadDispatch（队列派发预留）
 +
 +队列派发的稳定身份表 download_dispatches：id 为 UUID v4 主键；operation_key 为唯一 SHA256 字符串；task_id 为唯一预留 UUID v4；parameters 为冻结 JSON（资源、Agent、下载器、目录和 payload 摘要）；settled 为非空 Boolean，数据库默认 false；created_at 为 UTC。task_id 在任务创建之前预留，因此不指向 DownloadTask 外键；任务删除后保留记录以阻止旧执行重建。身份 JSON 的 ID 是不可变操作快照，不建立级联外键。新增可空 job_key（512）与 job_id（32）保存逻辑队列身份，created_at 建索引；身份缺失时保守保留。正常 queued 派发始终填入两字段。
++
++B4 候选：`WebhookDelivery.attempt_token` 为 nullable String(36)，表示当前发送尝试/失效代次；旧行 NULL 可被首次条件领取。发送、人工重试及快照更新均更换 UUID，结果按 id/token/pending 条件写入。
 --- a/docs/design/db-migration.md
 +++ b/docs/design/db-migration.md
-@@ -302,3 +302,11 @@
+@@ -302,3 +302,13 @@
  web/worker 在运行配置和调度启动前检查迁移状态；真正空库初始化 fresh 标记，旧数据无标记拒绝启动。有标记仍检查资源初始事件与旧 Agent 的匹配频道进度，防止遗漏迁移或混用旧写入者。DB_MIGRATE_ON_STARTUP=false 不跳过此门禁。
  
  专项证据与发布验收状态见 V13-CONSUMPTION-PROGRESS.md；本节描述迁移协议，不表示已对生产数据库执行迁移。
@@ -1266,9 +1737,11 @@
 +派发表旧库建表已在 Turso 与 PostgreSQL 通过同一驱动验证两次生产 create_tables：旧 AppSetting 和新增预留保留，直接 SQL 的 operation_key/task_id 唯一约束、settled 非空及 false 默认生效。验证只覆盖相对本基线缺派发表的旧 schema，不代表任意更早或实验 schema 自动可升级。
 +
 +当前候选派发表还包含可空 job_key/job_id 与 created_at 索引，正常派发填入身份供清理验证；缺身份记录不清理。尚未发布的旧实验表不属于支持升级来源。字段加入后的两后端升级与约束验收已由 mo/mp 复核；最终完整门禁仍待完成，之前 mk/ml 记录对应较早候选。
++
++B4 候选升级新增 `webhook_deliveries.attempt_token VARCHAR(36) NULL`；老行无需回填。该安全字段的添加失败必须中止启动，不允许 best-effort 吞错。升级须停掉旧 worker，不能让不检查 token 的旧进程继续写投递结果。
 --- a/docs/testing/integration-inventory.md
 +++ b/docs/testing/integration-inventory.md
-@@ -315,3 +315,15 @@
+@@ -315,3 +315,27 @@
  V13 发布补偿定时集成：`organize/test_publication_scheduler.py` 使用真实生产五秒 IntervalTrigger、MemoryQueue、handler 和临时 Turso；暂停经历一次 tick 后仍待消费，恢复后自动产生一条成功 AgentRun 并确认游标。仅移除无关定时任务，不手动调用发布回调或缩短周期。数据为合成资源；此用例不证明外部下载副作用。
  
  V13 FTS 并发回归：`organize/test_fts_concurrency.py` 在独立子进程和临时 Turso sidecar 上运行生产 FTS 初始化、写入和检索；8 个并发调用者共 400 写、400 读，要求进程正常退出、无操作异常、最终索引恰好包含 10 个唯一预期 ID。数据明确为合成压力夹具；进程隔离保留原生崩溃输出。此测试不替代完整 HTTP/调度负载门禁，也不证明此前 page_cache 崩溃与已复现 btree 崩溃同源。
@@ -1284,9 +1757,21 @@
 +V14 预留清理测试 test_download_dispatch_cleanup 覆盖 Redis 终态/替换/缺失、queued/running/active 孤儿/未知状态、年龄、缺身份、Redis 故障、分页越过活动记录、数据库 settled 竞争以及已有任务不删除。使用真实临时 DB、FakeRedis 的生产 RedisQueue 判断；不替代真实 Redis 清理集成。每日 scheduler 回归确认数据库绑定和事务外接线。
 +
 +V14 mq 在真实 PG/Redis 中确认退休孤立记录删除、queued/running 保留；任务事务先持有预留行锁，清理 DELETE 在 pg_stat_activity 显示 Lock 等待，任务提交后 DELETE 影响零行，任务及 settled 预留保留。mr 在实际队列上下文/临时 DB 下验证不同 Agent 或新逻辑作业（同 queue key）各保留独立任务，下载器替身返回同一 torrent ID 也不会错误合并。
++
++V14 通知所有权回归 test_queue_notification_ownership：生产队列上下文、临时数据库和 HTTP 替身，覆盖发送前失权不发送、发送后失权不确认，以及同批异常传播前等待在途 HTTP 协程完成。负向 ms/mu 与正向 mv 证据见 V14；不证明外部消费者的 exactly-once，也未替代真实 HTTP 接管竞争。
++
++B4 通知候选增加旧结果覆盖和 retry/两类 regenerate 在途失效测试。download_dispatch_schema_driver 同时删除旧表的 attempt_token，再通过生产 create_tables 验证恢复 nullable 字段。HTTP 测试目前使用替身；独立进程真实 HTTP 接管及 PostgreSQL 新列升级尚待验证。
++
++B4 双会话同 token 领取测试通过 barrier 保证双方均先读取；Turso 失败方应通过独立短事务重试得到 CAS 未命中，不重复 HTTP。nc 保留 write-write conflict 红测，后续回归不可用单会话测试替代。
++
++B4 nf/ng 独立验证：真实 PG/Redis + loopback HTTP，默认租约下 SIGKILL 恢复及 SIGSTOP/SIGCONT 旧执行失权均通过；使用合成 payload 和专用 handler，尚未纳入常规集成执行入口，不能代替完整通知 tick 验收。驱动与证据见 V14。
++
++B4 正式 queue_recovery 子套件包含 SIGKILL 与 SIGSTOP/SIGCONT 两个参数；完整 isolated Compose 开启 QUEUE_RECOVERY_REQUIRED=1，专用 PG/Redis 缺失即失败。详细隔离/清理契约见 isolated-integration.md。
++
++B4 nk/nl 覆盖快照停种前、停种后、文件返回后失权，要求停止 RPC 链、无快照和无失败退避记录；nl 联合既有构建重试/毒任务隔离回归通过。下载器与 guard 使用替身，真实 Redis/RPC 组合仍待补充。
 --- /dev/null
 +++ b/tests/integration/organize/download_dispatch_schema_driver.py
-@@ -0,0 +1,98 @@
+@@ -0,0 +1,103 @@
 +"""Upgrade a legacy schema through production startup, then exercise raw SQL."""
 +
 +import asyncio
@@ -1329,9 +1814,13 @@
 +            assert not await conn.run_sync(lambda sync: inspect(sync).has_table("app_settings"))
 +            legacy_tables = [t for t in database.Base.metadata.sorted_tables if t.name != "download_dispatches"]
 +            await conn.run_sync(lambda sync: database.Base.metadata.create_all(sync, tables=legacy_tables))
++            await conn.execute(text("ALTER TABLE webhook_deliveries DROP COLUMN attempt_token"))
 +            await conn.execute(text("INSERT INTO app_settings (key, value) VALUES ('probe-legacy', 'preserved')"))
 +            assert not await conn.run_sync(lambda sync: inspect(sync).has_table("download_dispatches"))
 +        await database.create_tables()
++        async with database.engine.connect() as conn:
++            columns = await conn.run_sync(lambda sync: inspect(sync).get_columns("webhook_deliveries"))
++            assert any(c["name"] == "attempt_token" and c["nullable"] for c in columns)
 +        row = {"id": str(uuid.uuid4()), "key": "a" * 64, "task": str(uuid.uuid4()), "parameters": "{}"}
 +        async with database.engine.begin() as conn:
 +            await conn.execute(text(INSERT), row)
@@ -1367,6 +1856,7 @@
 +                    "backend": "postgresql" if project else "turso",
 +                    "legacy_row_preserved": True,
 +                    "startup_calls": 2,
++                    "delivery_attempt_column_restored": True,
 +                    "reservation_row_preserved": True,
 +                    "raw_default_settled": False,
 +                    "rejected": rejected,
@@ -1605,3 +2095,581 @@
  
  
  async def _check_downloader_connections() -> None:
+--- a/app/services/notify_service.py
++++ b/app/services/notify_service.py
+@@ -23,9 +23,11 @@
+ from datetime import datetime, timedelta
+ 
+ import httpx
+-from sqlalchemy import select
++from sqlalchemy import select, update
+ from sqlalchemy.exc import IntegrityError
++from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
+ from sqlalchemy.orm import selectinload
++from sqlalchemy.orm.attributes import set_committed_value
+ 
+ from app.config import settings
+ from app.models.agent import Agent
+@@ -258,6 +260,9 @@
+     failure) — the payload then carries no ``files`` and the consumer falls
+     back to scanning the download directory itself.
+     """
++    from app.services.task_queue import require_execution_ownership
++
++    await require_execution_ownership()
+     agent = await db.get(Agent, task.agent_id) if task.agent_id else None
+     resource = await _load_resource(db, task.file_resource_id)
+ 
+@@ -268,6 +273,7 @@
+             from app.clients.downloader import get_downloader_client
+ 
+             wrapper = get_downloader_client(downloader)
++            await require_execution_ownership()
+             # Stop seeding before the consumer moves the files (best-effort).
+             try:
+                 await wrapper.pause_torrent(task.transmission_torrent_id)
+@@ -276,6 +282,7 @@
+                     "[notify] pause torrent %s failed: %s",
+                     task.transmission_torrent_id, e,
+                 )
++            await require_execution_ownership()
+             try:
+                 torrent_info = await wrapper.get_torrent_files(
+                     task.transmission_torrent_id
+@@ -285,6 +292,7 @@
+                     "[notify] file listing for torrent %s unavailable: %s",
+                     task.transmission_torrent_id, e,
+                 )
++    await require_execution_ownership()
+     if resource is not None and torrent_info is not None:
+         files = torrent_info.get("files") or []
+         if files:
+@@ -436,10 +444,10 @@
+ 
+     Deliveries run concurrently (bounded by ``_DELIVERY_CONCURRENCY``); each
+     delivery commits individually so one failure never rolls back another,
+-    and the DB write lock is never held across an HTTP call. Row mutation +
+-    commit are serialized through ``commit_lock``: an AsyncSession is not
+-    re-entrant, and mutating one row while another delivery's flush is in
+-    flight would get those changes silently discarded.
++    and the DB write lock is never held across an HTTP call. Conditional
++    writes use fresh sessions and retry only transient database conflicts.
++    ``commit_lock`` serializes writes and synchronization of the caller's
++    loaded rows; HTTP remains concurrent.
+     """
+     now = utcnow()
+     stmt = (
+@@ -459,14 +467,39 @@
+         .limit(_DELIVERY_BATCH)
+     )
+     due = (await db.execute(stmt)).scalars().all()
++    # Release the read transaction before independent, retryable writes.
++    await db.commit()
+     stats = {"delivered": 0, "failed": 0, "skipped": 0}
+     semaphore = asyncio.Semaphore(_DELIVERY_CONCURRENCY)
+     commit_lock = asyncio.Lock()
+ 
++    from app.services.task_queue import require_execution_ownership
++
+     async def _deliver_one(d: WebhookDelivery) -> None:
+         async with semaphore:
++            await require_execution_ownership()
+             webhook = d.webhook
+             if webhook is None or not webhook.enabled:
++                stats["skipped"] += 1
++                return
++            # A short committed claim fences completion, without a DB lock
++            # spanning HTTP. A later attempt or snapshot reset rotates it.
++            token = str(uuid.uuid4())
++            async with commit_lock:
++                acquired = await _commit_delivery_update(db,
++                    update(WebhookDelivery)
++                    .where(
++                        WebhookDelivery.id == d.id,
++                        WebhookDelivery.status == "pending",
++                        WebhookDelivery.attempt_token == d.attempt_token,
++                    )
++                    .values(attempt_token=token)
++                    .returning(WebhookDelivery.id)
++                    .execution_options(synchronize_session="fetch")
++                )
++                if acquired:
++                    set_committed_value(d, "attempt_token", token)
++            if not acquired:
+                 stats["skipped"] += 1
+                 return
+             error: Exception | None = None
+@@ -486,33 +519,75 @@
+                 except Exception as e:
+                     error = e
+             async with commit_lock:
++                await require_execution_ownership()
+                 if error is None:
+-                    # HTTP 2xx, or mock webhook (payload inspection only —
+-                    # no HTTP call at all).
+-                    d.status = "done"
+-                    d.delivered_at = utcnow()
+-                    d.error_message = None
+-                    stats["delivered"] += 1
++                    values = dict(status="done", delivered_at=utcnow(), error_message=None)
++                    outcome = "delivered"
+                 else:
+-                    d.attempt_count += 1
+-                    if d.attempt_count >= settings.notify_max_attempts:
+-                        d.status = "failed"
+-                        d.error_message = (
+-                            f"webhook 投递失败（已达最大重试次数）: {error}"[:2000]
++                    attempts = d.attempt_count + 1
++                    values = dict(attempt_count=attempts)
++                    if attempts >= settings.notify_max_attempts:
++                        values.update(
++                            status="failed",
++                            error_message=f"webhook 投递失败（已达最大重试次数）: {error}"[:2000],
+                         )
+-                        stats["failed"] += 1
++                        outcome = "failed"
+                     else:
+-                        d.next_attempt_at = utcnow() + backoff_delay(
+-                            d.attempt_count
++                        values.update(
++                            next_attempt_at=utcnow() + backoff_delay(attempts),
++                            error_message=f"webhook 投递失败，将退避重试: {error}"[:2000],
+                         )
+-                        d.error_message = (
+-                            f"webhook 投递失败，将退避重试: {error}"[:2000]
+-                        )
+-                        stats["skipped"] += 1
+-                await db.commit()
+-
+-    await asyncio.gather(*(_deliver_one(d) for d in due))
++                        outcome = "skipped"
++                accepted = await _commit_delivery_update(db,
++                    update(WebhookDelivery)
++                    .where(
++                        WebhookDelivery.id == d.id,
++                        WebhookDelivery.status == "pending",
++                        WebhookDelivery.attempt_token == token,
++                    )
++                    .values(**values)
++                    .returning(WebhookDelivery.id)
++                    .execution_options(synchronize_session="fetch")
++                )
++                if accepted:
++                    for field, value in values.items():
++                        set_committed_value(d, field, value)
++                stats[outcome if accepted else "skipped"] += 1
++
++    # Do not return the shared session while another delivery is still using
++    # it. Ownership/DB errors must propagate only after in-flight work ends.
++    outcomes = await asyncio.gather(*(_deliver_one(d) for d in due), return_exceptions=True)
++    for outcome in outcomes:
++        if isinstance(outcome, BaseException):
++            raise outcome
+     return stats
++
++
++async def _commit_delivery_update(db, statement) -> bool:
++    """Retry only a short conditional write, never its preceding HTTP call."""
++    from app.database import retry_on_lock
++
++    bind = db.bind.engine if isinstance(db.bind, AsyncConnection) else db.bind
++
++    async def attempt():
++        async with AsyncSession(bind=bind) as writer:
++            async with writer.begin():
++                result = await writer.execute(statement)
++                accepted = result.scalar_one_or_none() is not None
++            return accepted
++
++    return await retry_on_lock(attempt)
++
++
++async def _invalidate_delivery_attempts(db, notification_id: str) -> None:
++    # Fan-out can have inserted rows after an ORM relationship was loaded.
++    # Invalidate the durable set, including pending deliveries of old payloads.
++    await db.execute(
++        update(WebhookDelivery)
++        .where(WebhookDelivery.notification_id == notification_id)
++        .values(attempt_token=str(uuid.uuid4()))
++        .execution_options(synchronize_session="fetch")
++    )
+ 
+ 
+ async def regenerate_notifications(
+@@ -574,6 +649,7 @@
+             if not has_torrent_snapshot:
+                 continue  # keep the old snapshot rather than degrade it
+             existing.payload = payload
++            await _invalidate_delivery_attempts(db, existing.id)
+             now = utcnow()
+             for d in existing.deliveries:
+                 if d.status != "pending":
+@@ -639,6 +715,7 @@
+                 },
+             )
+         notification.payload = payload
++        await _invalidate_delivery_attempts(db, notification.id)
+         touched.append(notification)
+     await db.commit()
+     if touched:
+@@ -679,6 +756,7 @@
+         stmt = stmt.where(DownloadNotification.id == notification_id)
+     rows = (await db.execute(stmt)).scalars().all()
+     for d in rows:
++        d.attempt_token = str(uuid.uuid4())
+         d.status = "pending"
+         d.attempt_count = 0
+         d.next_attempt_at = utcnow()
+--- /dev/null
++++ b/tests/unit/test_queue_notification_ownership.py
+@@ -0,0 +1,327 @@
++"""Expired queue ownership must not start or acknowledge webhook delivery."""
++
++import asyncio
++
++import fakeredis
++import pytest
++
++from app.services import notify_service
++from app.services.task_queue import RedisQueue
++from tests.unit import test_notify_service as notify_tests
++from tests.unit.test_notify_service import _deliveries, _FakeResp, _webhook
++
++seed = notify_tests.seed
++
++
++@pytest.mark.parametrize("phase", ["before_send", "after_send"])
++async def test_stale_notification_execution_stops_at_side_effect_boundary(db_session, seed, monkeypatch, phase):
++    db_session.add(_webhook(seed.agent.id))
++    notification, _ = await notify_service.create_notification_for_task(db_session, seed.task)
++    await db_session.commit()
++    await notify_service.ensure_deliveries(db_session)
++    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
++    queue = RedisQueue(redis_client=client)
++    entered, resume, finished = asyncio.Event(), asyncio.Event(), asyncio.Event()
++    calls, errors = [], []
++
++    async def revoke():
++        await client.hset("rssripple:job:notify-ownership", "execution_token", "replacement")
++
++    class HttpClient:
++        def __init__(self, **kwargs):
++            pass
++
++        async def __aenter__(self):
++            return self
++
++        async def __aexit__(self, *args):
++            return False
++
++        async def post(self, url, json=None):
++            calls.append(url)
++            await revoke()
++            return _FakeResp()
++
++    monkeypatch.setattr(notify_service.httpx, "AsyncClient", HttpClient)
++
++    async def handler(payload):
++        entered.set()
++        await resume.wait()
++        try:
++            await notify_service.deliver_due_deliveries(db_session)
++        except Exception as exc:
++            errors.append(exc)
++            raise
++        finally:
++            finished.set()
++
++    queue.register("notification-test", handler)
++    await queue.start()
++    try:
++        await queue.enqueue("notification-test", "notify-ownership", {})
++        await asyncio.wait_for(entered.wait(), 2)
++        if phase == "before_send":
++            await revoke()
++        resume.set()
++        await asyncio.wait_for(finished.wait(), 3)
++        assert len(calls) == (0 if phase == "before_send" else 1)
++        [delivery] = await _deliveries(db_session, notification.id)
++        assert delivery.status == "pending"
++        assert delivery.attempt_count == 0
++        assert len(errors) == 1 and "lost ownership" in str(errors[0])
++    finally:
++        resume.set()
++        await queue.stop()
++
++
++async def test_delivery_waits_for_inflight_siblings_before_propagating_loss(db_session, seed, monkeypatch):
++    from app.services import task_queue
++
++    db_session.add_all([_webhook(seed.agent.id), _webhook(seed.agent.id)])
++    await notify_service.create_notification_for_task(db_session, seed.task)
++    await db_session.commit()
++    await notify_service.ensure_deliveries(db_session)
++    second_started, release, lost = asyncio.Event(), asyncio.Event(), asyncio.Event()
++    calls = []
++
++    async def guard():
++        if lost.is_set():
++            raise task_queue.ExecutionOwnershipLostError("Synthetic lost ownership")
++
++    class HttpClient:
++        def __init__(self, **kwargs):
++            pass
++
++        async def __aenter__(self):
++            return self
++
++        async def __aexit__(self, *args):
++            return False
++
++        async def post(self, url, json=None):
++            calls.append(url)
++            if len(calls) == 1:
++                await second_started.wait()
++                lost.set()
++            else:
++                second_started.set()
++                await release.wait()
++            return _FakeResp()
++
++    monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
++    monkeypatch.setattr(notify_service.httpx, "AsyncClient", HttpClient)
++    running = asyncio.create_task(notify_service.deliver_due_deliveries(db_session))
++    try:
++        await asyncio.wait_for(lost.wait(), 2)
++        await asyncio.sleep(0.05)
++        assert not running.done(), "Delivery returned while a sibling still owns its DB session"
++    finally:
++        release.set()
++        result = await asyncio.gather(running, return_exceptions=True)
++    assert isinstance(result[0], task_queue.ExecutionOwnershipLostError)
++    assert all(delivery.status == "pending" for delivery in await _deliveries(db_session))
++
++
++async def test_late_failure_preserves_delivery_already_completed(db_session, seed, monkeypatch):
++    """Model a winner committing after the loser's final queue check."""
++    from sqlalchemy import update
++
++    from app.models.webhook_delivery import WebhookDelivery
++    from app.services import task_queue
++    from app.utils.time import utcnow
++
++    db_session.add(_webhook(seed.agent.id))
++    notification, _ = await notify_service.create_notification_for_task(db_session, seed.task)
++    await db_session.commit()
++    await notify_service.ensure_deliveries(db_session)
++    [delivery] = await _deliveries(db_session, notification.id)
++    delivery_id = delivery.id
++    winner_time = utcnow()
++    checks = 0
++
++    async def guard():
++        nonlocal checks
++        checks += 1
++        if checks == 2:
++            # Bypass the identity map: the losing handler still holds its
++            # original pending snapshot when the durable winner becomes done.
++            await db_session.execute(
++                update(WebhookDelivery)
++                .where(WebhookDelivery.id == delivery_id)
++                .values(status="done", delivered_at=winner_time, error_message=None)
++                .execution_options(synchronize_session=False)
++            )
++            await db_session.commit()
++
++    class HttpClient:
++        def __init__(self, **kwargs):
++            pass
++
++        async def __aenter__(self):
++            return self
++
++        async def __aexit__(self, *args):
++            return False
++
++        async def post(self, url, json=None):
++            raise RuntimeError("late failure from superseded request")
++
++    monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
++    monkeypatch.setattr(notify_service.httpx, "AsyncClient", HttpClient)
++    monkeypatch.setattr(notify_service.settings, "notify_max_attempts", 1)
++    await notify_service.deliver_due_deliveries(db_session)
++    await db_session.refresh(delivery)
++    assert checks == 2
++    assert delivery.status == "done"
++    assert delivery.attempt_count == 0
++    assert delivery.error_message is None
++    assert delivery.delivered_at == winner_time
++
++
++@pytest.mark.parametrize("action", ["retry", "regenerate", "resource"])
++async def test_snapshot_or_retry_invalidates_inflight_success(db_session, seed, monkeypatch, action):
++    from app.services import organize_service
++
++    db_session.add(_webhook(seed.agent.id))
++    notification, _ = await notify_service.create_notification_for_task(db_session, seed.task)
++    await db_session.commit()
++    await notify_service.ensure_deliveries(db_session)
++    [delivery] = await _deliveries(db_session, notification.id)
++    tokens = []
++
++    async def no_plans(*args, **kwargs):
++        return []
++
++    class HttpClient:
++        def __init__(self, **kwargs):
++            pass
++
++        async def __aenter__(self):
++            return self
++
++        async def __aexit__(self, *args):
++            return False
++
++        async def post(self, url, json=None):
++            tokens.append(delivery.attempt_token)
++            if action == "retry":
++                # Another attempt finishes first, then the user requests a
++                # new delivery while this older HTTP request is in flight.
++                delivery.status = "done"
++                await db_session.commit()
++                assert await notify_service.reset_deliveries_for_retry(
++                    db_session, "all", notification_id=notification.id
++                ) == 1
++            elif action == "regenerate":
++                assert (await notify_service.regenerate_notifications(
++                    db_session, seed.agent.id, None
++                ))["regenerated"] == 1
++            else:
++                assert (await notify_service.regenerate_resource_notifications(
++                    db_session, seed.resource.id
++                ))["regenerated"] == 1
++            tokens.append(delivery.attempt_token)
++            return _FakeResp()
++
++    monkeypatch.setattr(organize_service, "plan_for_notifications", no_plans)
++    monkeypatch.setattr(notify_service.httpx, "AsyncClient", HttpClient)
++    stats = await notify_service.deliver_due_deliveries(db_session)
++    await db_session.refresh(delivery)
++    assert tokens[0] and tokens[1] and tokens[0] != tokens[1]
++    assert delivery.status == "pending"
++    assert delivery.attempt_count == 0
++    assert stats == {"delivered": 0, "failed": 0, "skipped": 1}
++
++
++async def test_two_readers_only_one_claims_same_delivery(db_session, db_engine, seed, monkeypatch):
++    from sqlalchemy.ext.asyncio import async_sessionmaker
++
++    from app.models.webhook_delivery import WebhookDelivery
++    from app.services import task_queue
++
++    db_session.add(_webhook(seed.agent.id))
++    notification, _ = await notify_service.create_notification_for_task(db_session, seed.task)
++    await db_session.commit()
++    await notify_service.ensure_deliveries(db_session)
++    [delivery] = await _deliveries(db_session, notification.id)
++    delivery_id = delivery.id
++    barrier = asyncio.Barrier(2)
++    checked = set()
++    requests = []
++
++    async def guard():
++        task = asyncio.current_task()
++        if task not in checked:
++            checked.add(task)
++            await asyncio.wait_for(barrier.wait(), 3)
++
++    class HttpClient:
++        def __init__(self, **kwargs):
++            pass
++
++        async def __aenter__(self):
++            return self
++
++        async def __aexit__(self, *args):
++            return False
++
++        async def post(self, url, json=None):
++            requests.append(json)
++            return _FakeResp()
++
++    monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
++    monkeypatch.setattr(notify_service.httpx, "AsyncClient", HttpClient)
++    factory = async_sessionmaker(db_engine, expire_on_commit=False)
++
++    async def run():
++        async with factory() as db:
++            return await notify_service.deliver_due_deliveries(db)
++
++    results = await asyncio.wait_for(asyncio.gather(run(), run(), return_exceptions=True), 8)
++    assert all(isinstance(result, dict) for result in results), results
++    assert len(requests) == 1
++    assert sum(result["delivered"] for result in results) == 1
++    assert sum(result["skipped"] for result in results) == 1
++    async with factory() as db:
++        current = await db.get(WebhookDelivery, delivery_id)
++        assert current.status == "done" and current.attempt_count == 0
++
++
++@pytest.mark.parametrize("phase", ["before_pause", "after_pause", "after_files"])
++async def test_snapshot_loss_stops_rpc_chain_without_recording_build_failure(db_session, seed, monkeypatch, phase):
++    from sqlalchemy import select
++
++    from app.clients.mock_downloader import MockDownloaderWrapper
++    from app.models.download_notification import DownloadNotification
++    from app.models.notification_build_failure import NotificationBuildFailure
++    from app.services import notification_build, task_queue
++
++    lost = phase == "before_pause"
++    calls = []
++
++    async def guard():
++        if lost:
++            raise task_queue.ExecutionOwnershipLostError("Snapshot worker lost ownership")
++
++    async def pause(self, torrent_id):
++        nonlocal lost
++        calls.append("pause")
++        lost = phase == "after_pause"
++        return True
++
++    async def files(self, torrent_id):
++        nonlocal lost
++        calls.append("files")
++        lost = phase == "after_files"
++        return {"name": "fixture", "files": [{"name": "fixture.mkv", "size": 10}]}
++
++    monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
++    monkeypatch.setattr(MockDownloaderWrapper, "pause_torrent", pause)
++    monkeypatch.setattr(MockDownloaderWrapper, "get_torrent_files", files)
++    with pytest.raises(task_queue.ExecutionOwnershipLostError):
++        await notification_build.build_task_notifications([seed.task.id])
++    assert calls == {
++        "before_pause": [], "after_pause": ["pause"], "after_files": ["pause", "files"],
++    }[phase]
++    assert (await db_session.scalars(select(DownloadNotification))).all() == []
++    assert (await db_session.scalars(select(NotificationBuildFailure))).all() == []
+--- a/docs/design/notifications.md
++++ b/docs/design/notifications.md
+@@ -164,6 +164,8 @@
+ - mock webhook：不发 HTTP，直接记 `done`（`delivered_at` 落时间），仅用于在界面查看通知内容。
+ - **webhook URL 可达性（Docker 部署）**：消费者在宿主机或其他容器时，机器主机名（常解析为 127.0.1.1 回环）在容器内不可达；`docker-compose.yml` 已注入 `extra_hosts: host.docker.internal:host-gateway`，指向宿主机的 webhook 应注册为 `http://host.docker.internal:<port>/...`。
+ - 每条 delivery 独立 commit（行变更经 `commit_lock` 串行化，AsyncSession 不可重入），写锁绝不跨 HTTP 调用持有；单个 webhook 失败不回滚其他 delivery。
++- Redis handler 在每条 HTTP 发起前、结果变更和 commit 前校验执行所有权；失权或 Redis 校验失败不计为普通 HTTP 失败，不推进 attempt_count。无 Redis 上下文的既有调用沿用原路径。已发出的 HTTP 无法撤销，远端重复投递仍可能发生；接收方需按通知身份幂等处理，不能宣称 exactly-once。
++- 批次内失权或数据库异常先等待同批所有在途协程结束，再传播异常，避免共享 AsyncSession 已交还调用方时其他 delivery 仍继续访问它。
+ 
+ ## API（前缀 /api/v1）
+ 
+@@ -209,3 +211,11 @@
+ 生成快照按 download_task_id 使用独立事务；一项失败不回滚其他任务，也不中断已有通知的整理规划和 webhook 投递。失败事务不保留空快照，不把 completed 下载任务改成 error。生成失败由 NotificationBuildFailure 持久记录；首次等待 30 秒，此后指数退避，上限 1800 秒，无自动终止次数。到期后仍满足 completed 和消费者启用条件的任务重新入选。
+ 
+ 生成成功与删除该任务的失败记录在同一事务提交。并发失败记录按任务唯一键原子累加 attempt_count；如果成功通知先提交、迟到失败记录随后提交，下一 tick 清除已有通知对应的失败记录。任务取消或删除后不再生成；删除任务级联删除失败记录。失败记录自身无法保存时记录日志并继续后续任务，不承诺该项可持久退避。该退避独立于 WebhookDelivery 的投递次数及状态机。
++
++### 队列接管下的投递尝试（B4 候选）
++
++WebhookDelivery.attempt_token 为可空 UUID 字符串。发送前以读取到的 token 和 pending 状态条件领取并提交新 token；结果仅在该 token 仍匹配且仍 pending 时更新。没有跨 HTTP 的数据库锁。进程中断保留 pending，下次读取可以领取新 token；允许重复 HTTP，远端仍需幂等。人工重试更换 token；两种快照重新生成都在更新快照的同一事务中按 notification_id 更新全部 delivery 的 token，不依赖可能已缓存的 deliveries 关系。结果被淘汰计 skipped，不增加重试次数。该机制不消除 Redis 检查与 HTTP 发出之间的窗口。
++
++领取与结果条件写入使用独立短会话；先结束批次读取事务，复用 retry_on_lock 仅重试数据库锁/MVCC 冲突。HTTP 调用不在重试闭包中。成功后同步调用者已加载对象的已提交值，不将它们标记为需 flush 的修改。
++
++B4 候选快照构建在停种前后、文件列表返回后和构建事务确认前检查队列所有权。失权异常不得作为普通下载器故障进入 best-effort 快照降级或 NotificationBuildFailure 退避；无队列上下文的人工入口保持原行为。检查不能撤销已发 RPC，也不构成跨 Redis/数据库的原子提交。

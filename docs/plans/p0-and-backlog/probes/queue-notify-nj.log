@@ -1,0 +1,36 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+______________ test_notification_recovers_after_worker_loss[kill] ______________
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1387/test_notification_recovers_aft0')
+mode = 'kill'
+
+    @pytest.mark.parametrize("mode", ["kill", "pause"])
+    async def test_notification_recovers_after_worker_loss(tmp_path, mode):
+        admin_url = os.environ.get("QUEUE_RECOVERY_POSTGRES_URL")
+        redis_url = os.environ.get("QUEUE_RECOVERY_REDIS_URL")
+        if not admin_url or not redis_url:
+            if os.environ.get("QUEUE_RECOVERY_REQUIRED") == "1":
+>               pytest.fail("Queue recovery gate requires dedicated PostgreSQL and Redis")
+E               Failed: Queue recovery gate requires dedicated PostgreSQL and Redis
+
+tests/integration/queue_recovery/test_notification_recovery.py:23: Failed
+_____________ test_notification_recovers_after_worker_loss[pause] ______________
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1387/test_notification_recovers_aft1')
+mode = 'pause'
+
+    @pytest.mark.parametrize("mode", ["kill", "pause"])
+    async def test_notification_recovers_after_worker_loss(tmp_path, mode):
+        admin_url = os.environ.get("QUEUE_RECOVERY_POSTGRES_URL")
+        redis_url = os.environ.get("QUEUE_RECOVERY_REDIS_URL")
+        if not admin_url or not redis_url:
+            if os.environ.get("QUEUE_RECOVERY_REQUIRED") == "1":
+>               pytest.fail("Queue recovery gate requires dedicated PostgreSQL and Redis")
+E               Failed: Queue recovery gate requires dedicated PostgreSQL and Redis
+
+tests/integration/queue_recovery/test_notification_recovery.py:23: Failed
+=========================== short test summary info ============================
+FAILED tests/integration/queue_recovery/test_notification_recovery.py::test_notification_recovers_after_worker_loss[kill]
+FAILED tests/integration/queue_recovery/test_notification_recovery.py::test_notification_recovers_after_worker_loss[pause]
+2 failed in 0.08s

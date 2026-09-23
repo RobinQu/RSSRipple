@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="7" time="3.824" timestamp="2026-09-23T04:44:05.602516+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_queue_notification_ownership" name="test_stale_notification_execution_stops_at_side_effect_boundary[before_send]" time="0.566" /><testcase classname="tests.unit.test_queue_notification_ownership" name="test_stale_notification_execution_stops_at_side_effect_boundary[after_send]" time="0.433" /><testcase classname="tests.unit.test_queue_notification_ownership" name="test_delivery_waits_for_inflight_siblings_before_propagating_loss" time="0.531" /><testcase classname="tests.unit.test_queue_notification_ownership" name="test_late_failure_preserves_delivery_already_completed" time="0.543" /><testcase classname="tests.unit.test_queue_notification_ownership" name="test_snapshot_or_retry_invalidates_inflight_success[retry]" time="0.539" /><testcase classname="tests.unit.test_queue_notification_ownership" name="test_snapshot_or_retry_invalidates_inflight_success[regenerate]" time="0.542"><failure message="AssertionError: assert ('08e82962-08a2-413c-8689-d4174d8d6429' and '08e82962-08a2-413c-8689-d4174d8d6429' and '08e82962-08a2-413c-8689-d4174d8d6429' != '08e82962-08a2-413c-8689-d4174d8d6429')">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f0b4a2e30b0&gt;
+seed = namespace(channel=&lt;app.models.channel.Channel object at 0x7f0b4a203650&gt;, downloader=&lt;app.models.downloader.DownloaderI...resource.FileResource object at 0x7f0b4bdd56d0&gt;, task=&lt;app.models.download_task.DownloadTask object at 0x7f0b47c05c70&gt;)
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f0b4be3c910&gt;
+action = 'regenerate'
+
+    @pytest.mark.parametrize("action", ["retry", "regenerate", "resource"])
+    async def test_snapshot_or_retry_invalidates_inflight_success(db_session, seed, monkeypatch, action):
+        from app.services import organize_service
+    
+        db_session.add(_webhook(seed.agent.id))
+        notification, _ = await notify_service.create_notification_for_task(db_session, seed.task)
+        await db_session.commit()
+        await notify_service.ensure_deliveries(db_session)
+        [delivery] = await _deliveries(db_session, notification.id)
+        tokens = []
+    
+        async def no_plans(*args, **kwargs):
+            return []
+    
+        class HttpClient:
+            def __init__(self, **kwargs):
+                pass
+    
+            async def __aenter__(self):
+                return self
+    
+            async def __aexit__(self, *args):
+                return False
+    
+            async def post(self, url, json=None):
+                tokens.append(delivery.attempt_token)
+                if action == "retry":
+                    # Another attempt finishes first, then the user requests a
+                    # new delivery while this older HTTP request is in flight.
+                    delivery.status = "done"
+                    await db_session.commit()
+                    assert await notify_service.reset_deliveries_for_retry(
+                        db_session, "all", notification_id=notification.id
+                    ) == 1
+                elif action == "regenerate":
+                    assert (await notify_service.regenerate_notifications(
+                        db_session, seed.agent.id, None
+                    ))["regenerated"] == 1
+                else:
+                    assert (await notify_service.regenerate_resource_notifications(
+                        db_session, seed.resource.id
+                    ))["regenerated"] == 1
+                tokens.append(delivery.attempt_token)
+                return _FakeResp()
+    
+        monkeypatch.setattr(organize_service, "plan_for_notifications", no_plans)
+        monkeypatch.setattr(notify_service.httpx, "AsyncClient", HttpClient)
+        stats = await notify_service.deliver_due_deliveries(db_session)
+        await db_session.refresh(delivery)
+&gt;       assert tokens[0] and tokens[1] and tokens[0] != tokens[1]
+E       AssertionError: assert ('08e82962-08a2-413c-8689-d4174d8d6429' and '08e82962-08a2-413c-8689-d4174d8d6429' and '08e82962-08a2-413c-8689-d4174d8d6429' != '08e82962-08a2-413c-8689-d4174d8d6429')
+
+tests/unit/test_queue_notification_ownership.py:230: AssertionError</failure></testcase><testcase classname="tests.unit.test_queue_notification_ownership" name="test_snapshot_or_retry_invalidates_inflight_success[resource]" time="0.509"><failure message="AssertionError: assert ('18a1f4fc-a0eb-47d2-9c9f-285022c4c9e2' and '18a1f4fc-a0eb-47d2-9c9f-285022c4c9e2' and '18a1f4fc-a0eb-47d2-9c9f-285022c4c9e2' != '18a1f4fc-a0eb-47d2-9c9f-285022c4c9e2')">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f0b47c66690&gt;
+seed = namespace(channel=&lt;app.models.channel.Channel object at 0x7f0b47c66ad0&gt;, downloader=&lt;app.models.downloader.DownloaderI...resource.FileResource object at 0x7f0b4bdd5d10&gt;, task=&lt;app.models.download_task.DownloadTask object at 0x7f0b47c67240&gt;)
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f0b48e1e4a0&gt;
+action = 'resource'
+
+    @pytest.mark.parametrize("action", ["retry", "regenerate", "resource"])
+    async def test_snapshot_or_retry_invalidates_inflight_success(db_session, seed, monkeypatch, action):
+        from app.services import organize_service
+    
+        db_session.add(_webhook(seed.agent.id))
+        notification, _ = await notify_service.create_notification_for_task(db_session, seed.task)
+        await db_session.commit()
+        await notify_service.ensure_deliveries(db_session)
+        [delivery] = await _deliveries(db_session, notification.id)
+        tokens = []
+    
+        async def no_plans(*args, **kwargs):
+            return []
+    
+        class HttpClient:
+            def __init__(self, **kwargs):
+                pass
+    
+            async def __aenter__(self):
+                return self
+    
+            async def __aexit__(self, *args):
+                return False
+    
+            async def post(self, url, json=None):
+                tokens.append(delivery.attempt_token)
+                if action == "retry":
+                    # Another attempt finishes first, then the user requests a
+                    # new delivery while this older HTTP request is in flight.
+                    delivery.status = "done"
+                    await db_session.commit()
+                    assert await notify_service.reset_deliveries_for_retry(
+                        db_session, "all", notification_id=notification.id
+                    ) == 1
+                elif action == "regenerate":
+                    assert (await notify_service.regenerate_notifications(
+                        db_session, seed.agent.id, None
+                    ))["regenerated"] == 1
+                else:
+                    assert (await notify_service.regenerate_resource_notifications(
+                        db_session, seed.resource.id
+                    ))["regenerated"] == 1
+                tokens.append(delivery.attempt_token)
+                return _FakeResp()
+    
+        monkeypatch.setattr(organize_service, "plan_for_notifications", no_plans)
+        monkeypatch.setattr(notify_service.httpx, "AsyncClient", HttpClient)
+        stats = await notify_service.deliver_due_deliveries(db_session)
+        await db_session.refresh(delivery)
+&gt;       assert tokens[0] and tokens[1] and tokens[0] != tokens[1]
+E       AssertionError: assert ('18a1f4fc-a0eb-47d2-9c9f-285022c4c9e2' and '18a1f4fc-a0eb-47d2-9c9f-285022c4c9e2' and '18a1f4fc-a0eb-47d2-9c9f-285022c4c9e2' != '18a1f4fc-a0eb-47d2-9c9f-285022c4c9e2')
+
+tests/unit/test_queue_notification_ownership.py:230: AssertionError</failure></testcase></testsuite></testsuites>
