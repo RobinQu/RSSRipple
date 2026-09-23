@@ -1,0 +1,35 @@
+{
+  "scanner_signal": 9,
+  "fresh_process_recovery": {
+    "recovered": {
+      "agent_id": "eeb654ad-8aa3-42f9-a242-8a3ac5d1c99c",
+      "run_id": "7cefc2f0-5c07-4af5-b7c6-ad073e51eb24",
+      "total_resources": 2,
+      "matched": 1,
+      "dispatched": 1,
+      "pending_decisions": 0,
+      "filter_failed": 0,
+      "duplicates_skipped": 0,
+      "unrecognized": 1,
+      "errors": []
+    },
+    "next_run": {
+      "agent_id": "eeb654ad-8aa3-42f9-a242-8a3ac5d1c99c",
+      "run_id": "9f8705b4-80c4-4a79-8363-b38224eab407",
+      "total_resources": 0,
+      "matched": 0,
+      "dispatched": 0,
+      "pending_decisions": 0,
+      "filter_failed": 0,
+      "duplicates_skipped": 0,
+      "unrecognized": 0,
+      "errors": []
+    },
+    "task_count": 1
+  },
+  "data": "synthetic; actual durable Turso file, handler, task and mock downloader",
+  "cleanup": "temporary directory removed",
+  "exit_code": 0,
+  "source_sha256": "83c2fd9407a687772ae050165ad6222ee7b294b9ed5542026959bf4c43fccbfd",
+  "scope": "kill after phase-one commit and before processing; no Redis acknowledgement or remote RPC crash tested"
+}

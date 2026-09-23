@@ -1,0 +1,56 @@
+{
+  "failed_window": {
+    "agent_id": "bd57a4fe-f1cc-4c22-a535-f8f6593c0219",
+    "run_id": "b1f07e7c-970a-4d5f-88ed-3f31719670e6",
+    "total_resources": 2,
+    "matched": 1,
+    "dispatched": 0,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 1,
+    "errors": [
+      "Synthetic task persistence failure"
+    ]
+  },
+  "ordinary_retry": {
+    "agent_id": "bd57a4fe-f1cc-4c22-a535-f8f6593c0219",
+    "run_id": "3d719fcb-5cd7-4da3-9171-6c81875de142",
+    "total_resources": 0,
+    "matched": 0,
+    "dispatched": 0,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 0,
+    "errors": []
+  },
+  "data": "synthetic task INSERT failure; actual handler and transaction rollback",
+  "exit_code": 1,
+  "source_sha256": "8f5ad327b4db169594ad8beaebd5eee6192d7d53c200f4737b254bcb02cd41a8",
+  "prototype_before_fix": {
+    "app/models/resource_publication.py": "b29843433012e6dd5894def1127e3671bd06ab9c51480de3502f23e4245a19a2",
+    "app/services/resource_publication.py": "9172fd6c5df2362b9adef22ea967140090875a6951015323c039d52b1a0ac60a",
+    "tests/unit/test_resource_publication.py": "3190c3d980cc17f853af9075aa6cd23aef76a906dc5d0fc151bbf052fb4efe0e",
+    "app/models/agent_publication_progress.py": "25db9f0cfcc2178edb4a2254ec6d23daaaa4b29c37cb4897a677693982c48905",
+    "app/services/agent_publication_progress.py": "b8ab20954951c4ec32dd610e7690be77d6a19f9cb199a0e529ff1c9571a32680",
+    "tests/unit/test_agent_publication_progress.py": "f57e53b5c6c0a9e6eda6b5b8fc71215d646f77550fd049f9c056e055248b201a",
+    "app/models/__init__.py": "c83348b27f0183e93736e6934c3e2c2645a4234ddf98acde64df067ee20bde0a",
+    "app/services/fetch_service.py": "87b53af20542f8b462ac4f1db4d29844b9de8d3743ff7c1e435af672a037dcea",
+    "app/job_handlers.py": "88d624e45e2491e2293dae71cceacae26253d59b54e4d568a35ba575c61715a8",
+    "app/api/v1/agents.py": "acb29bcd680a38d523c29897c9ab81cd5682dc3f9be565961e9c3c777ba5a3db",
+    "docs/design/data-models.md": "f5663d1b465bea549779fb3f9aa7d4e84e1602e9805a128f7acb74ac28cc4216",
+    "docs/design/business-logic.md": "13b6b2f89400a0346b09e932f72bf379d6b10555ff15a4ed95eb01481b167374",
+    "docs/design/api-endpoints.md": "ea411906a67d5a496aa82b01333b3ab260336ee6e48dcf415463c60c55c0d6a7",
+    "app/services/publication_migration.py": "ed43692caebb0a7b4f8681493cac8d4d271a64fbdd43966fa7ef400b429d259f",
+    "tests/unit/test_publication_migration.py": "11873d6b236bb4304b2f9b420b79ff5a866fd1d6f7eea81cf4303e9b817d801b",
+    "docs/design/db-migration.md": "f54601c2adac160422847b3615bb0ff60325e2c3bde336df6fd0cfb3b6c18828",
+    "scripts/review_publication_migration.py": "be8e58821d3c0da5197af558f0616496e5bbeecfb6f4c17fe550195389cbf9dd",
+    "tests/unit/test_publication_review.py": "e4a4d1f14347f57ace5967c81b6296dafa60e68db5ee287a67983d143730dcc5",
+    "app/services/publication_startup.py": "97e4aa124859856b95987b6e0426593b668da7b1409f16dc37f52b2cee4abeae",
+    "app/main.py": "4c64f26c1fd9515347fe113e1b1747292a17a67db4412d943e6c6fa668a565a8",
+    "app/worker.py": "3b834e6100e7ff13913ed8a69497244a87b5a015ed7643424b95879842d11334",
+    "tests/unit/test_publication_startup.py": "b02ddd8758652147b63418a7a539423e2bc46a86d659b961fc6abb95babb4a6a",
+    "tests/api/test_agent_publication_channel.py": "b6eccf780eead32474960a650bc110ed525f6ace23d71b5d935a6f9ef571abba"
+  }
+}

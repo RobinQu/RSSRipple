@@ -1,0 +1,78 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_______ test_reload_keeps_previous_snapshot_until_query_completes[False] _______
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fcdd95ee7b0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fcdd9600d60>
+query_fails = False
+
+    @pytest.mark.parametrize("query_fails", [False, True])
+    async def test_reload_keeps_previous_snapshot_until_query_completes(db_session, monkeypatch, query_fails):
+        db_session.add(AppSetting(key="llm_model", value="empty-model"))
+        await db_session.commit()
+        await config.load_runtime_config(db_session)
+        assert config.runtime_config.llm_model == "empty-model"
+        entered, release = asyncio.Event(), asyncio.Event()
+        original_execute = db_session.execute
+    
+        async def delayed_execute(*args, **kwargs):
+            entered.set()
+            await release.wait()
+            if query_fails:
+                raise RuntimeError("Synthetic configuration read failure")
+            return await original_execute(*args, **kwargs)
+    
+        monkeypatch.setattr(db_session, "execute", delayed_execute)
+        task = asyncio.create_task(config.load_runtime_config(db_session))
+        try:
+            await asyncio.wait_for(entered.wait(), 2)
+>           assert config.runtime_config.llm_model == "empty-model"
+E           AssertionError: assert 'openrouter/free' == 'empty-model'
+E             
+E             - empty-model
+E             + openrouter/free
+
+tests/unit/test_runtime_config_atomic_reload.py:31: AssertionError
+_______ test_reload_keeps_previous_snapshot_until_query_completes[True] ________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fcdd948d450>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fcdd95bbdf0>
+query_fails = True
+
+    @pytest.mark.parametrize("query_fails", [False, True])
+    async def test_reload_keeps_previous_snapshot_until_query_completes(db_session, monkeypatch, query_fails):
+        db_session.add(AppSetting(key="llm_model", value="empty-model"))
+        await db_session.commit()
+        await config.load_runtime_config(db_session)
+        assert config.runtime_config.llm_model == "empty-model"
+        entered, release = asyncio.Event(), asyncio.Event()
+        original_execute = db_session.execute
+    
+        async def delayed_execute(*args, **kwargs):
+            entered.set()
+            await release.wait()
+            if query_fails:
+                raise RuntimeError("Synthetic configuration read failure")
+            return await original_execute(*args, **kwargs)
+    
+        monkeypatch.setattr(db_session, "execute", delayed_execute)
+        task = asyncio.create_task(config.load_runtime_config(db_session))
+        try:
+            await asyncio.wait_for(entered.wait(), 2)
+>           assert config.runtime_config.llm_model == "empty-model"
+E           AssertionError: assert 'openrouter/free' == 'empty-model'
+E             
+E             - empty-model
+E             + openrouter/free
+
+tests/unit/test_runtime_config_atomic_reload.py:31: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_runtime_config_atomic_reload.py::test_reload_keeps_previous_snapshot_until_query_completes[False]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_runtime_config_atomic_reload.py::test_reload_keeps_previous_snapshot_until_query_completes[False]
+FAILED tests/unit/test_runtime_config_atomic_reload.py::test_reload_keeps_previous_snapshot_until_query_completes[True]
+2 failed, 1 warning in 0.92s

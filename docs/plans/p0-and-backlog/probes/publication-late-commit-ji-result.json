@@ -1,0 +1,62 @@
+{
+  "first": {
+    "agent_id": "4dad9ca8-ee1e-41aa-ba0c-76005c1a5bfb",
+    "run_id": "5bbbc32e-85f0-4e3e-97b4-e7ed0acdd701",
+    "total_resources": 1,
+    "matched": 1,
+    "dispatched": 1,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 0,
+    "errors": []
+  },
+  "second": {
+    "agent_id": "4dad9ca8-ee1e-41aa-ba0c-76005c1a5bfb",
+    "run_id": "71248532-5da8-495e-8f95-a9d3f24365cd",
+    "total_resources": 1,
+    "matched": 1,
+    "dispatched": 1,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 0,
+    "errors": []
+  },
+  "third": {
+    "agent_id": "4dad9ca8-ee1e-41aa-ba0c-76005c1a5bfb",
+    "run_id": "30890726-3328-4c57-930c-b8ff4728d38f",
+    "total_resources": 0,
+    "matched": 0,
+    "dispatched": 0,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 0,
+    "errors": []
+  },
+  "older_resource_id": "ea805251-cf54-491f-bfbf-8bda96153823",
+  "newer_resource_id": "1e8e0c85-ba39-47d3-b363-c74df4cd12a2",
+  "task_resource_ids": [
+    "1e8e0c85-ba39-47d3-b363-c74df4cd12a2",
+    "ea805251-cf54-491f-bfbf-8bda96153823"
+  ],
+  "watermark": "2026-09-20 11:28:10.654751",
+  "older_created_at": "2026-09-20 11:27:10.654751",
+  "targeted_control": {
+    "agent_id": "4dad9ca8-ee1e-41aa-ba0c-76005c1a5bfb",
+    "run_id": "945b0815-1f17-4a7b-9d3e-bdcb9b70abba",
+    "total_resources": 1,
+    "matched": 0,
+    "dispatched": 0,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 1,
+    "unrecognized": 0,
+    "errors": []
+  },
+  "exit_code": 0,
+  "cleanup_exit_code": 0,
+  "project": "rssripple-v13-distributed-ji",
+  "source_sha256": "e86346607588bf0d46c9aa52a870722793ef68b715e64119c61bd812155a20b6"
+}

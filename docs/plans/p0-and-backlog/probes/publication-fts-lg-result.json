@@ -1,0 +1,9 @@
+{
+  "data": "synthetic",
+  "attempts": 800,
+  "successful": {
+    "write": 400,
+    "read": 400
+  },
+  "errors": {}
+}

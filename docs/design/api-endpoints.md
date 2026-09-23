@@ -193,7 +193,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 
 `dispatch_resource_ids` 语义：
 - `null`（默认）：普通保存，不回填、不改动水位线（用于非规则编辑）。
-- 数组（可为空 `[]`）：表示本次保存经过 rules-preview 流程。后端会派发数组中选中的资源，并将 Agent 的 `last_consumed_at` 推进到频道当前最大 `created_at`，使后续增量运行只看到真正的新资源。空数组 = 不回填任何资源但推进水位线。
+- 数组（可为空 `[]`）：表示本次保存经过 rules-preview 流程。后端会派发数组中选中的资源，并在同一保存事务重置发布 baseline/cursor 为当前频道提交前缀、更换 generation、清空历史时间准入；`last_consumed_at` 仍更新为兼容展示时间。空数组 = 不回填资源但重置准入边界。
 
 `POST /agents/{id}/test-filters` 请求体：`{ "resource_ids": ["..."]? }`（不传则测试最近 50 条资源）；响应返回每条资源是否通过及每个条件的命中情况。
 
@@ -426,7 +426,7 @@ Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更
 | POST | `/resources/{id}/analyze-batch-stream?force=false` | 上述重析的 SSE 交互端点；web 按资源/标题/torrent 清单/解析版本指纹读取持久缓存，未命中则以 `batch-analysis:<fingerprint>` 幂等键提交 `analyze_batch_files` 后台任务，并轮询队列的共享进度状态转发 `status` / LLM `delta` / `warning` / `result`。`force=true` 仅供用户主动「重新解析」在旧任务结束后以同 key 重新入队并覆盖旧缓存；Redis Queue 的 active-key 原子去重保证多 web/多窗口只执行一次，SSE 断开不取消 worker 任务。 |
 | GET | `/resources/{id}/files` | 资源 torrent 文件清单（`ResourceFilesResponse`）：`{ "files": [{"name", "size"}], "source", "magnet_resolve"? }`，`source` 记录清单来源（首个命中即返回）：`torrent_cache`（本地缓存 .torrent 经 bencode 解析）→ `torrent_fetch`（http(s) `torrent_url` 现场下载，缓存路径写回 `torrent_file`）→ `downloader`（最新 DownloadTask 的下载器 RPC `get_torrent_files`，失败静默）→ `notification`（最新完成通知冻结快照 `payload.files`）→ `none`（全部不可用，返回空 `files`）。`magnet_resolve` 仅当 `torrent_url` 为 magnet: 且无清单时返回：`{ "status": null\|"pending"\|"running"\|"done"\|"failed", "error", "attempts", "updated_at", "trackers" }`（status 为 null = 从未解析，UI 按排队语义展示；trackers 为存储的自定义 tracker 列表，null=仅默认）。404 遵循统一错误结构。 |
 | POST | `/resources/{id}/magnet-resolve` | magnet 元数据解析手动重试（重置 `magnet_resolve_attempts=0`、`magnet_resolve_error=null` 后重新入队 `resolve_magnet_torrent`，**先 commit 再入队**；响应 `{ "magnet_resolve": {...} }` 状态块，含 `trackers`）。可选 body `{ "trackers": [str, ...] \| null }`：非空经 `validate_tracker_urls` 严格校验（udp/http(s) scheme + 非空 host + 无空白/控制字符，≤20 条、每条 ≤200 字符；非法 → 422 `VALIDATION_ERROR`，消息含首个违规 URL）并持久化到 `magnet_resolve_trackers`（failed 保留供预填、done 清空）；省略/null/空列表 → 清空为 NULL（仅用默认 tracker）。404 资源不存在；422 `VALIDATION_ERROR`（非 magnet 链接 / libtorrent 不可用 / `MAGNET_RESOLVE_ENABLED=false`）；409 `INVALID_STATE`（status 为 pending/running 解析进行中）。 |
-| POST | `/resources/{id}/reparse-metadata` | 完整后台元数据重新解析（编辑向导「重新解析元数据」按钮）：写入 `confirmation_ignored_at`（资源立即退出 Dashboard 待确认——**临时忽略**，与手动忽略的差异见 data-models）→ **先 commit 再入队** `reprocess_resource_metadata`（key `reprocess-resource:{id}`，payload `{resource_id, channel_id}`），任务跑抓取期完整元数据管线（`_process_resource_metadata`，`force_refresh=True` 绕过缓存）并在结束（**成败都**）清除忽略标记让待确认策略重评——数据仍不全重新进入待办、完整匹配留在外面；不自动派发（Agent 水位线语义不变）。不重置 `metadata_attempts`/`metadata_failure_type`（backfill 的 retry-eligibility 门控在调度侧，直接调用不受限）。404 资源不存在；key 已有活跃任务 → 409 `ALREADY_RUNNING`；成功响应 `{ "reparse": { "status": "pending" } }`。 |
+| POST | `/resources/{id}/reparse-metadata` | 完整后台元数据重新解析（编辑向导「重新解析元数据」按钮）：写入 `confirmation_ignored_at`（资源立即退出 Dashboard 待确认——**临时忽略**，与手动忽略的差异见 data-models）→ **先 commit 再入队** `reprocess_resource_metadata`（key `reprocess-resource:{id}`，payload `{resource_id, channel_id}`），任务跑抓取期完整元数据管线（`_process_resource_metadata`，`force_refresh=True` 绕过缓存）并在结束（**成败都**）清除忽略标记让待确认策略重评——数据仍不全重新进入待办、完整匹配留在外面；不创建定向派发请求；完成事件由普通增量按既有历史准入消费。不重置 `metadata_attempts`/`metadata_failure_type`（backfill 的 retry-eligibility 门控在调度侧，直接调用不受限）。404 资源不存在；key 已有活跃任务 → 409 `ALREADY_RUNNING`；成功响应 `{ "reparse": { "status": "pending" } }`。 |
 
 `PUT /resources/{id}/associations` 成功提交后额外入队 `refresh_resource_organize`：对该资源已有 completed 任务原地刷新通知快照，并重建 pending/failed 变更计划。`GET /organize/plans/{id}` 返回 `resource_id`，供详情 Drawer 复用文件资源向导的「文件关联」步骤直接修订；非开放状态只读。
 
@@ -525,3 +525,12 @@ Agent 新建/编辑的 rules-preview 回填若发生内部候选持久化错误�
 
 
 `POST /series` 和 `PUT /series/{id}` 不接受退役字段 `number_of_seasons` / `seasons`；显式传入（包括 null）返回 422 VALIDATION_ERROR，整次请求不写入作品、壳合集或人工保护字段。读取响应暂保留旧 number_of_seasons 供历史数据诊断；作品身份以 season_number 为准，普通 API 不得借退役列声明多季作品。
+
+
+### Agent 发布进度的 API 语义
+
+响应中的 `last_consumed_at` 保持时间格式，但不再充当发布事件游标。普通 null/未传回填数组保存不移动消费边界；实际规则或派发设置变更、订阅 CRUD 使旧运行 generation 失效，同频道仅改名保持进度。已确认资源不因普通规则保存自动重放。
+
+普通频道切换保持时间字段，以旧时间下界保留新频道历史候选，发布 cursor 从 0 开始、baseline 取新频道当前提交前缀。NULL 时间且缺进度的 Agent 留待首次初始化。回填数组（含空）成功后原子重置进度，内部持久化错误整体回滚。
+
+指定时间运行按 `created_at > scan_since` 选择，null 表示全历史；处理前持久化可恢复范围，失败后普通增量可补偿，成功只确认开始时发布前缀。显式回填重置优先于旧扫描确认。显式资源修订请求继续使用独立 B9 持久请求，不受普通历史排除影响。

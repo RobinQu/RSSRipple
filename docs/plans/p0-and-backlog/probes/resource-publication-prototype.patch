@@ -1,0 +1,2936 @@
+--- /dev/null
++++ b/app/models/resource_publication.py
+@@ -0,0 +1,40 @@
++"""Transactional channel publication order; sequence allocation owns a row lock."""
++
++import uuid
++from datetime import datetime
++
++from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, String, UniqueConstraint, func
++from sqlalchemy.orm import Mapped, mapped_column
++
++from app.database import Base
++
++
++class ChannelPublicationCounter(Base):
++    __tablename__ = "channel_publication_counters"
++    __table_args__ = (CheckConstraint("sequence >= 0", name="ck_publication_counter_nonnegative"),)
++
++    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
++    channel_id: Mapped[str] = mapped_column(String(36), ForeignKey("channels.id", ondelete="CASCADE"), unique=True)
++    sequence: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
++
++
++class ResourcePublication(Base):
++    __tablename__ = "resource_publications"
++    __table_args__ = (
++        UniqueConstraint("channel_id", "sequence", name="uq_resource_publication_channel_sequence"),
++        CheckConstraint(
++            "sequence > 0 AND origin_sequence > 0 AND origin_sequence <= sequence", name="ck_publication_order"
++        ),
++        CheckConstraint("kind IN ('created', 'metadata')", name="ck_publication_kind"),
++        UniqueConstraint("resource_id", "kind", name="uq_resource_publication_resource_kind"),
++    )
++
++    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
++    channel_id: Mapped[str] = mapped_column(String(36), ForeignKey("channels.id", ondelete="CASCADE"), nullable=False)
++    resource_id: Mapped[str] = mapped_column(
++        String(36), ForeignKey("file_resources.id", ondelete="CASCADE"), nullable=False
++    )
++    sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
++    origin_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
++    kind: Mapped[str] = mapped_column(String(16), nullable=False)
++    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+--- /dev/null
++++ b/app/services/resource_publication.py
+@@ -0,0 +1,65 @@
++"""Publish within the resource transaction; never perform network work under this lock."""
++
++import uuid
++
++from sqlalchemy import delete, select, update
++from sqlalchemy.dialects.postgresql import insert as pg_insert
++from sqlalchemy.dialects.sqlite import insert as sqlite_insert
++
++from app.models.file_resource import FileResource
++from app.models.resource_publication import ChannelPublicationCounter, ResourcePublication
++
++
++async def publish_resource(db, resource_id, *, kind):
++    if kind not in {"created", "metadata"}:
++        raise ValueError("Unsupported publication kind")
++    channel_id = await db.scalar(select(FileResource.channel_id).where(FileResource.id == resource_id))
++    if channel_id is None:
++        raise ValueError("Resource must exist before publication")
++    insert = pg_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
++    await db.execute(
++        insert(ChannelPublicationCounter)
++        .values(
++            id=str(uuid.uuid4()),
++            channel_id=channel_id,
++            sequence=0,
++        )
++        .on_conflict_do_nothing(index_elements=["channel_id"])
++    )
++    # UPDATE, unlike a sequence generator, serializes allocation until commit.
++    sequence = await db.scalar(
++        update(ChannelPublicationCounter)
++        .where(ChannelPublicationCounter.channel_id == channel_id)
++        .values(sequence=ChannelPublicationCounter.sequence + 1)
++        .returning(ChannelPublicationCounter.sequence)
++    )
++    origin = await db.scalar(
++        select(ResourcePublication).where(
++            ResourcePublication.resource_id == resource_id,
++            ResourcePublication.kind == "created",
++        )
++    )
++    if kind == "created" and origin is not None:
++        raise ValueError("Resource already published; roll back transaction")
++    if kind == "metadata" and origin is None:
++        raise ValueError("Resource requires an initial publication; roll back transaction")
++    if kind == "metadata":
++        # Consumers read the resource's latest committed state, not event
++        # payload history. Replace the prior wakeup in this same transaction;
++        # an old snapshot can acknowledge only its earlier sequence.
++        await db.execute(
++            delete(ResourcePublication).where(
++                ResourcePublication.resource_id == resource_id,
++                ResourcePublication.kind == "metadata",
++            )
++        )
++    publication = ResourcePublication(
++        channel_id=channel_id,
++        resource_id=resource_id,
++        kind=kind,
++        sequence=sequence,
++        origin_sequence=sequence if kind == "created" else origin.sequence,
++    )
++    db.add(publication)
++    await db.flush()
++    return publication
+--- /dev/null
++++ b/tests/unit/test_resource_publication.py
+@@ -0,0 +1,69 @@
++"""Publication prototype: real database transactions and explicit synthetic rows."""
++
++import uuid
++
++import pytest
++from sqlalchemy import select
++
++from app.models.channel import Channel
++from app.models.file_resource import FileResource
++from app.models.resource_publication import ChannelPublicationCounter, ResourcePublication
++from app.services.resource_publication import publish_resource
++
++
++async def resource(db):
++    channel = Channel(
++        name="Synthetic publication", url="https://example.invalid/" + str(uuid.uuid4()), field_mapping={}
++    )
++    db.add(channel)
++    await db.flush()
++    row = FileResource(channel_id=channel.id, guid=str(uuid.uuid4()), title_raw="Synthetic", torrent_url="synthetic")
++    db.add(row)
++    await db.flush()
++    return row
++
++
++async def test_metadata_event_retains_original_admission_sequence(db_session):
++    row = await resource(db_session)
++    created = await publish_resource(db_session, row.id, kind="created")
++    metadata = await publish_resource(db_session, row.id, kind="metadata")
++    assert (created.sequence, metadata.sequence, metadata.origin_sequence) == (1, 2, 1)
++
++
++async def test_rollback_does_not_advance_published_prefix(db_session):
++    row = await resource(db_session)
++    with pytest.raises(RuntimeError):
++        async with db_session.begin_nested():
++            await publish_resource(db_session, row.id, kind="created")
++            raise RuntimeError("Synthetic abort")
++    assert not list(await db_session.scalars(select(ResourcePublication)))
++    assert not list(await db_session.scalars(select(ChannelPublicationCounter)))
++    event = await publish_resource(db_session, row.id, kind="created")
++    assert event.sequence == 1
++
++
++@pytest.mark.parametrize("kind", ["metadata", "unknown"])
++async def test_invalid_initial_publication_rejects_and_rolls_back(db_session, kind):
++    row = await resource(db_session)
++    with pytest.raises(ValueError):
++        async with db_session.begin_nested():
++            await publish_resource(db_session, row.id, kind=kind)
++    assert not list(await db_session.scalars(select(ResourcePublication)))
++    assert not list(await db_session.scalars(select(ChannelPublicationCounter)))
++
++
++async def test_metadata_retention_is_bounded_and_rollback_preserves_last_wakeup(db_session):
++    row = await resource(db_session)
++    await publish_resource(db_session, row.id, kind="created")
++    for _ in range(10):
++        latest = await publish_resource(db_session, row.id, kind="metadata")
++    events = list(await db_session.scalars(select(ResourcePublication).order_by(ResourcePublication.sequence)))
++    assert [(e.kind, e.sequence, e.origin_sequence) for e in events] == [("created", 1, 1), ("metadata", 11, 1)]
++    last_id = latest.id
++    with pytest.raises(RuntimeError):
++        async with db_session.begin_nested():
++            await publish_resource(db_session, row.id, kind="metadata")
++            raise RuntimeError("Synthetic failed refresh transaction")
++    kept = await db_session.scalar(select(ResourcePublication).where(ResourcePublication.kind == "metadata"))
++    assert kept.id == last_id and kept.sequence == 11
++    assert await db_session.scalar(select(ChannelPublicationCounter.sequence)) == 11
+--- /dev/null
++++ b/app/models/agent_publication_progress.py
+@@ -0,0 +1,23 @@
++"""Prototype state separating historical admission from event consumption."""
++
++import uuid
++from datetime import datetime
++
++from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, String
++from sqlalchemy.orm import Mapped, mapped_column
++
++from app.database import Base
++
++
++class AgentPublicationProgress(Base):
++    __tablename__ = "agent_publication_progress"
++    __table_args__ = (CheckConstraint("baseline >= 0 AND cursor >= 0", name="ck_agent_publication_progress"),)
++
++    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
++    agent_id: Mapped[str] = mapped_column(String(36), ForeignKey("agents.id", ondelete="CASCADE"), unique=True)
++    channel_id: Mapped[str] = mapped_column(String(36), ForeignKey("channels.id", ondelete="CASCADE"))
++    generation: Mapped[str] = mapped_column(String(36), nullable=False)
++    baseline: Mapped[int] = mapped_column(BigInteger, nullable=False)
++    cursor: Mapped[int] = mapped_column(BigInteger, nullable=False)
++
++    historical_created_after: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+--- /dev/null
++++ b/app/services/agent_publication_progress.py
+@@ -0,0 +1,267 @@
++"""Prototype event snapshots: caller owns transaction and processing success."""
++
++import uuid
++from dataclasses import dataclass
++
++from sqlalchemy import delete, or_, select, update
++from sqlalchemy.dialects.postgresql import insert as pg_insert
++from sqlalchemy.dialects.sqlite import insert as sqlite_insert
++
++from app.models.agent_publication_progress import AgentPublicationProgress
++from app.models.file_resource import FileResource
++from app.models.resource_publication import ChannelPublicationCounter, ResourcePublication
++
++
++@dataclass(frozen=True)
++class PublicationSnapshot:
++    agent_id: str
++    channel_id: str
++    generation: str
++    through: int
++    resource_ids: tuple[str, ...]
++
++
++async def published_prefix(db, channel_id):
++    return (
++        await db.scalar(
++            select(ChannelPublicationCounter.sequence).where(ChannelPublicationCounter.channel_id == channel_id)
++        )
++    ) or 0
++
++
++async def reset_progress(db, agent_id, channel_id):
++    """Exclude currently published history; future commits stay eligible.
++
++    Call in the successful backfill save transaction, after all network work.
++    This is also the explicit first-run baseline; legacy migration is separate.
++    """
++    prefix = await published_prefix(db, channel_id)
++    values = dict(
++        channel_id=channel_id,
++        generation=str(uuid.uuid4()),
++        baseline=prefix,
++        cursor=prefix,
++        historical_created_after=None,
++    )
++    insert = pg_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
++    await db.execute(
++        insert(AgentPublicationProgress)
++        .values(id=str(uuid.uuid4()), agent_id=agent_id, **values)
++        .on_conflict_do_update(index_elements=["agent_id"], set_=values)
++    )
++
++
++async def snapshot_publications(db, agent_id, channel_id):
++    # Select scalar columns to avoid stale identity-map state after a reset.
++    row = (
++        await db.execute(
++            select(
++                AgentPublicationProgress.generation,
++                AgentPublicationProgress.baseline,
++                AgentPublicationProgress.cursor,
++                AgentPublicationProgress.historical_created_after,
++            ).where(
++                AgentPublicationProgress.agent_id == agent_id,
++                AgentPublicationProgress.channel_id == channel_id,
++            )
++        )
++    ).one_or_none()
++    if row is None:
++        raise ValueError("Agent publication baseline must be initialized explicitly")
++    prefix = await published_prefix(db, channel_id)
++    admission = ResourcePublication.origin_sequence > row.baseline
++    if row.historical_created_after is not None:
++        admission = or_(admission, FileResource.created_at > row.historical_created_after)
++    ids = await db.scalars(
++        select(ResourcePublication.resource_id)
++        .join(FileResource, FileResource.id == ResourcePublication.resource_id)
++        .where(
++            ResourcePublication.channel_id == channel_id,
++            ResourcePublication.sequence > row.cursor,
++            ResourcePublication.sequence <= prefix,
++            admission,
++        )
++        .order_by(ResourcePublication.sequence)
++    )
++    return PublicationSnapshot(agent_id, channel_id, row.generation, prefix, tuple(dict.fromkeys(ids)))
++
++
++async def acknowledge_publications(db, snapshot):
++    """Acknowledge only after successful processing; never overwrite a reset."""
++    result = await db.execute(
++        update(AgentPublicationProgress)
++        .where(
++            AgentPublicationProgress.agent_id == snapshot.agent_id,
++            AgentPublicationProgress.channel_id == snapshot.channel_id,
++            AgentPublicationProgress.generation == snapshot.generation,
++            AgentPublicationProgress.cursor < snapshot.through,
++        )
++        .values(cursor=snapshot.through)
++    )
++    return result.rowcount == 1
++
++
++async def initialize_first_run(db, agent):
++    """Initialize only a never-consumed Agent, without resetting existing state.
++
++    Historical time watermarks require the separate reviewed migration; a
++    channel mismatch requires an explicit channel-change baseline policy.
++    """
++    existing = await db.scalar(
++        select(AgentPublicationProgress.channel_id).where(AgentPublicationProgress.agent_id == agent.id)
++    )
++    if existing is not None:
++        if existing != agent.channel_id:
++            raise ValueError("Agent publication channel changed without a baseline reset")
++        return False
++    if agent.last_consumed_at is not None:
++        raise ValueError("Legacy Agent requires publication progress migration")
++    prefix = await published_prefix(db, agent.channel_id)
++    insert = pg_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
++    result = await db.execute(
++        insert(AgentPublicationProgress)
++        .values(
++            id=str(uuid.uuid4()),
++            agent_id=agent.id,
++            channel_id=agent.channel_id,
++            generation=str(uuid.uuid4()),
++            baseline=prefix,
++            cursor=prefix,
++        )
++        .on_conflict_do_nothing(index_elements=["agent_id"])
++    )
++    return result.rowcount == 1
++
++
++async def switch_channel_progress(db, agent):
++    """Null backfill saves retain the previous timestamp's historical scope.
++
++    New publications after this save are always eligible, even if their
++    created_at predates that timestamp. Explicit backfill uses reset_progress.
++    """
++    if agent.last_consumed_at is None:
++        await db.execute(delete(AgentPublicationProgress).where(AgentPublicationProgress.agent_id == agent.id))
++        return
++    prefix = await published_prefix(db, agent.channel_id)
++    values = dict(
++        channel_id=agent.channel_id,
++        generation=str(uuid.uuid4()),
++        baseline=prefix,
++        cursor=0,
++        historical_created_after=agent.last_consumed_at,
++    )
++    insert = pg_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
++    await db.execute(
++        insert(AgentPublicationProgress)
++        .values(id=str(uuid.uuid4()), agent_id=agent.id, **values)
++        .on_conflict_do_update(index_elements=["agent_id"], set_=values)
++    )
++
++
++async def acknowledge_window(db, snapshot, scan_since):
++    """Keep later completion events for a successfully scanned historical range.
++
++    Admit that range without widening beyond the explicit scan. Never consume
++    events published after the snapshot or overwrite a later backfill reset.
++    """
++    from datetime import datetime
++
++    from sqlalchemy import case
++
++    cutoff = scan_since if scan_since is not None else datetime.min
++    table = AgentPublicationProgress
++    result = await db.execute(
++        update(table)
++        .where(
++            table.agent_id == snapshot.agent_id,
++            table.channel_id == snapshot.channel_id,
++            table.generation == snapshot.generation,
++        )
++        .values(
++            cursor=case((table.cursor < snapshot.through, snapshot.through), else_=table.cursor),
++            historical_created_after=case(
++                (or_(table.historical_created_after.is_(None), table.historical_created_after > cutoff), cutoff),
++                else_=table.historical_created_after,
++            ),
++        )
++    )
++    return result.rowcount == 1
++
++
++async def prepare_window_retry(db, snapshot, resource_ids, scan_since):
++    """Persist explicit scan intent before processing can commit or crash.
++
++    Rewind only as far as the earliest selected creation event. Task/decision
++    dedup makes already-consumed eligible neighbours safe to reconsider.
++    A new generation invalidates runs that selected an older cursor state.
++    """
++    from dataclasses import replace
++    from datetime import datetime
++
++    from sqlalchemy import case, func
++
++    earliest = await db.scalar(
++        select(func.min(ResourcePublication.sequence)).where(
++            ResourcePublication.channel_id == snapshot.channel_id,
++            ResourcePublication.kind == "created",
++            ResourcePublication.resource_id.in_(resource_ids),
++        )
++    )
++    if earliest is None:
++        raise ValueError("Selected scan resources require creation publications")
++    cutoff = scan_since if scan_since is not None else datetime.min
++    generation = str(uuid.uuid4())
++    table = AgentPublicationProgress
++    result = await db.execute(
++        update(table)
++        .where(
++            table.agent_id == snapshot.agent_id,
++            table.channel_id == snapshot.channel_id,
++            table.generation == snapshot.generation,
++        )
++        .values(
++            generation=generation,
++            cursor=case((table.cursor >= earliest, earliest - 1), else_=table.cursor),
++            historical_created_after=case(
++                (or_(table.historical_created_after.is_(None), table.historical_created_after > cutoff), cutoff),
++                else_=table.historical_created_after,
++            ),
++        )
++    )
++    if result.rowcount != 1:
++        raise ValueError("Agent consumption scope changed; retry scan with current rules")
++    return replace(snapshot, generation=generation)
++
++
++async def require_current_scope(db, snapshot):
++    """Check a fresh committed view, not a long-lived Turso read snapshot.
++
++    This fences work before dispatch begins. It cannot revoke an RPC that
++    already began before a concurrent edit committed.
++    """
++    from sqlalchemy.ext.asyncio import AsyncSession
++
++    from app.models.agent import Agent
++
++    async with AsyncSession(bind=db.bind) as current:
++        valid = await current.scalar(
++            select(AgentPublicationProgress.id)
++            .join(Agent, Agent.id == AgentPublicationProgress.agent_id)
++            .where(
++                Agent.id == snapshot.agent_id,
++                Agent.channel_id == snapshot.channel_id,
++                AgentPublicationProgress.channel_id == snapshot.channel_id,
++                AgentPublicationProgress.generation == snapshot.generation,
++            )
++        )
++    if valid is None:
++        raise ValueError("Agent consumption scope changed; old run must not dispatch")
++
++
++async def invalidate_running_scope(db, agent_id):
++    """Rule edits invalidate dispatch snapshots without moving consumption."""
++    await db.execute(
++        update(AgentPublicationProgress)
++        .where(AgentPublicationProgress.agent_id == agent_id)
++        .values(generation=str(uuid.uuid4()))
++    )
+--- /dev/null
++++ b/tests/unit/test_agent_publication_progress.py
+@@ -0,0 +1,272 @@
++"""Actual transaction tests; synthetic identity and no downloader calls."""
++
++from app.models.agent import Agent
++from app.models.downloader import DownloaderInstance
++from app.models.file_resource import FileResource
++from app.services.agent_publication_progress import acknowledge_publications, reset_progress, snapshot_publications
++from app.services.resource_publication import publish_resource
++from tests.unit.test_resource_publication import resource
++
++
++async def setup(db):
++    old = await resource(db)
++    downloader = DownloaderInstance(
++        name="Synthetic", type="mock", url="mock://synthetic", download_dir="/tmp/synthetic"
++    )
++    db.add(downloader)
++    await db.flush()
++    agent = Agent(name="Synthetic", channel_id=old.channel_id, downloader_id=downloader.id)
++    db.add(agent)
++    await db.flush()
++    await publish_resource(db, old.id, kind="created")
++    await reset_progress(db, agent.id, old.channel_id)
++    return agent, old
++
++
++async def next_resource(db, channel_id):
++    import uuid
++
++    row = FileResource(channel_id=channel_id, guid=str(uuid.uuid4()), title_raw="Synthetic", torrent_url="synthetic")
++    db.add(row)
++    await db.flush()
++    await publish_resource(db, row.id, kind="created")
++    return row
++
++
++async def test_late_metadata_retries_new_resource_but_preserves_history_exclusion(db_session):
++    agent, old = await setup(db_session)
++    new = await next_resource(db_session, old.channel_id)
++    first = await snapshot_publications(db_session, agent.id, old.channel_id)
++    assert first.resource_ids == (new.id,)
++    assert await acknowledge_publications(db_session, first)
++    await publish_resource(db_session, old.id, kind="metadata")
++    await publish_resource(db_session, new.id, kind="metadata")
++    second = await snapshot_publications(db_session, agent.id, old.channel_id)
++    assert second.resource_ids == (new.id,)
++    # Failed processing makes no acknowledgement and must replay unchanged.
++    assert await snapshot_publications(db_session, agent.id, old.channel_id) == second
++    assert await acknowledge_publications(db_session, second)
++    assert not (await snapshot_publications(db_session, agent.id, old.channel_id)).resource_ids
++
++
++async def test_backfill_reset_rejects_stale_run_acknowledgement(db_session):
++    agent, old = await setup(db_session)
++    new = await next_resource(db_session, old.channel_id)
++    stale = await snapshot_publications(db_session, agent.id, old.channel_id)
++    await reset_progress(db_session, agent.id, old.channel_id)
++    assert not await acknowledge_publications(db_session, stale)
++    await publish_resource(db_session, new.id, kind="metadata")
++    assert not (await snapshot_publications(db_session, agent.id, old.channel_id)).resource_ids
++    newest = await next_resource(db_session, old.channel_id)
++    assert (await snapshot_publications(db_session, agent.id, old.channel_id)).resource_ids == (newest.id,)
++
++
++async def test_completion_after_snapshot_survives_older_ack(db_session):
++    agent, old = await setup(db_session)
++    new = await next_resource(db_session, old.channel_id)
++    before = await snapshot_publications(db_session, agent.id, old.channel_id)
++    await publish_resource(db_session, new.id, kind="metadata")
++    assert await acknowledge_publications(db_session, before)
++    after = await snapshot_publications(db_session, agent.id, old.channel_id)
++    assert after.resource_ids == (new.id,)
++    assert after.through > before.through
++    assert await acknowledge_publications(db_session, after)
++    assert not await acknowledge_publications(db_session, before)
++
++
++async def test_first_initialization_does_not_reset_existing_paused_progress(db_session):
++    from app.services.agent_publication_progress import initialize_first_run
++
++    agent, old = await setup(db_session)
++    agent.status = "paused"
++    new = await next_resource(db_session, old.channel_id)
++    assert not await initialize_first_run(db_session, agent)
++    agent.status = "active"
++    assert (await snapshot_publications(db_session, agent.id, old.channel_id)).resource_ids == (new.id,)
++
++
++async def test_missing_legacy_progress_is_not_silently_reset(db_session):
++    import pytest
++    from sqlalchemy import delete
++
++    from app.models.agent_publication_progress import AgentPublicationProgress
++    from app.services.agent_publication_progress import initialize_first_run
++    from app.utils.time import utcnow
++
++    agent, old = await setup(db_session)
++    await db_session.execute(delete(AgentPublicationProgress).where(AgentPublicationProgress.agent_id == agent.id))
++    agent.last_consumed_at = utcnow()
++    with pytest.raises(ValueError, match="migration"):
++        await initialize_first_run(db_session, agent)
++    agent.last_consumed_at = None
++    assert await initialize_first_run(db_session, agent)
++    assert not (await snapshot_publications(db_session, agent.id, old.channel_id)).resource_ids
++    new = await next_resource(db_session, old.channel_id)
++    assert (await snapshot_publications(db_session, agent.id, old.channel_id)).resource_ids == (new.id,)
++
++
++async def test_channel_switch_retains_old_time_scope_and_accepts_late_new_publication(db_session):
++    from datetime import timedelta
++
++    from app.services.agent_publication_progress import switch_channel_progress
++    from app.utils.time import utcnow
++
++    agent, _ = await setup(db_session)
++    old_snapshot = await snapshot_publications(db_session, agent.id, agent.channel_id)
++    other = await resource(db_session)
++    now = utcnow()
++    other.created_at = now - timedelta(days=2)
++    await publish_resource(db_session, other.id, kind="created")
++    eligible = await next_resource(db_session, other.channel_id)
++    eligible.created_at = now
++    agent.last_consumed_at = now - timedelta(days=1)
++    agent.channel_id = other.channel_id
++    await db_session.flush()
++    await switch_channel_progress(db_session, agent)
++    assert not await acknowledge_publications(db_session, old_snapshot)
++    first = await snapshot_publications(db_session, agent.id, agent.channel_id)
++    assert first.resource_ids == (eligible.id,)
++    await acknowledge_publications(db_session, first)
++    late = await next_resource(db_session, agent.channel_id)
++    late.created_at = now - timedelta(days=3)
++    await db_session.flush()
++    assert (await snapshot_publications(db_session, agent.id, agent.channel_id)).resource_ids == (late.id,)
++    await reset_progress(db_session, agent.id, agent.channel_id)
++    await publish_resource(db_session, eligible.id, kind="metadata")
++    assert not (await snapshot_publications(db_session, agent.id, agent.channel_id)).resource_ids
++
++
++async def test_window_completion_scope_and_post_snapshot_events(db_session):
++    from datetime import timedelta
++
++    from app.services.agent_publication_progress import acknowledge_window
++    from app.utils.time import utcnow
++
++    agent, excluded = await setup(db_session)
++    now = utcnow()
++    excluded.created_at = now - timedelta(days=2)
++    selected = await next_resource(db_session, agent.channel_id)
++    selected.created_at = now
++    await db_session.flush()
++    await reset_progress(db_session, agent.id, agent.channel_id)
++    window = await snapshot_publications(db_session, agent.id, agent.channel_id)
++    await publish_resource(db_session, selected.id, kind="metadata")
++    await publish_resource(db_session, excluded.id, kind="metadata")
++    assert await acknowledge_window(db_session, window, now - timedelta(days=1))
++    after = await snapshot_publications(db_session, agent.id, agent.channel_id)
++    assert after.resource_ids == (selected.id,)
++    await reset_progress(db_session, agent.id, agent.channel_id)
++    assert not await acknowledge_window(db_session, window, None)
++    await publish_resource(db_session, selected.id, kind="metadata")
++    assert not (await snapshot_publications(db_session, agent.id, agent.channel_id)).resource_ids
++
++
++async def test_prepared_scan_survives_missing_ack_but_backfill_cancels_scope(db_session):
++    from app.services.agent_publication_progress import prepare_window_retry
++
++    agent, old = await setup(db_session)
++    original = await snapshot_publications(db_session, agent.id, agent.channel_id)
++    prepared = await prepare_window_retry(db_session, original, [old.id], None)
++    assert prepared.generation != original.generation
++    retry = await snapshot_publications(db_session, agent.id, agent.channel_id)
++    assert retry.resource_ids == (old.id,)
++    assert not await acknowledge_publications(db_session, original)
++    await reset_progress(db_session, agent.id, agent.channel_id)
++    assert not await acknowledge_publications(db_session, prepared)
++    assert not (await snapshot_publications(db_session, agent.id, agent.channel_id)).resource_ids
++
++
++async def test_stale_scan_cannot_reopen_new_backfill(db_session):
++    import pytest
++
++    from app.services.agent_publication_progress import prepare_window_retry
++
++    agent, old = await setup(db_session)
++    stale = await snapshot_publications(db_session, agent.id, agent.channel_id)
++    await reset_progress(db_session, agent.id, agent.channel_id)
++    with pytest.raises(ValueError, match="scope changed"):
++        await prepare_window_retry(db_session, stale, [old.id], None)
++    assert not (await snapshot_publications(db_session, agent.id, agent.channel_id)).resource_ids
++
++
++async def test_replacing_completion_cannot_be_consumed_by_an_older_snapshot(db_session):
++    agent, old = await setup(db_session)
++    new = await next_resource(db_session, agent.channel_id)
++    await publish_resource(db_session, new.id, kind="metadata")
++    before = await snapshot_publications(db_session, agent.id, agent.channel_id)
++    latest = await publish_resource(db_session, new.id, kind="metadata")
++    assert latest.sequence > before.through
++    await acknowledge_publications(db_session, before)
++    after = await snapshot_publications(db_session, agent.id, agent.channel_id)
++    assert after.resource_ids == (new.id,)
++    assert after.through == latest.sequence
++
++
++async def test_history_reconciliation_publishes_only_admitted_work(db_session, monkeypatch):
++    """Synthetic numbering history; actual sweep, publication and admission."""
++    from app.models.series import TVSeries
++    from app.services.fetch_service import reconcile_stale_raw_episodes
++
++    agent, excluded = await setup(db_session)
++    admitted = await next_resource(db_session, excluded.channel_id)
++    anchor = await next_resource(db_session, excluded.channel_id)
++    series = TVSeries(title_cn="Synthetic history", season_number=4, number_of_episodes=24)
++    db_session.add(series)
++    await db_session.flush()
++    for row in (excluded, admitted, anchor):
++        row.series_id = series.id
++        row.season = 4
++        row.subtitle_group = "GROUP"
++        row.episode = 18
++        row.absolute_episode = 90
++        row.episode_confidence = "raw"
++    anchor.absolute_episode = 89
++    anchor.episode_confidence = "manual"
++    first = await snapshot_publications(db_session, agent.id, excluded.channel_id)
++    await acknowledge_publications(db_session, first)
++    await db_session.commit()
++    # A failed event insert must roll back numbering changes and publication.
++    import pytest
++
++    from app.services import resource_publication
++
++    ids = (excluded.id, admitted.id)
++    real_publish = resource_publication.publish_resource
++
++    async def fail_after_publish(*args, **kwargs):
++        await real_publish(*args, **kwargs)
++        raise RuntimeError("Synthetic publication failure")
++
++    with monkeypatch.context() as patcher:
++        patcher.setattr(resource_publication, "publish_resource", fail_after_publish)
++        with pytest.raises(RuntimeError, match="Synthetic publication failure"):
++            await reconcile_stale_raw_episodes(db_session, return_resource_ids=True)
++        await db_session.rollback()
++    for row in (excluded, admitted, anchor, agent):
++        await db_session.refresh(row)
++    assert excluded.episode == admitted.episode == 18
++    assert not (await snapshot_publications(db_session, agent.id, excluded.channel_id)).resource_ids
++    # Exercise the scheduled handler with its own committed sessions. Only
++    # unrelated network backfill and the queue transport are substituted.
++    from unittest.mock import AsyncMock, patch
++
++    from app.job_handlers import _handle_backfill_metadata
++    from app.services import task_queue
++
++    await db_session.commit()
++    enqueue = AsyncMock()
++    with (
++        patch("app.job_handlers._refresh_runtime_config", AsyncMock()),
++        patch("app.services.fetch_service.backfill_unmatched_resources_global", AsyncMock(return_value=0)),
++        patch.object(task_queue.task_queue, "enqueue", enqueue),
++    ):
++        result = await _handle_backfill_metadata({})
++    assert result == {"status": "done", "processed": 0, "reconciled": len(ids)}
++    enqueue.assert_awaited_once_with(
++        "run_agent", f"agent:{agent.id}", {"agent_id": agent.id, "automatic": True}
++    )
++    for row in (excluded, admitted):
++        await db_session.refresh(row)
++    assert excluded.episode == admitted.episode == 19
++    pending = await snapshot_publications(db_session, agent.id, excluded.channel_id)
++    assert pending.resource_ids == (admitted.id,)
+--- a/app/models/__init__.py
++++ b/app/models/__init__.py
+@@ -1,6 +1,7 @@
+ """ORM models package - import all for SQLAlchemy discovery."""
+ 
+ from app.models.agent import Agent
++from app.models.agent_publication_progress import AgentPublicationProgress
+ from app.models.agent_resource_request import AgentResourceRequest
+ from app.models.agent_run import AgentRun
+ from app.models.agent_suggestion import AgentSuggestion
+@@ -32,6 +33,7 @@
+ from app.models.organize_rule import OrganizeRule
+ from app.models.pending_decision import PendingDecision
+ from app.models.resource_file_assignment import ResourceFileAssignment
++from app.models.resource_publication import ChannelPublicationCounter, ResourcePublication
+ from app.models.resource_work_link import ResourceWorkLink
+ from app.models.series import TVSeries
+ from app.models.storage_volume import StorageVolume
+@@ -41,6 +43,9 @@
+ from app.models.work_external_id import WorkExternalId
+ 
+ __all__ = [
++    "AgentPublicationProgress",
++    "ChannelPublicationCounter",
++    "ResourcePublication",
+     "WorkExternalId",
+     "Channel",
+     "FileResource",
+--- a/app/services/fetch_service.py
++++ b/app/services/fetch_service.py
+@@ -197,6 +197,26 @@
+     *,
+     force_refresh: bool = False,
+ ) -> None:
++    """Retry an uncommitted metadata transaction with a fresh session."""
++    from app.database import retry_on_lock
++
++    try:
++        await retry_on_lock(
++            lambda: _process_resource_metadata_once(
++                resource_id, channel_id, semaphore, force_refresh=force_refresh
++            )
++        )
++    except Exception as exc:
++        logger.warning("[metadata-task] retries exhausted for %s: %s", resource_id, exc)
++
++
++async def _process_resource_metadata_once(
++    resource_id: str,
++    channel_id: str,
++    semaphore: asyncio.Semaphore,
++    *,
++    force_refresh: bool = False,
++) -> None:
+     """Run metadata + poster download for one FileResource in its own session.
+ 
+     Used by both the new-resource path and the backfill path so each
+@@ -207,7 +227,7 @@
+     "database is locked" / unresponsive-edit symptom that motivated
+     committing the resource row before metadata in the first place.
+     """
+-    from app.database import async_session_factory
++    from app.database import _is_retryable_lock_error, async_session_factory
+     from app.models.movie import Movie
+     from app.models.series import TVSeries
+     from app.services.metadata_agent import get_agent
+@@ -216,6 +236,7 @@
+ 
+     async with semaphore:
+         async with async_session_factory() as task_db:
++            metadata_committed = False
+             try:
+                 result = await task_db.execute(
+                     select(FileResource)
+@@ -362,9 +383,13 @@
+                                 "[franchise] movie dedup failed for %s: %s",
+                                 resource_id, e,
+                             )
++                    from app.services.resource_publication import publish_resource
++
++                    await publish_resource(task_db, resource.id, kind="metadata")
+                     # Commit inside the lock: the next same-work task's lookup
+                     # must see this task's series/movie row.
+                     await task_db.commit()
++                    metadata_committed = True
+ 
+                 # Poster download for newly-linked entities (kept in the same
+                 # task session so a network call never blocks other writers).
+@@ -387,6 +412,8 @@
+                     await task_db.rollback()
+                 except Exception:
+                     pass
++                if not metadata_committed and _is_retryable_lock_error(e):
++                    raise
+ 
+ 
+ async def _backfill_unmatched_resources(
+@@ -575,7 +602,8 @@
+     ``ambiguous`` rows and previously-clamped ``reconciled`` rows.  The legacy
+     arithmetic pass remains limited to raw/NULL values whose episode exceeds
+     the linked season count.  Returns the changed count by default; callers
+-    that need to enqueue targeted agent runs may request the resource ids.
++    that need the affected resource ids may request them. Changes and publication
++    events commit together; automatic consumers retain historical exclusions.
+     """
+     from app.models.series import TVSeries
+     from app.services.episode_history import apply_episode_history_reconcile
+@@ -653,6 +681,13 @@
+         if apply_episode_reconcile(r, smap):
+             changed_ids.append(r.id)
+     if changed_ids:
++        from app.services.resource_publication import publish_resource
++
++        changed = set(changed_ids)
++        # Acquire channel counters in a consistent order across concurrent sweeps.
++        for row in sorted(resources, key=lambda row: (row.channel_id, row.id)):
++            if row.id in changed:
++                await publish_resource(db, row.id, kind="metadata")
+         await db.commit()
+     return changed_ids if return_resource_ids else len(changed_ids)
+ 
+@@ -843,6 +878,9 @@
+             resource.episode_confidence = "reconciled"
+         db.add(resource)
+         await db.flush()
++        from app.services.resource_publication import publish_resource
++
++        await publish_resource(db, resource.id, kind="created")
+         # Commit the new resource immediately so the SQLite write lock is
+         # released *before* the metadata ReAct loop below. agent.process runs
+         # many LLM + external search calls (tens of messages per resource when
+@@ -921,7 +959,7 @@
+             await task_queue.enqueue(
+                 "run_agent",
+                 f"agent:{agent.id}",
+-                {"agent_id": agent.id},
++                {"agent_id": agent.id, "automatic": True},
+             )
+         except Exception as e:
+             logger.warning("Failed to enqueue run_agent for %s: %s", agent.id, e)
+--- a/app/job_handlers.py
++++ b/app/job_handlers.py
+@@ -98,6 +98,9 @@
+         if not agent:
+             raise RuntimeError(f"Agent {agent_id} not found")
+ 
++        if payload.get("automatic") and agent.status != "active":
++            return {"status": "skipped", "reason": "agent not active"}
++
+         request_snapshots = await snapshot_requests(session, agent_id)
+ 
+         run = AgentRun(agent_id=agent.id, status="running", started_at=utcnow())
+@@ -107,6 +110,8 @@
+         channel_id = agent.channel_id
+ 
+         advance_to = None
++        publication_snapshot = None
++        window_snapshot = None
+         if resource_ids or payload.get("pending_requests"):
+             # Targeted run (scenario ③, e.g. correct_episode): process exactly
+             # the given resources against the agent's *current* rules. Bypasses
+@@ -122,6 +127,10 @@
+             )
+             selected_ids = list((await session.execute(stmt)).scalars().all())
+         elif scan_windowed:
++            from app.services.agent_publication_progress import initialize_first_run, snapshot_publications
++
++            await initialize_first_run(session, agent)
++            window_snapshot = await snapshot_publications(session, agent.id, channel_id)
+             # Windowed run (scenario ④): scan channel resources created after
+             # the user-chosen start time, or the full channel history when
+             # scan_since is null ("no limit"). Only the scan range of THIS
+@@ -139,34 +148,23 @@
+             selected_ids = [r.id for r in rows]
+             if rows:
+                 advance_to = max(r.created_at for r in rows)
++                from app.services.agent_publication_progress import prepare_window_retry
++
++                window_snapshot = await prepare_window_retry(session, window_snapshot, selected_ids, scan_since)
+             run_scan_since = scan_since if scan_since is not None else datetime(1970, 1, 1)
+         else:
+-            # Delta run (scenario ①): only resources newer than the agent's
+-            # consumption watermark. Replaces the old hard-coded ``limit(200)``
+-            # which silently dropped anything beyond the latest 200.
+-            wm = agent.last_consumed_at
+-            if wm is None:
+-                # No watermark yet (e.g. migration skipped this row): treat as
+-                # "caught up to now" and process nothing, so we never silently
+-                # auto-dispatch historical backfill — that must go through the
+-                # rules-preview selection flow.
++            from app.services.agent_publication_progress import initialize_first_run, snapshot_publications
++
++            if await initialize_first_run(session, agent):
+                 agent.last_consumed_at = utcnow()
+-                selected_ids = []
+-            else:
+-                stmt = (
+-                    select(FileResource.id, FileResource.created_at)
+-                    .where(
+-                        FileResource.channel_id == channel_id,
+-                        FileResource.created_at > wm,
+-                    )
+-                    .order_by(FileResource.created_at.asc())
+-                )
+-                rows = (await session.execute(stmt)).all()
+-                selected_ids = [r.id for r in rows]
+-                # Advance the watermark past everything we just considered
+-                # (delta run only). Targeted runs leave it untouched.
+-                if rows:
+-                    advance_to = max(r.created_at for r in rows)
++            publication_snapshot = await snapshot_publications(session, agent.id, channel_id)
++            selected_ids = list(publication_snapshot.resource_ids)
++            if selected_ids:
++                from sqlalchemy import func
++
++                advance_to = await session.scalar(select(func.max(FileResource.created_at)).where(
++                    FileResource.id.in_(selected_ids)
++                ))
+ 
+         selected_ids = list(dict.fromkeys([*selected_ids, *(r.resource_id for r in request_snapshots)]))
+ 
+@@ -216,20 +214,32 @@
+                 resources,
+                 session,
+                 autocommit=True,
++                consumption_snapshot=publication_snapshot or window_snapshot,
+                 required_metadata_fields=(
+                     agent.channel.required_metadata_fields if agent.channel else None
+                 ),
+             )
+ 
++            progress_confirmed = False
+             if run_result.errors:
+                 await defer_requests(session, request_snapshots, "; ".join(run_result.errors))
+             else:
+                 await acknowledge_requests(session, request_snapshots)
+-
+-            if advance_to is not None and not run_result.errors:
++                if publication_snapshot is not None:
++                    from app.services.agent_publication_progress import acknowledge_publications
++
++                    progress_confirmed = await acknowledge_publications(session, publication_snapshot)
++                elif window_snapshot is not None and advance_to is not None:
++                    from app.services.agent_publication_progress import acknowledge_window
++
++                    progress_confirmed = await acknowledge_window(session, window_snapshot, scan_since)
++
++            if advance_to is not None and not run_result.errors and progress_confirmed:
+                 # Keep failed incremental candidates eligible for the next run.
+                 # Already committed groups are skipped by normal task dedup.
+-                agent.last_consumed_at = advance_to
++                agent.last_consumed_at = (
++                    max(agent.last_consumed_at, advance_to) if agent.last_consumed_at else advance_to
++                )
+ 
+             agent.last_run_at = utcnow()
+             # More granular status so the UI can badge "待决策" instead of a
+@@ -454,44 +464,13 @@
+         reconciled_ids = await reconcile_stale_raw_episodes(
+             session, return_resource_ids=True
+         )
+-        if reconciled_ids:
+-            from sqlalchemy import select
+-
+-            from app.models.agent import Agent
+-            from app.models.file_resource import FileResource
+-            from app.services.task_queue import task_queue
+-
+-            rows = (await session.execute(
+-                select(FileResource.id, FileResource.channel_id).where(
+-                    FileResource.id.in_(reconciled_ids)
+-                )
+-            )).all()
+-            ids_by_channel: dict[str, list[str]] = {}
+-            for resource_id, channel_id in rows:
+-                ids_by_channel.setdefault(channel_id, []).append(resource_id)
+-            agents = (await session.execute(
+-                select(Agent).where(
+-                    Agent.channel_id.in_(ids_by_channel),
+-                    Agent.status == "active",
+-                )
+-            )).scalars().all()
+-            for agent in agents:
+-                try:
+-                    await task_queue.enqueue(
+-                        "run_agent",
+-                        f"agent:{agent.id}",
+-                        {
+-                            "agent_id": agent.id,
+-                            "resource_ids": ids_by_channel.get(agent.channel_id, []),
+-                        },
+-                    )
+-                except Exception as exc:
+-                    logger.warning(
+-                        "[backfill_metadata] failed to enqueue targeted agent %s: %s",
+-                        agent.id,
+-                        exc,
+-                    )
+         processed = await backfill_unmatched_resources_global(session)
++    # Reconciliation publishes inside its resource transaction. Wake consumers
++    # only after commit, preserving their admission boundary and durable retry.
++    if reconciled_ids:
++        from app.services.publication_dispatch import dispatch_pending_publications
++
++        await dispatch_pending_publications()
+     reconciled = len(reconciled_ids)
+     logger.info(
+         "[backfill_metadata] processed %d resources, reconciled %d stale episodes",
+--- a/app/api/v1/agents.py
++++ b/app/api/v1/agents.py
+@@ -184,6 +184,9 @@
+         )
+     )).scalar_one()
+     agent.last_consumed_at = max_created or utcnow()
++    from app.services.agent_publication_progress import reset_progress
++
++    await reset_progress(db, agent.id, agent.channel_id)
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -394,6 +397,7 @@
+     )).scalar_one_or_none()
+     if not agent:
+         return JSONResponse(status_code=404, content=_not_found("Agent"))
++    previous_channel_id = agent.channel_id
+     data = body.model_dump(exclude_unset=True)
+     new_works = data.pop("works", None)
+     dispatch_resource_ids = data.pop("dispatch_resource_ids", None)
+@@ -429,6 +433,9 @@
+                 "error": {"code": "VALIDATION_ERROR", "message": "downloader_id does not exist"},
+                 "meta": {},
+             })
++    rules_changed = new_works is not None or any(
++        key != "name" and getattr(agent, key) != value for key, value in data.items()
++    )
+     for key, value in data.items():
+         setattr(agent, key, value)
+     if new_works is not None:
+@@ -456,6 +463,14 @@
+     # selected backfill resources and advance the watermark.
+     if dispatch_resource_ids is not None:
+         await _apply_backfill(agent, dispatch_resource_ids, db)
++    elif previous_channel_id != agent.channel_id:
++        from app.services.agent_publication_progress import switch_channel_progress
++
++        await switch_channel_progress(db, agent)
++    elif rules_changed:
++        from app.services.agent_publication_progress import invalidate_running_scope
++
++        await invalidate_running_scope(db, agent.id)
+ 
+     await db.commit()
+     cur = await db.execute(
+@@ -875,6 +890,9 @@
+     work = AgentWork(agent_id=agent_id, **body.model_dump())
+     db.add(work)
+     await db.flush()
++    from app.services.agent_publication_progress import invalidate_running_scope
++
++    await invalidate_running_scope(db, agent_id)
+     await db.commit()
+     cur = await db.execute(
+         select(AgentWork).where(AgentWork.id == work.id).options(
+@@ -896,6 +914,9 @@
+     for key, value in body.model_dump(exclude_unset=True).items():
+         setattr(work, key, value)
+     await db.flush()
++    from app.services.agent_publication_progress import invalidate_running_scope
++
++    await invalidate_running_scope(db, agent_id)
+     await db.commit()
+     cur = await db.execute(
+         select(AgentWork).where(AgentWork.id == work_id).options(
+@@ -913,6 +934,9 @@
+     if work is None:
+         return JSONResponse(status_code=404, content=_not_found("AgentWork"))
+     await db.delete(work)
++    from app.services.agent_publication_progress import invalidate_running_scope
++
++    await invalidate_running_scope(db, agent_id)
+     return success_response({"deleted": True})
+ 
+ 
+--- a/docs/design/data-models.md
++++ b/docs/design/data-models.md
+@@ -454,14 +454,9 @@
+                                          # | "pending_decisions"（当 dispatched=0
+                                          #   且 pending_decisions>0 时使用；UI 据此
+                                          #   显示"待决策"徽标而不是绿色 success）
+-    last_consumed_at: datetime | None    # 消费水位线：本 Agent 已处理过的最新
+-                                         # FileResource.created_at 时间戳。增量运行
+-                                         # （fetch 触发 / 手动 run）只处理 created_at >
+-                                         # last_consumed_at 的资源；规则变更保存时水位
+-                                         # 推进到频道当前最大值，使后续增量运行只看到真正
+-                                         # 的新资源。Null=从未运行（按"推进到 now、不处理
+-                                         # 任何资源"处理，避免静默自动派发历史回填——回填
+-                                         # 必须经 rules-preview 选择流程）
++    last_consumed_at: datetime | None    # 兼容时间展示，不作为增量准入游标。
++                                         # NULL 且无发布进度时首次运行仅初始化；
++                                         # 实际消费由 AgentPublicationProgress 控制。
+     created_at: datetime
+     updated_at: datetime
+ 
+@@ -839,3 +834,18 @@
+ `decision_key` 为可空 VARCHAR(80)，`decision_scope` 为可空 JSON。新 pending 必须有 key；`(agent_id, decision_key)` 仅 pending 部分唯一，离开 pending 后可重新创建同覆盖选择。scope 使用 version=1 的规范单集/电影身份或 batch 完整覆盖描述；key 为其排序紧凑 JSON 的 v1 SHA256。升级不仅检查非空，也验证版本化描述与摘要一致；历史非 pending 可保留空键。确认必须复验候选的当前覆盖与资格，不能把摘要一致当成当前资源仍合格。
+ 
+ 自动作品重指档案的 original_review/result 标记 operation=work_rekey，记录重指资源后、改变 pending 状态前的快照；不得解释为人工批准的离线审核。
++
++
++### 资源发布与 Agent 消费进度
++
++以下模型主键均为 UUID v4 字符串；外键删除级联。
++
++| 模型 | 字段与约束 |
++|------|------------|
++| `ChannelPublicationCounter` | `channel_id` 唯一 FK；`sequence` BigInteger 非空、默认 0、检查 >=0 |
++| `ResourcePublication` | channel/resource FK；`sequence`、`origin_sequence` BigInteger，检查 `0 < origin_sequence <= sequence`；`kind ∈ {created,metadata}`；UTC `created_at`；唯一 `(channel_id,sequence)` 和 `(resource_id,kind)` |
++| `AgentPublicationProgress` | `agent_id` 唯一 FK、`channel_id` FK；`generation` UUID 字符串；`baseline`、`cursor` BigInteger 非空且各自 >=0；nullable UTC `historical_created_after` |
++
++每资源至多一条 created 和一条最新 metadata。创建序号永久充当 origin；metadata 替换时在同一事务删除旧事件并写入更高序号，不重编号。资源删除级联清理事件，频道计数器不回退。
++
++baseline 和 cursor 分别表示历史准入与消费确认，不要求 cursor>=baseline。普通频道切换 cursor=0，baseline 取新频道当前前缀，历史时间下界沿用旧 last_consumed_at；显式回填清空历史下界。指定扫描可扩展历史准入并在处理前回退 cursor 以保留失败重试，确认只在同 generation 内前进。全历史以 datetime.min 表示下界。业务协议见 business-logic.md，升级步骤见 db-migration.md。
+--- a/docs/design/business-logic.md
++++ b/docs/design/business-logic.md
+@@ -215,7 +215,7 @@
+ - **Agent-free 链接路径**（Layer 2/3 与 Layer 4 链接成功后的统一链接后步骤 `reconcile_linked_series_resource`，以及 known-work 短路与 `manual_link_metadata`）：历史惯例推断与绝对集号定位之后若 `resource.season` 仍为 None，统一走共享 helper `resolve_missing_work(resource, entity, work=链接作品)`（metadata_episode_reconcile；`resolve_missing_season` 保留为兼容别名）。**链接作品自身身份是最强季证据**（`work_verified_season`：季作品即季——`season_number≠1` 直接可信；`season_number=1` 需单季证据才可信：legacy 惰性列的单季证据或 Bangumi `single_season_entry` 条目证据，`season_evidence_from_series` 对已关联 Bangumi 身份的作品恢复该证据）。裸标题尾缀（如中英标题同时以 `2` 或 `II` 结尾）不在抓取 pre-parser 阶段单独采信；作品链接后，仅当两个不同语言标题的尾缀一致、且作品元数据证明该季存在时，才将其作为经验证的季号。可验证 → 落对应季号；多季或季数未知 → `episode_confidence = "ambiguous"`（进入所属 Channel 的文件资源待确认）；系列级身份只解析到合集而季不可定时，资源由 `park_resource_on_collection` 挂合集待确认（清作品 FK、保留 `collection_id`）。合集资源同样适用上述标题验证与单季默认：`batch_scope` 为 NULL/`season` 且可验证季号时落 `season`，但**绝不标 ambiguous**（多季/无证据保持 season=None，走合集 coverage 待确认门禁）；`multi_season`/`franchise`/`movies` 与 `manual` 行不触碰；电影链接不受影响。torrent 内容检测的 season 分支（`maybe_inspect_torrent`）对已链接且可验证单季的作品同样补季号。存量剧集链接资源用 `scripts/reconcile_season_backfill.py`（dry-run 默认，`--apply` 执行）回填，候选含 scope 为 NULL/season 且缺季号的合集行，不创建 Agent PendingDecision。
+ - **MetadataAgent 路径**（`_validate_inferred_season` + `_apply_verified_season_default`）：finalize 结果 `content_type=tv` 时先用 `matched_entity` 的 `number_of_seasons`/`seasons` 证据**确定性校验 LLM 给出的 `inferred_season`**——不在 `seasons` 列表内、超出 `number_of_seasons` 范围、或完全无季证据 → 丢弃该季号并置 `season_ambiguous=True`（season 0 特典是结构标记，不校验）；随后 `inferred_season` 为空时做同一判定——恰为 1 季 → `season=1` 并清除 ambiguous；否则置 `season_ambiguous=True` 载体（`ResourceMetadata` 字段，随 MetadataCache 往返）。`_apply_to_resource` 在 upsert 落库**之后**经 `reconcile_linked_series_resource` 完成绝对集号定位（沿合集成员）、单季算术与验证季默认；均得不到季号时落 `episode_confidence="ambiguous"`（合集与 manual 除外）或挂合集待确认。
+ - **一致性交叉检查**（`apply_episode_reconcile`）：资源同时带 season 与 `absolute_episode` 且 confidence 非 `manual` 时，用 `locate_absolute_episode` 复核；绝对集号算术定位到的 (season, episode) 与现值不一致 → `episode_confidence="ambiguous"`（标题季标记与绝对算术冲突，绝不静默信一方）；locate 返回 None 视为无证据，不改动。
+-- **历史优先 reconciliation**：已链接作品的单集 TV 资源先用同频道/同作品 `manual|reconciled` 记录推导发布组的 absolute 编号偏移，然后才走作品自身集数算术（季作品的 `number_of_episodes`；legacy 行回退惰性 seasons 列）。证据分两层：**近邻层**——只用目标 absolute 之前 ±2 窗口内的记录（同组相邻 manual 一条即可；跨组需双样本共识），防止同集平行资源互相强化错误解析；**远推层**——近邻无记录时放开距离窗口（双向、排除同 absolute 平行行），但规则只由人工修订锚定：全部 manual 行必须收敛到唯一 `(season, offset)` 约定、且与非 manual 历史不冲突，再经季集数 +2 容差校验才外推（一次人工修正即推广为该剧该发布规律的持久规则，跨周/跨季断档同样生效），冲突继续待确认。对于只有季号缺失的同集发布变体（如同组 E07 简体/繁体/简繁版），同频道+同作品+同发布组的同 episode 人工修订一条即可继承 season；无 manual 时至少两条结构化历史必须同季一致，有冲突绝不默认。**人工修订的即时推广**：`PATCH /resources/{id}/episode` 与 `PATCH /resources/{id}`（发送集号字段）提交前先跑 `heal_sibling_episodes`——同作品+同频道仍处 `ambiguous/raw` 的兄弟资源立即套用新约定批量修复（manual 行与批次不动），随本次定向运行一并派发，不再逐条等人修。全局 5 分钟 metadata backfill 同时扫描可修复的 `ambiguous/raw/reconciled/NULL` 行，修复后对 active Agent 定向运行（不推进水位线），以清理待确认决策并正常派发。
++- **历史优先 reconciliation**：已链接作品的单集 TV 资源先用同频道/同作品 `manual|reconciled` 记录推导发布组的 absolute 编号偏移，然后才走作品自身集数算术（季作品的 `number_of_episodes`；legacy 行回退惰性 seasons 列）。证据分两层：**近邻层**——只用目标 absolute 之前 ±2 窗口内的记录（同组相邻 manual 一条即可；跨组需双样本共识），防止同集平行资源互相强化错误解析；**远推层**——近邻无记录时放开距离窗口（双向、排除同 absolute 平行行），但规则只由人工修订锚定：全部 manual 行必须收敛到唯一 `(season, offset)` 约定、且与非 manual 历史不冲突，再经季集数 +2 容差校验才外推（一次人工修正即推广为该剧该发布规律的持久规则，跨周/跨季断档同样生效），冲突继续待确认。对于只有季号缺失的同集发布变体（如同组 E07 简体/繁体/简繁版），同频道+同作品+同发布组的同 episode 人工修订一条即可继承 season；无 manual 时至少两条结构化历史必须同季一致，有冲突绝不默认。**人工修订的即时推广**：`PATCH /resources/{id}/episode` 与 `PATCH /resources/{id}`（发送集号字段）提交前先跑 `heal_sibling_episodes`——同作品+同频道仍处 `ambiguous/raw` 的兄弟资源立即套用新约定批量修复（manual 行与批次不动），随本次定向运行一并派发，不再逐条等人修。全局 5 分钟 metadata backfill 同时扫描可修复的 `ambiguous/raw/reconciled/NULL` 行，修订与 metadata 发布事件同事务提交，之后唤醒 active Agent 普通增量运行，保留历史排除范围。
+ - **LLM 指引**：系统/judge prompt 与 finalize 工具说明均要求——标题无季标记时必须依据工具结果的 `number_of_seasons`/`seasons` 验证（单季 → `inferred_season=1`；多季 → `ambiguous=true` + `ambiguous_candidates`），且输入带 `title_year` 提示时优先年份一致的候选（年份冲突 >±1 是反对证据）。
+ 
+ `extract_search_title(resource)`（同步、无 LLM；Layer 2/3 的匹配 key 来源）优先级：
+@@ -369,16 +369,16 @@
+ 
+ **事务边界**（避免长时间持有 SQLite 写锁阻塞前台写请求）：handler 分两个阶段——阶段 1 短事务内插入 AgentRun、选定本次资源并立即提交；阶段 2 处理阶段（含 LLM 调用与 Transmission RPC）以 `process_resources(..., autocommit=True)` 运行，每完成一次派发/决策即增量提交，写锁绝不跨越外部调用持有。各单元操作幂等（任务去重 / 决策 upsert），块级锁重试或中途崩溃后重跑会跳过已提交部分。四种运行模式：
+ 
+-| 模式 | 触发条件 | 处理范围 | 水位线 |
+-|------|----------|----------|--------|
+-| **增量运行**（scenario ①） | `resource_ids` 缺省（fetch 触发 / 手动 run） | `FileResource.created_at > agent.last_consumed_at` 的资源，按 `created_at` 升序 | 运行后推进到所处理资源的最大 `created_at`；水位线为 null 时置为 now 且不处理任何资源（避免静默回填） |
+-| **定向运行**（scenario ③） | `resource_ids` 非空（如 `correct_episode`） | 只处理指定的资源，按当前规则评估 | **绕过**水位线、**不推进**水位线（资源可能较旧，推进会跳过其邻居） |
+-| **回填提交**（scenario ②） | rules-preview 后保存 Agent，`dispatch_resource_ids` 非 null | 派发用户选中的资源，并把水位线推进到频道当前最大 `created_at` | 推进到频道 max（或 now） |
+-| **指定起始时间运行**（scenario ④） | 手动 run 且 payload 含 `scan_since` 键（过去的时间点；null = 不限制，即全量历史） | `FileResource.created_at > scan_since` 的资源（按**入库时间**过滤；null 时不加时间条件取全部） | 只影响本次扫描范围；运行后照常推进到所处理资源的最大 `created_at`，下次增量运行恢复正常 |
++| 模式 | 触发条件 | 处理范围 | 消费进度 |
++|------|----------|----------|----------|
++| **增量运行** | 无 `resource_ids` / `scan_since` | 本次提交前缀内、cursor 之后且满足历史准入的发布事件；按事件顺序去重资源 | 无内部错误才按 channel/generation 确认快照；首次 NULL 时间且无进度时仅初始化当前前缀，不回填 |
++| **定向运行** | 显式 `resource_ids` 或 B9 持久修订请求 | 指定资源，按当前规则评估 | 绕过历史准入，不确认普通发布游标 |
++| **回填提交** | rules-preview 保存，`dispatch_resource_ids` 为数组（含空数组） | 派发所选资源 | 保存成功后同事务重置 baseline/cursor 为当前发布前缀，更换 generation、清空历史时间准入 |
++| **指定起始时间运行** | payload 含 `scan_since`，null 表示全历史 | 按 `created_at > scan_since` 选择，null 不限 | 处理前持久化历史准入及重试游标；成功只确认开始快照，失败可由普通增量恢复 |
+ 
+ scenario ④ 的 AgentRun 记录 `scan_since` 字段：null 表示增量/定向运行，`1970-01-01` 表示显式"不限制"全量扫描，其余为实际起始时间。用途：补派"符合订阅条件但从未成功下载"的较早资源（episode 去重保证已有活动/完成任务的集数不会被重复派发，error/expired 的旧任务会被重新派发）；`scan_since` 为未来时间时 API 返回 422。
+ 
+-> 旧实现的 `limit(200)`（按 `published_at` 取最近 200 条）已废弃——它会在高频频道上静默丢弃更早的资源。增量水位线保证每条资源都被且只被处理一次。
++> 旧实现的 `limit(200)`（按 `published_at` 取最近 200 条）已废弃——它会在高频频道上静默丢弃更早的资源。发布进度提供可重试消费；资源可能多次入选，已提交任务和决策沿用业务去重，不承诺外部副作用恰好一次。
+ 
+ ### Agent 过滤流程（agent_service）
+ 
+@@ -693,7 +693,7 @@
+ - 频道详情页「手动抓取」先弹窗确认，默认不勾选「重新抓取所有条目的 metadata」并发送 `force=false`；勾选后发送 `force=true`。`force=true` 无扫描条数上限地重跑该频道全部既有资源，跳过 MetadataCache 与本地已知作品短路，重新查询 metadata 源以补齐作品缺失字段（包括由 `start_date`/`release_date` 派生的必选年份），并对所有作品形态重新执行 torrent 文件关联富化；有本地 torrent 缓存时即使原 URL 是 magnet 也可复用。普通抓取与全局 backfill 也会按较长冷却周期选取“已关联但仍缺 Channel 必填字段”的资源，继续执行作品富化、发布字段写回和 torrent 文件关联；未匹配资源仍按原有失败冷却与限额回填，避免周期任务反复全表扫描。
+ - 内容 LLM 对普通单集文件输出互斥的 `season + episode`；仅当一个物理视频文件实际包含连续多集（例如文件名明确为 E01-E02）时才输出 `season + episode_start + episode_end`，torrent 是整季合集本身不构成单文件范围的理由。服务层校验真实路径后将单集规范化为 assignment 的闭区间 `episode_start == episode_end` 落库，保持现有数据模型兼容。
+ - 向导文件 LLM 分析使用 `MetadataCache(source=batch_file_analysis:v4)` 持久缓存，key 为资源 ID、搜索标题、文件路径/大小清单及逻辑版本的 SHA-256 指纹，任一输入变化自然失效；主动重新解析用 `force=true` 覆盖缓存。缓存未命中时 web 以 `batch-analysis:<fingerprint>` 为 key 入队 `analyze_batch_files`，由 worker 完成确定性解析、LLM 调用和缓存写入；队列 result 字段承载中间状态与最多 50k 字符的累计输出，SSE 只轮询并增量转发。Redis `SET NX` active-key 在多 web/多 worker 间原子去重，关闭任一窗口不取消任务；MemoryQueue 保持 APP_ROLE=all 单进程兼容。
+-- 编辑向导「重新解析元数据」按钮走 `POST /resources/{id}/reparse-metadata`：先写 `confirmation_ignored_at`（临时忽略，资源立即退出 Dashboard 待确认）并 commit，再以 `reprocess-resource:{id}` 为 key 入队 `reprocess_resource_metadata`（key 活跃期去重，已有任务 → 409）。handler 以 `force_refresh=True` 调用 `_process_resource_metadata` 重跑抓取期完整元数据管线（torrent 缓存/检测、metadata 匹配链接、reconcile、簇级绑定等），并在 finally 中清除 `confirmation_ignored_at`（**成败都清**）让待确认策略重新评估——数据仍不全重新进入待办、完整匹配留在外面；不重置 `metadata_attempts`/`metadata_failure_type`（backfill retry-eligibility 门控在调度侧），普通优先级（不进 `_PRIORITY_JOB_TYPES`），刷新后不自动派发（Agent 水位线语义不变）。
++- 编辑向导「重新解析元数据」按钮走 `POST /resources/{id}/reparse-metadata`：先写 `confirmation_ignored_at`（临时忽略，资源立即退出 Dashboard 待确认）并 commit，再以 `reprocess-resource:{id}` 为 key 入队 `reprocess_resource_metadata`（key 活跃期去重，已有任务 → 409）。handler 以 `force_refresh=True` 调用 `_process_resource_metadata` 重跑抓取期完整元数据管线（torrent 缓存/检测、metadata 匹配链接、reconcile、簇级绑定等），并在 finally 中清除 `confirmation_ignored_at`（**成败都清**）让待确认策略重新评估——数据仍不全重新进入待办、完整匹配留在外面；不重置 `metadata_attempts`/`metadata_failure_type`（backfill retry-eligibility 门控在调度侧），普通优先级（不进 `_PRIORITY_JOB_TYPES`），刷新不创建绕过历史准入的定向请求；完成事件由普通增量按现有准入范围消费。
+ - 向导 LLM 输入包含服务端生成的候选作品清单：`candidate_key=series|movie:<UUID>`、work_type/work_id 与 title_cn/title_en/original_title/canonical_name 全部非空别名；输出必须复用 exact candidate_key。后端只接受输入集合内的 key，并由 key 对应候选还原作品类型/ID，拒绝模型生成或篡改的 UUID；前端优先按 candidate_key 绑定，标题归一化仅作旧结果兼容回退。最终 `season_ranges` 合并经路径与候选 ID 双重校验的 LLM 单集结果。
+ - 特别篇文件统一映射到媒体库规范的 Season 0：文件名明确的 `SPxx` / `Special xx` / `OVA xx` / `OAD xx` 直接解析为 `S00Exx`；发布顺序式小数标签（`11.5`、`22.5`）不存入整数 episode 字段，而在作品关联后与 Episode 表的 Season 0 行按顺序一一校准。若作品源尚无 Season 0 数据但清单中存在明确 `.5` 插播标签，则按标签顺序映射为 `S00E01..N`；已有 Season 0 数据但数量不一致时保持未解析，禁止错配。单作品自动绑定和向导 SSE 确定性结果复用同一规则。
+ 
+@@ -752,3 +752,24 @@
+ 删除 API 在身份清理前取得作品 FOR UPDATE NOWAIT，55P03 整体回滚并返回 409 INVALID_STATE。现有资源和引用行同样以 NOWAIT 锁定后再检查人工计数；新 FK 引用由作品排他锁串行化。身份登记、新增引用与决策交错已有专项证据，完整单元/API 与隔离集成门禁已通过。
+ 
+ 删除前先取得决策身份变更协调锁并锁定受影响 Agent，再锁作品及当前引用；解除资源/自动文件关联后，复用 rekey_agent_choices 审核当前候选。失去有效身份的 pending 失效并进入 DecisionMigration 审计，原候选和 scope 保留；审计在旧 PendingDecision 工作 FK 置空前形成。历史终态不改状态，不派发资源。PG 创建先行、删除先行、模型窗口删除及持锁派发已有专项验证；完整门禁及最终复核已通过；具体证据见 V12-WORK-DELETION.md。
++
++
++### 发布进度与自动唤醒
++
++频道发布序号由 `ChannelPublicationCounter` 行内 UPDATE 分配，与资源和事件在同一事务提交。PostgreSQL 行锁保持到事务结束，序号代表已提交前缀；不能用非事务自增序列代替。计数器锁不跨外部调用。新抓取资源写 created，metadata 主结果和历史集数修订写 metadata；跨频道修订按频道/资源 ID 排序发布。每资源保留一条 created 和至多一条最新 metadata，替换与资源变更原子提交/回滚，origin 始终是原创建序号。
++
++Agent 的 baseline 控制历史准入，cursor 控制已确认发布前缀，两者独立且非负。事件需满足 `cursor < sequence <= through`，并且 `origin_sequence > baseline` 或资源在显式历史时间下界之后。快照包含 agent/channel/generation/through 和去重资源 IDs；成功确认采用 generation 条件更新，失败不吞掉未处理事件。`last_consumed_at` 保留兼容时间展示，不是消费游标；成功确认后取旧值与本轮资源时间最大值。
++
++首次 NULL 时间且缺进度时以当前发布前缀初始化，避免静默历史派发。有旧时间却缺进度必须先停写迁移。普通频道切换保持时间字段，以新频道当前前缀为 baseline、cursor=0，并以旧时间作为历史准入下界；NULL 时间的切换留待首次初始化。普通规则/派发参数实质变更和订阅 CRUD 只更换现有 generation，不移动准入或游标；仅改名或无变化保存不失效。
++
++指定时间扫描在处理前事务扩展历史准入、回退 cursor 至最早所选创建事件之前并更换 generation；崩溃或候选持久化失败后普通增量能重读。成功确认仅覆盖扫描开始的发布前缀。显式回填重置优先，旧 generation 的扫描或确认不得再次打开历史范围。已持久化的 RPC 错误任务仍走下载任务重试。
++
++publication/window 运行在候选组开始及最终下载 RPC 前，用独立新会话检查当前频道和 generation，避免读取旧事务快照。已提交的范围变更阻止尚未开始的旧派发；不持数据库写锁跨网络调用，也不能撤销已开始的 RPC。显式定向请求沿用其独立语义，不以此宣称所有并发副作用都可撤销。
++
++worker/all 调度器每 5 秒扫描 active Agent 的发布前缀与 cursor 差，缺进度且 NULL 时间的 Agent 也获得初始化唤醒。事务外 enqueue 普通 run_agent，复用稳定 agent key 去重；队列失败或忙碌不确认数据库进度，下轮补发。自动唤醒携带 `automatic=true`，handler 在创建运行前跳过非 active Agent，恢复后继续消费。B9 持久修订请求仍独立补偿，不把自动完成事件转成绕过历史准入的定向请求。
++
++Turso MVCC 同频道计数器写冲突通过既有 `retry_on_lock` 在尚未提交的完整 metadata 操作边界有限退避重试，每次重新创建会话。metadata 和发布已经提交后，后续海报失败不重跑主事务，避免重复计次。重试耗尽记录失败，后续回填保留恢复机会。
++
++部署迁移和启动门禁见 db-migration.md；验证记录与尚未完成的发布验收见 `docs/plans/p0-and-backlog/V13-CONSUMPTION-PROGRESS.md`。
++
++FTS sidecar 并发：派生索引独立引擎使用 pool_size=1、max_overflow=0，短读写事务通过连接池串行，避免实验性 Turso FTS 多连接并发的原生崩溃。主业务数据库池与并发不变；sidecar checkout 内不得加入网络调用。并发调用者继续等待连接，不跳过检索或写入；全量索引重建仍须遵循已有业务契约。
+--- a/docs/design/api-endpoints.md
++++ b/docs/design/api-endpoints.md
+@@ -193,7 +193,7 @@
+ 
+ `dispatch_resource_ids` 语义：
+ - `null`（默认）：普通保存，不回填、不改动水位线（用于非规则编辑）。
+-- 数组（可为空 `[]`）：表示本次保存经过 rules-preview 流程。后端会派发数组中选中的资源，并将 Agent 的 `last_consumed_at` 推进到频道当前最大 `created_at`，使后续增量运行只看到真正的新资源。空数组 = 不回填任何资源但推进水位线。
++- 数组（可为空 `[]`）：表示本次保存经过 rules-preview 流程。后端会派发数组中选中的资源，并在同一保存事务重置发布 baseline/cursor 为当前频道提交前缀、更换 generation、清空历史时间准入；`last_consumed_at` 仍更新为兼容展示时间。空数组 = 不回填资源但重置准入边界。
+ 
+ `POST /agents/{id}/test-filters` 请求体：`{ "resource_ids": ["..."]? }`（不传则测试最近 50 条资源）；响应返回每条资源是否通过及每个条件的命中情况。
+ 
+@@ -426,7 +426,7 @@
+ | POST | `/resources/{id}/analyze-batch-stream?force=false` | 上述重析的 SSE 交互端点；web 按资源/标题/torrent 清单/解析版本指纹读取持久缓存，未命中则以 `batch-analysis:<fingerprint>` 幂等键提交 `analyze_batch_files` 后台任务，并轮询队列的共享进度状态转发 `status` / LLM `delta` / `warning` / `result`。`force=true` 仅供用户主动「重新解析」在旧任务结束后以同 key 重新入队并覆盖旧缓存；Redis Queue 的 active-key 原子去重保证多 web/多窗口只执行一次，SSE 断开不取消 worker 任务。 |
+ | GET | `/resources/{id}/files` | 资源 torrent 文件清单（`ResourceFilesResponse`）：`{ "files": [{"name", "size"}], "source", "magnet_resolve"? }`，`source` 记录清单来源（首个命中即返回）：`torrent_cache`（本地缓存 .torrent 经 bencode 解析）→ `torrent_fetch`（http(s) `torrent_url` 现场下载，缓存路径写回 `torrent_file`）→ `downloader`（最新 DownloadTask 的下载器 RPC `get_torrent_files`，失败静默）→ `notification`（最新完成通知冻结快照 `payload.files`）→ `none`（全部不可用，返回空 `files`）。`magnet_resolve` 仅当 `torrent_url` 为 magnet: 且无清单时返回：`{ "status": null\|"pending"\|"running"\|"done"\|"failed", "error", "attempts", "updated_at", "trackers" }`（status 为 null = 从未解析，UI 按排队语义展示；trackers 为存储的自定义 tracker 列表，null=仅默认）。404 遵循统一错误结构。 |
+ | POST | `/resources/{id}/magnet-resolve` | magnet 元数据解析手动重试（重置 `magnet_resolve_attempts=0`、`magnet_resolve_error=null` 后重新入队 `resolve_magnet_torrent`，**先 commit 再入队**；响应 `{ "magnet_resolve": {...} }` 状态块，含 `trackers`）。可选 body `{ "trackers": [str, ...] \| null }`：非空经 `validate_tracker_urls` 严格校验（udp/http(s) scheme + 非空 host + 无空白/控制字符，≤20 条、每条 ≤200 字符；非法 → 422 `VALIDATION_ERROR`，消息含首个违规 URL）并持久化到 `magnet_resolve_trackers`（failed 保留供预填、done 清空）；省略/null/空列表 → 清空为 NULL（仅用默认 tracker）。404 资源不存在；422 `VALIDATION_ERROR`（非 magnet 链接 / libtorrent 不可用 / `MAGNET_RESOLVE_ENABLED=false`）；409 `INVALID_STATE`（status 为 pending/running 解析进行中）。 |
+-| POST | `/resources/{id}/reparse-metadata` | 完整后台元数据重新解析（编辑向导「重新解析元数据」按钮）：写入 `confirmation_ignored_at`（资源立即退出 Dashboard 待确认——**临时忽略**，与手动忽略的差异见 data-models）→ **先 commit 再入队** `reprocess_resource_metadata`（key `reprocess-resource:{id}`，payload `{resource_id, channel_id}`），任务跑抓取期完整元数据管线（`_process_resource_metadata`，`force_refresh=True` 绕过缓存）并在结束（**成败都**）清除忽略标记让待确认策略重评——数据仍不全重新进入待办、完整匹配留在外面；不自动派发（Agent 水位线语义不变）。不重置 `metadata_attempts`/`metadata_failure_type`（backfill 的 retry-eligibility 门控在调度侧，直接调用不受限）。404 资源不存在；key 已有活跃任务 → 409 `ALREADY_RUNNING`；成功响应 `{ "reparse": { "status": "pending" } }`。 |
++| POST | `/resources/{id}/reparse-metadata` | 完整后台元数据重新解析（编辑向导「重新解析元数据」按钮）：写入 `confirmation_ignored_at`（资源立即退出 Dashboard 待确认——**临时忽略**，与手动忽略的差异见 data-models）→ **先 commit 再入队** `reprocess_resource_metadata`（key `reprocess-resource:{id}`，payload `{resource_id, channel_id}`），任务跑抓取期完整元数据管线（`_process_resource_metadata`，`force_refresh=True` 绕过缓存）并在结束（**成败都**）清除忽略标记让待确认策略重评——数据仍不全重新进入待办、完整匹配留在外面；不创建定向派发请求；完成事件由普通增量按既有历史准入消费。不重置 `metadata_attempts`/`metadata_failure_type`（backfill 的 retry-eligibility 门控在调度侧，直接调用不受限）。404 资源不存在；key 已有活跃任务 → 409 `ALREADY_RUNNING`；成功响应 `{ "reparse": { "status": "pending" } }`。 |
+ 
+ `PUT /resources/{id}/associations` 成功提交后额外入队 `refresh_resource_organize`：对该资源已有 completed 任务原地刷新通知快照，并重建 pending/failed 变更计划。`GET /organize/plans/{id}` 返回 `resource_id`，供详情 Drawer 复用文件资源向导的「文件关联」步骤直接修订；非开放状态只读。
+ 
+@@ -525,3 +525,12 @@
+ 
+ 
+ `POST /series` 和 `PUT /series/{id}` 不接受退役字段 `number_of_seasons` / `seasons`；显式传入（包括 null）返回 422 VALIDATION_ERROR，整次请求不写入作品、壳合集或人工保护字段。读取响应暂保留旧 number_of_seasons 供历史数据诊断；作品身份以 season_number 为准，普通 API 不得借退役列声明多季作品。
++
++
++### Agent 发布进度的 API 语义
++
++响应中的 `last_consumed_at` 保持时间格式，但不再充当发布事件游标。普通 null/未传回填数组保存不移动消费边界；实际规则或派发设置变更、订阅 CRUD 使旧运行 generation 失效，同频道仅改名保持进度。已确认资源不因普通规则保存自动重放。
++
++普通频道切换保持时间字段，以旧时间下界保留新频道历史候选，发布 cursor 从 0 开始、baseline 取新频道当前提交前缀。NULL 时间且缺进度的 Agent 留待首次初始化。回填数组（含空）成功后原子重置进度，内部持久化错误整体回滚。
++
++指定时间运行按 `created_at > scan_since` 选择，null 表示全历史；处理前持久化可恢复范围，失败后普通增量可补偿，成功只确认开始时发布前缀。显式回填重置优先于旧扫描确认。显式资源修订请求继续使用独立 B9 持久请求，不受普通历史排除影响。
+--- /dev/null
++++ b/app/services/publication_migration.py
+@@ -0,0 +1,86 @@
++"""Offline bootstrap of event order; caller holds the maintenance write barrier.
++
++No commit or network calls. Run once before new publishers start. Existing
++watermarks remain intact; ambiguous historical omissions are not replayed.
++"""
++
++import uuid
++from bisect import bisect_right
++
++from sqlalchemy import select, text
++
++from app.models.agent import Agent
++from app.models.agent_publication_progress import AgentPublicationProgress
++from app.models.app_setting import AppSetting
++from app.models.channel import Channel
++from app.models.file_resource import FileResource
++from app.models.resource_publication import ChannelPublicationCounter, ResourcePublication
++
++MARKER = "resource-publication-bootstrap-v1"
++
++
++async def bootstrap_publications(db, *, writers_stopped):
++    if not writers_stopped:
++        raise ValueError("Publication bootstrap requires stopped writers")
++    await lock_publication_migration(db)
++    # SQLite/Turso caller must start BEGIN IMMEDIATE before calling this helper.
++    if await db.get(AppSetting, MARKER) is not None:
++        return {"status": "already_applied"}
++    for model in (ChannelPublicationCounter, ResourcePublication, AgentPublicationProgress):
++        if await db.scalar(select(model.id).limit(1)) is not None:
++            raise ValueError("Unmarked publication state exists; review before migration")
++    migrated_resources = migrated_agents = 0
++    channel_ids = list(await db.scalars(select(Channel.id).order_by(Channel.id)))
++    for channel_id in channel_ids:
++        resources = (
++            await db.execute(
++                select(FileResource.id, FileResource.created_at)
++                .where(FileResource.channel_id == channel_id)
++                .order_by(FileResource.created_at, FileResource.id)
++            )
++        ).all()
++        timestamps = [row.created_at for row in resources]
++        db.add(ChannelPublicationCounter(channel_id=channel_id, sequence=len(resources)))
++        for sequence, row in enumerate(resources, 1):
++            db.add(
++                ResourcePublication(
++                    channel_id=channel_id,
++                    resource_id=row.id,
++                    sequence=sequence,
++                    origin_sequence=sequence,
++                    kind="created",
++                )
++            )
++        agents = (
++            await db.execute(select(Agent.id, Agent.last_consumed_at).where(Agent.channel_id == channel_id))
++        ).all()
++        for agent in agents:
++            if agent.last_consumed_at is None:
++                # Preserve first-run semantics: initialize when first run occurs.
++                continue
++            baseline = bisect_right(timestamps, agent.last_consumed_at)
++            db.add(
++                AgentPublicationProgress(
++                    agent_id=agent.id,
++                    channel_id=channel_id,
++                    generation=str(uuid.uuid4()),
++                    baseline=baseline,
++                    cursor=baseline,
++                )
++            )
++            migrated_agents += 1
++        migrated_resources += len(resources)
++        await db.flush()
++    db.add(AppSetting(key=MARKER, value="complete"))
++    await db.flush()
++    return {"status": "applied", "resources": migrated_resources, "agents": migrated_agents}
++
++
++async def lock_publication_migration(db):
++    if db.get_bind().dialect.name == "postgresql":
++        await db.execute(
++            text(
++                "LOCK TABLE channels, agents, file_resources, channel_publication_counters, "
++                "resource_publications, agent_publication_progress, app_settings IN SHARE ROW EXCLUSIVE MODE"
++            )
++        )
+--- /dev/null
++++ b/tests/unit/test_publication_migration.py
+@@ -0,0 +1,78 @@
++"""Bootstrap semantics using actual SQL; all row identities are synthetic."""
++
++from datetime import timedelta
++
++import pytest
++from sqlalchemy import delete, select
++
++from app.models.agent_publication_progress import AgentPublicationProgress
++from app.models.app_setting import AppSetting
++from app.models.file_resource import FileResource
++from app.models.resource_publication import ChannelPublicationCounter, ResourcePublication
++from app.services.agent_publication_progress import snapshot_publications
++from app.services.publication_migration import MARKER, bootstrap_publications
++from app.utils.time import utcnow
++from tests.unit.test_agent_publication_progress import setup
++
++
++async def legacy(db):
++    agent, old = await setup(db)
++    await db.execute(delete(AgentPublicationProgress))
++    await db.execute(delete(ResourcePublication))
++    await db.execute(delete(ChannelPublicationCounter))
++    now = utcnow()
++    old.created_at = now
++    agent.last_consumed_at = now
++    # Same timestamp is excluded, strictly later resource remains consumable.
++    rows = [
++        FileResource(
++            channel_id=old.channel_id,
++            guid=f"migration-{i}",
++            title_raw="Synthetic",
++            torrent_url="synthetic",
++            created_at=now + timedelta(seconds=i),
++        )
++        for i in (0, 1)
++    ]
++    db.add_all(rows)
++    await db.flush()
++    return agent, old, rows
++
++
++async def test_bootstrap_preserves_timestamp_boundary_and_is_idempotent(db_session):
++    agent, old, rows = await legacy(db_session)
++    result = await bootstrap_publications(db_session, writers_stopped=True)
++    assert result == {"status": "applied", "resources": 3, "agents": 1}
++    snapshot = await snapshot_publications(db_session, agent.id, old.channel_id)
++    assert snapshot.resource_ids == (rows[1].id,)
++    assert await bootstrap_publications(db_session, writers_stopped=True) == {"status": "already_applied"}
++    assert await snapshot_publications(db_session, agent.id, old.channel_id) == snapshot
++
++
++async def test_failed_bootstrap_rolls_back_marker_events_and_progress(db_session):
++    await legacy(db_session)
++    with pytest.raises(RuntimeError):
++        async with db_session.begin_nested():
++            await bootstrap_publications(db_session, writers_stopped=True)
++            raise RuntimeError("Synthetic crash before transaction commit")
++    assert await db_session.get(AppSetting, MARKER) is None
++    assert await db_session.scalar(select(ResourcePublication.id)) is None
++    assert await db_session.scalar(select(AgentPublicationProgress.id)) is None
++    assert (await bootstrap_publications(db_session, writers_stopped=True))["status"] == "applied"
++
++
++async def test_null_watermark_waits_for_first_run(db_session):
++    agent, _, _ = await legacy(db_session)
++    agent.last_consumed_at = None
++    await db_session.flush()
++    assert (await bootstrap_publications(db_session, writers_stopped=True))["agents"] == 0
++    assert await db_session.scalar(select(AgentPublicationProgress.id)) is None
++
++
++async def test_rejects_unmarked_publications_and_missing_maintenance_barrier(db_session):
++    await setup(db_session)
++    with pytest.raises(ValueError, match="stopped writers"):
++        await bootstrap_publications(db_session, writers_stopped=False)
++    with pytest.raises(ValueError, match="Unmarked"):
++        await bootstrap_publications(db_session, writers_stopped=True)
++    assert await db_session.get(AppSetting, MARKER) is None
+--- a/docs/design/db-migration.md
++++ b/docs/design/db-migration.md
+@@ -283,3 +283,22 @@
+ 使用 `python -m scripts.review_orphan_identities --export review.json` 只读导出；工具不运行应用启动迁移，也不覆盖已有文件。只有 series/movie/collection 目标不存在的身份进入 orphans；未知 work_type 进入 blocked。审核后在 JSON 中增加 approved_fingerprint（等于导出 fingerprint）及 selected_ids（精确选择 orphan 行 ID）。保留原始审核文件和数据库备份。
+ 
+ 停写后运行 `python -m scripts.review_orphan_identities --apply-review reviewed.json --writers-stopped --backup-confirmed`。同事务重新核对指纹和拥有者；PG 锁定身份袋及三类拥有者表，Turso BEGIN IMMEDIATE。行值变化、新出现拥有者或未知类型均拒绝；选中记录已全部不存在时返回 already_absent_ids。只删除审核选中行，不接管身份，不在启动或 API 中自动清理。CLI/Turso、真实录制负例及 PG 并发锁验证已通过；工具不自动运行。
++
++
++### 资源发布进度迁移
++
++新协议启用前必须停写并备份，不能混跑旧时间水位线发布者和新事件消费者。以下步骤针对原有正式版本没有发布进度表的数据库；早期实验表不属于受支持升级路径，`checkfirst` 不能替代实验约束升级。
++
++1. 停止 web/worker 和其他数据库写入者，完成备份。
++2. 使用目标数据库配置执行 `python -m scripts.review_publication_migration --prepare-schema --writers-stopped --backup-confirmed`，仅创建三个新表，可重复执行。
++3. 执行 `python -m scripts.review_publication_migration --export review.json`。文件独占创建，包含资源 id/channel/created_at、Agent 旧时间、待消费 IDs 和 `excluded_or_ambiguous_resource_ids`。
++4. 核对报告后添加 `approved_fingerprint`，值为报告的 `fingerprint`；执行 `python -m scripts.review_publication_migration --apply-review review.json --writers-stopped --backup-confirmed`。
++5. 确认应用成功后启动新 web/worker。任何指纹变化都须重新导出核对，不沿用旧报告。
++
++迁移按频道 created_at/id 排序建立 created 事件。非 NULL 旧时间的 Agent 以 <= last_consumed_at 的最大序号建立 baseline/cursor，保持严格大于旧时间的待消费范围；NULL 时间留待首次运行初始化。时间以下潜在遗漏与用户主动排除不可区分，工具只报告、不自动下载，后续可由用户 rules-preview 或指定时间扫描选择。
++
++PostgreSQL 在参与表写屏障内重新核对报告并应用，Turso 使用 BEGIN IMMEDIATE。事件、计数器、进度与完成标记同事务提交/回滚；标记保存审核指纹，同一审核重复应用不改进度。无标记却已有发布数据、审核内容被改动、数据库资源或水位线变化均拒绝应用。
++
++web/worker 在运行配置和调度启动前检查迁移状态；真正空库初始化 fresh 标记，旧数据无标记拒绝启动。有标记仍检查资源初始事件与旧 Agent 的匹配频道进度，防止遗漏迁移或混用旧写入者。DB_MIGRATE_ON_STARTUP=false 不跳过此门禁。
++
++专项证据与发布验收状态见 V13-CONSUMPTION-PROGRESS.md；本节描述迁移协议，不表示已对生产数据库执行迁移。
+--- /dev/null
++++ b/scripts/review_publication_migration.py
+@@ -0,0 +1,154 @@
++"""Export and apply an offline publication bootstrap; never replay excluded history."""
++
++import argparse
++import asyncio
++import hashlib
++import json
++from pathlib import Path
++
++from sqlalchemy import select, text
++from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
++
++import app.models  # noqa: F401
++from app.config import settings
++from app.database import apply_db_pragmas
++from app.models.agent import Agent
++from app.models.agent_publication_progress import AgentPublicationProgress
++from app.models.app_setting import AppSetting
++from app.models.channel import Channel
++from app.models.file_resource import FileResource
++from app.models.resource_publication import ChannelPublicationCounter, ResourcePublication
++from app.services.publication_migration import MARKER, bootstrap_publications, lock_publication_migration
++
++
++def fingerprint(report):
++    body = {k: v for k, v in report.items() if k not in {"fingerprint", "approved_fingerprint"}}
++    return hashlib.sha256(
++        json.dumps(body, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
++    ).hexdigest()
++
++
++async def export_review(db):
++    channels = list(await db.scalars(select(Channel.id).order_by(Channel.id)))
++    resources = [
++        dict(row)
++        for row in (
++            await db.execute(
++                select(FileResource.id, FileResource.channel_id, FileResource.created_at).order_by(FileResource.id)
++            )
++        ).mappings()
++    ]
++    agents = [
++        dict(row)
++        for row in (
++            await db.execute(select(Agent.id, Agent.channel_id, Agent.last_consumed_at).order_by(Agent.id))
++        ).mappings()
++    ]
++    resources_by_channel = {}
++    for resource in resources:
++        resources_by_channel.setdefault(resource["channel_id"], []).append(resource)
++    for agent in agents:
++        candidates = resources_by_channel.get(agent["channel_id"], [])
++        watermark = agent["last_consumed_at"]
++        agent["pending_resource_ids"] = [
++            r["id"] for r in candidates if watermark is not None and r["created_at"] > watermark
++        ]
++        agent["excluded_or_ambiguous_resource_ids"] = [
++            r["id"] for r in candidates if watermark is None or r["created_at"] <= watermark
++        ]
++    occupied = {}
++    for model in (ChannelPublicationCounter, ResourcePublication, AgentPublicationProgress):
++        occupied[model.__tablename__] = bool(await db.scalar(select(model.id).limit(1)))
++    marker = await db.get(AppSetting, MARKER)
++    report = json.loads(
++        json.dumps(
++            dict(
++                version=1,
++                channels=channels,
++                resources=resources,
++                agents=agents,
++                occupied=occupied,
++                marker=marker.value if marker else None,
++            ),
++            default=str,
++        )
++    )
++    report["fingerprint"] = fingerprint(report)
++    return report
++
++
++async def apply_review(db, review):
++    if review.get("version") != 1 or review.get("fingerprint") != fingerprint(review):
++        raise ValueError("Invalid review fingerprint")
++    if review.get("approved_fingerprint") != review["fingerprint"]:
++        raise ValueError("Explicit approved_fingerprint required")
++    if review["marker"] is not None or any(review["occupied"].values()):
++        raise ValueError("Review must describe an uninitialized publication database")
++    await lock_publication_migration(db)
++    marker = await db.get(AppSetting, MARKER)
++    if marker is not None:
++        if marker.value == review["fingerprint"]:
++            return {"status": "already_applied"}
++        raise ValueError("Database was initialized by a different migration")
++    current = await export_review(db)
++    if current["fingerprint"] != review["fingerprint"]:
++        raise ValueError("Database changed; export and review again")
++    result = await bootstrap_publications(db, writers_stopped=True)
++    marker = await db.get(AppSetting, MARKER)
++    marker.value = review["fingerprint"]
++    await db.flush()
++    return result
++
++
++async def run(args):
++    engine = create_async_engine(settings.database_url)
++    apply_db_pragmas(engine)
++    try:
++        if args.prepare_schema:
++            async with engine.begin() as conn:
++                if conn.dialect.name == "postgresql":
++                    await conn.execute(text("SET LOCAL lock_timeout = '5000'"))
++                else:
++                    await conn.execute(text("BEGIN IMMEDIATE"))
++                for model in (ChannelPublicationCounter, ResourcePublication, AgentPublicationProgress):
++                    await conn.run_sync(lambda sync, table=model.__table__: table.create(sync, checkfirst=True))
++            return {"status": "schema_prepared"}
++        async with AsyncSession(engine) as db:
++            if args.export:
++                # A consistent snapshot matters even though application rechecks it.
++                if db.get_bind().dialect.name == "postgresql":
++                    await db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
++                report = await export_review(db)
++                with Path(args.export).open("x", encoding="utf-8") as output:
++                    output.write(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
++                return {
++                    "agents": len(report["agents"]),
++                    "resources": len(report["resources"]),
++                    "fingerprint": report["fingerprint"],
++                }
++            review = json.loads(Path(args.apply_review).read_text())
++            if db.get_bind().dialect.name == "sqlite":
++                await db.execute(text("BEGIN IMMEDIATE"))
++            result = await apply_review(db, review)
++            await db.commit()
++            return result
++    finally:
++        await engine.dispose()
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    mode = parser.add_mutually_exclusive_group(required=True)
++    mode.add_argument("--prepare-schema", action="store_true")
++    mode.add_argument("--export")
++    mode.add_argument("--apply-review")
++    parser.add_argument("--writers-stopped", action="store_true")
++    parser.add_argument("--backup-confirmed", action="store_true")
++    args = parser.parse_args()
++    if (args.apply_review or args.prepare_schema) and not (args.writers_stopped and args.backup_confirmed):
++        parser.error("Applying requires --writers-stopped and --backup-confirmed")
++    print(json.dumps(asyncio.run(run(args)), ensure_ascii=False))
++
++
++if __name__ == "__main__":
++    main()
+--- /dev/null
++++ b/tests/unit/test_publication_review.py
+@@ -0,0 +1,46 @@
++"""Actual database comparison; review never turns ambiguous history into requests."""
++
++import pytest
++from sqlalchemy import select
++
++from app.models.agent_publication_progress import AgentPublicationProgress
++from app.services.agent_publication_progress import snapshot_publications
++from scripts.review_publication_migration import apply_review, export_review
++from tests.unit.test_publication_migration import legacy
++
++
++async def test_review_preserves_pending_and_lists_excluded_history(db_session):
++    agent, old, rows = await legacy(db_session)
++    report = await export_review(db_session)
++    item = report["agents"][0]
++    assert item["pending_resource_ids"] == [rows[1].id]
++    assert set(item["excluded_or_ambiguous_resource_ids"]) == {old.id, rows[0].id}
++    assert await db_session.scalar(select(AgentPublicationProgress.id)) is None
++    report["approved_fingerprint"] = report["fingerprint"]
++    assert (await apply_review(db_session, report))["status"] == "applied"
++    before = await snapshot_publications(db_session, agent.id, old.channel_id)
++    assert before.resource_ids == (rows[1].id,)
++    assert await apply_review(db_session, report) == {"status": "already_applied"}
++    assert await snapshot_publications(db_session, agent.id, old.channel_id) == before
++
++
++async def test_changed_watermark_requires_new_review(db_session):
++    agent, _, _ = await legacy(db_session)
++    report = await export_review(db_session)
++    report["approved_fingerprint"] = report["fingerprint"]
++    agent.last_consumed_at = None
++    await db_session.flush()
++    with pytest.raises(ValueError, match="Database changed"):
++        await apply_review(db_session, report)
++    assert await db_session.scalar(select(AgentPublicationProgress.id)) is None
++
++
++async def test_approval_and_integrity_are_required(db_session):
++    await legacy(db_session)
++    report = await export_review(db_session)
++    with pytest.raises(ValueError, match="approved_fingerprint"):
++        await apply_review(db_session, report)
++    report["approved_fingerprint"] = report["fingerprint"]
++    report["agents"][0]["pending_resource_ids"] = []
++    with pytest.raises(ValueError, match="Invalid review"):
++        await apply_review(db_session, report)
+--- /dev/null
++++ b/app/services/publication_startup.py
+@@ -0,0 +1,55 @@
++"""Prevent mixed timestamp/event consumption before workers or API writes start."""
++
++from sqlalchemy import exists, select
++from sqlalchemy.dialects.postgresql import insert as pg_insert
++from sqlalchemy.dialects.sqlite import insert as sqlite_insert
++
++from app.models.agent import Agent
++from app.models.agent_publication_progress import AgentPublicationProgress
++from app.models.app_setting import AppSetting
++from app.models.file_resource import FileResource
++from app.models.resource_publication import ResourcePublication
++from app.services.publication_migration import MARKER
++
++
++async def ensure_publication_ready(db):
++    marker = await db.get(AppSetting, MARKER)
++    if marker is None:
++        legacy_resource = await db.scalar(select(FileResource.id).limit(1))
++        legacy_agent = await db.scalar(select(Agent.id).where(Agent.last_consumed_at.is_not(None)).limit(1))
++        if legacy_resource or legacy_agent:
++            raise ValueError(
++                "Publication migration required: stop writers and run scripts.review_publication_migration"
++            )
++        insert = pg_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
++        await db.execute(
++            insert(AppSetting).values(key=MARKER, value="fresh").on_conflict_do_nothing(index_elements=["key"])
++        )
++    unpublished = await db.scalar(
++        select(FileResource.id)
++        .where(
++            ~exists(
++                select(ResourcePublication.id).where(
++                    ResourcePublication.resource_id == FileResource.id, ResourcePublication.kind == "created"
++                )
++            )
++        )
++        .limit(1)
++    )
++    if unpublished:
++        raise ValueError("Resource without publication detected; stop legacy writers and review migration state")
++    missing_progress = await db.scalar(
++        select(Agent.id)
++        .where(
++            Agent.last_consumed_at.is_not(None),
++            ~exists(
++                select(AgentPublicationProgress.id).where(
++                    AgentPublicationProgress.agent_id == Agent.id,
++                    AgentPublicationProgress.channel_id == Agent.channel_id,
++                )
++            ),
++        )
++        .limit(1)
++    )
++    if missing_progress:
++        raise ValueError("Agent publication progress missing or channel mismatch; review migration state")
+--- a/app/main.py
++++ b/app/main.py
+@@ -88,6 +88,12 @@
+ 
+     # Load runtime-configurable settings (LLM + external search source keys)
+     # from the DB into the in-memory cache so user overrides take effect.
++    from app.services.publication_startup import ensure_publication_ready
++
++    async with async_session_factory() as publication_db:
++        await ensure_publication_ready(publication_db)
++        await publication_db.commit()
++
+     from app.services.runtime_config import load_runtime_config
+ 
+     async with async_session_factory() as sess:
+--- a/app/worker.py
++++ b/app/worker.py
+@@ -76,6 +76,12 @@
+     # Load runtime-configurable settings (LLM + external search source keys)
+     # from the DB into the in-memory cache so user overrides take effect. Job
+     # handlers also refresh this map per run (see app/job_handlers.py).
++    from app.services.publication_startup import ensure_publication_ready
++
++    async with async_session_factory() as publication_db:
++        await ensure_publication_ready(publication_db)
++        await publication_db.commit()
++
+     from app.services.runtime_config import load_runtime_config
+ 
+     async with async_session_factory() as sess:
+--- /dev/null
++++ b/tests/unit/test_publication_startup.py
+@@ -0,0 +1,33 @@
++"""Startup gates on real database state, before application background work."""
++
++import pytest
++from sqlalchemy import delete
++
++from app.models.app_setting import AppSetting
++from app.models.resource_publication import ResourcePublication
++from app.services.publication_migration import MARKER, bootstrap_publications
++from app.services.publication_startup import ensure_publication_ready
++from tests.unit.test_publication_migration import legacy
++
++
++async def test_empty_database_initialization_is_repeatable(db_session):
++    await ensure_publication_ready(db_session)
++    assert (await db_session.get(AppSetting, MARKER)).value == "fresh"
++    await ensure_publication_ready(db_session)
++
++
++async def test_old_database_requires_migration_then_starts(db_session):
++    await legacy(db_session)
++    with pytest.raises(ValueError, match="migration required"):
++        await ensure_publication_ready(db_session)
++    assert await db_session.get(AppSetting, MARKER) is None
++    await bootstrap_publications(db_session, writers_stopped=True)
++    await ensure_publication_ready(db_session)
++
++
++async def test_marker_cannot_hide_a_resource_written_without_event(db_session):
++    _, _, rows = await legacy(db_session)
++    await bootstrap_publications(db_session, writers_stopped=True)
++    await db_session.execute(delete(ResourcePublication).where(ResourcePublication.resource_id == rows[1].id))
++    with pytest.raises(ValueError, match="without publication"):
++        await ensure_publication_ready(db_session)
+--- /dev/null
++++ b/tests/api/test_agent_publication_channel.py
+@@ -0,0 +1,87 @@
++"""Actual update API preserves null-save scope on a channel switch."""
++from datetime import timedelta
++
++from app.models.agent import Agent
++from app.services.agent_publication_progress import snapshot_publications
++from app.services.resource_publication import publish_resource
++from app.utils.time import utcnow
++from tests.unit.test_agent_publication_progress import next_resource, setup
++from tests.unit.test_resource_publication import resource
++
++
++async def test_channel_update_preserves_timestamp_but_changes_publication_scope(client, db_session_factory):
++    async with db_session_factory() as db:
++        agent, _ = await setup(db)
++        old_snapshot = await snapshot_publications(db, agent.id, agent.channel_id)
++        old = await resource(db)
++        now = utcnow()
++        old.created_at = now - timedelta(days=2)
++        await publish_resource(db, old.id, kind="created")
++        new = await next_resource(db, old.channel_id)
++        new.created_at = now
++        agent.last_consumed_at = now - timedelta(days=1)
++        await db.commit()
++        aid, cid, rid, watermark = agent.id, old.channel_id, new.id, agent.last_consumed_at
++    response = await client.put(f"/api/v1/agents/{aid}", json={"channel_id": cid})
++    assert response.status_code == 200, response.text
++    async with db_session_factory() as db:
++        updated = await db.get(Agent, aid)
++        assert updated.last_consumed_at == watermark
++        snapshot = await snapshot_publications(db, aid, cid)
++        assert snapshot.resource_ids == (rid,)
++        assert snapshot.generation != old_snapshot.generation
++    response = await client.put(f"/api/v1/agents/{aid}", json={"name": "Renamed"})
++    assert response.status_code == 200, response.text
++    async with db_session_factory() as db:
++        assert await snapshot_publications(db, aid, cid) == snapshot
++    response = await client.put(f"/api/v1/agents/{aid}", json={"dispatch_resource_ids": []})
++    assert response.status_code == 200, response.text
++    async with db_session_factory() as db:
++        assert not (await snapshot_publications(db, aid, cid)).resource_ids
++
++
++async def test_rule_and_subscription_edits_invalidate_runs_without_resetting_progress(client, db_session_factory):
++    from sqlalchemy import select
++
++    from app.models.agent_publication_progress import AgentPublicationProgress
++    from app.models.movie import Movie
++
++    async with db_session_factory() as db:
++        agent, _ = await setup(db)
++        resource = await next_resource(db, agent.channel_id)
++        movie = Movie(title_cn="Synthetic subscription")
++        db.add(movie)
++        agent.scope_channel_wide = True
++        agent.last_consumed_at = utcnow()
++        await db.commit()
++        aid, cid, rid, mid = agent.id, agent.channel_id, resource.id, movie.id
++
++    async def state():
++        async with db_session_factory() as db:
++            row = await db.scalar(select(AgentPublicationProgress).where(AgentPublicationProgress.agent_id == aid))
++            agent = await db.get(Agent, aid)
++            snapshot = await snapshot_publications(db, aid, cid)
++            assert snapshot.resource_ids == (rid,)
++            return row.generation, (row.baseline, row.cursor, row.historical_created_after, agent.last_consumed_at)
++
++    generation, boundaries = await state()
++    response = await client.put(f"/api/v1/agents/{aid}", json={"scope_channel_wide": False})
++    assert response.status_code == 200, response.text
++    fresh, current_boundaries = await state()
++    assert fresh != generation and current_boundaries == boundaries
++    generation = fresh
++    response = await client.post(f"/api/v1/agents/{aid}/works", json={"content_type": "movie", "movie_id": mid})
++    assert response.status_code == 201, response.text
++    wid = response.json()["data"]["id"]
++    fresh, current_boundaries = await state()
++    assert fresh != generation and current_boundaries == boundaries
++    generation = fresh
++    response = await client.put(f"/api/v1/agents/{aid}/works/{wid}", json={"enable_episode_dedup": False})
++    assert response.status_code == 200, response.text
++    fresh, current_boundaries = await state()
++    assert fresh != generation and current_boundaries == boundaries
++    generation = fresh
++    response = await client.delete(f"/api/v1/agents/{aid}/works/{wid}")
++    assert response.status_code == 200, response.text
++    fresh, current_boundaries = await state()
++    assert fresh != generation and current_boundaries == boundaries
+--- /dev/null
++++ b/tests/integration/organize/publication_feed_driver.py
+@@ -0,0 +1,190 @@
++"""Actual feed producer with captured title/torrent and an explicit synthetic RSS shell."""
++
++import asyncio
++import json
++import os
++from pathlib import Path
++from unittest.mock import AsyncMock, patch
++from xml.sax.saxutils import escape
++
++assert os.environ.get("DATABASE_URL") == "sqlite+aioturso:///:memory:?isolation_level=DEFERRED"
++
++import feedparser
++from sqlalchemy import event, select
++from sqlalchemy.orm import selectinload
++
++import app.database as database
++import app.models  # noqa: F401
++import app.services.fetch_service as fetch
++from app.job_handlers import _handle_run_agent
++from app.models.agent import Agent
++from app.models.channel import Channel
++from app.models.downloader import DownloaderInstance
++from app.models.file_resource import FileResource
++from app.models.resource_publication import ChannelPublicationCounter, ResourcePublication
++from app.models.series import TVSeries
++from app.models.work_collection import WorkCollection
++from app.services.torrent_inspect import parse_torrent_payload
++from tests.metadata_corpus.dataset import ROOT, asset, digest, load_corpus, read_json
++
++CASE = "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b"
++
++
++async def main():
++    manifest, corpus, reviews = load_corpus(ROOT)
++    case = next(c for c in corpus["cases"] if c["id"] == CASE)
++    review = reviews[CASE]
++    assert review["status"] == "confirmed" and not case["input"]["raw_rss_available"]
++    torrent = asset(ROOT, case["evidence"]["torrent"])
++    raw = torrent.read_bytes()
++    assert digest(raw) == torrent.stem
++    listing_path = asset(ROOT, manifest["file_list_file"])
++    assert digest(listing_path.read_bytes()) == manifest["file_list_sha256"]
++    listing = read_json(listing_path)[case["evidence"]["torrent"]]
++    assert parse_torrent_payload(raw) == listing
++    [assignment] = review["expected"]["assignments"]
++    assert assignment["file_path"] == listing[0]["name"]
++    title = case["input"]["title_raw"]
++    rss = f'<rss version="2.0"><channel><title>Synthetic RSS shell</title><item><guid>captured-title-1</guid><title>{escape(title)}</title><enclosure url="https://example.invalid/captured.torrent" type="application/x-bittorrent" length="{len(raw)}"/></item></channel></rss>'
++    parsed_feed = feedparser.parse(rss)
++    assert not parsed_feed.bozo and len(parsed_feed.entries) == 1
++    async with database.engine.begin() as conn:
++        await conn.run_sync(database.Base.metadata.create_all)
++    async with database.async_session_factory() as db:
++        channel = Channel(
++            name="Captured title publication",
++            url="https://example.invalid/feed",
++            field_mapping={},
++            metadata_agent_enabled=False,
++        )
++        downloader = DownloaderInstance(name="Synthetic", type="mock", url="mock://synthetic", download_dir="/tmp")
++        collection = WorkCollection(title_cn="猫与龙")
++        db.add_all([channel, downloader, collection])
++        await db.flush()
++        series = TVSeries(
++            title_cn="猫与龙",
++            original_title="猫と竜",
++            collection_id=collection.id,
++            season_number=1,
++            number_of_episodes=12,
++            content_type="tv",
++            is_anime=True,
++        )
++        agent = Agent(name="Feed consumer", channel_id=channel.id, downloader_id=downloader.id, scope_channel_wide=True)
++        db.add_all([series, agent])
++        await db.commit()
++        cid, aid, sid = channel.id, agent.id, series.id
++    assert (await _handle_run_agent({"agent_id": aid}))["total_resources"] == 0
++    observed_created = []
++
++    async def reviewed_link(db, resource, channel):
++        # Explicit reviewed metadata adapter, not a claim of cold metadata inference.
++        async with database.async_session_factory() as observer:
++            assert await observer.get(FileResource, resource.id) is not None
++            assert (
++                await observer.scalar(
++                    select(ResourcePublication.kind).where(ResourcePublication.resource_id == resource.id)
++                )
++                == "created"
++            )
++        observed_created.append(resource.id)
++        resource.series_id = sid
++        resource.season = assignment["season"]
++        resource.episode = assignment["episode_start"]
++        resource.episode_confidence = "reconciled"
++        resource.content_type = "tv"
++
++    failure = os.environ.get("FAIL_KIND", "")
++    queue_recovery = os.environ.get("QUEUE_RECOVERY") == "1"
++    lost_wakeup = AsyncMock(side_effect=RuntimeError("Synthetic queue outage") if queue_recovery else None)
++
++    def reject_event(conn, cursor, statement, parameters, context, executemany):
++        if statement.lower().startswith("insert into resource_publications"):
++            if any(row.get("kind") == failure for row in context.compiled_parameters):
++                raise RuntimeError("Synthetic publication INSERT failure: " + failure)
++
++    if failure:
++        event.listen(database.engine.sync_engine, "before_cursor_execute", reject_event)
++    with (
++        patch.object(fetch, "_parse_feed_sync", return_value=parsed_feed),
++        patch.object(fetch, "fetch_and_link_metadata", reviewed_link),
++        patch("app.services.torrent_inspect.ensure_torrent_cached", AsyncMock()),
++        patch("app.services.torrent_inspect.maybe_inspect_torrent", AsyncMock()),
++        patch("app.services.task_queue.task_queue.enqueue", lost_wakeup),
++    ):
++        try:
++            async with database.async_session_factory() as db:
++                channel = await db.get(Channel, cid, options=[selectinload(Channel.agents)])
++                try:
++                    fetched = await fetch.fetch_channel_resources(channel, db)
++                except RuntimeError:
++                    assert failure == "created"
++                    await db.rollback()
++                    fetched = {"creation_rolled_back": True}
++        finally:
++            if failure:
++                event.remove(database.engine.sync_engine, "before_cursor_execute", reject_event)
++        async with database.async_session_factory() as db:
++            resources = list(await db.scalars(select(FileResource)))
++            publications = list(await db.scalars(select(ResourcePublication).order_by(ResourcePublication.sequence)))
++            kinds = [p.kind for p in publications]
++            if failure == "created":
++                assert not resources and not publications
++                assert await db.scalar(select(ChannelPublicationCounter.id)) is None
++            else:
++                assert len(resources) == 1 and resources[0].title_raw == title
++                assert observed_created == [resources[0].id]
++                if failure == "metadata":
++                    assert kinds == ["created"] and resources[0].series_id is None
++                else:
++                    assert kinds == ["created", "metadata"] and resources[0].series_id == sid
++        if failure == "metadata":
++            before = await _handle_run_agent({"agent_id": aid})
++            assert before["unrecognized"] == 1 and before["dispatched"] == 0
++            await fetch._process_resource_metadata(resources[0].id, cid, asyncio.Semaphore(1))
++        if queue_recovery:
++            from app.services.publication_dispatch import dispatch_pending_publications
++            from app.services.task_queue import MemoryQueue
++
++            lost_wakeup.assert_awaited_once()
++            queue = MemoryQueue()
++            queue.register("run_agent", _handle_run_agent)
++            with patch("app.services.task_queue.task_queue", queue):
++                await queue.start()
++                try:
++                    await dispatch_pending_publications()
++                    async with asyncio.timeout(15):
++                        while True:
++                            status = await queue.status(f"agent:{aid}")
++                            if status and status["status"] in {"done", "failed"}:
++                                break
++                            await asyncio.sleep(0.02)
++                    assert status["status"] == "done", status
++                    consumed = status["result"]
++                    await dispatch_pending_publications()
++                    assert (await queue.status(f"agent:{aid}"))["job_id"] == status["job_id"]
++                finally:
++                    await queue.stop()
++        else:
++            consumed = await _handle_run_agent({"agent_id": aid})
++        assert consumed["dispatched"] == (0 if failure == "created" else 1), consumed
++        assert not consumed["errors"]
++        again = await _handle_run_agent({"agent_id": aid})
++        assert again["total_resources"] == 0, again
++    result = {
++        "case": CASE,
++        "torrent_sha256": torrent.stem,
++        "rss": "synthetic shell; recorded raw RSS unavailable",
++        "metadata": "explicit reviewed adapter",
++        "failure": failure or None,
++        "lost_wakeup_recovered_by_live_queue": queue_recovery,
++        "fetched": fetched,
++        "events_after_fetch": kinds,
++        "consumed": consumed,
++        "next_run": again,
++    }
++    Path(os.environ["PROBE_RESULT_PATH"]).write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
++    await database.engine.dispose()
++
++
++asyncio.run(main())
+--- /dev/null
++++ b/tests/integration/organize/test_publication_feed.py
+@@ -0,0 +1,42 @@
++"""Real producer transactions with captured corpus evidence in fresh processes."""
++
++import asyncio
++import json
++import os
++import subprocess
++import sys
++from pathlib import Path
++
++import pytest
++
++
++@pytest.mark.parametrize("failure,queue_recovery", [("", False), ("created", False), ("metadata", False), ("", True)])
++async def test_feed_publication_atomicity_and_consumption(failure, queue_recovery, tmp_path, record_testsuite_property):
++    output = tmp_path / "result.json"
++    env = dict(
++        os.environ,
++        DATABASE_URL="sqlite+aioturso:///:memory:?isolation_level=DEFERRED",
++        FAIL_KIND=failure,
++        QUEUE_RECOVERY="1" if queue_recovery else "0",
++        PROBE_RESULT_PATH=str(output),
++    )
++    root = Path(__file__).resolve().parents[3]
++    completed = await asyncio.to_thread(
++        subprocess.run,
++        [sys.executable, "-m", "tests.integration.organize.publication_feed_driver"],
++        cwd=root,
++        env=env,
++        capture_output=True,
++        text=True,
++        timeout=60,
++    )
++    assert completed.returncode == 0, completed.stdout + completed.stderr
++    result = json.loads(output.read_text())
++    assert result["failure"] == (failure or None)
++    assert result["lost_wakeup_recovered_by_live_queue"] == queue_recovery
++    assert result["consumed"]["dispatched"] == (0 if failure == "created" else 1)
++    assert result["next_run"]["total_resources"] == 0
++    record_testsuite_property("real_case", result["case"])
++    record_testsuite_property("torrent_sha256", result["torrent_sha256"])
++    record_testsuite_property("rss_source", result["rss"])
++    record_testsuite_property("metadata_boundary", result["metadata"])
+--- a/docs/testing/integration-inventory.md
++++ b/docs/testing/integration-inventory.md
+@@ -302,3 +302,16 @@
+ - `season_model/test_orphan_identity_cli.py`：真实磁盘 Turso 与 CLI 子进程的导出、禁止覆盖、明确应用、重复执行。
+ - `season_model/test_orphan_identity_captured.py`：录制图 249 条有效身份无误报且全字段保持不变。
+ - PostgreSQL 插入/更新、身份登记、决策创建/确认、合并竞争及离线清理锁专项见 `docs/plans/p0-and-backlog/probes/work-deletion-*-pg-result.json`；合成边界与录制来源分别记录。
++
++
++### V13 隔离原型：发布事件 feed 集成（未合入）
++
++`tests/integration/organize/test_publication_feed.py` 三参数场景在新 Turso 子进程库运行，驱动实际 fetch_channel_resources / _process_resource_metadata / Agent handler。confirmed corpus case f79ef2eb-02d5-42d3-80dc-70dd3c1d733b 提供真实标题、torrent 和独立 S1E10 审核，验证 torrent/listing SHA 与解析结果；raw_rss_available=false，RSS 外壳明确合成，网络识别由审核适配替代，torrent 缓存/检查边界和队列唤醒被替换。断言正常 created+metadata/派发去重、created 事件失败时资源同事务回滚、metadata 事件失败时关联回滚并在重试后恢复消费。媒体没有下载。JUnit 附来源属性，3 passed；不代替 PostgreSQL/Redis 完整分布式验收。
++
++V13 jh 扩为四参数场景：模拟 fetch 最终 enqueue 抛错，随后 dispatch_pending_publications → 实际运行的 MemoryQueue → handler 恢复，完成后再次 tick 不重复建作业。4 passed；不是 Redis 分布式证据。
++
++V13 ji/jk 独立 PG/Redis 探针：较早创建晚提交资源由下轮 handler 派发；擦除专用 Redis 队列状态后两个新进程恢复同一 job_id，数据库任务唯一。原始 red/green 与结果位于 p0-and-backlog/probes，完整容器门禁仍待跑。
++
++V13 发布补偿定时集成：`organize/test_publication_scheduler.py` 使用真实生产五秒 IntervalTrigger、MemoryQueue、handler 和临时 Turso；暂停经历一次 tick 后仍待消费，恢复后自动产生一条成功 AgentRun 并确认游标。仅移除无关定时任务，不手动调用发布回调或缩短周期。数据为合成资源；此用例不证明外部下载副作用。
++
++V13 FTS 并发回归：`organize/test_fts_concurrency.py` 在独立子进程和临时 Turso sidecar 上运行生产 FTS 初始化、写入和检索；8 个并发调用者共 400 写、400 读，要求进程正常退出、无操作异常、最终索引恰好包含 10 个唯一预期 ID。数据明确为合成压力夹具；进程隔离保留原生崩溃输出。此测试不替代完整 HTTP/调度负载门禁，也不证明此前 page_cache 崩溃与已复现 btree 崩溃同源。
+--- /dev/null
++++ b/app/services/publication_dispatch.py
+@@ -0,0 +1,46 @@
++"""Queue is a wakeup hint; durable publication progress owns pending work."""
++
++import logging
++
++from sqlalchemy import and_, or_, select
++
++from app.database import committed_session
++from app.models.agent import Agent
++from app.models.agent_publication_progress import AgentPublicationProgress
++from app.models.resource_publication import ChannelPublicationCounter
++
++logger = logging.getLogger(__name__)
++
++
++async def dispatch_pending_publications():
++    from app.services import task_queue
++
++    progress = AgentPublicationProgress
++    async with committed_session() as db:
++        agent_ids = list(
++            await db.scalars(
++                select(Agent.id)
++                .outerjoin(progress, progress.agent_id == Agent.id)
++                .outerjoin(ChannelPublicationCounter, ChannelPublicationCounter.channel_id == Agent.channel_id)
++                .where(
++                    Agent.status == "active",
++                    or_(
++                        and_(progress.id.is_(None), Agent.last_consumed_at.is_(None)),
++                        and_(
++                            progress.channel_id == Agent.channel_id,
++                            ChannelPublicationCounter.sequence > progress.cursor,
++                        ),
++                    ),
++                )
++                .order_by(Agent.id)
++            )
++        )
++    # No DB transaction spans a queue call. A failed/busy enqueue leaves the
++    # same rows pending, and another tick (or worker) can deliver the wakeup.
++    for agent_id in agent_ids:
++        try:
++            await task_queue.task_queue.enqueue(
++                "run_agent", f"agent:{agent_id}", {"agent_id": agent_id, "automatic": True}
++            )
++        except Exception:
++            logger.exception("Could not enqueue published resources for Agent %s", agent_id)
+--- a/app/services/scheduler.py
++++ b/app/services/scheduler.py
+@@ -40,6 +40,13 @@
+     _scheduler.add_job(
+         dispatch_pending_requests, trigger=IntervalTrigger(seconds=5),
+         id="agent_resource_dispatch", replace_existing=True, coalesce=True, max_instances=1,
++    )
++
++    from app.services.publication_dispatch import dispatch_pending_publications
++
++    _scheduler.add_job(
++        dispatch_pending_publications, trigger=IntervalTrigger(seconds=5),
++        id="agent_publication_dispatch", replace_existing=True, coalesce=True, max_instances=1,
+     )
+ 
+     # Each process must update its own in-memory schedule. Do not enqueue this
+--- /dev/null
++++ b/tests/unit/test_publication_dispatch.py
+@@ -0,0 +1,45 @@
++"""Queue failures cannot acknowledge database-owned publication work."""
++
++from unittest.mock import AsyncMock
++
++from app.models.agent import Agent
++from app.services import task_queue
++from app.services.agent_publication_progress import acknowledge_publications, snapshot_publications
++from app.services.publication_dispatch import dispatch_pending_publications
++from tests.unit.test_agent_publication_progress import next_resource, setup
++
++
++async def test_failed_wakeup_retries_and_paused_agent_retains_work(db_session, monkeypatch):
++    agent, _ = await setup(db_session)
++    resource = await next_resource(db_session, agent.channel_id)
++    agent.status = "paused"
++    await db_session.commit()
++    enqueue = AsyncMock(side_effect=RuntimeError("Synthetic queue outage"))
++    monkeypatch.setattr(task_queue.task_queue, "enqueue", enqueue)
++    await dispatch_pending_publications()
++    enqueue.assert_not_called()
++    agent.status = "active"
++    await db_session.commit()
++    await dispatch_pending_publications()
++    enqueue.assert_awaited_once_with("run_agent", f"agent:{agent.id}", {"agent_id": agent.id, "automatic": True})
++    pending = await snapshot_publications(db_session, agent.id, agent.channel_id)
++    assert pending.resource_ids == (resource.id,)
++    enqueue.side_effect = None
++    await dispatch_pending_publications()
++    assert enqueue.await_count == 2
++    assert await snapshot_publications(db_session, agent.id, agent.channel_id) == pending
++    await acknowledge_publications(db_session, pending)
++    await db_session.commit()
++    await dispatch_pending_publications()
++    assert enqueue.await_count == 2
++
++
++async def test_new_agent_without_progress_gets_initialization_wakeup(db_session, monkeypatch):
++    agent, _ = await setup(db_session)
++    fresh = Agent(name="Synthetic fresh", channel_id=agent.channel_id, downloader_id=agent.downloader_id)
++    db_session.add(fresh)
++    await db_session.commit()
++    enqueue = AsyncMock()
++    monkeypatch.setattr(task_queue.task_queue, "enqueue", enqueue)
++    await dispatch_pending_publications()
++    enqueue.assert_awaited_once_with("run_agent", f"agent:{fresh.id}", {"agent_id": fresh.id, "automatic": True})
+--- a/app/services/agent_service.py
++++ b/app/services/agent_service.py
+@@ -275,7 +275,7 @@
+ 
+ 
+ async def dispatch_download(
+-    agent: Agent, resource: FileResource, db: AsyncSession
++    agent: Agent, resource: FileResource, db: AsyncSession, *, consumption_snapshot=None
+ ) -> DownloadTask:
+     """Create a DownloadTask and attempt to add it to Transmission."""
+     downloader = await db.get(DownloaderInstance, agent.downloader_id)
+@@ -312,6 +312,11 @@
+         db.add(task)
+         await db.flush()
+         return task
++
++    if consumption_snapshot is not None:
++        from app.services.agent_publication_progress import require_current_scope
++
++        await require_current_scope(db, consumption_snapshot)
+ 
+     return await create_and_submit_task(
+         resource,
+@@ -736,10 +741,16 @@
+     )
+ 
+ 
+-async def _process_candidate_group(agent, key, cands, db) -> bool:
++async def _process_candidate_group(agent, key, cands, db, *, consumption_snapshot=None) -> bool:
+     """Dispatch one coverage group; return whether it created a decision."""
++    dispatch_options = {}
++    if consumption_snapshot is not None:
++        from app.services.agent_publication_progress import require_current_scope
++
++        await require_current_scope(db, consumption_snapshot)
++        dispatch_options["consumption_snapshot"] = consumption_snapshot
+     if len(cands) == 1:
+-        await dispatch_download(agent, cands[0], db)
++        await dispatch_download(agent, cands[0], db, **dispatch_options)
+         return False
+     else:
+         if agent.conflict_resolution == "ask":
+@@ -765,7 +776,7 @@
+                 chosen = next((c for c in tier if c.id == picked_id), None)
+                 if chosen is None:
+                     chosen = score_and_pick(tier, None, agent)
+-            await dispatch_download(agent, chosen, db)
++            await dispatch_download(agent, chosen, db, **dispatch_options)
+             return False
+ 
+ 
+@@ -776,6 +787,7 @@
+     *,
+     autocommit: bool = False,
+     required_metadata_fields: list[str] | None = None,
++    consumption_snapshot=None,
+ ) -> RunResult:
+     """Process a list of resources through filtering, dedup, and dispatch.
+ 
+@@ -920,6 +932,7 @@
+         # Background callers own this transaction. Finish selection before
+         # independent candidate writers; preserve loaded objects on commit.
+         await db.commit()
++    guard_options = {"consumption_snapshot": consumption_snapshot} if consumption_snapshot is not None else {}
+     for key, cands in candidates_by_key.items():
+         try:
+             if autocommit:
+@@ -928,7 +941,7 @@
+                 async def write_candidate():
+                     async with AsyncSession(bind=db.bind, expire_on_commit=False) as unit_db:
+                         async with unit_db.begin():
+-                            return await _process_candidate_group(agent, key, cands, unit_db)
++                            return await _process_candidate_group(agent, key, cands, unit_db, **guard_options)
+ 
+                 if agent.conflict_resolution == "ask" and len(cands) >= 2:
+                     # This branch only persists a choice; it cannot send a
+@@ -940,7 +953,7 @@
+                 # A newly saved Agent may still be uncommitted in this request.
+                 # Keep that state visible and isolate only the candidate writes.
+                 async with db.begin_nested():
+-                    pending = await _process_candidate_group(agent, key, cands, db)
++                    pending = await _process_candidate_group(agent, key, cands, db, **guard_options)
+             if pending:
+                 result.pending_decisions += 1
+             else:
+--- a/tests/unit/test_agent_service.py
++++ b/tests/unit/test_agent_service.py
+@@ -2648,10 +2648,15 @@
+     resources = [_make_resource(channel.id, series_id=series.id, episode=i) for i in (1, 2)]
+     db_session.add_all([agent, *resources])
+     await db_session.commit()
++    from app.services.publication_migration import bootstrap_publications
++
++    # This fixture intentionally starts with a legacy timestamp watermark.
++    await bootstrap_publications(db_session, writers_stopped=True)
++    await db_session.commit()
+     agent_id = agent.id
+     attempts = []
+ 
+-    async def dispatch(agent, resource, unit):
++    async def dispatch(agent, resource, unit, *, consumption_snapshot=None):
+         attempts.append(resource.id)
+         task = DownloadTask(id=_uuid(), agent_id=agent.id, file_resource_id=resource.id,
+                             downloader_id=downloader.id, status="downloading",
+--- a/app/models/agent.py
++++ b/app/models/agent.py
+@@ -49,13 +49,10 @@
+     )
+     last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+     last_run_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+-    # Consumption watermark: the latest ``FileResource.created_at`` timestamp
+-    # this agent has already considered. Delta runs (fetch-triggered / manual)
+-    # only process resources with ``created_at > last_consumed_at``; rule-change
+-    # saves advance it to the channel's current max so subsequent delta runs
+-    # only see truly new resources. Null = never run (treated as "process
+-    # nothing, set to now" to avoid silently auto-dispatching backfill —
+-    # backfill must go through the rules-preview selection flow).
++    # Compatibility timestamp for UI and explicit time-based scans/migration.
++    # Incremental eligibility is owned by AgentPublicationProgress and the
++    # channel's committed publication sequence, not resource creation time.
++    # Null still denotes first-run initialization without implicit backfill.
+     last_consumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+     # Webhook subscriptions for download notifications live in their own
+     # table (``agent_webhooks``) — an Agent may fan out to several webhooks.
+--- a/app/services/agent_resource_requests.py
++++ b/app/services/agent_resource_requests.py
+@@ -105,7 +105,7 @@
+ 
+     for agent_id in agent_ids:
+         try:
+-            payload = {"agent_id": agent_id, "resource_ids": resource_ids or []}
++            payload = {"agent_id": agent_id, "resource_ids": resource_ids or [], "automatic": True}
+             if resource_ids is None:
+                 payload["pending_requests"] = True
+             await task_queue.task_queue.enqueue("run_agent", f"agent:{agent_id}", payload)
+--- a/tests/unit/test_fetch_service.py
++++ b/tests/unit/test_fetch_service.py
+@@ -720,6 +720,10 @@
+                 title_raw=f"[G] Show{i} - 01 [1080p]",
+                 torrent_url=f"magnet:?xt=urn:btih:{i}",
+             ))
++        await db_session.flush()
++        from app.services.publication_migration import bootstrap_publications
++
++        await bootstrap_publications(db_session, writers_stopped=True)
+         await db_session.commit()
+ 
+         feed = _mock_feed([])  # empty feed: no new entries, backfill still runs
+@@ -773,6 +777,10 @@
+             title_raw=f"[G] Show{i} - 01 [1080p]",
+             torrent_url=f"magnet:?xt=urn:btih:{i}",
+         ))
++    await db_session.flush()
++    from app.services.publication_migration import bootstrap_publications
++
++    await bootstrap_publications(db_session, writers_stopped=True)
+     await db_session.commit()
+ 
+     with patch("app.services.fetch_service._parse_feed_sync",
+@@ -1111,6 +1119,10 @@
+         series_id=no_map_series.id, season=1, episode=90, episode_confidence="raw",
+     )
+     db_session.add_all([stale, per_season, manual, no_map])
++    await db_session.flush()
++    from app.services.publication_migration import bootstrap_publications
++
++    await bootstrap_publications(db_session, writers_stopped=True)
+     await db_session.commit()
+ 
+     changed = await fs.reconcile_stale_raw_episodes(db_session)
+@@ -1243,6 +1255,10 @@
+         search_title="Show",
+     )
+     db_session.add(res)
++    await db_session.flush()
++    from app.services.publication_migration import bootstrap_publications
++
++    await bootstrap_publications(db_session, writers_stopped=True)
+     await db_session.commit()
+ 
+     async def _ensure(resource):
+@@ -1327,6 +1343,10 @@
+         search_title="Pack", is_batch=True, batch_scope="franchise",
+     )
+     db_session.add(res)
++    await db_session.flush()
++    from app.services.publication_migration import bootstrap_publications
++
++    await bootstrap_publications(db_session, writers_stopped=True)
+     await db_session.commit()
+ 
+     async def _ensure(resource):
+@@ -1465,6 +1485,10 @@
+         episode_confidence="raw", subtitle_group="GROUP",
+     )
+     db_session.add_all([manual, target])
++    await db_session.flush()
++    from app.services.publication_migration import bootstrap_publications
++
++    await bootstrap_publications(db_session, writers_stopped=True)
+     await db_session.commit()
+ 
+     changed = await fs.reconcile_stale_raw_episodes(db_session, return_resource_ids=True)
+--- a/tests/integration/metadata/test_fetch_service_coverage.py
++++ b/tests/integration/metadata/test_fetch_service_coverage.py
+@@ -269,6 +269,10 @@
+     channel = await _make_channel(db_session)
+     res = _make_resource(channel.id, torrent_url="magnet:?xt=urn:btih:" + "ab" * 20)
+     db_session.add(res)
++    await db_session.flush()
++    from app.services.publication_migration import bootstrap_publications
++
++    await bootstrap_publications(db_session, writers_stopped=True)
+     await db_session.commit()
+ 
+     async def _enqueue_boom(rid):
+@@ -289,6 +293,10 @@
+     channel = await _make_channel(db_session, metadata_agent_enabled=True)
+     res = _make_resource(channel.id, search_title=None)
+     db_session.add(res)
++    await db_session.flush()
++    from app.services.publication_migration import bootstrap_publications
++
++    await bootstrap_publications(db_session, writers_stopped=True)
+     await db_session.commit()
+ 
+     async def _process_boom(*a, **kw):
+@@ -314,6 +322,10 @@
+     channel = await _make_channel(db_session)
+     res = _make_resource(channel.id)
+     db_session.add(res)
++    await db_session.flush()
++    from app.services.publication_migration import bootstrap_publications
++
++    await bootstrap_publications(db_session, writers_stopped=True)
+     await db_session.commit()
+     monkeypatch.setattr(fs, "fetch_and_link_metadata", AsyncMock())
+     monkeypatch.setattr(
+@@ -337,6 +349,10 @@
+     db_session.add(series)
+     res = _make_resource(channel.id, series_id=series.id, is_batch=False, episode=1)
+     db_session.add(res)
++    await db_session.flush()
++    from app.services.publication_migration import bootstrap_publications
++
++    await bootstrap_publications(db_session, writers_stopped=True)
+     await db_session.commit()
+     monkeypatch.setattr(fs, "fetch_and_link_metadata", AsyncMock())
+     monkeypatch.setattr(
+@@ -362,6 +378,10 @@
+     res = _make_resource(channel.id, movie_id=movie.id, series_id=None,
+                          episode=None, season=None)
+     db_session.add(res)
++    await db_session.flush()
++    from app.services.publication_migration import bootstrap_publications
++
++    await bootstrap_publications(db_session, writers_stopped=True)
+     await db_session.commit()
+     monkeypatch.setattr(fs, "fetch_and_link_metadata", AsyncMock())
+     monkeypatch.setattr(
+@@ -474,6 +494,10 @@
+                          episode=3, season=1, absolute_episode=3,
+                          episode_confidence="raw")
+     db_session.add(res)
++    await db_session.flush()
++    from app.services.publication_migration import bootstrap_publications
++
++    await bootstrap_publications(db_session, writers_stopped=True)
+     await db_session.commit()
+ 
+     monkeypatch.setattr(
+@@ -497,6 +521,10 @@
+     res = _make_resource(channel.id, series_id=series.id, is_batch=False,
+                          episode=15, season=2, episode_confidence="raw")
+     db_session.add(res)
++    await db_session.flush()
++    from app.services.publication_migration import bootstrap_publications
++
++    await bootstrap_publications(db_session, writers_stopped=True)
+     await db_session.commit()
+ 
+     monkeypatch.setattr(
+@@ -679,7 +707,7 @@
+     # Only the active agent gets a run; the paused one is skipped.
+     assert calls == [{
+         "job_type": "run_agent", "key": f"agent:{ok_agent.id}",
+-        "payload": {"agent_id": ok_agent.id},
++        "payload": {"agent_id": ok_agent.id, "automatic": True},
+     }]
+ 
+ 
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -44,7 +44,7 @@
+ - `FileResource` FK 互斥：剧集资源用 `series_id`、电影资源用 `movie_id`、未识别两者皆空；合集资源（`is_batch=true`）`episode` 为空。
+ - 合集去重按内容覆盖度；覆盖度未知不派发（进所属 Channel 待确认）；`batch_scope ∈ {NULL,season,multi_season,franchise,movies}`；`resource_work_links`/`resource_file_assignments` 为权威关联与文件映射。
+ - `episode_confidence ∈ {raw,reconciled,ambiguous,manual,None}`；`ambiguous` 不参与派发。
+-- `Agent.last_consumed_at` 是消费水位线（增量运行只处理其后的资源）；`PendingDecision` 仅用于 ≥2 合格下载候选；`AgentWork` 上限 10；订阅单位是季作品（多季需逐季订阅）。
++- `Agent.last_consumed_at` 保留兼容时间展示；增量消费使用发布 baseline/cursor/generation（历史准入与确认独立，旧库须停写迁移）；`PendingDecision` 仅用于 ≥2 合格下载候选；`AgentWork` 上限 10；订阅单位是季作品（多季需逐季订阅）。
+ - `genre` 统一为封闭 TMDB 27 类；`is_anime` 三态（True/False/NULL）；作品人工编辑保护 `manually_edited_fields`（自动扫描/刷新默认跳过）。
+ - `WorkExternalId` 身份袋（`work_type` 含 `collection`；wikipedia id 带语言版本）；`WorkCollection` 为系列级元数据载体（`aliases`/`search_text`/`manually_edited_fields`）。
+ 
+@@ -58,12 +58,12 @@
+ 
+ - 前缀 `/api/v1`；统一响应结构 `{success,data,error,meta}`；分页 `page`/`page_size`（最大 100）。
+ - 认证默认开（`AUTH_ENABLED`）：Web 端 TOTP HttpOnly Cookie；程序端 API key（`rr_` 明文仅创建时返回一次；`Authorization: Bearer` 或 `X-API-Key`）。
+-- `POST /agents` 的 `dispatch_resource_ids`：`null`=普通保存不动水位线；数组（含空）=经 rules-preview 派发选中资源并推进水位线。
++- `POST /agents` 的 `dispatch_resource_ids`：`null`=普通保存不动水位线；数组（含空）=经 rules-preview 派发选中资源并原子重置发布准入/游标。
+ - 三个修订端点（`PATCH /resources/{id}/episode`、`PATCH /resources/{id}`、`PUT /resources/{id}/associations`）先 commit 再入队定向运行；`PUT .../associations` 为编辑向导统一提交。
+ 
+ ### 核心业务逻辑（详见 business-logic.md）
+ 
+-- Agent 四种运行模式：增量（水位线之后）、定向（`resource_ids`，绕过水位线）、回填提交（rules-preview 后保存）、指定起始时间（`scan_since`）。
++- Agent 四种运行模式：增量（未确认发布且满足历史准入）、定向（`resource_ids`，绕过准入且不确认普通游标）、回填提交（rules-preview 后保存）、指定起始时间（`scan_since`）。
+ - Metadata 匹配四层：已链接 → `ChannelRawTitleMapping` → 本地 DB 精确/模糊 → 统一 MetadataAgent；单季化 upsert 后所有链接路径统一走 `reconcile_linked_series_resource`，绝不猜季。
+ - 频道源为三数据源架构 `wikipedia | tmdb | bangumi`（默认 `wikipedia`）；三主源未命中走有序网络搜索回退（仅补身份/链接，内容以主源为准）。
+ - 冲突解决优选链：`Agent.pick_preferences`（只排序不过滤）→ `_generate_llm_pick` → 启发式评分。
+--- /dev/null
++++ b/tests/integration/organize/test_publication_scheduler.py
+@@ -0,0 +1,58 @@
++"""Real five-second timer and MemoryQueue consuming synthetic DB publications."""
++
++import asyncio
++
++from apscheduler.events import EVENT_JOB_EXECUTED
++from sqlalchemy import select
++
++from app.config import settings
++from app.job_handlers import _handle_run_agent
++from app.models.agent_run import AgentRun
++from app.services import scheduler, task_queue
++from app.services.agent_publication_progress import snapshot_publications
++from app.services.task_queue import MemoryQueue
++from tests.unit.test_agent_publication_progress import next_resource, setup
++
++
++async def test_real_timer_preserves_paused_progress_and_consumes_after_resume(db_session, monkeypatch):
++    agent, _ = await setup(db_session)
++    resource = await next_resource(db_session, agent.channel_id)
++    agent.status = "paused"
++    await db_session.commit()
++    queue = MemoryQueue()
++    queue.register("run_agent", _handle_run_agent)
++    monkeypatch.setattr(task_queue, "task_queue", queue)
++    monkeypatch.setattr(settings, "scheduler_enabled", True)
++    monkeypatch.setattr(scheduler, "_scheduler", None)
++    tick = asyncio.Event()
++    await queue.start()
++    try:
++        await scheduler.init_scheduler()
++        sched = scheduler.get_scheduler()
++        # Preserve the production timer unchanged; suppress unrelated jobs.
++        for job in sched.get_jobs():
++            if job.id != "agent_publication_dispatch":
++                sched.remove_job(job.id)
++        job = sched.get_job("agent_publication_dispatch")
++        assert job.trigger.interval.total_seconds() == 5
++        sched.add_listener(lambda event: tick.set(), EVENT_JOB_EXECUTED)
++        await asyncio.wait_for(tick.wait(), timeout=20)
++        assert await queue.status(f"agent:{agent.id}") is None
++        assert (await snapshot_publications(db_session, agent.id, agent.channel_id)).resource_ids == (resource.id,)
++        agent.status = "active"
++        await db_session.commit()
++        async with asyncio.timeout(20):
++            while True:
++                status = await queue.status(f"agent:{agent.id}")
++                if status and status["status"] == "done":
++                    break
++                await asyncio.sleep(0.05)
++        assert not (await snapshot_publications(db_session, agent.id, agent.channel_id)).resource_ids
++        runs = list(await db_session.scalars(select(AgentRun).where(AgentRun.agent_id == agent.id)))
++        assert len(runs) == 1
++        assert runs[0].total_resources == 1
++        assert runs[0].status == "success"
++    finally:
++        await scheduler.shutdown_scheduler()
++        await asyncio.sleep(0)
++        await queue.stop()
+--- a/docs/design/constraints.md
++++ b/docs/design/constraints.md
+@@ -13,7 +13,7 @@
+ - 合集资源（`is_batch=true`）：`episode` 固定为空，`episode_start/end` 尽力而为；**去重按内容覆盖度**（`_batch_coverage_key`：规范化的作品类型、作品 ID、季号与集数区间集合；文件指派优先，单季标题回退须有明确季号及完整起止区间；半季与整季不能合并，区间归并保留缺口；多作品须逐作品有完整可验证指派，未拆季 legacy 作品拒绝猜测）——仅覆盖度已知且完全相同的多版本进与单集一致的冲突解决（ask → PendingDecision（episode 哨兵 -1）/ auto → LLM pick → 启发式；跨运行按同 agent 同覆盖度 active 任务跳过），覆盖度不同各自派发不去重；**覆盖度未知（season 包无季号、multi_season 无 batch_seasons 且无关联季作品 links——标题 pre-parser、torrent 内容检测、LLM 三层都补不齐）不再派发**：覆盖度是 organize 覆盖度校验的必填依据（处置见下条）；franchise 包作品 FK 全清不进派发。`batch_scope` 细分（NULL=非合集；`season`/`multi_season`/`franchise`/`movies`=纯电影包）：三层判定——标题 pre-parser（含"有季标记+无集号+整碟 token"规则，命中默认 scope=season；整季标记——Stage 英文序数 `first/second/…/tenth Stage` 与 `2nd Stage` 经共享 `_season_marker` 识别为季号（`Final Stage` 词面推不出季号、刻意不映射），`全N季`/`N-M季`（必须带"季"后缀，N-M 有 sanity cap）命中判 batch 且 ≥2 季时直接落 scope=multi_season + `batch_seasons`=1..N，恰 1 季保持 season）→ torrent 内容检测（通道 A：抓取期对所有 http(s) 直链资源先 `ensure_torrent_cached` 缓存 .torrent 落盘 `TORRENT_CACHE_DIR` 并写回 `torrent_file`（已有缓存复用、失败静默——超时 20s，瞬时失败（超时/连接/非 200）自动重试一次，非 bencode/超限/写盘失败不重试），再对 `is_batch=false` 资源、已判合集但信息不完整（scope NULL 或 season 缺范围）或**尚无文件级映射**的资源跑 `maybe_inspect_torrent`（复用缓存不重复下载、bencode 解析清单、纯函数 `analyze_torrent_files` 判 scope（season 0 特典/SP 文件不计入 multi_season 季数计数——单季+SP 仍判 season、episode 范围只取真季集号，覆盖季集合保留 0；存量误判 `batch_seasons` 含 0 的包走 `scripts/batch_sp_rescan.py` dry-run + `--apply` 离线重析）并补齐集数范围与逐季 `season_ranges`，season 分支在作品可验证单季时补 `season=1`，single/unknown 不降级既有合集判定，multi_season/franchise 把覆盖季集合持久化到 `batch_seasons`；随后**富化 pass**：按 file_parses upsert 文件级映射表 + LLM 精判门控——franchise scope、高未解析占比、或标题已判合集但内容落 unknown（≥2 视频）才烧 LLM，纯电影包升级 `movies` 并直接绑定 Movie 作品（跳过作品集创建），混合包（含 LLM 已绑电影的情形）仍走 `link_franchise_pack` 建 collection；**富化后两段作品级收敛**——①**bangumi 关联条目扩展**（`expand_bangumi_series_graph`：franchise/multi_season 包链接 bangumi 条目后 BFS `/subjects/{id}/subjects` 建系列图谱：同 IP 闸门（剥季基础名双语比对，跨 IP 续集不建不链不续访）、两阶段季槽位接纳（先按图谱证据改判既有错位作品再 upsert 新季）、关系类型映射（续集/前传→季作品——季号取条目自身季标记含 Stage 序数、无法确定按闸门内播出日期续排、仍不可定跳过不猜；剧场版→Movie；番外按播出最早者占 (collection, s0)、其余番外落限定名壳合集仍 link；不同演绎电影独立成行）、同名 auto 合集整体吸收（`try_absorb_same_name_collection`，有 manual 痕迹不吸收）、仅扩展不降级）→ ②**簇级作品绑定**（`bind_hint_clusters`：按 `work_title_hint` 分簇→同合集成员精确匹配（季标记层须限定词兼容——"First Stage"簇绝不配 s1 槽位上的"Battle Stage"成员）→ FTS（形态兼容——有集号证据禁绑 Movie；基础名包含；续号歧义拒绝——"Battle Stage"≠"Battle Stage 2"）→ 外部搜索 upsert，命中即整簇绑定；标题证据路径作品 `season_number` 优先于包内路径季号（行 season remap、episode 不动），纯季号众数路径不一致不绑；reconcile 跟随图谱季号改判镜像；成员解析无季证据 TV 不落主合集季槽位（标题原文相符才占 s1）；同资源同日期双身份电影行经 `dedupe_resource_movies` 合并、频道主源身份存活）；通道 B 下载后修正为保留优化项））→ LLM（可选 `batch_scope` 键，仅不降级写入）。任务创建优先推送 `torrent_file` 本地字节（`resolve_torrent_payload`）。magnet 链接无 .torrent 可缓存，由后台元数据解析补齐（libtorrent，见业务逻辑调度条），状态落 FileResource 新增列 `magnet_resolve_status`（NULL=未尝试/pending/running/done/failed）/`magnet_resolve_error`/`magnet_resolve_attempts`/`magnet_resolve_updated_at`/`magnet_resolve_trackers`（自定义 tracker 列表，NULL=仅默认，done 清空、failed 保留）。organize 按 scope 分流：season 维持缺集拒绝（期望集 episode_start/end → 季作品自身 Episode 行/number_of_episodes → 本地文件清单推导 min..max 区间）、multi_season 终态经权威文件关联按季作品拆分（`_plan_same_target_multi_work`）逐个复用单季校验（无关联的 legacy 快照按季分组、以文件清单区间逐组校验）、franchise/movies 落 unclassified 待人工。**合集富化表**：`resource_work_links`（资源↔作品多关联，行级 series/movie 互斥，source=auto|llm|manual 且 manual 永不被自动覆盖）+ `resource_file_assignments`（文件→作品/季/集映射，Unique(resource_id, file_path)，双 FK 空=未指派，`work_title_hint` 存簇标题提示）；单作品资源继续走互斥 FK，合集恰一作品镜像到 FK（保 coverage key）、多作品清 FK 仅留 links；scope ∈ {NULL,season,multi_season} 的资源在 links/FK 变更处（`bind_single_work_assignments`、PUT associations）经 `sync_resource_collection` 沉淀合集身份（全部关联作品同属一个合集才写 `resource.collection_id`、跨合集置空、无关联作品不动保 park 状态、franchise/movies 不碰），`bind_single_work_assignments` 单作品绑定时顺带清理指向其他作品的孤儿 auto link（manual/llm 永不动）；`GET/PATCH/PUT` 单资源端点返回 Detail schema（附 links/assignments）。存量批次补扫：`scripts/backfill_batch_assignments.py`（dry-run 默认 + `--apply`，对缺 assignments 的合集行离线写确定性映射与 season_ranges）。
+ - 上条“覆盖度未知落 PendingDecision”已由 Channel 待确认重构取代：覆盖度未知仅进入所属 Channel 的文件资源待确认，补齐后定向重跑；Agent PendingDecision 只保留至少两个合格下载候选的多选一。
+ - `episode_confidence`：`raw | reconciled | ambiguous | manual | None`；`ambiguous` 资源不参与派发，仅进入所属 Channel 的文件资源待确认，不创建 Agent PendingDecision；用户修正为 `manual` 后定向重跑自动回流。`ambiguous` 只对单集 tv 资源有意义：合集与电影链接资源跳过该分支，残留标记由修订入口了结。季号绝不猜测：无季标记时以链接作品自身身份为最强证据（季作品即季——`work_verified_season`：`season_number≠1` 直接可信、`=1` 需单季证据（legacy 列或 Bangumi `single_season_entry` 条目证据，已关联 Bangumi 身份同样恢复）），可验证才落对应季号，多季或未知一律 `season=None` + `ambiguous`；系列级身份只解析到合集而季不可定时由 `park_resource_on_collection` 挂合集待确认（清作品 FK、保留 collection_id）。合集同样适用单季默认：scope 为 NULL/season 的合集在作品可验证单季时也落季号（链接路径 `resolve_missing_work`（`resolve_missing_season` 保留为兼容别名）与 torrent 检测 season 分支统一），但合集**绝不标 ambiguous**，多季/未知仍走 coverage 待确认；multi_season/franchise/movies 不动季号。
+-- `Agent.last_consumed_at` 是消费水位线：增量运行只处理 `created_at > last_consumed_at` 的资源；null 表示从未运行（推进到 now、不处理任何资源，回填必须走 rules-preview 流程）。
++- `Agent.last_consumed_at` 是兼容时间字段；增量消费以 AgentPublicationProgress 的 baseline/cursor/generation 为准。首次 NULL 时间且缺进度时仅初始化当前发布前缀；旧库必须迁移，回填仍经 rules-preview。
+ - `PendingDecision` 仅用于至少两个已通过 Channel metadata/必选字段门禁及 Agent 规则的下载候选多选一；单资源 metadata 未识别、必选字段缺失、季集不确定、合集范围不确定均属于 Channel 文件资源待确认。幂等键为同一 `(agent_id, series_id|movie_id, season, episode, status='pending')`，重复运行 upsert 合并 candidates；单季化后 season 分量恒等于作品自身 `season_number`（季编码在作品身份；links-only multi_season 包共享 `(series=NULL, season=NULL, episode=-1)` 槽位——幂等列编不下作品集合，已知限制）。
+ - `AgentWork` 最多 10 个（`scope_channel_wide=false` 时生效）；CheckConstraint 保证 series/movie 二选一。**订阅单位仍是作品（季作品）**——多季系列需逐季订阅，不做合集级订阅。
+ - 作品 `genre` 统一为封闭 TMDB 27 类英文 canonical 名（权威清单 `app/services/genre_registry.py`，`GenreName` Literal/前端常量手同步）：LLM prompt 注入枚举 + 尽力推测指令（有简介至少给一个）+ `_ensure_genre` 简介兜底 + `normalize_genres` 出口钳制（表外值丢弃、空=未提供不清空旧值）；Create/Update 表外值 422；存量走 `scripts/genre_backfill.py`；缓存代际 4。
+@@ -36,15 +36,15 @@
+ 
+ - 前缀 `/api/v1`，统一响应结构 `{ success, data, error, meta }`；分页参数 `page`/`page_size`（最大 100）。
+ - **认证**（`AUTH_ENABLED` 默认开）：`/api/v1/*` 与 `/posters/*` 需凭证（AuthMiddleware），`/api/v1/auth/*` 与 SPA/静态资源开放；无凭证 401 `UNAUTHORIZED`。两车道：Web 端 TOTP 登录（`POST /auth/otp` → HttpOnly Cookie `rssripple_auth`，30 天）；程序端全局 API key（`api_keys` 表，仅存 SHA-256 摘要，`rr_` 明文仅创建时返回一次；`Authorization: Bearer` 或 `X-API-Key`；环境变量 `API_KEY` 为可选静态引导 key）。
+-- `POST /agents` 的 `dispatch_resource_ids`：`null`=普通保存不动水位线；数组（含空 `[]`）= 经过 rules-preview，派发选中资源并推进水位线到频道 max `created_at`。
+-- `PATCH /resources/{id}/episode` 修正集号：未显式发送 `season` 且有 absolute 集号时，服务端沿作品**合集成员**按 `season_number` 累加定位季作品并重指向资源（`locate_absolute_episode_in_collection`；legacy 未拆分行回退自身逐季集数），episode 未显式发送时一并推导（显式值优先）；提交前先跑 `heal_sibling_episodes` 用新建立的编号约定批量修复同作品+同频道的 `ambiguous/raw` 兄弟资源（随本次定向运行一并派发）；**先 commit 再入队**定向运行（绕过且不推进水位线）。`PATCH /resources/{id}` 人工修订解析字段 + 通用媒体字段（resolution/subtitle_langs/subtitle_group/video_codec/audio_codec/source/container/subtitle_type，仅显式发送更新、不触碰 `episode_confidence`；集数/合集字段按显式发送更新，服务端强制合集不变量，发送集号字段置 `manual` 并同样先跑 sibling heal，修订结果为合集且原 `ambiguous` 也置 `manual`，同样先 commit 再定向运行）。**`PUT /resources/{id}/associations`** 编辑向导统一提交：works 集合/collection_id/assignments 文件映射/单集字段差量/通用字段及 title_cn/title_en/search_title 差量原子应用——关联表差量更新且重复保存幂等；非合集至多一作品写互斥 FK；合集恰一作品镜像 FK、多作品清 FK 仅留 `resource_work_links`；scope 自动推导（作品身份感知：多 series 作品跨合集→franchise，同合集按非零季集合→season/multi_season，season 0 不计数），单季 assignments 同步资源级 season/episode_start/end，跨季使用 batch_seasons/season_ranges（两者为从关联季作品派生的冗余缓存，links/assignments 变更处镜像）；TV 文件缺季与同 (work,season) 区间重叠 422、断档 200+warnings；**两级关联（TV 先合集后季作品）**：提交 `collection_id` 时全部剧集作品必须属于该合集（不一致 422）；**多作品合集文件清单完整性**：每个关联作品至少一条指派、已知 torrent 清单的媒体文件全部指派、各季作品指派区间整段缺失 422（首尾断档 200+warnings），清单不可用时该子项降级 warning；works 为空的非合集提交保留现有挂载。资源手动在线搜索允许显式选择 metadata 主源与本次 fallback 站点白名单。三个修订端点（PATCH episode / PATCH 资源 / PUT associations）在 commit 之后、入队定向运行之前对 `torrent_file` 缺失的 http(s) 直链资源 best-effort 重建 torrent 缓存（`ensure_torrent_cached` + `maybe_inspect_torrent`，失败静默不阻断），使文件映射随定向重跑一并重建。**`POST /resources/{id}/analyze-batch`** 向导第二步 LLM 重析（不落库，标题键建议）。**`POST /resources/{id}/reparse-metadata`** 完整后台元数据重解析：写 `confirmation_ignored_at` 临时忽略（立即退出待确认，与手动永久忽略不同）后先 commit 再以 `reprocess-resource:{id}` 入队 `reprocess_resource_metadata`（去重命中 409 ALREADY_RUNNING）；handler 以 `force_refresh=True` 跑 `_process_resource_metadata` 并在 finally 中清除忽略标记（成败都清）让待确认策略重评——仍不全重新进待办、完整匹配留在外面；不自动派发。`GET /resources/{id}/files` 返回 torrent 文件清单（`{files, source}`，source 依次 torrent_cache/torrent_fetch/downloader/notification/none）。
++- `POST /agents` 的 `dispatch_resource_ids`：`null`=普通保存不动水位线；数组（含空 `[]`）= 经过 rules-preview，派发选中资源并在同事务重置发布 baseline/cursor/generation，时间字段保持兼容展示。
++- `PATCH /resources/{id}/episode` 修正集号：未显式发送 `season` 且有 absolute 集号时，服务端沿作品**合集成员**按 `season_number` 累加定位季作品并重指向资源（`locate_absolute_episode_in_collection`；legacy 未拆分行回退自身逐季集数），episode 未显式发送时一并推导（显式值优先）；提交前先跑 `heal_sibling_episodes` 用新建立的编号约定批量修复同作品+同频道的 `ambiguous/raw` 兄弟资源（随本次定向运行一并派发）；**先 commit 再入队**定向运行（绕过且不推进水位线）。`PATCH /resources/{id}` 人工修订解析字段 + 通用媒体字段（resolution/subtitle_langs/subtitle_group/video_codec/audio_codec/source/container/subtitle_type，仅显式发送更新、不触碰 `episode_confidence`；集数/合集字段按显式发送更新，服务端强制合集不变量，发送集号字段置 `manual` 并同样先跑 sibling heal，修订结果为合集且原 `ambiguous` 也置 `manual`，同样先 commit 再定向运行）。**`PUT /resources/{id}/associations`** 编辑向导统一提交：works 集合/collection_id/assignments 文件映射/单集字段差量/通用字段及 title_cn/title_en/search_title 差量原子应用——关联表差量更新且重复保存幂等；非合集至多一作品写互斥 FK；合集恰一作品镜像 FK、多作品清 FK 仅留 `resource_work_links`；scope 自动推导（作品身份感知：多 series 作品跨合集→franchise，同合集按非零季集合→season/multi_season，season 0 不计数），单季 assignments 同步资源级 season/episode_start/end，跨季使用 batch_seasons/season_ranges（两者为从关联季作品派生的冗余缓存，links/assignments 变更处镜像）；TV 文件缺季与同 (work,season) 区间重叠 422、断档 200+warnings；**两级关联（TV 先合集后季作品）**：提交 `collection_id` 时全部剧集作品必须属于该合集（不一致 422）；**多作品合集文件清单完整性**：每个关联作品至少一条指派、已知 torrent 清单的媒体文件全部指派、各季作品指派区间整段缺失 422（首尾断档 200+warnings），清单不可用时该子项降级 warning；works 为空的非合集提交保留现有挂载。资源手动在线搜索允许显式选择 metadata 主源与本次 fallback 站点白名单。三个修订端点（PATCH episode / PATCH 资源 / PUT associations）在 commit 之后、入队定向运行之前对 `torrent_file` 缺失的 http(s) 直链资源 best-effort 重建 torrent 缓存（`ensure_torrent_cached` + `maybe_inspect_torrent`，失败静默不阻断），使文件映射随定向重跑一并重建。**`POST /resources/{id}/analyze-batch`** 向导第二步 LLM 重析（不落库，标题键建议）。**`POST /resources/{id}/reparse-metadata`** 完整后台元数据重解析：写 `confirmation_ignored_at` 临时忽略（立即退出待确认，与手动永久忽略不同）后先 commit 再以 `reprocess-resource:{id}` 入队 `reprocess_resource_metadata`（去重命中 409 ALREADY_RUNNING）；handler 以 `force_refresh=True` 跑 `_process_resource_metadata` 并在 finally 中清除忽略标记（成败都清）让待确认策略重评——仍不全重新进待办、完整匹配留在外面；不创建定向请求，完成事件按既有发布准入消费。`GET /resources/{id}/files` 返回 torrent 文件清单（`{files, source}`，source 依次 torrent_cache/torrent_fetch/downloader/notification/none）。
+ - 任务重试必须使用 `DownloadTask.download_dir` 持久化值，不重读当前配置。
+ - `POST /works/merge` 手动合并作品（作品单季化的常规修复工具）：body `{survivor_type, survivor_id, duplicate_ids, confirm: true}`——仅同类型、series 另限同 `season_number`；复用去重合并机器（子表/合集 links/文件 assignments/身份袋全部重指向存留方后删除重复行），人工 confirm 绕过年份守卫；前端在合集详情页提供「合并作品」弹窗。
+ - `POST /metadata/search`：bangumi 源走列表模式（多候选直返不经 judge 收敛，详见 business-logic 条 bangumi 频道源），其余源保持单一收敛。
+ 
+ ## 核心业务逻辑（详见 business-logic.md）
+ 
+-- Agent 四种运行模式：增量（水位线之后）、定向（`resource_ids`，绕过水位线）、回填提交（rules-preview 后保存，推进水位线到频道 max）、指定起始时间（手动 run 带 `scan_since`，按入库时间过滤，null=全量；只影响本次扫描范围，水位线照常推进）。旧的 `limit(200)` 已废弃。
++- Agent 四种运行模式：增量（发布 cursor 之后且满足历史准入）、定向（`resource_ids`，绕过历史准入且不确认游标）、回填提交（rules-preview 后保存，重置发布进度）、指定起始时间（`scan_since` 按入库时间过滤，null=全量；处理前持久化重试范围，成功仅确认开始前缀）。旧的 `limit(200)` 已废弃。
+ - Metadata 匹配四层：已链接 → ChannelRawTitleMapping（`search_title_key` 优先，`raw_title` fallback）→ 本地 DB 精确/模糊（fuzzy ≥ 85 自动链接）→ 统一 MetadataAgent。
+ - **作品单季化 upsert**（`create_or_update_series_from_external(db, data, *, season_hint=None)`）：按注册表粒度分类身份（`SourceSpec.granularity`：wikipedia/tmdb/imdb=series、bangumi/mal/anilist/douban=season，tmdb/douban 电影形态=movie）→ ①逐季 id 袋反查季作品 → ②系列级 id 合集袋反查，按 `(collection_id, season_number)` 选成员，缺失**惰性创建**季作品（从父条目 seasons/episode_list 取该季数据；不物化未出现的季）→ ③legacy 未拆分行按原样收敛 → ④**两级标题兜底**（剥季基础名匹配合集（归一化+aliases）→ 合集内按季号选作品，季感知不再错撞别季作品）→ 全落空才新建「合集+季作品」；季号来自 `season_hint`（资源解析）→ 合成身份 `#s{N}` → 实体标题季标记 → 可验证单季证据，仍不可定时 id 落合集袋并**返回 None**（调用方 `park_resource_on_collection` 挂合集待确认，绝不猜季）；所有链接后路径统一走 `reconcile_linked_series_resource`（历史惯例 → 合集成员绝对集号定位并重指向 → 单季算术 → 作品身份验证季默认；历史惯例分两层——近邻 ±2 窗口按原证据策略，**远推层**仅在约定由 manual 行唯一锚定且与非 manual 历史不冲突时跨距离外推，仍受季集数+2 容差校验）。
+ - MetadataAgent 单次搜索**只用一个数据源**；频道源为三数据源架构 `wikipedia | tmdb | bangumi`（默认 `wikipedia`；exa/jina/local/combined 已废弃为频道源，频道解析归一为 `wikipedia`，存量由轻迁移改写；手动搜索/评测仅保留 `local` 的本地匹配路径，jina/exa 的 ReAct 路径已随对应后端与设置清理一并移除）。三主源未命中（judge/ReAct found=False；transient 不触发）统一走**有序网络搜索回退**（自托管 wigolo REST `/v1/search`，`WIGOLO_BASE_URL`/`WIGOLO_API_TOKEN` 配置，`WEB_FALLBACK_ENABLED` 控制；查询走共享 `_candidate_queries` 清洗 ≤3 候选首个有产出即停，白名单域名经 `include_domains` 下推 + 后置硬过滤双保险，hit URL unquote 归一）：频道 `metadata_fallback_sources`（JSON 白名单，NULL=默认顺序 bangumi→mal→anilist→tmdb→wikipedia→imdb→douban，`[]`=禁用）硬过滤候选、靠前站点优先，**仅补身份/链接**（剥离 seasons/集数，内容以主源为准）；无法解析注册表身份的页面沿用历史标记 `exa_web`。身份体系为 7 站注册表 `metadata_source_registry`（wikipedia/tmdb/bangumi/mal/anilist/imdb/douban；baidu_baike/eiga 已移除）。
+--- a/tests/api/test_resources.py
++++ b/tests/api/test_resources.py
+@@ -1210,7 +1210,7 @@
+         assert res.status_code == 200
+         enqueue.assert_awaited_once_with(
+             "run_agent", f"agent:{agent_id}",
+-            {"agent_id": agent_id, "resource_ids": [rid]},
++            {"agent_id": agent_id, "resource_ids": [rid], "automatic": True},
+         )
+ 
+     async def test_404(self, client):
+@@ -2274,7 +2274,7 @@
+         assert res.status_code == 200
+         enqueue.assert_awaited_once_with(
+             "run_agent", f"agent:{agent_id}",
+-            {"agent_id": agent_id, "resource_ids": [rid]},
++            {"agent_id": agent_id, "resource_ids": [rid], "automatic": True},
+         )
+ 
+     async def test_reenqueue_failure_swallowed(
+--- a/tests/integration/organize/test_p0_queue_consumption.py
++++ b/tests/integration/organize/test_p0_queue_consumption.py
+@@ -44,6 +44,10 @@
+     chain.resource.created_at = utcnow() - timedelta(days=2)
+     watermark = utcnow()
+     chain.agent.last_consumed_at = watermark
++    await db_session.flush()
++    from app.services.publication_migration import bootstrap_publications
++
++    await bootstrap_publications(db_session, writers_stopped=True)
+     await db_session.commit()
+     # Router already imported by _build_test_app BEFORE replacing the singleton.
+     app = _build_test_app(session_factory)
+@@ -109,6 +113,10 @@
+     chain.resource.created_at = utcnow() - timedelta(days=2)
+     watermark = utcnow()
+     chain.agent.last_consumed_at = watermark
++    await db_session.flush()
++    from app.services.publication_migration import bootstrap_publications
++
++    await bootstrap_publications(db_session, writers_stopped=True)
+     await db_session.commit()
+     from app.services.agent_resource_requests import request_resources
+ 
+--- a/tests/integration/organize/test_worker_entrypoint.py
++++ b/tests/integration/organize/test_worker_entrypoint.py
+@@ -153,6 +153,9 @@
+     async def fake_create_tables():
+         calls.append("create_tables")
+ 
++    async def fake_publication_ready(sess):
++        calls.append("ensure_publication_ready")
++
+     async def fake_load(sess):
+         calls.append("load_runtime_config")
+ 
+@@ -173,6 +176,7 @@
+         return stub.queue
+ 
+     monkeypatch.setattr(worker, "create_tables", fake_create_tables)
++    monkeypatch.setattr("app.services.publication_startup.ensure_publication_ready", fake_publication_ready)
+     monkeypatch.setattr(worker, "async_session_factory", _FakeSessionCtx)
+     monkeypatch.setattr(
+         "app.services.runtime_config.load_runtime_config", fake_load
+@@ -210,6 +214,7 @@
+     await worker._run()
+     assert ("create_queue", settings.queue_backend) in stub.calls
+     assert "register_handlers" in stub.calls
++    assert stub.calls.index("ensure_publication_ready") < stub.calls.index("register_handlers")
+     assert stub.queue.started and stub.queue.stopped
+     for step in (
+         "create_tables", "load_runtime_config", "init_scheduler",
+--- a/app/services/runtime_config.py
++++ b/app/services/runtime_config.py
+@@ -172,12 +172,14 @@
+     Env defaults are not stored here; they are read live by the accessors when
+     no override is present. Keys absent from the DB keep using the env default.
+     """
+-    _overrides.clear()
+     result = await db.execute(select(AppSetting))
+     rows: dict[str, str | None] = {r.key: r.value for r in result.scalars().all()}
+-    for key in _SETTING_DEFS:
+-        if key in rows and rows[key] is not None:
+-            _overrides[key] = rows[key]  # type: ignore[assignment]
++    loaded = {key: value for key, value in rows.items() if key in _SETTING_DEFS and value is not None}
++    # Publish only a completed read, without an await between replacement
++    # operations. Async readers retain the last good snapshot during I/O or
++    # a failed refresh; preserve dict identity for scoped override users.
++    _overrides.clear()
++    _overrides.update(loaded)
+ 
+ 
+ async def reload_runtime_config(db: AsyncSession) -> None:
+--- /dev/null
++++ b/tests/unit/test_runtime_config_atomic_reload.py
+@@ -0,0 +1,39 @@
++"""Readers retain the last loaded configuration while a refresh awaits the DB."""
++
++import asyncio
++
++import pytest
++
++from app.models.app_setting import AppSetting
++from app.services import runtime_config as config
++
++
++@pytest.mark.parametrize("query_fails", [False, True])
++async def test_reload_keeps_previous_snapshot_until_query_completes(db_session, monkeypatch, query_fails):
++    db_session.add(AppSetting(key="llm_model", value="empty-model"))
++    await db_session.commit()
++    await config.load_runtime_config(db_session)
++    assert config.runtime_config.llm_model == "empty-model"
++    entered, release = asyncio.Event(), asyncio.Event()
++    original_execute = db_session.execute
++
++    async def delayed_execute(*args, **kwargs):
++        entered.set()
++        await release.wait()
++        if query_fails:
++            raise RuntimeError("Synthetic configuration read failure")
++        return await original_execute(*args, **kwargs)
++
++    monkeypatch.setattr(db_session, "execute", delayed_execute)
++    task = asyncio.create_task(config.load_runtime_config(db_session))
++    try:
++        await asyncio.wait_for(entered.wait(), 2)
++        assert config.runtime_config.llm_model == "empty-model"
++    finally:
++        release.set()
++        result = await asyncio.gather(task, return_exceptions=True)
++    if query_fails:
++        assert isinstance(result[0], RuntimeError)
++    else:
++        assert result == [None]
++    assert config.runtime_config.llm_model == "empty-model"
+--- a/docs/design/conventions.md
++++ b/docs/design/conventions.md
+@@ -48,3 +48,5 @@
+ ---
+ 
+ Turso 兼容层遇到写锁/写写冲突时淘汰该物理连接，避免 SAVEPOINT 失败后的旧读取快照进入连接池；原异常仍传播，由事务边界 rollback 和既有策略决定重试，不自动重放任意语句。
++
++运行配置刷新：load_runtime_config 在完整读取 app_settings 成功后才以无 await 的连续更新替换进程内配置，数据库等待或读取失败期间保留上一份有效值；禁止先清空覆盖项再等待数据库，否则并发请求会短暂退回环境默认模型/凭据。该约束不等同于跨进程实时同步，也不解决旧事务快照的顺序问题。
+--- a/app/services/fts.py
++++ b/app/services/fts.py
+@@ -70,7 +70,11 @@
+     """Lazily create the sidecar engine (tests may inject their own)."""
+     global _FTS_ENGINE
+     if _FTS_ENGINE is None:
+-        _FTS_ENGINE = create_async_engine(_sidecar_url())
++        # The experimental FTS sidecar is a derived cache. Concurrent native
++        # connections can panic in page/btree handling, so serialize its short
++        # transactions via one pooled connection. Main DB concurrency remains
++        # independent; no network calls occur while a sidecar checkout is held.
++        _FTS_ENGINE = create_async_engine(_sidecar_url(), pool_size=1, max_overflow=0)
+     return _FTS_ENGINE
+ 
+ 
+--- /dev/null
++++ b/tests/integration/organize/fts_concurrency_driver.py
+@@ -0,0 +1,66 @@
++"""Bounded production FTS reads/writes on a dedicated synthetic sidecar."""
++
++import asyncio
++import json
++import os
++from collections import Counter
++from pathlib import Path
++from types import SimpleNamespace
++
++test_root = Path(os.environ["PROBE_ROOT"]).resolve()
++assert test_root.is_relative_to(Path("/tmp"))
++assert os.environ["DATABASE_URL"] == f"sqlite+aioturso:///{test_root / 'main.db'}"
++import app.database  # noqa: E402,F401
++from app.services import fts  # noqa: E402
++
++
++async def main():
++    await fts.ensure_fts_tables()
++    errors = Counter()
++    successful = Counter()
++
++    async def worker(number):
++        for iteration in range(100):
++            try:
++                if number < 4:
++                    entity = SimpleNamespace(
++                        id=f"synthetic-{iteration % 10}",
++                        title_cn="Synthetic title",
++                        title_en=None,
++                        original_title=None,
++                        aliases=[],
++                    )
++                    await fts._upsert("tv_series_fts", entity)
++                    successful["write"] += 1
++                else:
++                    await fts._search_fts("tv_series_fts", "synthetic", 20)
++                    successful["read"] += 1
++            except Exception as exc:
++                errors[type(exc).__name__ + ":" + str(exc).splitlines()[0]] += 1
++            await asyncio.sleep(0)
++
++    try:
++        async with asyncio.timeout(60):
++            await asyncio.gather(*(worker(i) for i in range(8)))
++            found = await fts._search_fts("tv_series_fts", "synthetic", 20)
++            assert set(found) == {f"synthetic-{i}" for i in range(10)}
++            assert len(found) == 10
++            assert not errors, dict(errors)
++    finally:
++        await fts._get_fts_engine().dispose()
++    Path(os.environ["PROBE_RESULT_PATH"]).write_text(
++        json.dumps(
++            {
++                "data": "synthetic",
++                "attempts": 800,
++                "successful": dict(successful),
++                "errors": dict(errors),
++                "final_ids": sorted(found),
++            },
++            indent=2,
++        )
++        + "\n"
++    )
++
++
++asyncio.run(main())
+--- /dev/null
++++ b/tests/integration/organize/test_fts_concurrency.py
+@@ -0,0 +1,35 @@
++"""Native crash containment and final index integrity under concurrent callers."""
++
++import asyncio
++import json
++import os
++import subprocess
++import sys
++from pathlib import Path
++
++
++async def test_concurrent_sidecar_operations_preserve_index(tmp_path):
++    output = tmp_path / "result.json"
++    root = Path(__file__).resolve().parents[3]
++    env = dict(
++        os.environ,
++        DATABASE_URL=f"sqlite+aioturso:///{tmp_path / 'main.db'}",
++        PROBE_ROOT=str(tmp_path),
++        PROBE_RESULT_PATH=str(output),
++        RUST_BACKTRACE="full",
++        PYTHONFAULTHANDLER="1",
++    )
++    result = await asyncio.to_thread(
++        subprocess.run,
++        [sys.executable, "-m", "tests.integration.organize.fts_concurrency_driver"],
++        cwd=root,
++        env=env,
++        capture_output=True,
++        text=True,
++        timeout=90,
++    )
++    assert result.returncode == 0, result.stdout + result.stderr
++    data = json.loads(output.read_text())
++    assert data["successful"] == {"write": 400, "read": 400}
++    assert data["errors"] == {}
++    assert data["final_ids"] == [f"synthetic-{i}" for i in range(10)]

@@ -153,6 +153,9 @@ def wired_worker(tmp_path, monkeypatch):
     async def fake_create_tables():
         calls.append("create_tables")
 
+    async def fake_publication_ready(sess):
+        calls.append("ensure_publication_ready")
+
     async def fake_load(sess):
         calls.append("load_runtime_config")
 
@@ -173,6 +176,7 @@ def wired_worker(tmp_path, monkeypatch):
         return stub.queue
 
     monkeypatch.setattr(worker, "create_tables", fake_create_tables)
+    monkeypatch.setattr("app.services.publication_startup.ensure_publication_ready", fake_publication_ready)
     monkeypatch.setattr(worker, "async_session_factory", _FakeSessionCtx)
     monkeypatch.setattr(
         "app.services.runtime_config.load_runtime_config", fake_load
@@ -210,6 +214,7 @@ async def test_run_full_wiring_and_graceful_shutdown(wired_worker):
     await worker._run()
     assert ("create_queue", settings.queue_backend) in stub.calls
     assert "register_handlers" in stub.calls
+    assert stub.calls.index("ensure_publication_ready") < stub.calls.index("register_handlers")
     assert stub.queue.started and stub.queue.stopped
     for step in (
         "create_tables", "load_runtime_config", "init_scheduler",

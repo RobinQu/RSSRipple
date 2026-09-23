@@ -1,0 +1,32 @@
+{
+  "startup_before_migration_rejected": [
+    "web",
+    "worker"
+  ],
+  "startup_after_migration_and_shutdown_passed": [
+    "web",
+    "worker"
+  ],
+  "export": {
+    "agents": 1,
+    "resources": 3,
+    "fingerprint": "8a72a07619b9ac413fe5bd32252e12cbf8f7bf631b13ec018c5d6039e904bace"
+  },
+  "apply": {
+    "status": "applied",
+    "resources": 3,
+    "agents": 1
+  },
+  "repeat": {
+    "status": "already_applied"
+  },
+  "legacy_missing_tables_prepared_twice": true,
+  "export_overwrite_rejected": true,
+  "missing_flags_rejected": true,
+  "database": "dedicated synthetic PostgreSQL database; Compose cleanup by caller",
+  "exit_code": 0,
+  "cleanup_exit_code": 0,
+  "project": "rssripple-v13-cli-ir",
+  "source_sha256": "3e28807118a4e34acdfb04d20e06f4e1bd277434f3858e0cf3b325d7d84bad60",
+  "scope": "scheduler disabled, in-memory queue, actual web/worker startup and SIGINT exit; not distributed job recovery"
+}

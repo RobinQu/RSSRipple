@@ -184,6 +184,9 @@ async def _apply_backfill(
         )
     )).scalar_one()
     agent.last_consumed_at = max_created or utcnow()
+    from app.services.agent_publication_progress import reset_progress
+
+    await reset_progress(db, agent.id, agent.channel_id)
 
 
 # ---------------------------------------------------------------------------
@@ -394,6 +397,7 @@ async def update_agent(agent_id: str, body: AgentUpdate, db: AsyncSession = Depe
     )).scalar_one_or_none()
     if not agent:
         return JSONResponse(status_code=404, content=_not_found("Agent"))
+    previous_channel_id = agent.channel_id
     data = body.model_dump(exclude_unset=True)
     new_works = data.pop("works", None)
     dispatch_resource_ids = data.pop("dispatch_resource_ids", None)
@@ -429,6 +433,9 @@ async def update_agent(agent_id: str, body: AgentUpdate, db: AsyncSession = Depe
                 "error": {"code": "VALIDATION_ERROR", "message": "downloader_id does not exist"},
                 "meta": {},
             })
+    rules_changed = new_works is not None or any(
+        key != "name" and getattr(agent, key) != value for key, value in data.items()
+    )
     for key, value in data.items():
         setattr(agent, key, value)
     if new_works is not None:
@@ -456,6 +463,14 @@ async def update_agent(agent_id: str, body: AgentUpdate, db: AsyncSession = Depe
     # selected backfill resources and advance the watermark.
     if dispatch_resource_ids is not None:
         await _apply_backfill(agent, dispatch_resource_ids, db)
+    elif previous_channel_id != agent.channel_id:
+        from app.services.agent_publication_progress import switch_channel_progress
+
+        await switch_channel_progress(db, agent)
+    elif rules_changed:
+        from app.services.agent_publication_progress import invalidate_running_scope
+
+        await invalidate_running_scope(db, agent.id)
 
     await db.commit()
     cur = await db.execute(
@@ -875,6 +890,9 @@ async def create_work(agent_id: str, body: AgentWorkCreate, db: AsyncSession = D
     work = AgentWork(agent_id=agent_id, **body.model_dump())
     db.add(work)
     await db.flush()
+    from app.services.agent_publication_progress import invalidate_running_scope
+
+    await invalidate_running_scope(db, agent_id)
     await db.commit()
     cur = await db.execute(
         select(AgentWork).where(AgentWork.id == work.id).options(
@@ -896,6 +914,9 @@ async def update_work(
     for key, value in body.model_dump(exclude_unset=True).items():
         setattr(work, key, value)
     await db.flush()
+    from app.services.agent_publication_progress import invalidate_running_scope
+
+    await invalidate_running_scope(db, agent_id)
     await db.commit()
     cur = await db.execute(
         select(AgentWork).where(AgentWork.id == work_id).options(
@@ -913,6 +934,9 @@ async def delete_work(agent_id: str, work_id: str, db: AsyncSession = Depends(ge
     if work is None:
         return JSONResponse(status_code=404, content=_not_found("AgentWork"))
     await db.delete(work)
+    from app.services.agent_publication_progress import invalidate_running_scope
+
+    await invalidate_running_scope(db, agent_id)
     return success_response({"deleted": True})
 
 

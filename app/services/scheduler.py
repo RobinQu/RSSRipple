@@ -42,6 +42,13 @@ async def init_scheduler() -> None:  # pragma: no cover - wiring only
         id="agent_resource_dispatch", replace_existing=True, coalesce=True, max_instances=1,
     )
 
+    from app.services.publication_dispatch import dispatch_pending_publications
+
+    _scheduler.add_job(
+        dispatch_pending_publications, trigger=IntervalTrigger(seconds=5),
+        id="agent_publication_dispatch", replace_existing=True, coalesce=True, max_instances=1,
+    )
+
     # Each process must update its own in-memory schedule. Do not enqueue this
     # callback or throttle it globally: that would heal only one worker.
     _scheduler.add_job(

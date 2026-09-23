@@ -44,7 +44,7 @@
 - `FileResource` FK 互斥：剧集资源用 `series_id`、电影资源用 `movie_id`、未识别两者皆空；合集资源（`is_batch=true`）`episode` 为空。
 - 合集去重按内容覆盖度；覆盖度未知不派发（进所属 Channel 待确认）；`batch_scope ∈ {NULL,season,multi_season,franchise,movies}`；`resource_work_links`/`resource_file_assignments` 为权威关联与文件映射。
 - `episode_confidence ∈ {raw,reconciled,ambiguous,manual,None}`；`ambiguous` 不参与派发。
-- `Agent.last_consumed_at` 是消费水位线（增量运行只处理其后的资源）；`PendingDecision` 仅用于 ≥2 合格下载候选；`AgentWork` 上限 10；订阅单位是季作品（多季需逐季订阅）。
+- `Agent.last_consumed_at` 保留兼容时间展示；增量消费使用发布 baseline/cursor/generation（历史准入与确认独立，旧库须停写迁移）；`PendingDecision` 仅用于 ≥2 合格下载候选；`AgentWork` 上限 10；订阅单位是季作品（多季需逐季订阅）。
 - `genre` 统一为封闭 TMDB 27 类；`is_anime` 三态（True/False/NULL）；作品人工编辑保护 `manually_edited_fields`（自动扫描/刷新默认跳过）。
 - `WorkExternalId` 身份袋（`work_type` 含 `collection`；wikipedia id 带语言版本）；`WorkCollection` 为系列级元数据载体（`aliases`/`search_text`/`manually_edited_fields`）。
 
@@ -58,12 +58,12 @@
 
 - 前缀 `/api/v1`；统一响应结构 `{success,data,error,meta}`；分页 `page`/`page_size`（最大 100）。
 - 认证默认开（`AUTH_ENABLED`）：Web 端 TOTP HttpOnly Cookie；程序端 API key（`rr_` 明文仅创建时返回一次；`Authorization: Bearer` 或 `X-API-Key`）。
-- `POST /agents` 的 `dispatch_resource_ids`：`null`=普通保存不动水位线；数组（含空）=经 rules-preview 派发选中资源并推进水位线。
+- `POST /agents` 的 `dispatch_resource_ids`：`null`=普通保存不动水位线；数组（含空）=经 rules-preview 派发选中资源并原子重置发布准入/游标。
 - 三个修订端点（`PATCH /resources/{id}/episode`、`PATCH /resources/{id}`、`PUT /resources/{id}/associations`）先 commit 再入队定向运行；`PUT .../associations` 为编辑向导统一提交。
 
 ### 核心业务逻辑（详见 business-logic.md）
 
-- Agent 四种运行模式：增量（水位线之后）、定向（`resource_ids`，绕过水位线）、回填提交（rules-preview 后保存）、指定起始时间（`scan_since`）。
+- Agent 四种运行模式：增量（未确认发布且满足历史准入）、定向（`resource_ids`，绕过准入且不确认普通游标）、回填提交（rules-preview 后保存）、指定起始时间（`scan_since`）。
 - Metadata 匹配四层：已链接 → `ChannelRawTitleMapping` → 本地 DB 精确/模糊 → 统一 MetadataAgent；单季化 upsert 后所有链接路径统一走 `reconcile_linked_series_resource`，绝不猜季。
 - 频道源为三数据源架构 `wikipedia | tmdb | bangumi`（默认 `wikipedia`）；三主源未命中走有序网络搜索回退（仅补身份/链接，内容以主源为准）。
 - 冲突解决优选链：`Agent.pick_preferences`（只排序不过滤）→ `_generate_llm_pick` → 启发式评分。

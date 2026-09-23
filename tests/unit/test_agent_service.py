@@ -2648,10 +2648,15 @@ async def test_failed_candidate_is_retried_by_next_incremental_job(
     resources = [_make_resource(channel.id, series_id=series.id, episode=i) for i in (1, 2)]
     db_session.add_all([agent, *resources])
     await db_session.commit()
+    from app.services.publication_migration import bootstrap_publications
+
+    # This fixture intentionally starts with a legacy timestamp watermark.
+    await bootstrap_publications(db_session, writers_stopped=True)
+    await db_session.commit()
     agent_id = agent.id
     attempts = []
 
-    async def dispatch(agent, resource, unit):
+    async def dispatch(agent, resource, unit, *, consumption_snapshot=None):
         attempts.append(resource.id)
         task = DownloadTask(id=_uuid(), agent_id=agent.id, file_resource_id=resource.id,
                             downloader_id=downloader.id, status="downloading",

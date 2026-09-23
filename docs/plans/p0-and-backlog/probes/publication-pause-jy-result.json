@@ -1,0 +1,27 @@
+{
+  "paused_run": {
+    "status": "skipped",
+    "reason": "agent not active"
+  },
+  "task_count_while_paused": 0,
+  "pending_before": [
+    "4a34fc59-6f17-4855-ab43-068334e2f583",
+    "929defcc-ade1-4102-94df-7e9662440f80"
+  ],
+  "pending_after": [
+    "4a34fc59-6f17-4855-ab43-068334e2f583",
+    "929defcc-ade1-4102-94df-7e9662440f80"
+  ],
+  "resumed_run": {
+    "agent_id": "1542057d-c2cb-42e0-8725-1ea8e0d8b0c4",
+    "run_id": "9ad86131-99d2-41be-98c3-4a92c4f68126",
+    "total_resources": 2,
+    "matched": 1,
+    "dispatched": 1,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 1,
+    "errors": []
+  }
+}

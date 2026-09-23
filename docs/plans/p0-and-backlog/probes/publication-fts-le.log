@@ -1,0 +1,30 @@
+Traceback (most recent call last):
+  File "/tmp/rssripple-v13-publication-ic/fts_concurrency_probe.py", line 52, in <module>
+    asyncio.run(main())
+    ~~~~~~~~~~~^^^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 719, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/tmp/rssripple-v13-publication-ic/fts_concurrency_probe.py", line 15, in main
+    await fts.ensure_fts_tables()
+  File "/tmp/rssripple-v13-publication-ic/app/services/fts.py", line 117, in ensure_fts_tables
+    engine = _get_fts_engine()
+  File "/tmp/rssripple-v13-publication-ic/app/services/fts.py", line 73, in _get_fts_engine
+    _FTS_ENGINE = create_async_engine(_sidecar_url())
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/sqlalchemy/ext/asyncio/engine.py", line 120, in create_async_engine
+    sync_engine = _create_engine(url, **kw)
+  File "<string>", line 2, in create_engine
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/sqlalchemy/util/deprecations.py", line 281, in warned
+    return fn(*args, **kwargs)  # type: ignore[no-any-return]
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/sqlalchemy/engine/create.py", line 630, in create_engine
+    dialect = dialect_cls(**dialect_args)
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/sqlite/aiosqlite.py", line 444, in __init__
+    if self.dbapi and not self.dbapi.has_stop:
+                          ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'AsyncAdapt_turso_dbapi' object has no attribute 'has_stop'

@@ -1,0 +1,31 @@
+{
+  "failed_window": {
+    "agent_id": "d9e1c535-8682-476a-8c3b-5512def369a1",
+    "run_id": "57a62171-cf16-463c-b7c8-c799610e71dd",
+    "total_resources": 2,
+    "matched": 1,
+    "dispatched": 0,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 1,
+    "errors": [
+      "Synthetic task persistence failure"
+    ]
+  },
+  "ordinary_retry": {
+    "agent_id": "d9e1c535-8682-476a-8c3b-5512def369a1",
+    "run_id": "3d16b862-1f5f-4c10-90e1-dcf838c0da6f",
+    "total_resources": 2,
+    "matched": 1,
+    "dispatched": 1,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 1,
+    "errors": []
+  },
+  "data": "synthetic task INSERT failure; actual handler and transaction rollback",
+  "exit_code": 0,
+  "source_sha256": "8f5ad327b4db169594ad8beaebd5eee6192d7d53c200f4737b254bcb02cd41a8"
+}

@@ -1,6 +1,7 @@
 """ORM models package - import all for SQLAlchemy discovery."""
 
 from app.models.agent import Agent
+from app.models.agent_publication_progress import AgentPublicationProgress
 from app.models.agent_resource_request import AgentResourceRequest
 from app.models.agent_run import AgentRun
 from app.models.agent_suggestion import AgentSuggestion
@@ -32,6 +33,7 @@ from app.models.organize_plan_op import OrganizePlanOp
 from app.models.organize_rule import OrganizeRule
 from app.models.pending_decision import PendingDecision
 from app.models.resource_file_assignment import ResourceFileAssignment
+from app.models.resource_publication import ChannelPublicationCounter, ResourcePublication
 from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
 from app.models.storage_volume import StorageVolume
@@ -41,6 +43,9 @@ from app.models.work_collection import WorkCollection
 from app.models.work_external_id import WorkExternalId
 
 __all__ = [
+    "AgentPublicationProgress",
+    "ChannelPublicationCounter",
+    "ResourcePublication",
     "WorkExternalId",
     "Channel",
     "FileResource",

@@ -275,7 +275,7 @@ async def create_and_submit_task(
 
 
 async def dispatch_download(
-    agent: Agent, resource: FileResource, db: AsyncSession
+    agent: Agent, resource: FileResource, db: AsyncSession, *, consumption_snapshot=None
 ) -> DownloadTask:
     """Create a DownloadTask and attempt to add it to Transmission."""
     downloader = await db.get(DownloaderInstance, agent.downloader_id)
@@ -312,6 +312,11 @@ async def dispatch_download(
         db.add(task)
         await db.flush()
         return task
+
+    if consumption_snapshot is not None:
+        from app.services.agent_publication_progress import require_current_scope
+
+        await require_current_scope(db, consumption_snapshot)
 
     return await create_and_submit_task(
         resource,
@@ -736,10 +741,16 @@ def _batch_decision_key(key: tuple) -> tuple[tuple, str]:
     )
 
 
-async def _process_candidate_group(agent, key, cands, db) -> bool:
+async def _process_candidate_group(agent, key, cands, db, *, consumption_snapshot=None) -> bool:
     """Dispatch one coverage group; return whether it created a decision."""
+    dispatch_options = {}
+    if consumption_snapshot is not None:
+        from app.services.agent_publication_progress import require_current_scope
+
+        await require_current_scope(db, consumption_snapshot)
+        dispatch_options["consumption_snapshot"] = consumption_snapshot
     if len(cands) == 1:
-        await dispatch_download(agent, cands[0], db)
+        await dispatch_download(agent, cands[0], db, **dispatch_options)
         return False
     else:
         if agent.conflict_resolution == "ask":
@@ -765,7 +776,7 @@ async def _process_candidate_group(agent, key, cands, db) -> bool:
                 chosen = next((c for c in tier if c.id == picked_id), None)
                 if chosen is None:
                     chosen = score_and_pick(tier, None, agent)
-            await dispatch_download(agent, chosen, db)
+            await dispatch_download(agent, chosen, db, **dispatch_options)
             return False
 
 
@@ -776,6 +787,7 @@ async def process_resources(
     *,
     autocommit: bool = False,
     required_metadata_fields: list[str] | None = None,
+    consumption_snapshot=None,
 ) -> RunResult:
     """Process a list of resources through filtering, dedup, and dispatch.
 
@@ -920,6 +932,7 @@ async def process_resources(
         # Background callers own this transaction. Finish selection before
         # independent candidate writers; preserve loaded objects on commit.
         await db.commit()
+    guard_options = {"consumption_snapshot": consumption_snapshot} if consumption_snapshot is not None else {}
     for key, cands in candidates_by_key.items():
         try:
             if autocommit:
@@ -928,7 +941,7 @@ async def process_resources(
                 async def write_candidate():
                     async with AsyncSession(bind=db.bind, expire_on_commit=False) as unit_db:
                         async with unit_db.begin():
-                            return await _process_candidate_group(agent, key, cands, unit_db)
+                            return await _process_candidate_group(agent, key, cands, unit_db, **guard_options)
 
                 if agent.conflict_resolution == "ask" and len(cands) >= 2:
                     # This branch only persists a choice; it cannot send a
@@ -940,7 +953,7 @@ async def process_resources(
                 # A newly saved Agent may still be uncommitted in this request.
                 # Keep that state visible and isolate only the candidate writes.
                 async with db.begin_nested():
-                    pending = await _process_candidate_group(agent, key, cands, db)
+                    pending = await _process_candidate_group(agent, key, cands, db, **guard_options)
             if pending:
                 result.pending_decisions += 1
             else:

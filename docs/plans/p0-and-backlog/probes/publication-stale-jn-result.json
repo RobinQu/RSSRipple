@@ -1,0 +1,20 @@
+{
+  "stale_run": {
+    "agent_id": "c77079e1-6c94-4ebf-b544-3dd83bf72eb8",
+    "run_id": "c58d713f-6bf2-4c71-a1fc-5c086f6a9781",
+    "total_resources": 2,
+    "matched": 2,
+    "dispatched": 0,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 0,
+    "errors": [
+      "Agent consumption scope changed; old run must not dispatch"
+    ]
+  },
+  "task_count": 0,
+  "scope": "actual backfill commits during candidate pick before downloader RPC",
+  "exit_code": 0,
+  "source_sha256": "fbaa65903ffd6dc90636e4c95a92873ae1eeccdae60adf5ede0817cb1e7ed029"
+}

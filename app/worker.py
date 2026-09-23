@@ -76,6 +76,12 @@ async def _run() -> None:  # pragma: no cover - process wiring
     # Load runtime-configurable settings (LLM + external search source keys)
     # from the DB into the in-memory cache so user overrides take effect. Job
     # handlers also refresh this map per run (see app/job_handlers.py).
+    from app.services.publication_startup import ensure_publication_ready
+
+    async with async_session_factory() as publication_db:
+        await ensure_publication_ready(publication_db)
+        await publication_db.commit()
+
     from app.services.runtime_config import load_runtime_config
 
     async with async_session_factory() as sess:

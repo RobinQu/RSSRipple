@@ -1,0 +1,30 @@
+{
+  "exit_code": 0,
+  "passed": 3152,
+  "skipped": 17,
+  "warnings": 8,
+  "seconds": 1819.1,
+  "app_exit_codes": [
+    0,
+    0
+  ],
+  "oom_killed": [
+    false,
+    false
+  ],
+  "coverage_exit_code": 0,
+  "coverage": {
+    "version": "7.14.3",
+    "timestamp": "1790134960038",
+    "lines-valid": "22837",
+    "lines-covered": "20335",
+    "line-rate": "0.8904",
+    "branches-covered": "0",
+    "branches-valid": "0",
+    "branch-rate": "0",
+    "complexity": "0"
+  },
+  "source_hashes_verified": 3068,
+  "cleanup_exit_code": 0,
+  "artifacts": "/tmp/rssripple-v13-artifacts-lk"
+}

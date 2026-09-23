@@ -1,0 +1,21 @@
+{
+  "export": {
+    "agents": 1,
+    "resources": 3,
+    "fingerprint": "f5851351d6cd3299f6ef3ed2035e218a80686bde42add66182b93d103c4adf7c"
+  },
+  "apply": {
+    "status": "applied",
+    "resources": 3,
+    "agents": 1
+  },
+  "repeat": {
+    "status": "already_applied"
+  },
+  "legacy_missing_tables_prepared_twice": true,
+  "export_overwrite_rejected": true,
+  "missing_flags_rejected": true,
+  "database": "temporary synthetic Turso file; removed after process exits",
+  "exit_code": 0,
+  "source_sha256": "b20055e5de7d3778a71f0b598e042ee7fdae368065de90405784297895f25b1d"
+}

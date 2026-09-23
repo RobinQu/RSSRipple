@@ -44,6 +44,10 @@ async def test_revision_uses_replaced_queue_and_consumes_old_resource(
     chain.resource.created_at = utcnow() - timedelta(days=2)
     watermark = utcnow()
     chain.agent.last_consumed_at = watermark
+    await db_session.flush()
+    from app.services.publication_migration import bootstrap_publications
+
+    await bootstrap_publications(db_session, writers_stopped=True)
     await db_session.commit()
     # Router already imported by _build_test_app BEFORE replacing the singleton.
     app = _build_test_app(session_factory)
@@ -109,6 +113,10 @@ async def test_revision_while_agent_has_selected_resources_gets_followup_run(
     chain.resource.created_at = utcnow() - timedelta(days=2)
     watermark = utcnow()
     chain.agent.last_consumed_at = watermark
+    await db_session.flush()
+    from app.services.publication_migration import bootstrap_publications
+
+    await bootstrap_publications(db_session, writers_stopped=True)
     await db_session.commit()
     from app.services.agent_resource_requests import request_resources
 

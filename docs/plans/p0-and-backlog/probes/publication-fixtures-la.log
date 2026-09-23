@@ -1,0 +1,11 @@
+.................ssssssss............................................... [ 50%]
+........................................................................ [100%]
+=============================== warnings summary ===============================
+tests/integration/organize/test_worker_entrypoint.py::test_main_invokes_asyncio_run
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/monkeypatch.py:409: RuntimeWarning: coroutine '_run' was never awaited
+    setattr(obj, name, value)
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+136 passed, 8 skipped, 1 warning in 60.43s (0:01:00)

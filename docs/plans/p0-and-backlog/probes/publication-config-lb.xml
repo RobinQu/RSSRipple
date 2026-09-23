@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="0.923" timestamp="2026-09-23T02:44:49.361851+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_runtime_config_atomic_reload" name="test_reload_keeps_previous_snapshot_until_query_completes[False]" time="0.468"><failure message="AssertionError: assert 'openrouter/free' == 'empty-model'&#10;  &#10;  - empty-model&#10;  + openrouter/free">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fcdd95ee7b0&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7fcdd9600d60&gt;
+query_fails = False
+
+    @pytest.mark.parametrize("query_fails", [False, True])
+    async def test_reload_keeps_previous_snapshot_until_query_completes(db_session, monkeypatch, query_fails):
+        db_session.add(AppSetting(key="llm_model", value="empty-model"))
+        await db_session.commit()
+        await config.load_runtime_config(db_session)
+        assert config.runtime_config.llm_model == "empty-model"
+        entered, release = asyncio.Event(), asyncio.Event()
+        original_execute = db_session.execute
+    
+        async def delayed_execute(*args, **kwargs):
+            entered.set()
+            await release.wait()
+            if query_fails:
+                raise RuntimeError("Synthetic configuration read failure")
+            return await original_execute(*args, **kwargs)
+    
+        monkeypatch.setattr(db_session, "execute", delayed_execute)
+        task = asyncio.create_task(config.load_runtime_config(db_session))
+        try:
+            await asyncio.wait_for(entered.wait(), 2)
+&gt;           assert config.runtime_config.llm_model == "empty-model"
+E           AssertionError: assert 'openrouter/free' == 'empty-model'
+E             
+E             - empty-model
+E             + openrouter/free
+
+tests/unit/test_runtime_config_atomic_reload.py:31: AssertionError</failure></testcase><testcase classname="tests.unit.test_runtime_config_atomic_reload" name="test_reload_keeps_previous_snapshot_until_query_completes[True]" time="0.385"><failure message="AssertionError: assert 'openrouter/free' == 'empty-model'&#10;  &#10;  - empty-model&#10;  + openrouter/free">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fcdd948d450&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7fcdd95bbdf0&gt;
+query_fails = True
+
+    @pytest.mark.parametrize("query_fails", [False, True])
+    async def test_reload_keeps_previous_snapshot_until_query_completes(db_session, monkeypatch, query_fails):
+        db_session.add(AppSetting(key="llm_model", value="empty-model"))
+        await db_session.commit()
+        await config.load_runtime_config(db_session)
+        assert config.runtime_config.llm_model == "empty-model"
+        entered, release = asyncio.Event(), asyncio.Event()
+        original_execute = db_session.execute
+    
+        async def delayed_execute(*args, **kwargs):
+            entered.set()
+            await release.wait()
+            if query_fails:
+                raise RuntimeError("Synthetic configuration read failure")
+            return await original_execute(*args, **kwargs)
+    
+        monkeypatch.setattr(db_session, "execute", delayed_execute)
+        task = asyncio.create_task(config.load_runtime_config(db_session))
+        try:
+            await asyncio.wait_for(entered.wait(), 2)
+&gt;           assert config.runtime_config.llm_model == "empty-model"
+E           AssertionError: assert 'openrouter/free' == 'empty-model'
+E             
+E             - empty-model
+E             + openrouter/free
+
+tests/unit/test_runtime_config_atomic_reload.py:31: AssertionError</failure></testcase></testsuite></testsuites>

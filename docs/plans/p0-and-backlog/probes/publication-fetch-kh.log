@@ -1,0 +1,274 @@
+..........................F.F.........................................F. [ 70%]
+FF.............F..............                                           [100%]
+=================================== FAILURES ===================================
+_________ TestMetadataBackfill.test_backfill_caps_and_records_attempts _________
+
+self = <tests.unit.test_fetch_service.TestMetadataBackfill object at 0x7ff89751d450>
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7ff894d1ecf0>
+channel = <app.models.channel.Channel object at 0x7ff894040b00>
+fake_queue = <MagicMock id='140705026169488'>
+
+    async def test_backfill_caps_and_records_attempts(self, db_session, channel, fake_queue):
+        """40 never-tried unmatched resources → exactly MAX_BACKFILL_PER_FETCH
+        re-processed, each stamped with a not_found attempt."""
+        from sqlalchemy import select
+        for i in range(40):
+            db_session.add(FileResource(
+                id=_uuid(), channel_id=channel.id, guid=f"g{i}",
+                title_raw=f"[G] Show{i} - 01 [1080p]",
+                torrent_url=f"magnet:?xt=urn:btih:{i}",
+            ))
+        await db_session.commit()
+    
+        feed = _mock_feed([])  # empty feed: no new entries, backfill still runs
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed):
+            res = await fs.fetch_channel_resources(channel, db_session)
+    
+        assert res["backfilled_count"] == 30
+        rows = (await db_session.execute(
+            select(FileResource).where(FileResource.channel_id == channel.id)
+        )).scalars().all()
+        attempted = [r for r in rows if r.metadata_attempts == 1]
+        untouched = [r for r in rows if r.metadata_attempts == 0]
+>       assert len(attempted) == 30
+E       assert 0 == 30
+E        +  where 0 = len([])
+
+tests/unit/test_fetch_service.py:735: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for a591d69e-efb0-4ac2-8983-ac3a327ad972: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for a4c845ee-3e98-4ddf-ad88-7a9081c1bb03: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 13b3f01a-f282-4948-9f53-eef4043e0f8e: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for f55822c7-3d7e-432e-b5a1-78d1a30751d8: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for d6f3ea0c-ae73-423b-ac9f-982f3213b216: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for f3f6123d-5097-42e6-9065-d1c315551ed2: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 06c57f76-de93-4dad-81ad-f390e3b4bcf2: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 4cebb582-60ea-48ab-ae7d-eccbbc86951a: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for cbef4ac3-0c9b-4911-b01e-05cca47b1bed: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 8b6d1e24-cfc3-4117-96e1-55838665b3e0: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 7ef84191-dd29-4fab-96e6-615c5ff63139: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 69f2cfbf-c73c-4553-a29e-dc08add43eb6: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 52b8daa2-69d5-45c0-92bd-4c26b5b323dc: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for b6dfc0c5-3657-4f6f-be57-2fdfce7058fe: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for ab1d3589-3af3-4d44-9d3a-3068f2e4b442: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for edfab4a3-ed27-4467-b4f2-ae6e692c131d: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 543c6b9e-fcda-419b-b9bf-3a2d8f2808f4: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 1745c9a1-839b-4fa1-af75-6e7dc1a0962e: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 138517a9-e011-4bd2-9607-05b140a3fe00: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for afde637b-0d19-4b72-b58d-1fdb0bdd10d4: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for a4cbc577-2b30-4df1-ac8f-fcba75917954: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for ecb369c5-08c4-43b3-bba0-8dfad4efab81: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for b2a9f5e0-8776-42fd-9091-9658a8414854: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for c8f760a3-5513-4ad5-8b21-cd9b4f58f1f5: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 0999c3c9-f43c-44ab-af83-309718dd95bf: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 4e987eca-d863-4237-a797-2eacea62d4e2: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 9c8a11fe-b832-45a9-b2d4-2c325191de16: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for c21ffe17-7d58-4736-85a8-86b69409fa39: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 116242fa-82d6-4bb2-a559-84f89a8c3d04: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 7404f81e-f173-4e03-af76-e0c53cc48350: Resource requires an initial publication; roll back transaction
+________________ test_backfill_runs_even_when_feed_fetch_fails _________________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7ff86f4e9bb0>
+channel = <app.models.channel.Channel object at 0x7ff894203820>
+fake_queue = <MagicMock id='140705668707536'>
+
+    async def test_backfill_runs_even_when_feed_fetch_fails(db_session, channel, fake_queue):
+        """A feed outage must not block repair: the backfill still re-runs
+        retry-eligible unmatched resources even though the RSS fetch failed."""
+        from sqlalchemy import select
+        for i in range(5):
+            db_session.add(FileResource(
+                id=_uuid(), channel_id=channel.id, guid=f"g{i}",
+                title_raw=f"[G] Show{i} - 01 [1080p]",
+                torrent_url=f"magnet:?xt=urn:btih:{i}",
+            ))
+        await db_session.commit()
+    
+        with patch("app.services.fetch_service._parse_feed_sync",
+                   side_effect=Exception("network error")):
+            res = await fs.fetch_channel_resources(channel, db_session)
+    
+        assert res["status"] == "error"
+        assert res["new_count"] == 0
+        assert res["backfilled_count"] == 5  # backfill ran despite the feed failure
+        assert channel.last_fetch_status == "failed"
+        rows = (await db_session.execute(
+            select(FileResource).where(FileResource.channel_id == channel.id)
+        )).scalars().all()
+>       assert all(r.metadata_attempts == 1 for r in rows)
+E       assert False
+E        +  where False = all(<generator object test_backfill_runs_even_when_feed_fetch_fails.<locals>.<genexpr> at 0x7ff86e2e0ee0>)
+
+tests/unit/test_fetch_service.py:789: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.fetch_service:fetch_service.py:696 [fetch:644c5b1e-1c04-4d18-b8af-92710c31f571] feed fetch failed: network error
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 2b6572f8-9dc2-42f5-9017-02f6300eab23: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 7fb66165-2232-4807-84dd-11c31f630889: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 9f17f515-6b2a-45d7-a9d1-361f576fcaf8: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for ebf64593-f4a9-499a-8860-6e576bf2f669: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 4dbb5b8f-64dc-448f-ae1d-751982e388b1: Resource requires an initial publication; roll back transaction
+________ test_process_metadata_agent_failure_falls_back_to_simple_title ________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7ff86aa23290>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7ff869667850>
+_patch_torrent_and_franchise = None
+
+    async def test_process_metadata_agent_failure_falls_back_to_simple_title(
+        db_session, monkeypatch, _patch_torrent_and_franchise
+    ):
+        import asyncio
+    
+        channel = await _make_channel(db_session, metadata_agent_enabled=True)
+        res = _make_resource(channel.id, search_title=None)
+        db_session.add(res)
+        await db_session.commit()
+    
+        async def _process_boom(*a, **kw):
+            raise RuntimeError("LLM down")
+    
+        monkeypatch.setattr(
+            "app.services.metadata_agent.get_agent",
+            lambda: SimpleNamespace(process=_process_boom),
+        )
+        await fs._process_resource_metadata(res.id, channel.id, asyncio.Semaphore(1))
+        await db_session.refresh(res)
+        # The minimal title cleanup filled search_title so the resource is not
+        # left with a raw release title.
+>       assert res.search_title == "Show"
+E       AssertionError: assert None == 'Show'
+E        +  where None = <app.models.file_resource.FileResource object at 0x7ff86e797ed0>.search_title
+
+tests/integration/metadata/test_fetch_service_coverage.py:305: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.fetch_service:fetch_service.py:259 MetadataAgent failed for a0bcff50-92a8-45de-a6a9-84617f48b3e9: LLM down
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for a0bcff50-92a8-45de-a6a9-84617f48b3e9: Resource requires an initial publication; roll back transaction
+__________________ test_process_metadata_caches_series_poster __________________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7ff8695cd2b0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7ff86a9f9470>
+_patch_torrent_and_franchise = None
+
+    async def test_process_metadata_caches_series_poster(
+        db_session, monkeypatch, _patch_torrent_and_franchise
+    ):
+        import asyncio
+    
+        channel = await _make_channel(db_session)
+        series = TVSeries(id=_uuid(), title_cn="剧集", content_type="tv",
+                          poster_url="https://img.example/p.jpg",
+                          number_of_episodes=12, season_number=1)
+        db_session.add(series)
+        res = _make_resource(channel.id, series_id=series.id, is_batch=False, episode=1)
+        db_session.add(res)
+        await db_session.commit()
+        monkeypatch.setattr(fs, "fetch_and_link_metadata", AsyncMock())
+        monkeypatch.setattr(
+            "app.services.metadata_service.download_and_cache_poster",
+            AsyncMock(return_value="/posters/local.jpg"),
+        )
+        await fs._process_resource_metadata(res.id, channel.id, asyncio.Semaphore(1))
+        await db_session.refresh(series)
+>       assert series.poster_url == "/posters/local.jpg"
+E       AssertionError: assert 'https://img.example/p.jpg' == '/posters/local.jpg'
+E         
+E         - /posters/local.jpg
+E         + https://img.example/p.jpg
+
+tests/integration/metadata/test_fetch_service_coverage.py:348: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 843fa96f-3ce7-4536-8df6-9fbaa6768e62: Resource requires an initial publication; roll back transaction
+__________________ test_process_metadata_caches_movie_poster ___________________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7ff86bbec3b0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7ff869717b60>
+_patch_torrent_and_franchise = None
+
+    async def test_process_metadata_caches_movie_poster(
+        db_session, monkeypatch, _patch_torrent_and_franchise
+    ):
+        import asyncio
+    
+        from app.models.movie import Movie
+    
+        channel = await _make_channel(db_session)
+        movie = Movie(id=_uuid(), title_cn="电影", content_type="movie",
+                      poster_url="https://img.example/m.jpg")
+        db_session.add(movie)
+        res = _make_resource(channel.id, movie_id=movie.id, series_id=None,
+                             episode=None, season=None)
+        db_session.add(res)
+        await db_session.commit()
+        monkeypatch.setattr(fs, "fetch_and_link_metadata", AsyncMock())
+        monkeypatch.setattr(
+            "app.services.metadata_service.download_and_cache_poster",
+            AsyncMock(return_value="/posters/movie.jpg"),
+        )
+        await fs._process_resource_metadata(res.id, channel.id, asyncio.Semaphore(1))
+        await db_session.refresh(movie)
+>       assert movie.poster_url == "/posters/movie.jpg"
+E       AssertionError: assert 'https://img.example/m.jpg' == '/posters/movie.jpg'
+E         
+E         - /posters/movie.jpg
+E         + https://img.example/m.jpg
+
+tests/integration/metadata/test_fetch_service_coverage.py:373: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 8f161920-40a9-4293-b1eb-d7937dc68aaa: Resource requires an initial publication; roll back transaction
+______________________ test_fetch_enqueues_active_agents _______________________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7ff8739b5f10>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7ff87393ed60>
+
+    async def test_fetch_enqueues_active_agents(db_session, monkeypatch):
+        channel = await _make_channel(db_session)
+        downloader = await _make_downloader(db_session)
+        ok_agent = Agent(id=_uuid(), name="ok", channel_id=channel.id,
+                         downloader_id=downloader.id, status="active")
+        paused_agent = Agent(id=_uuid(), name="paused", channel_id=channel.id,
+                             downloader_id=downloader.id, status="paused")
+        db_session.add_all([ok_agent, paused_agent])
+        await db_session.commit()
+        channel = await _reload_channel(db_session, channel.id)
+    
+        entries = [_Entry(
+            id="g1", title="[G] Show - 01",
+            enclosures=[{"url": "https://x.example/a.torrent", "type": "application/x-bittorrent"}],
+        )]
+        monkeypatch.setattr(fs, "_parse_feed_sync", lambda url: _feed(entries))
+        monkeypatch.setattr(fs, "_process_resource_metadata", AsyncMock())
+        monkeypatch.setattr(fs, "_backfill_unmatched_resources", AsyncMock(return_value=0))
+    
+        calls: list[dict] = []
+    
+        async def _enqueue(job_type, key, payload):
+            calls.append({"job_type": job_type, "key": key, "payload": payload})
+    
+        monkeypatch.setattr("app.services.task_queue.task_queue",
+                            SimpleNamespace(enqueue=_enqueue))
+        result = await fs.fetch_channel_resources(channel, db_session)
+        assert result["status"] == "success"
+        # Only the active agent gets a run; the paused one is skipped.
+>       assert calls == [{
+            "job_type": "run_agent", "key": f"agent:{ok_agent.id}",
+            "payload": {"agent_id": ok_agent.id},
+        }]
+E       AssertionError: assert [{'job_type':...atic': True}}] == [{'job_type':...4343737b84'}}]
+E         
+E         At index 0 diff: {'job_type': 'run_agent', 'key': 'agent:b6e74b84-2952-4490-8cce-cb4343737b84', 'payload': {'agent_id': 'b6e74b84-2952-4490-8cce-cb4343737b84', 'automatic': True}} != {'job_type': 'run_agent', 'key': 'agent:b6e74b84-2952-4490-8cce-cb4343737b84', 'payload': {'agent_id': 'b6e74b84-2952-4490-8cce-cb4343737b84'}}
+E         Use -v to get more diff
+
+tests/integration/metadata/test_fetch_service_coverage.py:688: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_fetch_service.py::TestFetchChannelResources::test_feed_fetch_failure_marks_channel_error
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_fetch_service.py::TestMetadataBackfill::test_backfill_caps_and_records_attempts
+FAILED tests/unit/test_fetch_service.py::test_backfill_runs_even_when_feed_fetch_fails
+FAILED tests/integration/metadata/test_fetch_service_coverage.py::test_process_metadata_agent_failure_falls_back_to_simple_title
+FAILED tests/integration/metadata/test_fetch_service_coverage.py::test_process_metadata_caches_series_poster
+FAILED tests/integration/metadata/test_fetch_service_coverage.py::test_process_metadata_caches_movie_poster
+FAILED tests/integration/metadata/test_fetch_service_coverage.py::test_fetch_enqueues_active_agents
+6 failed, 96 passed, 1 warning in 112.72s (0:01:52)

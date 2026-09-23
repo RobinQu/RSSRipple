@@ -1,0 +1,49 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_history_reconciliation_publishes_only_admitted_work ___________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f62bd167cb0>
+
+    async def test_history_reconciliation_publishes_only_admitted_work(db_session):
+        """Synthetic numbering history; actual sweep, publication and admission."""
+        from app.models.series import TVSeries
+        from app.services.fetch_service import reconcile_stale_raw_episodes
+    
+        agent, excluded = await setup(db_session)
+        admitted = await next_resource(db_session, excluded.channel_id)
+        anchor = await next_resource(db_session, excluded.channel_id)
+        series = TVSeries(title_cn="Synthetic history", season_number=4, number_of_episodes=24)
+        db_session.add(series)
+        await db_session.flush()
+        for row in (excluded, admitted, anchor):
+            row.series_id = series.id
+            row.season = 4
+            row.subtitle_group = "GROUP"
+            row.episode = 18
+            row.absolute_episode = 90
+            row.episode_confidence = "raw"
+        anchor.absolute_episode = 89
+        anchor.episode_confidence = "manual"
+        first = await snapshot_publications(db_session, agent.id, excluded.channel_id)
+        await acknowledge_publications(db_session, first)
+        await db_session.commit()
+        changed = await reconcile_stale_raw_episodes(db_session, return_resource_ids=True)
+        assert set(changed) == {excluded.id, admitted.id}
+        assert excluded.episode == admitted.episode == 19
+        pending = await snapshot_publications(db_session, agent.id, excluded.channel_id)
+>       assert pending.resource_ids == (admitted.id,)
+E       AssertionError: assert () == ('13424c1c-c6...c4fd472706d',)
+E         
+E         Right contains one more item: '13424c1c-c619-4f03-80da-bc4fd472706d'
+E         Use -v to get more diff
+
+tests/unit/test_agent_publication_progress.py:232: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_agent_publication_progress.py::test_history_reconciliation_publishes_only_admitted_work
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_agent_publication_progress.py::test_history_reconciliation_publishes_only_admitted_work
+1 failed, 10 deselected, 1 warning in 1.64s

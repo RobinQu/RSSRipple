@@ -1,0 +1,80 @@
+app-llm-1  | FROM tv_series 
+app-llm-1  | WHERE tv_series.id = ?
+app-llm-1  | 2026-09-20 12:43:19,929 INFO sqlalchemy.engine.Engine [cached since 669.8s ago] ('f1da048a-80ae-4c55-843d-c72e701e67d5',)
+app-llm-1  | INFO:sqlalchemy.engine.Engine:[cached since 669.8s ago] ('f1da048a-80ae-4c55-843d-c72e701e67d5',)
+app-llm-1  | 2026-09-20 12:43:19,930 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+app-llm-1  | INFO:sqlalchemy.engine.Engine:BEGIN (implicit)
+app-llm-1  | 2026-09-20 12:43:19,931 INFO sqlalchemy.engine.Engine SELECT fts_outbox.id, fts_outbox.entity_type, fts_outbox.entity_id, fts_outbox.op, fts_outbox.created_at 
+app-llm-1  | FROM fts_outbox ORDER BY fts_outbox.created_at
+app-llm-1  | INFO:sqlalchemy.engine.Engine:SELECT fts_outbox.id, fts_outbox.entity_type, fts_outbox.entity_id, fts_outbox.op, fts_outbox.created_at 
+app-llm-1  | FROM fts_outbox ORDER BY fts_outbox.created_at
+app-llm-1  |  LIMIT ? OFFSET ?
+app-llm-1  |  LIMIT ? OFFSET ?
+app-llm-1  | 2026-09-20 12:43:19,931 INFO sqlalchemy.engine.Engine [cached since 1290s ago] (500, 0)
+app-llm-1  | INFO:sqlalchemy.engine.Engine:[cached since 1290s ago] (500, 0)
+app-llm-1  | 2026-09-20 12:43:19,936 INFO sqlalchemy.engine.Engine DELETE FROM fts_outbox WHERE fts_outbox.id IN (?)
+app-llm-1  | INFO:sqlalchemy.engine.Engine:DELETE FROM fts_outbox WHERE fts_outbox.id IN (?)
+app-llm-1  | 2026-09-20 12:43:19,937 INFO sqlalchemy.engine.Engine [cached since 669.8s ago] ('981a895a-adae-4891-9044-ab7a4ac48393',)
+app-llm-1  | INFO:sqlalchemy.engine.Engine:[cached since 669.8s ago] ('981a895a-adae-4891-9044-ab7a4ac48393',)
+app-llm-1  | 2026-09-20 12:43:19,939 INFO sqlalchemy.engine.Engine SELECT tv_series.id, tv_series.title_cn, tv_series.title_en, tv_series.original_title, tv_series.aliases, tv_series.search_text, tv_series.external_id, tv_series.external_source, tv_series.description, tv_series.poster_url, tv_series.rating, tv_series.genre, tv_series.status, tv_series.number_of_episodes, tv_series.number_of_seasons, tv_series.season_number, tv_series.seasons, tv_series.start_date, tv_series.end_date, tv_series.content_type, tv_series.is_anime, tv_series.manually_edited_fields, tv_series.canonical_name, tv_series.wikipedia_url, tv_series.wikipedia_page_id, tv_series.collection_id, tv_series.created_at, tv_series.updated_at 
+app-llm-1  | FROM tv_series 
+app-llm-1  | WHERE tv_series.title_cn = ? OR tv_series.title_en = ?
+app-llm-1  | INFO:sqlalchemy.engine.Engine:SELECT tv_series.id, tv_series.title_cn, tv_series.title_en, tv_series.original_title, tv_series.aliases, tv_series.search_text, tv_series.external_id, tv_series.external_source, tv_series.description, tv_series.poster_url, tv_series.rating, tv_series.genre, tv_series.status, tv_series.number_of_episodes, tv_series.number_of_seasons, tv_series.season_number, tv_series.seasons, tv_series.start_date, tv_series.end_date, tv_series.content_type, tv_series.is_anime, tv_series.manually_edited_fields, tv_series.canonical_name, tv_series.wikipedia_url, tv_series.wikipedia_page_id, tv_series.collection_id, tv_series.created_at, tv_series.updated_at 
+app-llm-1  | FROM tv_series 
+app-llm-1  | WHERE tv_series.title_cn = ? OR tv_series.title_en = ?
+app-llm-1  | 2026-09-20 12:43:19,939 INFO sqlalchemy.engine.Engine [cached since 669.9s ago] ('Wistoria: Wand and Sword', 'Wistoria: Wand and Sword')
+app-llm-1  | INFO:sqlalchemy.engine.Engine:[cached since 669.9s ago] ('Wistoria: Wand and Sword', 'Wistoria: Wand and Sword')
+app-llm-1  | 2026-09-20 12:43:19,942 INFO sqlalchemy.engine.Engine SELECT tv_series.id AS tv_series_id, tv_series.title_cn AS tv_series_title_cn, tv_series.title_en AS tv_series_title_en, tv_series.original_title AS tv_series_original_title, tv_series.aliases AS tv_series_aliases, tv_series.search_text AS tv_series_search_text, tv_series.external_id AS tv_series_external_id, tv_series.external_source AS tv_series_external_source, tv_series.description AS tv_series_description, tv_series.poster_url AS tv_series_poster_url, tv_series.rating AS tv_series_rating, tv_series.genre AS tv_series_genre, tv_series.status AS tv_series_status, tv_series.number_of_episodes AS tv_series_number_of_episodes, tv_series.number_of_seasons AS tv_series_number_of_seasons, tv_series.season_number AS tv_series_season_number, tv_series.seasons AS tv_series_seasons, tv_series.start_date AS tv_series_start_date, tv_series.end_date AS tv_series_end_date, tv_series.content_type AS tv_series_content_type, tv_series.is_anime AS tv_series_is_anime, tv_series.manually_edited_fields AS tv_series_manually_edited_fields, tv_series.canonical_name AS tv_series_canonical_name, tv_series.wikipedia_url AS tv_series_wikipedia_url, tv_series.wikipedia_page_id AS tv_series_wikipedia_page_id, tv_series.collection_id AS tv_series_collection_id, tv_series.created_at AS tv_series_created_at, tv_series.updated_at AS tv_series_updated_at 
+app-llm-1  | FROM tv_series 
+app-llm-1  | WHERE tv_series.id = ?
+app-llm-1  | INFO:sqlalchemy.engine.Engine:SELECT tv_series.id AS tv_series_id, tv_series.title_cn AS tv_series_title_cn, tv_series.title_en AS tv_series_title_en, tv_series.original_title AS tv_series_original_title, tv_series.aliases AS tv_series_aliases, tv_series.search_text AS tv_series_search_text, tv_series.external_id AS tv_series_external_id, tv_series.external_source AS tv_series_external_source, tv_series.description AS tv_series_description, tv_series.poster_url AS tv_series_poster_url, tv_series.rating AS tv_series_rating, tv_series.genre AS tv_series_genre, tv_series.status AS tv_series_status, tv_series.number_of_episodes AS tv_series_number_of_episodes, tv_series.number_of_seasons AS tv_series_number_of_seasons, tv_series.season_number AS tv_series_season_number, tv_series.seasons AS tv_series_seasons, tv_series.start_date AS tv_series_start_date, tv_series.end_date AS tv_series_end_date, tv_series.content_type AS tv_series_content_type, tv_series.is_anime AS tv_series_is_anime, tv_series.manually_edited_fields AS tv_series_manually_edited_fields, tv_series.canonical_name AS tv_series_canonical_name, tv_series.wikipedia_url AS tv_series_wikipedia_url, tv_series.wikipedia_page_id AS tv_series_wikipedia_page_id, tv_series.collection_id AS tv_series_collection_id, tv_series.created_at AS tv_series_created_at, tv_series.updated_at AS tv_series_updated_at 
+app-llm-1  | FROM tv_series 
+app-llm-1  | WHERE tv_series.id = ?
+app-llm-1  | 2026-09-20 12:43:19,943 INFO sqlalchemy.engine.Engine [cached since 669.8s ago] ('f1da048a-80ae-4c55-843d-c72e701e67d5',)
+app-llm-1  | INFO:sqlalchemy.engine.Engine:[cached since 669.8s ago] ('f1da048a-80ae-4c55-843d-c72e701e67d5',)
+app-llm-1  | 2026-09-20 12:43:19,952 INFO sqlalchemy.engine.Engine DELETE FROM fts_outbox WHERE fts_outbox.id IN (?)
+app-llm-1  | INFO:sqlalchemy.engine.Engine:DELETE FROM fts_outbox WHERE fts_outbox.id IN (?)
+app-llm-1  | 2026-09-20 12:43:19,953 INFO sqlalchemy.engine.Engine [cached since 669.8s ago] ('981a895a-adae-4891-9044-ab7a4ac48393',)
+app-llm-1  | INFO:sqlalchemy.engine.Engine:[cached since 669.8s ago] ('981a895a-adae-4891-9044-ab7a4ac48393',)
+app-llm-1  | 2026-09-20 12:43:19,954 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+app-llm-1  | INFO:sqlalchemy.engine.Engine:BEGIN (implicit)
+app-llm-1  | 2026-09-20 12:43:19,954 INFO sqlalchemy.engine.Engine SELECT fts_outbox.id, fts_outbox.entity_type, fts_outbox.entity_id, fts_outbox.op, fts_outbox.created_at 
+app-llm-1  | FROM fts_outbox ORDER BY fts_outbox.created_at
+app-llm-1  |  LIMIT ? OFFSET ?
+app-llm-1  | INFO:sqlalchemy.engine.Engine:SELECT fts_outbox.id, fts_outbox.entity_type, fts_outbox.entity_id, fts_outbox.op, fts_outbox.created_at 
+app-llm-1  | FROM fts_outbox ORDER BY fts_outbox.created_at
+app-llm-1  |  LIMIT ? OFFSET ?
+app-llm-1  | 2026-09-20 12:43:19,954 INFO sqlalchemy.engine.Engine [cached since 1290s ago] (500, 0)
+app-llm-1  | INFO:sqlalchemy.engine.Engine:[cached since 1290s ago] (500, 0)
+app-llm-1  | 2026-09-20 12:43:19,958 INFO sqlalchemy.engine.Engine SELECT tv_series.id AS tv_series_id, tv_series.title_cn AS tv_series_title_cn, tv_series.title_en AS tv_series_title_en, tv_series.original_title AS tv_series_original_title, tv_series.aliases AS tv_series_aliases, tv_series.search_text AS tv_series_search_text, tv_series.external_id AS tv_series_external_id, tv_series.external_source AS tv_series_external_source, tv_series.description AS tv_series_description, tv_series.poster_url AS tv_series_poster_url, tv_series.rating AS tv_series_rating, tv_series.genre AS tv_series_genre, tv_series.status AS tv_series_status, tv_series.number_of_episodes AS tv_series_number_of_episodes, tv_series.number_of_seasons AS tv_series_number_of_seasons, tv_series.season_number AS tv_series_season_number, tv_series.seasons AS tv_series_seasons, tv_series.start_date AS tv_series_start_date, tv_series.end_date AS tv_series_end_date, tv_series.content_type AS tv_series_content_type, tv_series.is_anime AS tv_series_is_anime, tv_series.manually_edited_fields AS tv_series_manually_edited_fields, tv_series.canonical_name AS tv_series_canonical_name, tv_series.wikipedia_url AS tv_series_wikipedia_url, tv_series.wikipedia_page_id AS tv_series_wikipedia_page_id, tv_series.collection_id AS tv_series_collection_id, tv_series.created_at AS tv_series_created_at, tv_series.updated_at AS tv_series_updated_at 
+app-llm-1  | FROM tv_series 
+app-llm-1  | WHERE tv_series.id = ?
+app-llm-1  | INFO:sqlalchemy.engine.Engine:SELECT tv_series.id AS tv_series_id, tv_series.title_cn AS tv_series_title_cn, tv_series.title_en AS tv_series_title_en, tv_series.original_title AS tv_series_original_title, tv_series.aliases AS tv_series_aliases, tv_series.search_text AS tv_series_search_text, tv_series.external_id AS tv_series_external_id, tv_series.external_source AS tv_series_external_source, tv_series.description AS tv_series_description, tv_series.poster_url AS tv_series_poster_url, tv_series.rating AS tv_series_rating, tv_series.genre AS tv_series_genre, tv_series.status AS tv_series_status, tv_series.number_of_episodes AS tv_series_number_of_episodes, tv_series.number_of_seasons AS tv_series_number_of_seasons, tv_series.season_number AS tv_series_season_number, tv_series.seasons AS tv_series_seasons, tv_series.start_date AS tv_series_start_date, tv_series.end_date AS tv_series_end_date, tv_series.content_type AS tv_series_content_type, tv_series.is_anime AS tv_series_is_anime, tv_series.manually_edited_fields AS tv_series_manually_edited_fields, tv_series.canonical_name AS tv_series_canonical_name, tv_series.wikipedia_url AS tv_series_wikipedia_url, tv_series.wikipedia_page_id AS tv_series_wikipedia_page_id, tv_series.collection_id AS tv_series_collection_id, tv_series.created_at AS tv_series_created_at, tv_series.updated_at AS tv_series_updated_at 
+app-llm-1  | FROM tv_series 
+app-llm-1  | WHERE tv_series.id = ?
+app-llm-1  | 2026-09-20 12:43:19,959 INFO sqlalchemy.engine.Engine [cached since 669.9s ago] ('f1da048a-80ae-4c55-843d-c72e701e67d5',)
+app-llm-1  | INFO:sqlalchemy.engine.Engine:[cached since 669.9s ago] ('f1da048a-80ae-4c55-843d-c72e701e67d5',)
+app-llm-1  | WARNING:app.services.fts:[fts] pre-search drain failed: (turso.lib.DatabaseError) Write-write conflict
+app-llm-1  | [SQL: DELETE FROM fts_outbox WHERE fts_outbox.id IN (?)]
+app-llm-1  | [parameters: ('981a895a-adae-4891-9044-ab7a4ac48393',)]
+app-llm-1  | (Background on this error at: https://sqlalche.me/e/20/4xp6)
+app-llm-1  | 2026-09-20 12:43:19,966 INFO sqlalchemy.engine.Engine DELETE FROM fts_outbox WHERE fts_outbox.id IN (?)
+app-llm-1  | INFO:sqlalchemy.engine.Engine:DELETE FROM fts_outbox WHERE fts_outbox.id IN (?)
+app-llm-1  | 2026-09-20 12:43:19,967 INFO sqlalchemy.engine.Engine [cached since 669.9s ago] ('981a895a-adae-4891-9044-ab7a4ac48393',)
+app-llm-1  | INFO:sqlalchemy.engine.Engine:[cached since 669.9s ago] ('981a895a-adae-4891-9044-ab7a4ac48393',)
+app-llm-1  | 2026-09-20 12:43:19,969 INFO sqlalchemy.engine.Engine COMMIT
+app-llm-1  | INFO:sqlalchemy.engine.Engine:COMMIT
+app-llm-1  | 2026-09-20 12:43:19,972 INFO sqlalchemy.engine.Engine SELECT tv_series.id, tv_series.title_cn, tv_series.title_en, tv_series.original_title, tv_series.aliases, tv_series.search_text, tv_series.external_id, tv_series.external_source, tv_series.description, tv_series.poster_url, tv_series.rating, tv_series.genre, tv_series.status, tv_series.number_of_episodes, tv_series.number_of_seasons, tv_series.season_number, tv_series.seasons, tv_series.start_date, tv_series.end_date, tv_series.content_type, tv_series.is_anime, tv_series.manually_edited_fields, tv_series.canonical_name, tv_series.wikipedia_url, tv_series.wikipedia_page_id, tv_series.collection_id, tv_series.created_at, tv_series.updated_at 
+app-llm-1  | FROM tv_series
+app-llm-1  | INFO:sqlalchemy.engine.Engine:SELECT tv_series.id, tv_series.title_cn, tv_series.title_en, tv_series.original_title, tv_series.aliases, tv_series.search_text, tv_series.external_id, tv_series.external_source, tv_series.description, tv_series.poster_url, tv_series.rating, tv_series.genre, tv_series.status, tv_series.number_of_episodes, tv_series.number_of_seasons, tv_series.season_number, tv_series.seasons, tv_series.start_date, tv_series.end_date, tv_series.content_type, tv_series.is_anime, tv_series.manually_edited_fields, tv_series.canonical_name, tv_series.wikipedia_url, tv_series.wikipedia_page_id, tv_series.collection_id, tv_series.created_at, tv_series.updated_at 
+app-llm-1  | FROM tv_series
+app-llm-1  | 2026-09-20 12:43:19,973 INFO sqlalchemy.engine.Engine [cached since 1295s ago] ()
+app-llm-1  | INFO:sqlalchemy.engine.Engine:[cached since 1295s ago] ()
+app-llm-1  | WARNING:app.services.fts:[fts] pre-search drain failed: (turso.lib.DatabaseError) Write-write conflict
+app-llm-1  | [SQL: DELETE FROM fts_outbox WHERE fts_outbox.id IN (?)]
+app-llm-1  | [parameters: ('981a895a-adae-4891-9044-ab7a4ac48393',)]
+app-llm-1  | (Background on this error at: https://sqlalche.me/e/20/4xp6)
+app-llm-1  | 
+app-llm-1  | thread '<unnamed>' panicked at core/storage/page_cache.rs:284:21:
+app-llm-1  | Attempted to insert different page with same key: {key:?}
+app-llm-1  | note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

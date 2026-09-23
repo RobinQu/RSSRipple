@@ -269,6 +269,10 @@ async def test_process_metadata_magnet_enqueue_failure_is_swallowed(
     channel = await _make_channel(db_session)
     res = _make_resource(channel.id, torrent_url="magnet:?xt=urn:btih:" + "ab" * 20)
     db_session.add(res)
+    await db_session.flush()
+    from app.services.publication_migration import bootstrap_publications
+
+    await bootstrap_publications(db_session, writers_stopped=True)
     await db_session.commit()
 
     async def _enqueue_boom(rid):
@@ -289,6 +293,10 @@ async def test_process_metadata_agent_failure_falls_back_to_simple_title(
     channel = await _make_channel(db_session, metadata_agent_enabled=True)
     res = _make_resource(channel.id, search_title=None)
     db_session.add(res)
+    await db_session.flush()
+    from app.services.publication_migration import bootstrap_publications
+
+    await bootstrap_publications(db_session, writers_stopped=True)
     await db_session.commit()
 
     async def _process_boom(*a, **kw):
@@ -314,6 +322,10 @@ async def test_process_metadata_franchise_invariant_guard_logs(
     channel = await _make_channel(db_session)
     res = _make_resource(channel.id)
     db_session.add(res)
+    await db_session.flush()
+    from app.services.publication_migration import bootstrap_publications
+
+    await bootstrap_publications(db_session, writers_stopped=True)
     await db_session.commit()
     monkeypatch.setattr(fs, "fetch_and_link_metadata", AsyncMock())
     monkeypatch.setattr(
@@ -337,6 +349,10 @@ async def test_process_metadata_caches_series_poster(
     db_session.add(series)
     res = _make_resource(channel.id, series_id=series.id, is_batch=False, episode=1)
     db_session.add(res)
+    await db_session.flush()
+    from app.services.publication_migration import bootstrap_publications
+
+    await bootstrap_publications(db_session, writers_stopped=True)
     await db_session.commit()
     monkeypatch.setattr(fs, "fetch_and_link_metadata", AsyncMock())
     monkeypatch.setattr(
@@ -362,6 +378,10 @@ async def test_process_metadata_caches_movie_poster(
     res = _make_resource(channel.id, movie_id=movie.id, series_id=None,
                          episode=None, season=None)
     db_session.add(res)
+    await db_session.flush()
+    from app.services.publication_migration import bootstrap_publications
+
+    await bootstrap_publications(db_session, writers_stopped=True)
     await db_session.commit()
     monkeypatch.setattr(fs, "fetch_and_link_metadata", AsyncMock())
     monkeypatch.setattr(
@@ -474,6 +494,10 @@ async def test_reconcile_stale_history_path(db_session, monkeypatch):
                          episode=3, season=1, absolute_episode=3,
                          episode_confidence="raw")
     db_session.add(res)
+    await db_session.flush()
+    from app.services.publication_migration import bootstrap_publications
+
+    await bootstrap_publications(db_session, writers_stopped=True)
     await db_session.commit()
 
     monkeypatch.setattr(
@@ -497,6 +521,10 @@ async def test_reconcile_stale_legacy_arithmetic_path(db_session, monkeypatch):
     res = _make_resource(channel.id, series_id=series.id, is_batch=False,
                          episode=15, season=2, episode_confidence="raw")
     db_session.add(res)
+    await db_session.flush()
+    from app.services.publication_migration import bootstrap_publications
+
+    await bootstrap_publications(db_session, writers_stopped=True)
     await db_session.commit()
 
     monkeypatch.setattr(
@@ -679,7 +707,7 @@ async def test_fetch_enqueues_active_agents(db_session, monkeypatch):
     # Only the active agent gets a run; the paused one is skipped.
     assert calls == [{
         "job_type": "run_agent", "key": f"agent:{ok_agent.id}",
-        "payload": {"agent_id": ok_agent.id},
+        "payload": {"agent_id": ok_agent.id, "automatic": True},
     }]
 
 

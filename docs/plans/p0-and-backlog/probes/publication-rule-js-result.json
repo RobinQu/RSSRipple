@@ -1,0 +1,18 @@
+{
+  "stale_run": {
+    "agent_id": "10dc5442-51bb-4f85-a7d8-971036a839ac",
+    "run_id": "acac89c0-8c4c-432f-854f-cab7f58240ee",
+    "total_resources": 2,
+    "matched": 1,
+    "dispatched": 1,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 1,
+    "errors": []
+  },
+  "task_count": 1,
+  "scope": "actual null-backfill rule update commits after selection before processing",
+  "exit_code": 1,
+  "source_sha256": "dee0772652c5b2c6b64dfa77fd834b22531a595e4a046c895792512bb7e68c96"
+}

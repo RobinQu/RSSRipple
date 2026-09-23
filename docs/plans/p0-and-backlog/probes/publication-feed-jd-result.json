@@ -1,0 +1,37 @@
+{
+  "case": "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b",
+  "torrent_sha256": "7f2b6d96aeeb800355ca64985173449a91b4b76df85edeba6a105368e64dd813",
+  "rss": "synthetic shell; recorded raw RSS unavailable",
+  "metadata": "explicit reviewed adapter",
+  "failure": "created",
+  "fetched": {
+    "creation_rolled_back": true
+  },
+  "events_after_fetch": [],
+  "consumed": {
+    "agent_id": "36c9ee87-8f04-4555-89a7-f06c7a019697",
+    "run_id": "1b4822bc-2475-4839-be22-0be1799922d3",
+    "total_resources": 0,
+    "matched": 0,
+    "dispatched": 0,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 0,
+    "errors": []
+  },
+  "next_run": {
+    "agent_id": "36c9ee87-8f04-4555-89a7-f06c7a019697",
+    "run_id": "ddc81879-fd45-4cbf-9d28-e637e1b21e24",
+    "total_resources": 0,
+    "matched": 0,
+    "dispatched": 0,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 0,
+    "errors": []
+  },
+  "exit_code": 0,
+  "source_sha256": "a79fc762b33f6c50b347f9c2e68466c929e0bdb8244d2a2137a239c6b622eb2e"
+}

@@ -1,0 +1,48 @@
+{
+  "seeded": {
+    "queued_job_id": "64d6fc05"
+  },
+  "erased": {
+    "isolated_queue_state_erased": true
+  },
+  "fresh_consumers": [
+    {
+      "job_id": "7ba23f83",
+      "task_count": 1,
+      "result": {
+        "agent_id": "4dad9ca8-ee1e-41aa-ba0c-76005c1a5bfb",
+        "run_id": "ce95a498-c537-4165-9c3e-7a87db78056a",
+        "total_resources": 1,
+        "matched": 1,
+        "dispatched": 1,
+        "pending_decisions": 0,
+        "filter_failed": 0,
+        "duplicates_skipped": 0,
+        "unrecognized": 0,
+        "errors": []
+      }
+    },
+    {
+      "job_id": "7ba23f83",
+      "task_count": 1,
+      "result": {
+        "agent_id": "4dad9ca8-ee1e-41aa-ba0c-76005c1a5bfb",
+        "run_id": "ce95a498-c537-4165-9c3e-7a87db78056a",
+        "total_resources": 1,
+        "matched": 1,
+        "dispatched": 1,
+        "pending_decisions": 0,
+        "filter_failed": 0,
+        "duplicates_skipped": 0,
+        "unrecognized": 0,
+        "errors": []
+      }
+    }
+  ],
+  "scope": "actual Redis queue data loss and two new consumer processes; synthetic resource/mock downloader",
+  "exit_code": 0,
+  "cleanup_exit_code": 0,
+  "project": "rssripple-v13-distributed-ji",
+  "source_sha256": "151426858cf03a2e85cef1a0c18be48d759e12aa9f413abfcab0cd144937a7a7",
+  "replay_note": "持久探针增加 PROBE_ALLOW_ERASE_ISOLATED_REDIS=1 必需确认；只能使用独立测试 Redis，执行 FLUSHDB。需先运行 late-commit handler 探针创建唯一 Agent。"
+}

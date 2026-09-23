@@ -98,6 +98,9 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
         if not agent:
             raise RuntimeError(f"Agent {agent_id} not found")
 
+        if payload.get("automatic") and agent.status != "active":
+            return {"status": "skipped", "reason": "agent not active"}
+
         request_snapshots = await snapshot_requests(session, agent_id)
 
         run = AgentRun(agent_id=agent.id, status="running", started_at=utcnow())
@@ -107,6 +110,8 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
         channel_id = agent.channel_id
 
         advance_to = None
+        publication_snapshot = None
+        window_snapshot = None
         if resource_ids or payload.get("pending_requests"):
             # Targeted run (scenario ③, e.g. correct_episode): process exactly
             # the given resources against the agent's *current* rules. Bypasses
@@ -122,6 +127,10 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
             )
             selected_ids = list((await session.execute(stmt)).scalars().all())
         elif scan_windowed:
+            from app.services.agent_publication_progress import initialize_first_run, snapshot_publications
+
+            await initialize_first_run(session, agent)
+            window_snapshot = await snapshot_publications(session, agent.id, channel_id)
             # Windowed run (scenario ④): scan channel resources created after
             # the user-chosen start time, or the full channel history when
             # scan_since is null ("no limit"). Only the scan range of THIS
@@ -139,34 +148,23 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
             selected_ids = [r.id for r in rows]
             if rows:
                 advance_to = max(r.created_at for r in rows)
+                from app.services.agent_publication_progress import prepare_window_retry
+
+                window_snapshot = await prepare_window_retry(session, window_snapshot, selected_ids, scan_since)
             run_scan_since = scan_since if scan_since is not None else datetime(1970, 1, 1)
         else:
-            # Delta run (scenario ①): only resources newer than the agent's
-            # consumption watermark. Replaces the old hard-coded ``limit(200)``
-            # which silently dropped anything beyond the latest 200.
-            wm = agent.last_consumed_at
-            if wm is None:
-                # No watermark yet (e.g. migration skipped this row): treat as
-                # "caught up to now" and process nothing, so we never silently
-                # auto-dispatch historical backfill — that must go through the
-                # rules-preview selection flow.
+            from app.services.agent_publication_progress import initialize_first_run, snapshot_publications
+
+            if await initialize_first_run(session, agent):
                 agent.last_consumed_at = utcnow()
-                selected_ids = []
-            else:
-                stmt = (
-                    select(FileResource.id, FileResource.created_at)
-                    .where(
-                        FileResource.channel_id == channel_id,
-                        FileResource.created_at > wm,
-                    )
-                    .order_by(FileResource.created_at.asc())
-                )
-                rows = (await session.execute(stmt)).all()
-                selected_ids = [r.id for r in rows]
-                # Advance the watermark past everything we just considered
-                # (delta run only). Targeted runs leave it untouched.
-                if rows:
-                    advance_to = max(r.created_at for r in rows)
+            publication_snapshot = await snapshot_publications(session, agent.id, channel_id)
+            selected_ids = list(publication_snapshot.resource_ids)
+            if selected_ids:
+                from sqlalchemy import func
+
+                advance_to = await session.scalar(select(func.max(FileResource.created_at)).where(
+                    FileResource.id.in_(selected_ids)
+                ))
 
         selected_ids = list(dict.fromkeys([*selected_ids, *(r.resource_id for r in request_snapshots)]))
 
@@ -216,20 +214,32 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
                 resources,
                 session,
                 autocommit=True,
+                consumption_snapshot=publication_snapshot or window_snapshot,
                 required_metadata_fields=(
                     agent.channel.required_metadata_fields if agent.channel else None
                 ),
             )
 
+            progress_confirmed = False
             if run_result.errors:
                 await defer_requests(session, request_snapshots, "; ".join(run_result.errors))
             else:
                 await acknowledge_requests(session, request_snapshots)
+                if publication_snapshot is not None:
+                    from app.services.agent_publication_progress import acknowledge_publications
 
-            if advance_to is not None and not run_result.errors:
+                    progress_confirmed = await acknowledge_publications(session, publication_snapshot)
+                elif window_snapshot is not None and advance_to is not None:
+                    from app.services.agent_publication_progress import acknowledge_window
+
+                    progress_confirmed = await acknowledge_window(session, window_snapshot, scan_since)
+
+            if advance_to is not None and not run_result.errors and progress_confirmed:
                 # Keep failed incremental candidates eligible for the next run.
                 # Already committed groups are skipped by normal task dedup.
-                agent.last_consumed_at = advance_to
+                agent.last_consumed_at = (
+                    max(agent.last_consumed_at, advance_to) if agent.last_consumed_at else advance_to
+                )
 
             agent.last_run_at = utcnow()
             # More granular status so the UI can badge "待决策" instead of a
@@ -454,44 +464,13 @@ async def _handle_backfill_metadata(payload: dict) -> dict:  # pragma: no cover
         reconciled_ids = await reconcile_stale_raw_episodes(
             session, return_resource_ids=True
         )
-        if reconciled_ids:
-            from sqlalchemy import select
-
-            from app.models.agent import Agent
-            from app.models.file_resource import FileResource
-            from app.services.task_queue import task_queue
-
-            rows = (await session.execute(
-                select(FileResource.id, FileResource.channel_id).where(
-                    FileResource.id.in_(reconciled_ids)
-                )
-            )).all()
-            ids_by_channel: dict[str, list[str]] = {}
-            for resource_id, channel_id in rows:
-                ids_by_channel.setdefault(channel_id, []).append(resource_id)
-            agents = (await session.execute(
-                select(Agent).where(
-                    Agent.channel_id.in_(ids_by_channel),
-                    Agent.status == "active",
-                )
-            )).scalars().all()
-            for agent in agents:
-                try:
-                    await task_queue.enqueue(
-                        "run_agent",
-                        f"agent:{agent.id}",
-                        {
-                            "agent_id": agent.id,
-                            "resource_ids": ids_by_channel.get(agent.channel_id, []),
-                        },
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "[backfill_metadata] failed to enqueue targeted agent %s: %s",
-                        agent.id,
-                        exc,
-                    )
         processed = await backfill_unmatched_resources_global(session)
+    # Reconciliation publishes inside its resource transaction. Wake consumers
+    # only after commit, preserving their admission boundary and durable retry.
+    if reconciled_ids:
+        from app.services.publication_dispatch import dispatch_pending_publications
+
+        await dispatch_pending_publications()
     reconciled = len(reconciled_ids)
     logger.info(
         "[backfill_metadata] processed %d resources, reconciled %d stale episodes",

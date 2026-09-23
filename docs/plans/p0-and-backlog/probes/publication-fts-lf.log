@@ -1,0 +1,167 @@
+
+thread '<unnamed>' panicked at core/storage/btree.rs:8243:9:
+page should be loaded
+stack backtrace:
+   0:     0x7f95e73a81a2 - std::backtrace_rs::backtrace::libunwind::trace::h74680e970b6e0712
+                               at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc/library/std/src/../../backtrace/src/backtrace/libunwind.rs:117:9
+   1:     0x7f95e73a81a2 - std::backtrace_rs::backtrace::trace_unsynchronized::ha3bf590e3565a312
+                               at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc/library/std/src/../../backtrace/src/backtrace/mod.rs:66:14
+   2:     0x7f95e73a81a2 - std::sys::backtrace::_print_fmt::hcf16024cbdd6c458
+                               at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc/library/std/src/sys/backtrace.rs:66:9
+   3:     0x7f95e73a81a2 - <std::sys::backtrace::BacktraceLock::print::DisplayBacktrace as core::fmt::Display>::fmt::h46a716bba2450163
+                               at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc/library/std/src/sys/backtrace.rs:39:26
+   4:     0x7f95e7276213 - core::fmt::rt::Argument::fmt::ha695e732309707b7
+                               at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc/library/core/src/fmt/rt.rs:181:76
+   5:     0x7f95e7276213 - core::fmt::write::h275e5980d7008551
+                               at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc/library/core/src/fmt/mod.rs:1446:25
+   6:     0x7f95e73a7d2f - std::io::default_write_fmt::hdc4119be3eb77042
+                               at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc/library/std/src/io/mod.rs:639:11
+   7:     0x7f95e73a7d2f - std::io::Write::write_fmt::h561a66a0340b6995
+                               at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc/library/std/src/io/mod.rs:1914:13
+   8:     0x7f95e73a8003 - std::sys::backtrace::BacktraceLock::print::hafb9d5969adc39a0
+                               at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc/library/std/src/sys/backtrace.rs:42:9
+   9:     0x7f95e73a7a2d - std::panicking::default_hook::{{closure}}::hae2e97a5c4b2b777
+  10:     0x7f95e73a7a2d - std::panicking::default_hook::h3db1b505cfc4eb79
+                               at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc/library/std/src/panicking.rs:327:9
+  11:     0x7f95e73a7a2d - std::panicking::rust_panic_with_hook::h409da73ddef13937
+                               at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc/library/std/src/panicking.rs:833:13
+  12:     0x7f95e73d8ab8 - std::panicking::begin_panic_handler::{{closure}}::h159b61b27f96a9c2
+                               at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc/library/std/src/panicking.rs:706:13
+  13:     0x7f95e73d8a19 - std::sys::backtrace::__rust_end_short_backtrace::h5b56844d75e766fc
+                               at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc/library/std/src/sys/backtrace.rs:168:18
+  14:     0x7f95e73d9abc - __rustc[4794b31dd7191200]::rust_begin_unwind
+                               at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc/library/std/src/panicking.rs:697:5
+  15:     0x7f95e706ecaf - core::panicking::panic_fmt::hc8737e8cca20a7c8
+                               at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc/library/core/src/panicking.rs:75:14
+  16:     0x7f95e709b5ae - panic_display<&str>
+                               at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc/library/core/src/panicking.rs:269:5
+  17:     0x7f95e709b5ae - panic_cold_display<&str>
+                               at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc/library/core/src/panic.rs:100:13
+  18:     0x7f95e7749238 - top_ref
+                               at /home/runner/_work/turso/turso/core/storage/btree.rs:8243:9
+  19:     0x7f95e7749238 - record
+                               at /home/runner/_work/turso/turso/core/storage/btree.rs:6466:20
+  20:     0x7f95e7d2b088 - read_file_from_btree_uncached
+                               at /home/runner/_work/turso/turso/core/index_method/fts.rs:935:23
+  21:     0x7f95e7d2b088 - is_consistent_with_btree
+                               at /home/runner/_work/turso/turso/core/index_method/fts.rs:995:26
+  22:     0x7f95e7d2b088 - open_read
+                               at /home/runner/_work/turso/turso/core/index_method/fts.rs:2705:36
+  23:     0x7f95e77bca83 - op_open_read
+                               at /home/runner/_work/turso/turso/core/vdbe/execute.rs:1173:23
+  24:     0x7f95e7c54806 - normal_step
+                               at /home/runner/_work/turso/turso/core/vdbe/mod.rs:1907:23
+  25:     0x7f95e76c5942 - step
+                               at /home/runner/_work/turso/turso/core/vdbe/mod.rs:1638:34
+  26:     0x7f95e76c5942 - _step
+                               at /home/runner/_work/turso/turso/core/statement.rs:549:23
+  27:     0x7f95e7e0035b - step
+                               at /home/runner/_work/turso/turso/core/statement.rs:660:9
+  28:     0x7f95e7e0035b - step_inner
+                               at /home/runner/_work/turso/turso/sdk-kit/src/rsapi.rs:1271:18
+  29:     0x7f95e717d0b9 - step
+                               at /home/runner/_work/turso/turso/sdk-kit/src/rsapi.rs:1404:9
+  30:     0x7f95e717d0b9 - {closure#0}
+                               at /home/runner/_work/turso/turso/bindings/python/src/turso.rs:328:24
+  31:     0x7f95e717d0b9 - detach<core::result::Result<turso_sdk_kit::rsapi::TursoStatusCode, turso_sdk_kit::rsapi::TursoError>, _turso::turso::{impl#158}::step::{closure_env#0}>
+                               at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-0.29.0/src/marker.rs:571:9
+  32:     0x7f95e717d0b9 - step
+                               at /home/runner/_work/turso/turso/bindings/python/src/turso.rs:327:22
+  33:     0x7f95e717d0b9 - __pymethod_step__
+                               at /home/runner/_work/turso/turso/bindings/python/src/turso.rs:289:1
+  34:     0x7f95e717d0b9 - {closure#0}
+                               at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-0.29.0/src/impl_/trampoline.rs:121:34
+  35:     0x7f95e717d0b9 - {closure#0}<pyo3::impl_::trampoline::noargs::inner::{closure_env#0}, *mut pyo3_ffi::object::PyObject>
+                               at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-0.29.0/src/impl_/trampoline.rs:301:59
+  36:     0x7f95e717d0b9 - do_call<pyo3::impl_::trampoline::trampoline::{closure_env#0}<pyo3::impl_::trampoline::noargs::inner::{closure_env#0}, *mut pyo3_ffi::object::PyObject>, core::result::Result<*mut pyo3_ffi::object::PyObject, pyo3::err::PyErr>>
+                               at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc/library/std/src/panicking.rs:589:40
+  37:     0x7f95e717d0b9 - try<core::result::Result<*mut pyo3_ffi::object::PyObject, pyo3::err::PyErr>, pyo3::impl_::trampoline::trampoline::{closure_env#0}<pyo3::impl_::trampoline::noargs::inner::{closure_env#0}, *mut pyo3_ffi::object::PyObject>>
+                               at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc/library/std/src/panicking.rs:552:19
+  38:     0x7f95e717d0b9 - catch_unwind<pyo3::impl_::trampoline::trampoline::{closure_env#0}<pyo3::impl_::trampoline::noargs::inner::{closure_env#0}, *mut pyo3_ffi::object::PyObject>, core::result::Result<*mut pyo3_ffi::object::PyObject, pyo3::err::PyErr>>
+                               at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc/library/std/src/panic.rs:359:14
+  39:     0x7f95e717d0b9 - trampoline<pyo3::impl_::trampoline::noargs::inner::{closure_env#0}, *mut pyo3_ffi::object::PyObject>
+                               at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-0.29.0/src/impl_/trampoline.rs:301:9
+  40:     0x7f95e717d0b9 - inner
+                               at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-0.29.0/src/impl_/trampoline.rs:121:18
+  41:     0x7f95e717d0b9 - noargs<_turso::turso::{impl#159}::py_methods::ITEMS::Def>
+                               at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-0.29.0/src/impl_/trampoline.rs:109:14
+  42:          0x1a1c843 - _PyEval_EvalFrameDefault
+  43:          0x1a171aa - method_vectorcall.llvm.11713514651640758776
+  44:          0x1bf6cd0 - thread_run
+  45:          0x1bf6c35 - pythread_wrapper.llvm.18184258124810713416
+  46:     0x7f95ea81ba83 - <unknown>
+  47:     0x7f95ea8ad8e0 - <unknown>
+  48:                0x0 - <unknown>
+Fatal Python error: Aborted
+
+Thread 0x00007f95c2ffd640 (most recent call first):
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/turso/lib.py", line 706 in execute
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/turso/lib_aio.py", line 249 in _exec
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/turso/worker.py", line 38 in run
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/threading.py", line 1041 in _bootstrap_inner
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/threading.py", line 1012 in _bootstrap
+
+Thread 0x00007f95c27fc640 (most recent call first):
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/turso/lib.py", line 200 in _step_once_with_io
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/turso/lib.py", line 823 in _fetchone_tuple
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/turso/lib.py", line 879 in fetchall
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/turso/lib_aio.py", line 301 in _all
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/turso/worker.py", line 38 in run
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/threading.py", line 1041 in _bootstrap_inner
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/threading.py", line 1012 in _bootstrap
+
+Thread 0x00007f95e4a25640 (most recent call first):
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/turso/lib.py", line 200 in _step_once_with_io
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/turso/lib.py", line 823 in _fetchone_tuple
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/turso/lib.py", line 879 in fetchall
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/turso/lib_aio.py", line 301 in _all
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/turso/worker.py", line 38 in run
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/threading.py", line 1041 in _bootstrap_inner
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/threading.py", line 1012 in _bootstrap
+
+Thread 0x00007f95c37fe640 (most recent call first):
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/turso/lib.py", line 200 in _step_once_with_io
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/turso/lib.py", line 823 in _fetchone_tuple
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/turso/lib.py", line 879 in fetchall
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/turso/lib_aio.py", line 301 in _all
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/turso/worker.py", line 38 in run
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/threading.py", line 1041 in _bootstrap_inner
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/threading.py", line 1012 in _bootstrap
+
+Current thread 0x00007f95c0bf8640 (most recent call first):
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/turso/lib.py", line 200 in _step_once_with_io
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/turso/lib.py", line 823 in _fetchone_tuple
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/turso/lib.py", line 879 in fetchall
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/turso/lib_aio.py", line 301 in _all
+  File "/tmp/rssripple-v13-publication-ic/.venv/lib/python3.13/site-packages/turso/worker.py", line 38 in run
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/threading.py", line 1041 in _bootstrap_inner
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/threading.py", line 1012 in _bootstrap
+
+Thread 0x00007f959ffff640 (most recent call first):
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/concurrent/futures/thread.py", line 90 in _worker
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/threading.py", line 992 in run
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/threading.py", line 1041 in _bootstrap_inner
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/threading.py", line 1012 in _bootstrap
+
+Thread 0x00007f95e5226640 (most recent call first):
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/concurrent/futures/thread.py", line 90 in _worker
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/threading.py", line 992 in run
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/threading.py", line 1041 in _bootstrap_inner
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/threading.py", line 1012 in _bootstrap
+
+Thread 0x00007f95c17fa640 (most recent call first):
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/concurrent/futures/thread.py", line 90 in _worker
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/threading.py", line 992 in run
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/threading.py", line 1041 in _bootstrap_inner
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/threading.py", line 1012 in _bootstrap
+
+Thread 0x00007f95ea784740 (most recent call first):
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/selectors.py", line 452 in select
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 1996 in _run_once
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 677 in run_forever
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 706 in run_until_complete
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 118 in run
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 195 in run
+  File "/tmp/rssripple-v13-publication-ic/fts_concurrency_probe.py", line 53 in <module>
+
+Extension modules: sqlalchemy.cyextension.collections, sqlalchemy.cyextension.immutabledict, sqlalchemy.cyextension.processors, sqlalchemy.cyextension.resultproxy, sqlalchemy.cyextension.util, greenlet._greenlet (total: 6)

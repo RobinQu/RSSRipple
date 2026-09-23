@@ -1,0 +1,18 @@
+{
+  "migration": {
+    "status": "applied",
+    "resources": 3,
+    "agents": 1
+  },
+  "rollback_atomic": true,
+  "publisher_lock_observed": true,
+  "published_sequence": 4,
+  "eligible_after_migration": 2,
+  "repeat_preserves_progress": true,
+  "data": "synthetic",
+  "exit_code": 0,
+  "cleanup_exit_code": 0,
+  "project": "rssripple-v13-migration-im",
+  "source_sha256": "e2b9842a76fad7ace0e91555601686ce14d24ff59677ec01231e5b51f771842c",
+  "replay_note": "持久探针仅做导入排序与格式化；在应用原型补丁的副本运行。"
+}

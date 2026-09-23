@@ -49,13 +49,10 @@ class Agent(Base):
     )
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_run_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    # Consumption watermark: the latest ``FileResource.created_at`` timestamp
-    # this agent has already considered. Delta runs (fetch-triggered / manual)
-    # only process resources with ``created_at > last_consumed_at``; rule-change
-    # saves advance it to the channel's current max so subsequent delta runs
-    # only see truly new resources. Null = never run (treated as "process
-    # nothing, set to now" to avoid silently auto-dispatching backfill —
-    # backfill must go through the rules-preview selection flow).
+    # Compatibility timestamp for UI and explicit time-based scans/migration.
+    # Incremental eligibility is owned by AgentPublicationProgress and the
+    # channel's committed publication sequence, not resource creation time.
+    # Null still denotes first-run initialization without implicit backfill.
     last_consumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # Webhook subscriptions for download notifications live in their own
     # table (``agent_webhooks``) — an Agent may fan out to several webhooks.

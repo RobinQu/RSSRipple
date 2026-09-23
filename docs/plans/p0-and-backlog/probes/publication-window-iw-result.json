@@ -1,0 +1,62 @@
+{
+  "scan_since": null,
+  "first": {
+    "agent_id": "c3a97296-b74e-4e43-904f-f8c16d131aa9",
+    "run_id": "f955e4f6-e5f0-4aeb-9148-3cac915a874b",
+    "total_resources": 2,
+    "matched": 1,
+    "dispatched": 1,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 1,
+    "errors": []
+  },
+  "second": {
+    "agent_id": "c3a97296-b74e-4e43-904f-f8c16d131aa9",
+    "run_id": "8725357d-c0d2-4fe9-a886-8ca06797d7fe",
+    "total_resources": 1,
+    "matched": 1,
+    "dispatched": 1,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 0,
+    "errors": []
+  },
+  "third": {
+    "agent_id": "c3a97296-b74e-4e43-904f-f8c16d131aa9",
+    "run_id": "4698003e-de63-44c5-bb3a-11bc6ef709e5",
+    "total_resources": 0,
+    "matched": 0,
+    "dispatched": 0,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 0,
+    "errors": []
+  },
+  "older_resource_id": "143b303e-20d2-43fb-83c0-0424c89a94d6",
+  "newer_resource_id": "2024c893-b251-4c11-a8fc-216caaf7ddae",
+  "task_resource_ids": [
+    "2024c893-b251-4c11-a8fc-216caaf7ddae",
+    "143b303e-20d2-43fb-83c0-0424c89a94d6"
+  ],
+  "watermark": "2026-09-20 11:11:24.628005",
+  "older_created_at": "2026-09-20 11:10:24.628005",
+  "targeted_control": {
+    "agent_id": "c3a97296-b74e-4e43-904f-f8c16d131aa9",
+    "run_id": "be8a579e-5fa7-41de-a00c-a9ac93840193",
+    "total_resources": 1,
+    "matched": 0,
+    "dispatched": 0,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 1,
+    "unrecognized": 0,
+    "errors": []
+  },
+  "exit_code": 0,
+  "data": "synthetic; actual backfill, handler, metadata transaction and mock downloader",
+  "source_sha256": "73c55f086514b5b797c17ad548922ca999622d85a93210ea29f43f3396f1fd7d"
+}

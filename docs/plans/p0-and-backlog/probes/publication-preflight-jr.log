@@ -1,0 +1,189 @@
+........................................................................ [  1%]
+........................................................................ [  3%]
+........................................................................ [  5%]
+........................................................................ [  7%]
+........................................................................ [  9%]
+........................................................................ [ 11%]
+.....................sss............................s................... [ 13%]
+........................................................................ [ 15%]
+........................................................................ [ 16%]
+.....................F.F................................................ [ 18%]
+........................................................................ [ 20%]
+........................................................................ [ 22%]
+........................................................................ [ 24%]
+........................................................................ [ 26%]
+........................................................................ [ 28%]
+........................................................................ [ 30%]
+........................................................................ [ 32%]
+........................................................................ [ 33%]
+........................................................................ [ 35%]
+........................................................................ [ 37%]
+........................................................................ [ 39%]
+........................................................................ [ 41%]
+........................................................................ [ 43%]
+........................................................................ [ 45%]
+........................................................................ [ 47%]
+........................................................................ [ 49%]
+........................................................................ [ 50%]
+........................................................................ [ 52%]
+........................................................................ [ 54%]
+........................................................................ [ 56%]
+........................................................................ [ 58%]
+........................................................................ [ 60%]
+........................................................................ [ 62%]
+........................................................................ [ 64%]
+........................................................................ [ 66%]
+........................................................................ [ 67%]
+........................................................................ [ 69%]
+........................................................................ [ 71%]
+........................................................................ [ 73%]
+........................................................................ [ 75%]
+........................................................................ [ 77%]
+........................................................................ [ 79%]
+........................................................................ [ 81%]
+.......................................................sss.............. [ 82%]
+........................................................................ [ 84%]
+........................................................................ [ 86%]
+........................................................................ [ 88%]
+........................................................................ [ 90%]
+........................................................................ [ 92%]
+..............................................ssssssss.................. [ 94%]
+........................................................................ [ 96%]
+........................................................................ [ 98%]
+........................................................................ [ 99%]
+..                                                                       [100%]
+=================================== FAILURES ===================================
+_________ TestMetadataBackfill.test_backfill_caps_and_records_attempts _________
+
+self = <tests.unit.test_fetch_service.TestMetadataBackfill object at 0x7fb8c778f4d0>
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fb89df6cad0>
+channel = <app.models.channel.Channel object at 0x7fb89d3f8d70>
+fake_queue = <MagicMock id='140430741060784'>
+
+    async def test_backfill_caps_and_records_attempts(self, db_session, channel, fake_queue):
+        """40 never-tried unmatched resources → exactly MAX_BACKFILL_PER_FETCH
+        re-processed, each stamped with a not_found attempt."""
+        from sqlalchemy import select
+        for i in range(40):
+            db_session.add(FileResource(
+                id=_uuid(), channel_id=channel.id, guid=f"g{i}",
+                title_raw=f"[G] Show{i} - 01 [1080p]",
+                torrent_url=f"magnet:?xt=urn:btih:{i}",
+            ))
+        await db_session.commit()
+    
+        feed = _mock_feed([])  # empty feed: no new entries, backfill still runs
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed):
+            res = await fs.fetch_channel_resources(channel, db_session)
+    
+        assert res["backfilled_count"] == 30
+        rows = (await db_session.execute(
+            select(FileResource).where(FileResource.channel_id == channel.id)
+        )).scalars().all()
+        attempted = [r for r in rows if r.metadata_attempts == 1]
+        untouched = [r for r in rows if r.metadata_attempts == 0]
+>       assert len(attempted) == 30
+E       assert 0 == 30
+E        +  where 0 = len([])
+
+tests/unit/test_fetch_service.py:735: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for cdcd497b-da18-402b-93a3-ecfceddc20d0: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 256426e1-2831-4822-b63c-f035faa32c18: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 27b405de-c6ab-462b-b135-6a244656db1a: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for b99fd720-f795-4377-87f2-15f606657460: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 0869454b-d336-4ec0-889a-c3a171be78e0: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 55bea0fc-f171-466c-8a20-a2f41f98cc61: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 2428056a-d1ce-4779-8729-5b48b574f94e: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for c476f1e2-bdac-488f-a5bc-b0b86f899085: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 434e4a63-4a80-43cd-a262-2fd8799585fc: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 95ef0676-7491-4951-88bb-ffd4fd55ce1a: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for b2c3c2ff-0171-4c9f-ac05-60124276dbe4: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for d77d11b0-be28-493d-8fef-4b5d4374f658: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for c5a09b5e-8706-4d13-8da6-2f7db1ce299b: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 140f4cd9-352e-4e5d-9dd5-41970b14e518: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for de632d01-e108-445f-a1bc-f893615aa661: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 713c8a1e-7f06-4f04-a4b1-7524f566de65: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 5efd0ce0-7b95-43ce-98b4-546f6b32497a: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 817f4ea5-26f7-40b2-a591-a13426fd16a3: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for a8003b70-7d82-4aa6-8d3d-375a584760c2: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 96d535b6-7e44-48e4-acb0-5888d2eb96f4: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 66b65bed-d8ce-4b9f-a7be-87acb2653d26: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 4a447894-c585-4aa9-9c8d-72d09f759ebe: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 4b279582-78c2-479f-a36d-9bfa7ea8e5e2: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 918bd5d8-6210-46f5-8e8c-2e720a5cae78: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for d626a13b-109f-46df-939b-92047424b6ce: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 867d0366-93ab-40de-a13a-0c088a387a4d: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for eaa4cc1a-1656-4b20-a22a-e0fa216430c8: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for a4d3babe-0079-49d4-9020-46362ffe9bd7: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 1ec04b5b-93a6-4bb4-b348-321818513f62: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 3fd3c107-c818-4de4-a765-0e04e16846ae: Resource requires an initial publication; roll back transaction
+________________ test_backfill_runs_even_when_feed_fetch_fails _________________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fb89e565da0>
+channel = <app.models.channel.Channel object at 0x7fb8aeadbaf0>
+fake_queue = <MagicMock id='140430741059440'>
+
+    async def test_backfill_runs_even_when_feed_fetch_fails(db_session, channel, fake_queue):
+        """A feed outage must not block repair: the backfill still re-runs
+        retry-eligible unmatched resources even though the RSS fetch failed."""
+        from sqlalchemy import select
+        for i in range(5):
+            db_session.add(FileResource(
+                id=_uuid(), channel_id=channel.id, guid=f"g{i}",
+                title_raw=f"[G] Show{i} - 01 [1080p]",
+                torrent_url=f"magnet:?xt=urn:btih:{i}",
+            ))
+        await db_session.commit()
+    
+        with patch("app.services.fetch_service._parse_feed_sync",
+                   side_effect=Exception("network error")):
+            res = await fs.fetch_channel_resources(channel, db_session)
+    
+        assert res["status"] == "error"
+        assert res["new_count"] == 0
+        assert res["backfilled_count"] == 5  # backfill ran despite the feed failure
+        assert channel.last_fetch_status == "failed"
+        rows = (await db_session.execute(
+            select(FileResource).where(FileResource.channel_id == channel.id)
+        )).scalars().all()
+>       assert all(r.metadata_attempts == 1 for r in rows)
+E       assert False
+E        +  where False = all(<generator object test_backfill_runs_even_when_feed_fetch_fails.<locals>.<genexpr> at 0x7fb8bed4e5a0>)
+
+tests/unit/test_fetch_service.py:789: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.fetch_service:fetch_service.py:688 [fetch:852535e2-4cc8-4c9a-b48a-edf81db28ab3] feed fetch failed: network error
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 3e45427f-339d-4cff-97f2-019d997de1e2: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for eca43138-542c-49f9-8ed1-380ebeef0ba9: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for db4fb699-de8d-4dbb-8cec-02b4d22b3902: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for ad2f3622-8f6e-43e7-8e13-8ad9edcd0ddc: Resource requires an initial publication; roll back transaction
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 46805717-b97a-4fd2-a92b-a8ef65e34fdf: Resource requires an initial publication; roll back transaction
+=============================== warnings summary ===============================
+tests/unit/test_agent_publication_progress.py::test_late_metadata_retries_new_resource_but_preserves_history_exclusion
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+tests/unit/test_database_migrations.py::test_create_tables_turso_path
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/langhelpers.py:1396: RuntimeWarning: coroutine 'test_best_effort_savepoint_unavailable.<locals>._Conn.begin_nested' was never awaited
+    kw.update(
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/unit/test_download_paths.py::test_invalid_subdir[../escape]
+  /home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/inspect.py:2426: RuntimeWarning: coroutine '_run' was never awaited
+    for offset, name in enumerate(positional[non_default_count:]):
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/api/test_channels.py::TestChannelsCRUD::test_create_channel_invalid_feed
+tests/api/test_channels.py::TestChannelsCRUD::test_create_channel_invalid_feed
+tests/api/test_channels.py::TestChannelsCRUD::test_create_channel_invalid_feed
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/feedparser/html.py:152: DeprecationWarning: 'count' is passed as positional argument
+    data = re.sub(r'<!((?!DOCTYPE|--|\[))', r'&lt;!\1', data, re.IGNORECASE)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_fetch_service.py::TestMetadataBackfill::test_backfill_caps_and_records_attempts
+FAILED tests/unit/test_fetch_service.py::test_backfill_runs_even_when_feed_fetch_fails
+2 failed, 3801 passed, 15 skipped, 6 warnings in 1719.07s (0:28:39)

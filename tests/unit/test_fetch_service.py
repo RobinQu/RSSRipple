@@ -720,6 +720,10 @@ class TestMetadataBackfill:
                 title_raw=f"[G] Show{i} - 01 [1080p]",
                 torrent_url=f"magnet:?xt=urn:btih:{i}",
             ))
+        await db_session.flush()
+        from app.services.publication_migration import bootstrap_publications
+
+        await bootstrap_publications(db_session, writers_stopped=True)
         await db_session.commit()
 
         feed = _mock_feed([])  # empty feed: no new entries, backfill still runs
@@ -773,6 +777,10 @@ async def test_backfill_runs_even_when_feed_fetch_fails(db_session, channel, fak
             title_raw=f"[G] Show{i} - 01 [1080p]",
             torrent_url=f"magnet:?xt=urn:btih:{i}",
         ))
+    await db_session.flush()
+    from app.services.publication_migration import bootstrap_publications
+
+    await bootstrap_publications(db_session, writers_stopped=True)
     await db_session.commit()
 
     with patch("app.services.fetch_service._parse_feed_sync",
@@ -1111,6 +1119,10 @@ async def test_reconcile_stale_raw_episodes(db_session, channel):
         series_id=no_map_series.id, season=1, episode=90, episode_confidence="raw",
     )
     db_session.add_all([stale, per_season, manual, no_map])
+    await db_session.flush()
+    from app.services.publication_migration import bootstrap_publications
+
+    await bootstrap_publications(db_session, writers_stopped=True)
     await db_session.commit()
 
     changed = await fs.reconcile_stale_raw_episodes(db_session)
@@ -1243,6 +1255,10 @@ async def test_process_resource_metadata_restored_fk_is_cleared(
         search_title="Show",
     )
     db_session.add(res)
+    await db_session.flush()
+    from app.services.publication_migration import bootstrap_publications
+
+    await bootstrap_publications(db_session, writers_stopped=True)
     await db_session.commit()
 
     async def _ensure(resource):
@@ -1327,6 +1343,10 @@ async def test_process_resource_metadata_batch_enrichment_failures_are_swallowed
         search_title="Pack", is_batch=True, batch_scope="franchise",
     )
     db_session.add(res)
+    await db_session.flush()
+    from app.services.publication_migration import bootstrap_publications
+
+    await bootstrap_publications(db_session, writers_stopped=True)
     await db_session.commit()
 
     async def _ensure(resource):
@@ -1465,6 +1485,10 @@ async def test_reconcile_stale_history_backed_path(db_session, channel):
         episode_confidence="raw", subtitle_group="GROUP",
     )
     db_session.add_all([manual, target])
+    await db_session.flush()
+    from app.services.publication_migration import bootstrap_publications
+
+    await bootstrap_publications(db_session, writers_stopped=True)
     await db_session.commit()
 
     changed = await fs.reconcile_stale_raw_episodes(db_session, return_resource_ids=True)

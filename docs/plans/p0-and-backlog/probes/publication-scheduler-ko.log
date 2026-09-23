@@ -1,0 +1,16 @@
+
+==================================== ERRORS ====================================
+__ ERROR collecting tests/integration/organize/test_publication_scheduler.py ___
+ImportError while importing test module '/tmp/rssripple-v13-publication-ic/tests/integration/organize/test_publication_scheduler.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/integration/organize/test_publication_scheduler.py:10: in <module>
+    from app.models.agent import AgentRun
+E   ImportError: cannot import name 'AgentRun' from 'app.models.agent' (/tmp/rssripple-v13-publication-ic/app/models/agent.py)
+=========================== short test summary info ============================
+ERROR tests/integration/organize/test_publication_scheduler.py
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 error in 0.11s

@@ -1,0 +1,20 @@
+{
+  "stale_run": {
+    "agent_id": "3ab99705-b4e8-4427-8edc-9d972eba02ac",
+    "run_id": "8eca1fff-75d9-487d-96b4-ac317466f2e7",
+    "total_resources": 2,
+    "matched": 1,
+    "dispatched": 0,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 1,
+    "errors": [
+      "Agent consumption scope changed; old run must not dispatch"
+    ]
+  },
+  "task_count": 0,
+  "scope": "actual null-backfill rule update commits after selection before processing",
+  "exit_code": 0,
+  "source_sha256": "dee0772652c5b2c6b64dfa77fd834b22531a595e4a046c895792512bb7e68c96"
+}

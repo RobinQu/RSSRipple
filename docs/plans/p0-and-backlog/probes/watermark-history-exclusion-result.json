@@ -1,0 +1,30 @@
+{
+  "baseline_empty_selection_run": {
+    "agent_id": "6c2dd318-2d00-4cdd-8196-8bc554cc9396",
+    "run_id": "c06af7e8-2a74-449d-959c-c7fb07585a57",
+    "total_resources": 0,
+    "matched": 0,
+    "dispatched": 0,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 0,
+    "errors": []
+  },
+  "unconditional_completion_request_run": {
+    "agent_id": "6c2dd318-2d00-4cdd-8196-8bc554cc9396",
+    "run_id": "521760d8-038a-495b-bd68-0c9bc4cdfdeb",
+    "total_resources": 1,
+    "matched": 1,
+    "dispatched": 1,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 0,
+    "errors": []
+  },
+  "historical_resource_id": "cecb31f9-100f-4091-971b-8d956b535d29",
+  "scope": "hypothesis test of reusing existing B9 function unconditionally",
+  "exit_code": 1,
+  "classification": "rejected candidate design, not a new defect in B9 targeted semantics"
+}

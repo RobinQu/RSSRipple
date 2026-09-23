@@ -1,0 +1,156 @@
+..........................F.F........................................... [ 70%]
+..............................                                           [100%]
+=================================== FAILURES ===================================
+_________ TestMetadataBackfill.test_backfill_caps_and_records_attempts _________
+
+self = <tests.unit.test_fetch_service.TestMetadataBackfill object at 0x7f5be0d1d310>
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f5bbb92bbf0>
+channel = <app.models.channel.Channel object at 0x7f5bb921d6e0>
+fake_queue = <MagicMock id='140031849300048'>
+
+    async def test_backfill_caps_and_records_attempts(self, db_session, channel, fake_queue):
+        """40 never-tried unmatched resources → exactly MAX_BACKFILL_PER_FETCH
+        re-processed, each stamped with a not_found attempt."""
+        from sqlalchemy import select
+        for i in range(40):
+            db_session.add(FileResource(
+                id=_uuid(), channel_id=channel.id, guid=f"g{i}",
+                title_raw=f"[G] Show{i} - 01 [1080p]",
+                torrent_url=f"magnet:?xt=urn:btih:{i}",
+            ))
+        await db_session.flush()
+        from app.services.publication_migration import bootstrap_publications
+    
+        await bootstrap_publications(db_session, writers_stopped=True)
+        await db_session.commit()
+    
+        feed = _mock_feed([])  # empty feed: no new entries, backfill still runs
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed):
+            res = await fs.fetch_channel_resources(channel, db_session)
+    
+        assert res["backfilled_count"] == 30
+        rows = (await db_session.execute(
+            select(FileResource).where(FileResource.channel_id == channel.id)
+        )).scalars().all()
+        attempted = [r for r in rows if r.metadata_attempts == 1]
+        untouched = [r for r in rows if r.metadata_attempts == 0]
+>       assert len(attempted) == 30
+E       assert 17 == 30
+E        +  where 17 = len([<app.models.file_resource.FileResource object at 0x7f5be0d1f4d0>, <app.models.file_resource.FileResource object at 0x...resource.FileResource object at 0x7f5bb917ad50>, <app.models.file_resource.FileResource object at 0x7f5bb917ae90>, ...])
+
+tests/unit/test_fetch_service.py:739: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 94e83bd5-2be3-41cf-b191-fcb4337b0bdf: (turso.lib.DatabaseError) Write-write conflict
+[SQL: UPDATE channel_publication_counters SET sequence=(channel_publication_counters.sequence + ?) WHERE channel_publication_counters.channel_id = ? RETURNING sequence]
+[parameters: (1, 'a2c95da9-45aa-46e6-8b81-d165d4e7928a')]
+(Background on this error at: https://sqlalche.me/e/20/4xp6)
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 06be66a4-a3fa-4254-8b7c-6f7510ba0ffe: (turso.lib.DatabaseError) Write-write conflict
+[SQL: UPDATE channel_publication_counters SET sequence=(channel_publication_counters.sequence + ?) WHERE channel_publication_counters.channel_id = ? RETURNING sequence]
+[parameters: (1, 'a2c95da9-45aa-46e6-8b81-d165d4e7928a')]
+(Background on this error at: https://sqlalche.me/e/20/4xp6)
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for d37a8ed4-93b1-4e31-8ad4-974e5a2726a6: (turso.lib.DatabaseError) Write-write conflict
+[SQL: UPDATE channel_publication_counters SET sequence=(channel_publication_counters.sequence + ?) WHERE channel_publication_counters.channel_id = ? RETURNING sequence]
+[parameters: (1, 'a2c95da9-45aa-46e6-8b81-d165d4e7928a')]
+(Background on this error at: https://sqlalche.me/e/20/4xp6)
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 12d1aa75-ae63-43d3-afc0-693f921dd233: (turso.lib.DatabaseError) Write-write conflict
+[SQL: UPDATE channel_publication_counters SET sequence=(channel_publication_counters.sequence + ?) WHERE channel_publication_counters.channel_id = ? RETURNING sequence]
+[parameters: (1, 'a2c95da9-45aa-46e6-8b81-d165d4e7928a')]
+(Background on this error at: https://sqlalche.me/e/20/4xp6)
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for ff30a226-2d5b-4c19-8bf6-63b1c718912b: (turso.lib.DatabaseError) Write-write conflict
+[SQL: UPDATE channel_publication_counters SET sequence=(channel_publication_counters.sequence + ?) WHERE channel_publication_counters.channel_id = ? RETURNING sequence]
+[parameters: (1, 'a2c95da9-45aa-46e6-8b81-d165d4e7928a')]
+(Background on this error at: https://sqlalche.me/e/20/4xp6)
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for d146ee1e-db9e-4165-8e49-78d41e7147b5: (turso.lib.DatabaseError) Write-write conflict
+[SQL: UPDATE channel_publication_counters SET sequence=(channel_publication_counters.sequence + ?) WHERE channel_publication_counters.channel_id = ? RETURNING sequence]
+[parameters: (1, 'a2c95da9-45aa-46e6-8b81-d165d4e7928a')]
+(Background on this error at: https://sqlalche.me/e/20/4xp6)
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 39d26861-6185-45fb-a167-b4b8247f55e3: (turso.lib.DatabaseError) Write-write conflict
+[SQL: UPDATE channel_publication_counters SET sequence=(channel_publication_counters.sequence + ?) WHERE channel_publication_counters.channel_id = ? RETURNING sequence]
+[parameters: (1, 'a2c95da9-45aa-46e6-8b81-d165d4e7928a')]
+(Background on this error at: https://sqlalche.me/e/20/4xp6)
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for b02a51b8-cb05-4cb5-8db9-bc1b3eefd492: (turso.lib.DatabaseError) Write-write conflict
+[SQL: UPDATE channel_publication_counters SET sequence=(channel_publication_counters.sequence + ?) WHERE channel_publication_counters.channel_id = ? RETURNING sequence]
+[parameters: (1, 'a2c95da9-45aa-46e6-8b81-d165d4e7928a')]
+(Background on this error at: https://sqlalche.me/e/20/4xp6)
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 21f55272-a283-46c9-bf4b-0895b8316437: (turso.lib.DatabaseError) Write-write conflict
+[SQL: UPDATE channel_publication_counters SET sequence=(channel_publication_counters.sequence + ?) WHERE channel_publication_counters.channel_id = ? RETURNING sequence]
+[parameters: (1, 'a2c95da9-45aa-46e6-8b81-d165d4e7928a')]
+(Background on this error at: https://sqlalche.me/e/20/4xp6)
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 5d101352-f1d8-47eb-b924-cc4912145682: (turso.lib.DatabaseError) Write-write conflict
+[SQL: UPDATE channel_publication_counters SET sequence=(channel_publication_counters.sequence + ?) WHERE channel_publication_counters.channel_id = ? RETURNING sequence]
+[parameters: (1, 'a2c95da9-45aa-46e6-8b81-d165d4e7928a')]
+(Background on this error at: https://sqlalche.me/e/20/4xp6)
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 142bb6ff-0c26-45b6-9a19-df77666b82cb: (turso.lib.DatabaseError) Write-write conflict
+[SQL: UPDATE channel_publication_counters SET sequence=(channel_publication_counters.sequence + ?) WHERE channel_publication_counters.channel_id = ? RETURNING sequence]
+[parameters: (1, 'a2c95da9-45aa-46e6-8b81-d165d4e7928a')]
+(Background on this error at: https://sqlalche.me/e/20/4xp6)
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for abf5bea5-5fee-4c16-bd44-0df26977c8c4: (turso.lib.DatabaseError) Write-write conflict
+[SQL: UPDATE channel_publication_counters SET sequence=(channel_publication_counters.sequence + ?) WHERE channel_publication_counters.channel_id = ? RETURNING sequence]
+[parameters: (1, 'a2c95da9-45aa-46e6-8b81-d165d4e7928a')]
+(Background on this error at: https://sqlalche.me/e/20/4xp6)
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 1b00eefe-4409-449a-a290-fa27847cbd28: (turso.lib.DatabaseError) Write-write conflict
+[SQL: UPDATE channel_publication_counters SET sequence=(channel_publication_counters.sequence + ?) WHERE channel_publication_counters.channel_id = ? RETURNING sequence]
+[parameters: (1, 'a2c95da9-45aa-46e6-8b81-d165d4e7928a')]
+(Background on this error at: https://sqlalche.me/e/20/4xp6)
+________________ test_backfill_runs_even_when_feed_fetch_fails _________________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f5bb5e2ed50>
+channel = <app.models.channel.Channel object at 0x7f5bb921e8b0>
+fake_queue = <MagicMock id='140031923969328'>
+
+    async def test_backfill_runs_even_when_feed_fetch_fails(db_session, channel, fake_queue):
+        """A feed outage must not block repair: the backfill still re-runs
+        retry-eligible unmatched resources even though the RSS fetch failed."""
+        from sqlalchemy import select
+        for i in range(5):
+            db_session.add(FileResource(
+                id=_uuid(), channel_id=channel.id, guid=f"g{i}",
+                title_raw=f"[G] Show{i} - 01 [1080p]",
+                torrent_url=f"magnet:?xt=urn:btih:{i}",
+            ))
+        await db_session.flush()
+        from app.services.publication_migration import bootstrap_publications
+    
+        await bootstrap_publications(db_session, writers_stopped=True)
+        await db_session.commit()
+    
+        with patch("app.services.fetch_service._parse_feed_sync",
+                   side_effect=Exception("network error")):
+            res = await fs.fetch_channel_resources(channel, db_session)
+    
+        assert res["status"] == "error"
+        assert res["new_count"] == 0
+        assert res["backfilled_count"] == 5  # backfill ran despite the feed failure
+        assert channel.last_fetch_status == "failed"
+        rows = (await db_session.execute(
+            select(FileResource).where(FileResource.channel_id == channel.id)
+        )).scalars().all()
+>       assert all(r.metadata_attempts == 1 for r in rows)
+E       assert False
+E        +  where False = all(<generator object test_backfill_runs_even_when_feed_fetch_fails.<locals>.<genexpr> at 0x7f5bb5dff2a0>)
+
+tests/unit/test_fetch_service.py:797: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.fetch_service:fetch_service.py:696 [fetch:32ff2973-4d7c-482c-b246-ff686f818fbd] feed fetch failed: network error
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 336622be-eced-453c-8c46-05d2143696d3: (turso.lib.DatabaseError) Write-write conflict
+[SQL: UPDATE channel_publication_counters SET sequence=(channel_publication_counters.sequence + ?) WHERE channel_publication_counters.channel_id = ? RETURNING sequence]
+[parameters: (1, '32ff2973-4d7c-482c-b246-ff686f818fbd')]
+(Background on this error at: https://sqlalche.me/e/20/4xp6)
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 4276947f-f357-4157-aaff-db6807fd9a6a: (turso.lib.DatabaseError) Write-write conflict
+[SQL: UPDATE channel_publication_counters SET sequence=(channel_publication_counters.sequence + ?) WHERE channel_publication_counters.channel_id = ? RETURNING sequence]
+[parameters: (1, '32ff2973-4d7c-482c-b246-ff686f818fbd')]
+(Background on this error at: https://sqlalche.me/e/20/4xp6)
+WARNING  app.services.fetch_service:fetch_service.py:388 [metadata-task] failed for 745c27e1-a084-4026-b7c2-918bef970f21: (turso.lib.DatabaseError) Write-write conflict
+[SQL: UPDATE channel_publication_counters SET sequence=(channel_publication_counters.sequence + ?) WHERE channel_publication_counters.channel_id = ? RETURNING sequence]
+[parameters: (1, '32ff2973-4d7c-482c-b246-ff686f818fbd')]
+(Background on this error at: https://sqlalche.me/e/20/4xp6)
+=============================== warnings summary ===============================
+tests/unit/test_fetch_service.py::TestFetchChannelResources::test_feed_fetch_failure_marks_channel_error
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_fetch_service.py::TestMetadataBackfill::test_backfill_caps_and_records_attempts
+FAILED tests/unit/test_fetch_service.py::test_backfill_runs_even_when_feed_fetch_fails
+2 failed, 100 passed, 1 warning in 79.07s (0:01:19)

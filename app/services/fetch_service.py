@@ -197,6 +197,26 @@ async def _process_resource_metadata(
     *,
     force_refresh: bool = False,
 ) -> None:
+    """Retry an uncommitted metadata transaction with a fresh session."""
+    from app.database import retry_on_lock
+
+    try:
+        await retry_on_lock(
+            lambda: _process_resource_metadata_once(
+                resource_id, channel_id, semaphore, force_refresh=force_refresh
+            )
+        )
+    except Exception as exc:
+        logger.warning("[metadata-task] retries exhausted for %s: %s", resource_id, exc)
+
+
+async def _process_resource_metadata_once(
+    resource_id: str,
+    channel_id: str,
+    semaphore: asyncio.Semaphore,
+    *,
+    force_refresh: bool = False,
+) -> None:
     """Run metadata + poster download for one FileResource in its own session.
 
     Used by both the new-resource path and the backfill path so each
@@ -207,7 +227,7 @@ async def _process_resource_metadata(
     "database is locked" / unresponsive-edit symptom that motivated
     committing the resource row before metadata in the first place.
     """
-    from app.database import async_session_factory
+    from app.database import _is_retryable_lock_error, async_session_factory
     from app.models.movie import Movie
     from app.models.series import TVSeries
     from app.services.metadata_agent import get_agent
@@ -216,6 +236,7 @@ async def _process_resource_metadata(
 
     async with semaphore:
         async with async_session_factory() as task_db:
+            metadata_committed = False
             try:
                 result = await task_db.execute(
                     select(FileResource)
@@ -362,9 +383,13 @@ async def _process_resource_metadata(
                                 "[franchise] movie dedup failed for %s: %s",
                                 resource_id, e,
                             )
+                    from app.services.resource_publication import publish_resource
+
+                    await publish_resource(task_db, resource.id, kind="metadata")
                     # Commit inside the lock: the next same-work task's lookup
                     # must see this task's series/movie row.
                     await task_db.commit()
+                    metadata_committed = True
 
                 # Poster download for newly-linked entities (kept in the same
                 # task session so a network call never blocks other writers).
@@ -387,6 +412,8 @@ async def _process_resource_metadata(
                     await task_db.rollback()
                 except Exception:
                     pass
+                if not metadata_committed and _is_retryable_lock_error(e):
+                    raise
 
 
 async def _backfill_unmatched_resources(
@@ -575,7 +602,8 @@ async def reconcile_stale_raw_episodes(
     ``ambiguous`` rows and previously-clamped ``reconciled`` rows.  The legacy
     arithmetic pass remains limited to raw/NULL values whose episode exceeds
     the linked season count.  Returns the changed count by default; callers
-    that need to enqueue targeted agent runs may request the resource ids.
+    that need the affected resource ids may request them. Changes and publication
+    events commit together; automatic consumers retain historical exclusions.
     """
     from app.models.series import TVSeries
     from app.services.episode_history import apply_episode_history_reconcile
@@ -653,6 +681,13 @@ async def reconcile_stale_raw_episodes(
         if apply_episode_reconcile(r, smap):
             changed_ids.append(r.id)
     if changed_ids:
+        from app.services.resource_publication import publish_resource
+
+        changed = set(changed_ids)
+        # Acquire channel counters in a consistent order across concurrent sweeps.
+        for row in sorted(resources, key=lambda row: (row.channel_id, row.id)):
+            if row.id in changed:
+                await publish_resource(db, row.id, kind="metadata")
         await db.commit()
     return changed_ids if return_resource_ids else len(changed_ids)
 
@@ -843,6 +878,9 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
             resource.episode_confidence = "reconciled"
         db.add(resource)
         await db.flush()
+        from app.services.resource_publication import publish_resource
+
+        await publish_resource(db, resource.id, kind="created")
         # Commit the new resource immediately so the SQLite write lock is
         # released *before* the metadata ReAct loop below. agent.process runs
         # many LLM + external search calls (tens of messages per resource when
@@ -921,7 +959,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
             await task_queue.enqueue(
                 "run_agent",
                 f"agent:{agent.id}",
-                {"agent_id": agent.id},
+                {"agent_id": agent.id, "automatic": True},
             )
         except Exception as e:
             logger.warning("Failed to enqueue run_agent for %s: %s", agent.id, e)

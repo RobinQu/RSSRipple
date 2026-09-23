@@ -283,3 +283,22 @@ P8 在已有决策键结构的数据库上执行时，先记录受影响 Agent�
 使用 `python -m scripts.review_orphan_identities --export review.json` 只读导出；工具不运行应用启动迁移，也不覆盖已有文件。只有 series/movie/collection 目标不存在的身份进入 orphans；未知 work_type 进入 blocked。审核后在 JSON 中增加 approved_fingerprint（等于导出 fingerprint）及 selected_ids（精确选择 orphan 行 ID）。保留原始审核文件和数据库备份。
 
 停写后运行 `python -m scripts.review_orphan_identities --apply-review reviewed.json --writers-stopped --backup-confirmed`。同事务重新核对指纹和拥有者；PG 锁定身份袋及三类拥有者表，Turso BEGIN IMMEDIATE。行值变化、新出现拥有者或未知类型均拒绝；选中记录已全部不存在时返回 already_absent_ids。只删除审核选中行，不接管身份，不在启动或 API 中自动清理。CLI/Turso、真实录制负例及 PG 并发锁验证已通过；工具不自动运行。
+
+
+### 资源发布进度迁移
+
+新协议启用前必须停写并备份，不能混跑旧时间水位线发布者和新事件消费者。以下步骤针对原有正式版本没有发布进度表的数据库；早期实验表不属于受支持升级路径，`checkfirst` 不能替代实验约束升级。
+
+1. 停止 web/worker 和其他数据库写入者，完成备份。
+2. 使用目标数据库配置执行 `python -m scripts.review_publication_migration --prepare-schema --writers-stopped --backup-confirmed`，仅创建三个新表，可重复执行。
+3. 执行 `python -m scripts.review_publication_migration --export review.json`。文件独占创建，包含资源 id/channel/created_at、Agent 旧时间、待消费 IDs 和 `excluded_or_ambiguous_resource_ids`。
+4. 核对报告后添加 `approved_fingerprint`，值为报告的 `fingerprint`；执行 `python -m scripts.review_publication_migration --apply-review review.json --writers-stopped --backup-confirmed`。
+5. 确认应用成功后启动新 web/worker。任何指纹变化都须重新导出核对，不沿用旧报告。
+
+迁移按频道 created_at/id 排序建立 created 事件。非 NULL 旧时间的 Agent 以 <= last_consumed_at 的最大序号建立 baseline/cursor，保持严格大于旧时间的待消费范围；NULL 时间留待首次运行初始化。时间以下潜在遗漏与用户主动排除不可区分，工具只报告、不自动下载，后续可由用户 rules-preview 或指定时间扫描选择。
+
+PostgreSQL 在参与表写屏障内重新核对报告并应用，Turso 使用 BEGIN IMMEDIATE。事件、计数器、进度与完成标记同事务提交/回滚；标记保存审核指纹，同一审核重复应用不改进度。无标记却已有发布数据、审核内容被改动、数据库资源或水位线变化均拒绝应用。
+
+web/worker 在运行配置和调度启动前检查迁移状态；真正空库初始化 fresh 标记，旧数据无标记拒绝启动。有标记仍检查资源初始事件与旧 Agent 的匹配频道进度，防止遗漏迁移或混用旧写入者。DB_MIGRATE_ON_STARTUP=false 不跳过此门禁。
+
+专项证据与发布验收状态见 V13-CONSUMPTION-PROGRESS.md；本节描述迁移协议，不表示已对生产数据库执行迁移。

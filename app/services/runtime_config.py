@@ -172,12 +172,14 @@ async def load_runtime_config(db: AsyncSession) -> None:
     Env defaults are not stored here; they are read live by the accessors when
     no override is present. Keys absent from the DB keep using the env default.
     """
-    _overrides.clear()
     result = await db.execute(select(AppSetting))
     rows: dict[str, str | None] = {r.key: r.value for r in result.scalars().all()}
-    for key in _SETTING_DEFS:
-        if key in rows and rows[key] is not None:
-            _overrides[key] = rows[key]  # type: ignore[assignment]
+    loaded = {key: value for key, value in rows.items() if key in _SETTING_DEFS and value is not None}
+    # Publish only a completed read, without an await between replacement
+    # operations. Async readers retain the last good snapshot during I/O or
+    # a failed refresh; preserve dict identity for scoped override users.
+    _overrides.clear()
+    _overrides.update(loaded)
 
 
 async def reload_runtime_config(db: AsyncSession) -> None:

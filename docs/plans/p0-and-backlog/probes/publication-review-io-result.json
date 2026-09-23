@@ -1,0 +1,20 @@
+{
+  "export": {
+    "agents": 1,
+    "resources": 3,
+    "fingerprint": "3cca2d619766a2f3ccee30e93958ea31a6615edbac057556490e98e9462361ee"
+  },
+  "apply": {
+    "status": "applied",
+    "resources": 3,
+    "agents": 1
+  },
+  "repeat": {
+    "status": "already_applied"
+  },
+  "export_overwrite_rejected": true,
+  "missing_flags_rejected": true,
+  "database": "temporary synthetic Turso file; removed after process exits",
+  "exit_code": 0,
+  "source_sha256": "3958e44277a1db4ed05001262364da90634b10c4b58d8024cb680cab6db9eada"
+}

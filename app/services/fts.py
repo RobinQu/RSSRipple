@@ -70,7 +70,11 @@ def _get_fts_engine():
     """Lazily create the sidecar engine (tests may inject their own)."""
     global _FTS_ENGINE
     if _FTS_ENGINE is None:
-        _FTS_ENGINE = create_async_engine(_sidecar_url())
+        # The experimental FTS sidecar is a derived cache. Concurrent native
+        # connections can panic in page/btree handling, so serialize its short
+        # transactions via one pooled connection. Main DB concurrency remains
+        # independent; no network calls occur while a sidecar checkout is held.
+        _FTS_ENGINE = create_async_engine(_sidecar_url(), pool_size=1, max_overflow=0)
     return _FTS_ENGINE
 
 

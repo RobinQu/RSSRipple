@@ -1,0 +1,513 @@
+{
+  "status": "partial producer/handler integration prototype; migration and lifecycle incomplete; not deployable",
+  "directory": "/tmp/rssripple-v13-publication-ic",
+  "base": "5193fb2",
+  "files": {
+    "app/models/resource_publication.py": "b70f0b532d152ce83af71c921e7c408730e99a2f84f6e6dd4a3eb9306fef1d1e",
+    "app/services/resource_publication.py": "e4e4f1260f37208bb60f66ecda680bafe41bddbef9de21c0330a9c4effdbfa7e",
+    "tests/unit/test_resource_publication.py": "c86c25f8fe18c9a5c87d1932f60cb816610ef8a4fe03e8338d35596c847f9f7f",
+    "app/models/agent_publication_progress.py": "25db9f0cfcc2178edb4a2254ec6d23daaaa4b29c37cb4897a677693982c48905",
+    "app/services/agent_publication_progress.py": "52c64ec0bedc51e44caad33beddcbdf11a404554bba415377ec369000c98b8f0",
+    "tests/unit/test_agent_publication_progress.py": "2d7681ddc981813549c471a3fa8307d245da1374b1289297829772f1e1e524de",
+    "app/models/__init__.py": "c83348b27f0183e93736e6934c3e2c2645a4234ddf98acde64df067ee20bde0a",
+    "app/services/fetch_service.py": "36ba236e0fb5e91ec5ed85ddcbafcb1b11ee3e91d36cd91efa9535109c02408c",
+    "app/job_handlers.py": "9cefd5bebd9d002a4bd0a43f38e5cf8cf08d807db0063a329f927154b03e99f1",
+    "app/api/v1/agents.py": "fba2ae091014bbaf168735a5e22b2395915fa272974675bd9d0621f2da59b202",
+    "docs/design/data-models.md": "43343b87bfb04decc8a3f6041a32295f2ec5b891adbaa19f9a30e6fc08ed5685",
+    "docs/design/business-logic.md": "0b809791f1c9e3d17546fe5217e1039d4346eabc9e45fb63fa7ab4dafa8aea47",
+    "docs/design/api-endpoints.md": "fddc43c1299d4d3bacef11c5c2276974594940844c1e04cd6978732669208af3",
+    "app/services/publication_migration.py": "ed43692caebb0a7b4f8681493cac8d4d271a64fbdd43966fa7ef400b429d259f",
+    "tests/unit/test_publication_migration.py": "11873d6b236bb4304b2f9b420b79ff5a866fd1d6f7eea81cf4303e9b817d801b",
+    "docs/design/db-migration.md": "933fda09a4747369b8121f0adce9aa541c65078c496cdf408cd184f60ea4b198",
+    "scripts/review_publication_migration.py": "aff228ec38cd6898ee272ac9d4a0f50e21625203c4e7d839f0562e7f0eb89bd9",
+    "tests/unit/test_publication_review.py": "e4a4d1f14347f57ace5967c81b6296dafa60e68db5ee287a67983d143730dcc5",
+    "app/services/publication_startup.py": "97e4aa124859856b95987b6e0426593b668da7b1409f16dc37f52b2cee4abeae",
+    "app/main.py": "4c64f26c1fd9515347fe113e1b1747292a17a67db4412d943e6c6fa668a565a8",
+    "app/worker.py": "3b834e6100e7ff13913ed8a69497244a87b5a015ed7643424b95879842d11334",
+    "tests/unit/test_publication_startup.py": "b02ddd8758652147b63418a7a539423e2bc46a86d659b961fc6abb95babb4a6a",
+    "tests/api/test_agent_publication_channel.py": "c0042bd4db42a81378f7d1442cf468158f1d00ac4ddd3bb154dc4cd5fc34fb25",
+    "tests/integration/organize/publication_feed_driver.py": "d17b18a4bc3ed1047e0621002c038f77a9d61b5973386deb1e80bcd49460f3b5",
+    "tests/integration/organize/test_publication_feed.py": "02264fcbbbfe52a12d987fb328b1ff44ecf12c23a2c514a739c3a4b26754bee9",
+    "docs/testing/integration-inventory.md": "01dcd8ae4713d666aa02af3243b6bf5f9b007e461c916da7783c160c88a05477",
+    "app/services/publication_dispatch.py": "a1672f988fcfc7b8baece0049e5a2ad121cf27a30f49223c61a1a40b4569d6d5",
+    "app/services/scheduler.py": "82b1681b1494b61edffbc6c374e87b51fd1c3b4cfd9c7fbb13cddaac43414845",
+    "tests/unit/test_publication_dispatch.py": "1f0ec78e94766c62f9edc1ae101969f878406502b25ecfb4701ac61ad74c3d9a",
+    "app/services/agent_service.py": "90bffbaa81e1895aeda648ca18be971ec66eceba40476f45e7d3566c693ded66",
+    "tests/unit/test_agent_service.py": "14f23b6129f65b879eea931964f81643600194aacca48d4aad259986a4019161",
+    "app/models/agent.py": "2f40a1e0beba244855660b97aea8d5fa846f689598c0c4c42d6ec39f4674135e",
+    "app/services/agent_resource_requests.py": "1c68ddfb8cc6da1506823d721b1c19d34f35350a4b363c9c111156b2580f359f",
+    "tests/unit/test_fetch_service.py": "76205ed26b519f71150b85bebcde2e19e6ee6040d40e24c47f27e6d46ba3b05a",
+    "tests/integration/metadata/test_fetch_service_coverage.py": "f60d986dc8bc019f50a3099375ca76a2dd8324711f7ccf7678149ee90078e539",
+    "AGENTS.md": "eb57e7e6edbea142da36c9deeceaef78996cd9e8519fe7646612b1596eea3044",
+    "tests/integration/organize/test_publication_scheduler.py": "3549774268c12538cbec58cead480b879912e22e9f3140beb4444c23d1b423f5",
+    "docs/design/constraints.md": "cb9878b0febd641ef74023975d810e095b650f284f92c8e4df90cacf0cd62dcf",
+    "tests/api/test_resources.py": "f18f3e0618849929f7dafe5ab67b623668ebe8f594a0fce9e6d7f24c614d913c",
+    "tests/integration/organize/test_p0_queue_consumption.py": "f6175122563bf8215f76f8d57bae2ae2301c4d9a46ec2cfcd40ee2d2086c4d37",
+    "tests/integration/organize/test_worker_entrypoint.py": "1128579338c04e9fb7e9dcb3f135ed52c12841d650b8d01f38ec9f7155c301cc",
+    "app/services/runtime_config.py": "e0547003ab06c2db0917aba28832b6ad8fafa6b4d55ae905ca021fd26adc4009",
+    "tests/unit/test_runtime_config_atomic_reload.py": "2df15ddf4ca2575598c2d59fe2c2daaf22a1b41719b10fba0bb6035a50df1099",
+    "docs/design/conventions.md": "9ca5bd9d1ebe15cd45f200f69fe46c8a116479a9feaad87b174f4f944dadbd11",
+    "app/services/fts.py": "7152602513985a937b144d13291bfa63361d5a7d504ccf612f66b78ab99018cc",
+    "tests/integration/organize/fts_concurrency_driver.py": "e27d83afd92b12cf059527ad50ffaf1babf01a3a9576328f3ebdff5bec3df644",
+    "tests/integration/organize/test_fts_concurrency.py": "f105575c73354fe0446400fddda8761ff7a4999adad0b1479e5d82df21d0f0dc"
+  },
+  "tests": {
+    "passed": 4,
+    "warnings": 1,
+    "seconds": 1.96,
+    "exit_code": 0,
+    "junit": "/tmp/rssripple-v13-publication-ic.xml"
+  },
+  "remaining": [
+    "In-flight channel/rule changes and remote side-effect crash boundaries",
+    "Event retention and production upgrade/review",
+    "Complete unit/API and isolated integration gates"
+  ],
+  "postgresql": "resource-publication-pg-result.json",
+  "progress_tests": {
+    "passed": 7,
+    "warnings": 1,
+    "seconds": 2.96,
+    "exit_code": 0,
+    "junit": "/tmp/rssripple-v13-progress-if.xml",
+    "scope": "Turso foundation and progress services; no production handler integration"
+  },
+  "integration_probes": [
+    "publication-metadata-ig-result.json",
+    "publication-history-ih-result.json",
+    "publication-initial-ij-result.json",
+    "publication-migration-il-result.json",
+    "publication-migration-im-result.json",
+    "publication-review-io-result.json",
+    "publication-startup-iq-result.json",
+    "publication-cli-ir-result.json",
+    "publication-window-iv-result.json",
+    "publication-window-iw-result.json",
+    "publication-failed-window-iy-result.json",
+    "publication-failed-window-iz-result.json",
+    "publication-crash-jb-result.json",
+    "publication-feed-jc-result.json",
+    "publication-feed-jd-result.json",
+    "publication-feed-je-result.json",
+    "publication-late-commit-ji-result.json",
+    "publication-redis-jk-result.json",
+    "publication-stale-jl-result.json",
+    "publication-stale-jm-result.json",
+    "publication-stale-jn-result.json",
+    "publication-rule-js-result.json",
+    "publication-rule-jt-result.json"
+  ],
+  "lifecycle_tests": {
+    "passed": 9,
+    "warnings": 1,
+    "seconds": 3.77,
+    "exit_code": 0,
+    "junit": "/tmp/rssripple-v13-lifecycle-ii.xml"
+  },
+  "migration_tests": {
+    "passed": 13,
+    "warnings": 1,
+    "seconds": 5.61,
+    "exit_code": 0,
+    "junit": "/tmp/rssripple-v13-migration-ik.xml"
+  },
+  "review_tests": {
+    "passed": 16,
+    "warnings": 1,
+    "seconds": 6.77,
+    "exit_code": 0,
+    "junit": "/tmp/rssripple-v13-review-in.xml"
+  },
+  "startup_tests": {
+    "passed": 19,
+    "warnings": 1,
+    "seconds": 8.07,
+    "exit_code": 0,
+    "junit": "/tmp/rssripple-v13-startup-ip.xml"
+  },
+  "channel_tests": {
+    "unit": {
+      "passed": 20,
+      "warnings": 1,
+      "seconds": 8.8,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v13-channel-is.xml"
+    },
+    "api": {
+      "passed": 1,
+      "seconds": 0.61,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v13-channel-it.xml"
+    }
+  },
+  "window_tests": {
+    "passed": 22,
+    "warnings": 1,
+    "seconds": 10.04,
+    "exit_code": 0,
+    "junit": "/tmp/rssripple-v13-window-iu.xml"
+  },
+  "retry_tests": {
+    "passed": 24,
+    "warnings": 1,
+    "seconds": 10.7,
+    "exit_code": 0,
+    "junit": "/tmp/rssripple-v13-retry-ja.xml"
+  },
+  "feed_integration_tests": {
+    "passed": 3,
+    "seconds": 4.15,
+    "exit_code": 0,
+    "junit": "/tmp/rssripple-v13-feed-jf.xml",
+    "scope": "isolated Turso subprocesses; actual production feed producer/metadata transaction/handler; captured title and torrent with synthetic RSS shell"
+  },
+  "wakeup_tests": {
+    "unit": {
+      "passed": 2,
+      "warnings": 1,
+      "seconds": 0.88,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v13-wakeup-jg.xml"
+    },
+    "integration": {
+      "passed": 4,
+      "seconds": 5.79,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v13-wakeup-jh.xml"
+    }
+  },
+  "scope_regression": {
+    "first": {
+      "passed": 125,
+      "failed": 1,
+      "warnings": 1,
+      "seconds": 52.68,
+      "exit_code": 1,
+      "junit": "/tmp/rssripple-v13-scope-jo.xml",
+      "failure": "legacy timestamp fixture lacked publication migration"
+    },
+    "fixed_fixture": {
+      "passed": 1,
+      "warnings": 1,
+      "seconds": 0.88,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v13-scope-jp.xml"
+    }
+  },
+  "retention_tests": {
+    "passed": 32,
+    "warnings": 1,
+    "seconds": 18.29,
+    "exit_code": 0,
+    "junit": "/tmp/rssripple-v13-retention-jq.xml"
+  },
+  "compatibility_preflight": {
+    "status": "running",
+    "session_id": 32852,
+    "directory": "/tmp/rssripple-v13-preflight-jr",
+    "source_manifest": "/tmp/rssripple-v13-preflight-jr-source.json",
+    "source_files": 2960,
+    "log": "/tmp/rssripple-v13-preflight-jr.log",
+    "junit": "/tmp/rssripple-v13-preflight-jr.xml",
+    "command": "pytest tests/unit tests/api -q --no-cov --maxfail=10",
+    "scope": "compatibility preflight, not final coverage gate",
+    "observation": "still running, output has failures; await terminal report from same session"
+  },
+  "rules_regression": {
+    "ju": {
+      "passed": 17,
+      "failed": 1,
+      "seconds": 26.48,
+      "exit_code": 1,
+      "cause": "no-op validator field caused rename invalidation"
+    },
+    "jv": {
+      "passed": 1,
+      "failed": 1,
+      "seconds": 3.31,
+      "exit_code": 1,
+      "cause": "rule test fixture already had requested false scope"
+    },
+    "jw": {
+      "passed": 2,
+      "seconds": 3.27,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v13-rules-jw.xml"
+    }
+  },
+  "pause_regression": {
+    "jx": "red: paused automatic run dispatched one task",
+    "jy": "green: skipped, unchanged pending resources, resumed dispatch one",
+    "jz": {
+      "passed": 8,
+      "warnings": 1,
+      "seconds": 11.82,
+      "junit": "/tmp/rssripple-v13-pause-jz.xml"
+    },
+    "probe_sha256": "15b8fbfea9564b885db55478fff8ca459c047a45631c9815d227eb313059acf9"
+  },
+  "history_reconciliation": {
+    "ka": "explicitly terminated exit 143; no test result",
+    "kb": {
+      "failed": 1,
+      "seconds": 1.64,
+      "evidence": "actual repair produced no new publication; pending empty"
+    },
+    "kc": {
+      "passed": 11,
+      "seconds": 14.59
+    },
+    "kd": {
+      "passed": 11,
+      "seconds": 14.88,
+      "includes": "publication failure rollback and normal retry; synthetic rows, real Turso sweep"
+    },
+    "remaining": "existing reconciliation fixtures and handler integration; PG/full gates",
+    "ke": {
+      "passed": 4,
+      "deselected": 63,
+      "seconds": 5.46,
+      "exit_code": 0,
+      "scope": "actual handler ordinary automatic wake; rollback; legacy fixtures"
+    },
+    "kf": {
+      "passed": 4,
+      "deselected": 42,
+      "seconds": 5.82,
+      "exit_code": 0,
+      "scope": "existing direct-Python metadata integration reconciliation paths"
+    }
+  },
+  "review_performance_kg": {
+    "passed": 3,
+    "seconds": 3.69,
+    "exit_code": 0,
+    "change": "group resources by channel before per-Agent review; report schema unchanged"
+  },
+  "compatibility_preflight_jr": {
+    "status": "terminal",
+    "exit_code": 1,
+    "passed": 3801,
+    "failed": 2,
+    "skipped": 15,
+    "warnings": 6,
+    "seconds": 1719.07,
+    "frozen_files": 2960,
+    "changed_files": [],
+    "failures": [
+      "TestMetadataBackfill::test_backfill_caps_and_records_attempts",
+      "test_backfill_runs_even_when_feed_fetch_fails"
+    ],
+    "coverage": "not measured; compatibility only",
+    "source_manifest": "publication-preflight-jr-source.json"
+  },
+  "producer_regression_kh": {
+    "exit_code": 1,
+    "passed": 96,
+    "failed": 6,
+    "warnings": 1,
+    "seconds": 112.72,
+    "cause": "five metadata fixture transactions lack created publication; one expected payload lacks automatic flag"
+  },
+  "producer_regression_ki": {
+    "status": "terminal",
+    "exit_code": 1,
+    "passed": 100,
+    "failed": 2,
+    "seconds": 79.07,
+    "cause": "real Turso concurrent counter write conflicts after fixture migration; prior fixture-only explanation incomplete"
+  },
+  "metadata_conflict_kj": {
+    "exit_code": 0,
+    "passed": 2,
+    "seconds": 3.93,
+    "change": "retry entire uncommitted metadata operation with fresh session using retry_on_lock; no retry after primary metadata commit"
+  },
+  "producer_regression_kk": {
+    "status": "terminal",
+    "exit_code": 0,
+    "passed": 106,
+    "warnings": 1,
+    "seconds": 41.84,
+    "scope": "full fetch unit, metadata direct integration and captured torrent feed integration; no coverage gate"
+  },
+  "pg_retention_kl": {
+    "exit_code": 0,
+    "cases": 2,
+    "source_sha256": "a8012897f8db957f03598b37ebd704e3178315e5ff8fa76de54a531f188afa0b",
+    "data": "synthetic",
+    "project": "rssripple-v13-retention-kl",
+    "cleanup": "complete",
+    "cleanup_exit_code": 0
+  },
+  "unit_gate_km": {
+    "status": "terminal",
+    "session": 39121,
+    "frozen": "/tmp/rssripple-v13-unit-km",
+    "files": 2960,
+    "hash_manifest": "/tmp/rssripple-v13-unit-km-source.json",
+    "coverage_threshold": 95,
+    "log": "/tmp/rssripple-v13-unit-km.log",
+    "junit": "/tmp/rssripple-v13-unit-km.xml",
+    "coverage_json": "/tmp/rssripple-v13-unit-km-coverage.json",
+    "observation": "still running near 96%; output now contains failures; await terminal details",
+    "exit_code": 1,
+    "passed": 3803,
+    "failed": 2,
+    "skipped": 15,
+    "warnings": 6,
+    "seconds": 1850.85,
+    "coverage_percent": 97.46
+  },
+  "documentation_consolidation": {
+    "status": "prototype updated",
+    "files": [
+      "AGENTS.md",
+      "docs/design/business-logic.md",
+      "docs/design/data-models.md",
+      "docs/design/constraints.md",
+      "docs/design/api-endpoints.md",
+      "docs/design/db-migration.md"
+    ],
+    "scope": "replace obsolete timestamp-only semantics and chronological prototype notes with current protocol; acceptance status remains V13 plan"
+  },
+  "integration_gate_kn": {
+    "status": "terminal_failed",
+    "session": 24311,
+    "frozen": "/tmp/rssripple-v13-integration-kn",
+    "files": 3056,
+    "project": "rssripple-v13-complete-kn",
+    "compose": "/tmp/rssripple-v13-integration-kn/docker-compose.integration-isolated.yml",
+    "log": "/tmp/rssripple-v13-integration-kn.log",
+    "runner": "rssripple-v13-complete-kn-runner",
+    "startup_exit_code": 0,
+    "coverage_threshold": 85,
+    "requires_after_tests": [
+      "normal SIGINT app exits",
+      "coverage combine",
+      "artifact export",
+      "source hash verification",
+      "compose down -v"
+    ],
+    "exit_code": 1,
+    "passed": 3140,
+    "failed": 10,
+    "skipped": 17,
+    "warnings": 8,
+    "seconds": 1729.87,
+    "app_exit_code": 0,
+    "llm_app_exit_code": 139,
+    "oom_killed": false,
+    "coverage_exit_code": 1,
+    "artifact_directory": "/tmp/rssripple-v13-artifacts-kn",
+    "cleanup": "complete",
+    "cleanup_exit_code": 0
+  },
+  "scheduler_supplement": {
+    "ko": {
+      "exit_code": 2,
+      "collection_error": "wrong AgentRun import; no test executed"
+    },
+    "kp": {
+      "passed": 1,
+      "seconds": 11.08,
+      "exit_code": 0,
+      "scope": "real production 5s timer -> MemoryQueue -> handler -> DB cursor; paused then resumed",
+      "included_in_kn": false
+    }
+  },
+  "premerge_consistency_review": {
+    "manifest_includes_constraints": true,
+    "ruff_changed_python_exit_code": 0,
+    "git_apply_check_exit_code": 0,
+    "runtime_diff_vs_unit": [],
+    "runtime_diff_vs_integration": [],
+    "unit_frozen_files": 2960,
+    "integration_frozen_files": 3056,
+    "hash_mismatches": [],
+    "acceptance": "pending full gate terminal results; no merge approval yet"
+  },
+  "frozen_terminal_hashes": {
+    "unit-km": {
+      "files": 2960,
+      "changed": []
+    },
+    "integration-kn": {
+      "files": 3056,
+      "changed": []
+    }
+  },
+  "fixture_regression_la": {
+    "status": "terminal",
+    "session": 5862,
+    "log": "/tmp/rssripple-v13-fixtures-la.log",
+    "exit_code": 0,
+    "passed": 136,
+    "skipped": 8,
+    "warnings": 1,
+    "seconds": 60.43,
+    "skip_reason": "retired metadata endpoints; unrelated to current failures"
+  },
+  "runtime_config_lc": {
+    "lb": {
+      "failed": 2,
+      "seconds": 0.92,
+      "exit_code": 1
+    },
+    "lc": {
+      "passed": 10,
+      "warnings": 1,
+      "seconds": 4.66,
+      "exit_code": 0
+    },
+    "finding": "load clears live overrides before awaited DB read; fixed publish after successful read",
+    "http_root_cause": "candidate requiring original HTTP replay",
+    "native_panic": "unresolved"
+  },
+  "http_regression_ld": {
+    "status": "terminal",
+    "session": 58649,
+    "project": "rssripple-v13-http-ld",
+    "frozen": "/tmp/rssripple-v13-integration-ld",
+    "files": 3066,
+    "compose": "/tmp/rssripple-v13-integration-ld/docker-compose.integration-isolated.yml",
+    "runner": "rssripple-v13-http-ld-runner",
+    "log": "/tmp/rssripple-v13-http-ld.log",
+    "junit_in_container": "/app/data/http-regression.xml",
+    "startup_exit_code": 0,
+    "backtrace_enabled": true,
+    "passed": 5,
+    "seconds": 184.96,
+    "exit_code": 0,
+    "app_exit_codes": [
+      0,
+      0
+    ],
+    "cleanup_exit_code": 0
+  },
+  "fts_native_probe": {
+    "le": {
+      "exit_code": 1,
+      "scope": "missing dialect registration, no workload"
+    },
+    "lf": {
+      "exit_code": 134,
+      "panic": "core/storage/btree.rs:8243 page should be loaded",
+      "same_as_kn_panic": "not proven"
+    },
+    "lg": {
+      "exit_code": 0,
+      "attempts": 800,
+      "writes": 400,
+      "reads": 400,
+      "errors": {},
+      "change": "FTS sidecar pool_size=1 max_overflow=0"
+    },
+    "source_sha256": "3a7be77a3ae4a1a599ed17644a3839bfaf1a27b1ef9807fedefee9050f6b1857",
+    "remaining": [
+      "formal subprocess integration and final index assertions",
+      "original full workload panic replay",
+      "full gates"
+    ]
+  }
+}

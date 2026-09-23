@@ -1210,7 +1210,7 @@ class TestParseCorrection:
         assert res.status_code == 200
         enqueue.assert_awaited_once_with(
             "run_agent", f"agent:{agent_id}",
-            {"agent_id": agent_id, "resource_ids": [rid]},
+            {"agent_id": agent_id, "resource_ids": [rid], "automatic": True},
         )
 
     async def test_404(self, client):
@@ -2274,7 +2274,7 @@ class TestEpisodeCorrectionCollection:
         assert res.status_code == 200
         enqueue.assert_awaited_once_with(
             "run_agent", f"agent:{agent_id}",
-            {"agent_id": agent_id, "resource_ids": [rid]},
+            {"agent_id": agent_id, "resource_ids": [rid], "automatic": True},
         )
 
     async def test_reenqueue_failure_swallowed(

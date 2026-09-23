@@ -1,0 +1,46 @@
+{
+  "case": "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b",
+  "torrent_sha256": "7f2b6d96aeeb800355ca64985173449a91b4b76df85edeba6a105368e64dd813",
+  "rss": "synthetic shell; recorded raw RSS unavailable",
+  "metadata": "explicit reviewed adapter",
+  "failure": "metadata",
+  "fetched": {
+    "status": "success",
+    "total": 1,
+    "new_count": 1,
+    "new_resource_ids": [
+      "75b414ae-306d-495b-ae63-bcbec22bc44c"
+    ],
+    "backfilled_count": 0,
+    "error": null
+  },
+  "events_after_fetch": [
+    "created"
+  ],
+  "consumed": {
+    "agent_id": "d71dbb6c-baca-4eff-966d-f27612f04e95",
+    "run_id": "6d40d6e2-94f5-4096-a0ce-765c39350f36",
+    "total_resources": 1,
+    "matched": 1,
+    "dispatched": 1,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 0,
+    "errors": []
+  },
+  "next_run": {
+    "agent_id": "d71dbb6c-baca-4eff-966d-f27612f04e95",
+    "run_id": "0afc1af0-a121-4a87-90f3-30ecdace31ce",
+    "total_resources": 0,
+    "matched": 0,
+    "dispatched": 0,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 0,
+    "errors": []
+  },
+  "exit_code": 0,
+  "source_sha256": "a79fc762b33f6c50b347f9c2e68466c929e0bdb8244d2a2137a239c6b622eb2e"
+}

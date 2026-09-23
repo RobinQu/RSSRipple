@@ -1,0 +1,20 @@
+{
+  "paused_run": {
+    "agent_id": "bb263a96-b98d-4703-bdd4-1fe7da706913",
+    "run_id": "b7a4b25f-7f2c-4d88-bfa4-5d3f07bdb19f",
+    "total_resources": 2,
+    "matched": 1,
+    "dispatched": 1,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 1,
+    "errors": []
+  },
+  "task_count_while_paused": 1,
+  "pending_before": [
+    "46982822-6d99-4559-a28e-eda870181c54",
+    "c70b387d-3634-4604-a2f5-9b08ac5b3cff"
+  ],
+  "pending_after": []
+}

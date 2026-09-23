@@ -1,0 +1,31 @@
+{
+  "baseline_empty_selection_run": {
+    "agent_id": "aad9a95a-a187-442e-9ced-5fb077dae0b0",
+    "run_id": "2df693b1-ef58-4420-a730-9445a3f43046",
+    "total_resources": 0,
+    "matched": 0,
+    "dispatched": 0,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 0,
+    "errors": []
+  },
+  "publication_completion_run": {
+    "agent_id": "aad9a95a-a187-442e-9ced-5fb077dae0b0",
+    "run_id": "c585b440-c7e6-4779-8aeb-7441bf142d11",
+    "total_resources": 0,
+    "matched": 0,
+    "dispatched": 0,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 0,
+    "errors": []
+  },
+  "historical_resource_id": "2e39790d-76d7-4e07-b2b3-3fce758a3162",
+  "scope": "actual backfill empty selection with automatic publication completion",
+  "exit_code": 0,
+  "data": "synthetic with actual DB, handler and mock downloader",
+  "source_sha256": "66b1796dff6cbadea640c62b7324809aacecd14519a8d78f7e999d44796cb4f1"
+}

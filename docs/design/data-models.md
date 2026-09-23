@@ -454,14 +454,9 @@ class Agent(Base):
                                          # | "pending_decisions"（当 dispatched=0
                                          #   且 pending_decisions>0 时使用；UI 据此
                                          #   显示"待决策"徽标而不是绿色 success）
-    last_consumed_at: datetime | None    # 消费水位线：本 Agent 已处理过的最新
-                                         # FileResource.created_at 时间戳。增量运行
-                                         # （fetch 触发 / 手动 run）只处理 created_at >
-                                         # last_consumed_at 的资源；规则变更保存时水位
-                                         # 推进到频道当前最大值，使后续增量运行只看到真正
-                                         # 的新资源。Null=从未运行（按"推进到 now、不处理
-                                         # 任何资源"处理，避免静默自动派发历史回填——回填
-                                         # 必须经 rules-preview 选择流程）
+    last_consumed_at: datetime | None    # 兼容时间展示，不作为增量准入游标。
+                                         # NULL 且无发布进度时首次运行仅初始化；
+                                         # 实际消费由 AgentPublicationProgress 控制。
     created_at: datetime
     updated_at: datetime
 
@@ -839,3 +834,18 @@ TVSeries.number_of_seasons / seasons 为退役孤儿列：创建/更新 API 拒�
 `decision_key` 为可空 VARCHAR(80)，`decision_scope` 为可空 JSON。新 pending 必须有 key；`(agent_id, decision_key)` 仅 pending 部分唯一，离开 pending 后可重新创建同覆盖选择。scope 使用 version=1 的规范单集/电影身份或 batch 完整覆盖描述；key 为其排序紧凑 JSON 的 v1 SHA256。升级不仅检查非空，也验证版本化描述与摘要一致；历史非 pending 可保留空键。确认必须复验候选的当前覆盖与资格，不能把摘要一致当成当前资源仍合格。
 
 自动作品重指档案的 original_review/result 标记 operation=work_rekey，记录重指资源后、改变 pending 状态前的快照；不得解释为人工批准的离线审核。
+
+
+### 资源发布与 Agent 消费进度
+
+以下模型主键均为 UUID v4 字符串；外键删除级联。
+
+| 模型 | 字段与约束 |
+|------|------------|
+| `ChannelPublicationCounter` | `channel_id` 唯一 FK；`sequence` BigInteger 非空、默认 0、检查 >=0 |
+| `ResourcePublication` | channel/resource FK；`sequence`、`origin_sequence` BigInteger，检查 `0 < origin_sequence <= sequence`；`kind ∈ {created,metadata}`；UTC `created_at`；唯一 `(channel_id,sequence)` 和 `(resource_id,kind)` |
+| `AgentPublicationProgress` | `agent_id` 唯一 FK、`channel_id` FK；`generation` UUID 字符串；`baseline`、`cursor` BigInteger 非空且各自 >=0；nullable UTC `historical_created_after` |
+
+每资源至多一条 created 和一条最新 metadata。创建序号永久充当 origin；metadata 替换时在同一事务删除旧事件并写入更高序号，不重编号。资源删除级联清理事件，频道计数器不回退。
+
+baseline 和 cursor 分别表示历史准入与消费确认，不要求 cursor>=baseline。普通频道切换 cursor=0，baseline 取新频道当前前缀，历史时间下界沿用旧 last_consumed_at；显式回填清空历史下界。指定扫描可扩展历史准入并在处理前回退 cursor 以保留失败重试，确认只在同 generation 内前进。全历史以 datetime.min 表示下界。业务协议见 business-logic.md，升级步骤见 db-migration.md。

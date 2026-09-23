@@ -105,7 +105,7 @@ async def wake_agents(agent_ids: list[str], resource_ids: list[str] | None = Non
 
     for agent_id in agent_ids:
         try:
-            payload = {"agent_id": agent_id, "resource_ids": resource_ids or []}
+            payload = {"agent_id": agent_id, "resource_ids": resource_ids or [], "automatic": True}
             if resource_ids is None:
                 payload["pending_requests"] = True
             await task_queue.task_queue.enqueue("run_agent", f"agent:{agent_id}", payload)

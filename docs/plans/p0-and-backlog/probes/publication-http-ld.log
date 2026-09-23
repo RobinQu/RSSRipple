@@ -1,0 +1,25 @@
+ Container rssripple-v13-http-ld-transmission-1  Running
+ Container rssripple-v13-http-ld-test-server-1  Running
+ Container rssripple-v13-http-ld-app-llm-1  Running
+ Container rssripple-v13-http-ld-app-1  Running
+ Container rssripple-v13-http-ld-test-server-1  Waiting
+ Container rssripple-v13-http-ld-test-server-1  Waiting
+ Container rssripple-v13-http-ld-test-server-1  Healthy
+ Container rssripple-v13-http-ld-test-server-1  Healthy
+============================= test session starts ==============================
+platform linux -- Python 3.12.14, pytest-9.1.1, pluggy-1.6.0 -- /app/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /app
+configfile: pyproject.toml
+plugins: asyncio-1.4.0, anyio-4.14.0, langsmith-0.9.3, cov-7.1.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 5 items
+
+tests/integration/http/test_llm_mock.py::TestFeedAnalysisVariants::test_markdown_wrapped_json_parses PASSED [ 20%]
+tests/integration/http/test_llm_mock.py::TestFeedAnalysisVariants::test_invalid_escapes_repaired PASSED [ 40%]
+tests/integration/http/test_llm_mock.py::TestFeedAnalysisVariants::test_bad_json_retries_then_empty_result PASSED [ 60%]
+tests/integration/http/test_llm_mock.py::TestFeedAnalysisVariants::test_empty_response_retries_then_empty_result PASSED [ 80%]
+tests/integration/http/test_notifications.py::test_notification_pipeline_end_to_end PASSED [100%]
+
+-------------- generated xml file: /app/data/http-regression.xml ---------------
+======================== 5 passed in 184.96s (0:03:04) =========================

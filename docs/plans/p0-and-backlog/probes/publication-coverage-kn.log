@@ -1,0 +1,14 @@
+Metadata dedup complete:
+  series groups merged: 1
+  series rows removed:  1
+  movie  groups merged: 1
+  movie  rows removed:  1
+  file_resources re-pointed: 0
+  agent_works    re-pointed: 1
+  channel_mappings re-pointed: 0
+  pending_decisions re-pointed: 0
+  episodes re-pointed: 0
+  [series] kept=1814af51-a9ff-480e-87ec-b1ba49391262 title='去重重复剧-5efe405fd8' removed=1
+  [movie] kept=921186b8-4466-4f40-adc1-47b7d3e9b327 title='去重重复剧-5efe405fd8' removed=1
+  [cross-type] movie 921186b8-4466-4f40-adc1-47b7d3e9b327 merged into series 1814af51-a9ff-480e-87ec-b1ba49391262 ('去重重复剧-5efe405fd8'; episode evidence)
+Couldn't combine from non-existent path '/app/data/.coverage.integration-llm'

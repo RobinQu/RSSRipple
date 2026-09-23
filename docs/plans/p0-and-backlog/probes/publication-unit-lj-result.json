@@ -1,0 +1,19 @@
+{
+  "exit_code": 0,
+  "passed": 3807,
+  "skipped": 15,
+  "warnings": 6,
+  "seconds": 1933.24,
+  "coverage": {
+    "covered_lines": 22258,
+    "num_statements": 22837,
+    "percent_covered": 97.46464071462977,
+    "percent_covered_display": "97",
+    "missing_lines": 579,
+    "excluded_lines": 780,
+    "percent_statements_covered": 97.46464071462977,
+    "percent_statements_covered_display": "97"
+  },
+  "source_hashes_verified": 2947,
+  "coverage_threshold": 95
+}

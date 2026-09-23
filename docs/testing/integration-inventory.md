@@ -302,3 +302,16 @@ PostgreSQL 真实 schema/动作矩阵、脏数据回滚、双进程启动锁等�
 - `season_model/test_orphan_identity_cli.py`：真实磁盘 Turso 与 CLI 子进程的导出、禁止覆盖、明确应用、重复执行。
 - `season_model/test_orphan_identity_captured.py`：录制图 249 条有效身份无误报且全字段保持不变。
 - PostgreSQL 插入/更新、身份登记、决策创建/确认、合并竞争及离线清理锁专项见 `docs/plans/p0-and-backlog/probes/work-deletion-*-pg-result.json`；合成边界与录制来源分别记录。
+
+
+### V13 隔离原型：发布事件 feed 集成（未合入）
+
+`tests/integration/organize/test_publication_feed.py` 三参数场景在新 Turso 子进程库运行，驱动实际 fetch_channel_resources / _process_resource_metadata / Agent handler。confirmed corpus case f79ef2eb-02d5-42d3-80dc-70dd3c1d733b 提供真实标题、torrent 和独立 S1E10 审核，验证 torrent/listing SHA 与解析结果；raw_rss_available=false，RSS 外壳明确合成，网络识别由审核适配替代，torrent 缓存/检查边界和队列唤醒被替换。断言正常 created+metadata/派发去重、created 事件失败时资源同事务回滚、metadata 事件失败时关联回滚并在重试后恢复消费。媒体没有下载。JUnit 附来源属性，3 passed；不代替 PostgreSQL/Redis 完整分布式验收。
+
+V13 jh 扩为四参数场景：模拟 fetch 最终 enqueue 抛错，随后 dispatch_pending_publications → 实际运行的 MemoryQueue → handler 恢复，完成后再次 tick 不重复建作业。4 passed；不是 Redis 分布式证据。
+
+V13 ji/jk 独立 PG/Redis 探针：较早创建晚提交资源由下轮 handler 派发；擦除专用 Redis 队列状态后两个新进程恢复同一 job_id，数据库任务唯一。原始 red/green 与结果位于 p0-and-backlog/probes，完整容器门禁仍待跑。
+
+V13 发布补偿定时集成：`organize/test_publication_scheduler.py` 使用真实生产五秒 IntervalTrigger、MemoryQueue、handler 和临时 Turso；暂停经历一次 tick 后仍待消费，恢复后自动产生一条成功 AgentRun 并确认游标。仅移除无关定时任务，不手动调用发布回调或缩短周期。数据为合成资源；此用例不证明外部下载副作用。
+
+V13 FTS 并发回归：`organize/test_fts_concurrency.py` 在独立子进程和临时 Turso sidecar 上运行生产 FTS 初始化、写入和检索；8 个并发调用者共 400 写、400 读，要求进程正常退出、无操作异常、最终索引恰好包含 10 个唯一预期 ID。数据明确为合成压力夹具；进程隔离保留原生崩溃输出。此测试不替代完整 HTTP/调度负载门禁，也不证明此前 page_cache 崩溃与已复现 btree 崩溃同源。

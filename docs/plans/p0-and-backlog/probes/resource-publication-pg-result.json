@@ -1,0 +1,51 @@
+{
+  "cases": [
+    {
+      "existing_counter": false,
+      "first_commits": false,
+      "second_lock_observed": true,
+      "independent_channel_committed": true,
+      "visible_sequences": [
+        1
+      ]
+    },
+    {
+      "existing_counter": false,
+      "first_commits": true,
+      "second_lock_observed": true,
+      "independent_channel_committed": true,
+      "visible_sequences": [
+        1,
+        2
+      ]
+    },
+    {
+      "existing_counter": true,
+      "first_commits": false,
+      "second_lock_observed": true,
+      "independent_channel_committed": true,
+      "visible_sequences": [
+        1
+      ]
+    },
+    {
+      "existing_counter": true,
+      "first_commits": true,
+      "second_lock_observed": true,
+      "independent_channel_committed": true,
+      "visible_sequences": [
+        1,
+        2
+      ]
+    }
+  ],
+  "data": "synthetic",
+  "scope": "publication foundation only",
+  "exit_code": 0,
+  "project": "rssripple-v13-publication-id",
+  "cleanup_exit_code": 0,
+  "prototype_base": "5193fb2",
+  "executed_probe_sha256": "6760cbf9316684f2dd5291a5f57b67e19d0d0021cf60c5b58b88075ee3f90b76",
+  "replay_probe": "resource_publication_pg_probe.py",
+  "replay_note": "仅导入排序和格式化；需在应用基础原型补丁的副本中执行，生产 main 未注册这些模型。"
+}

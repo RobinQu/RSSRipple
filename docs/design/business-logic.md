@@ -215,7 +215,7 @@ fetch_and_link_metadata(resource, channel, db)
 - **Agent-free 链接路径**（Layer 2/3 与 Layer 4 链接成功后的统一链接后步骤 `reconcile_linked_series_resource`，以及 known-work 短路与 `manual_link_metadata`）：历史惯例推断与绝对集号定位之后若 `resource.season` 仍为 None，统一走共享 helper `resolve_missing_work(resource, entity, work=链接作品)`（metadata_episode_reconcile；`resolve_missing_season` 保留为兼容别名）。**链接作品自身身份是最强季证据**（`work_verified_season`：季作品即季——`season_number≠1` 直接可信；`season_number=1` 需单季证据才可信：legacy 惰性列的单季证据或 Bangumi `single_season_entry` 条目证据，`season_evidence_from_series` 对已关联 Bangumi 身份的作品恢复该证据）。裸标题尾缀（如中英标题同时以 `2` 或 `II` 结尾）不在抓取 pre-parser 阶段单独采信；作品链接后，仅当两个不同语言标题的尾缀一致、且作品元数据证明该季存在时，才将其作为经验证的季号。可验证 → 落对应季号；多季或季数未知 → `episode_confidence = "ambiguous"`（进入所属 Channel 的文件资源待确认）；系列级身份只解析到合集而季不可定时，资源由 `park_resource_on_collection` 挂合集待确认（清作品 FK、保留 `collection_id`）。合集资源同样适用上述标题验证与单季默认：`batch_scope` 为 NULL/`season` 且可验证季号时落 `season`，但**绝不标 ambiguous**（多季/无证据保持 season=None，走合集 coverage 待确认门禁）；`multi_season`/`franchise`/`movies` 与 `manual` 行不触碰；电影链接不受影响。torrent 内容检测的 season 分支（`maybe_inspect_torrent`）对已链接且可验证单季的作品同样补季号。存量剧集链接资源用 `scripts/reconcile_season_backfill.py`（dry-run 默认，`--apply` 执行）回填，候选含 scope 为 NULL/season 且缺季号的合集行，不创建 Agent PendingDecision。
 - **MetadataAgent 路径**（`_validate_inferred_season` + `_apply_verified_season_default`）：finalize 结果 `content_type=tv` 时先用 `matched_entity` 的 `number_of_seasons`/`seasons` 证据**确定性校验 LLM 给出的 `inferred_season`**——不在 `seasons` 列表内、超出 `number_of_seasons` 范围、或完全无季证据 → 丢弃该季号并置 `season_ambiguous=True`（season 0 特典是结构标记，不校验）；随后 `inferred_season` 为空时做同一判定——恰为 1 季 → `season=1` 并清除 ambiguous；否则置 `season_ambiguous=True` 载体（`ResourceMetadata` 字段，随 MetadataCache 往返）。`_apply_to_resource` 在 upsert 落库**之后**经 `reconcile_linked_series_resource` 完成绝对集号定位（沿合集成员）、单季算术与验证季默认；均得不到季号时落 `episode_confidence="ambiguous"`（合集与 manual 除外）或挂合集待确认。
 - **一致性交叉检查**（`apply_episode_reconcile`）：资源同时带 season 与 `absolute_episode` 且 confidence 非 `manual` 时，用 `locate_absolute_episode` 复核；绝对集号算术定位到的 (season, episode) 与现值不一致 → `episode_confidence="ambiguous"`（标题季标记与绝对算术冲突，绝不静默信一方）；locate 返回 None 视为无证据，不改动。
-- **历史优先 reconciliation**：已链接作品的单集 TV 资源先用同频道/同作品 `manual|reconciled` 记录推导发布组的 absolute 编号偏移，然后才走作品自身集数算术（季作品的 `number_of_episodes`；legacy 行回退惰性 seasons 列）。证据分两层：**近邻层**——只用目标 absolute 之前 ±2 窗口内的记录（同组相邻 manual 一条即可；跨组需双样本共识），防止同集平行资源互相强化错误解析；**远推层**——近邻无记录时放开距离窗口（双向、排除同 absolute 平行行），但规则只由人工修订锚定：全部 manual 行必须收敛到唯一 `(season, offset)` 约定、且与非 manual 历史不冲突，再经季集数 +2 容差校验才外推（一次人工修正即推广为该剧该发布规律的持久规则，跨周/跨季断档同样生效），冲突继续待确认。对于只有季号缺失的同集发布变体（如同组 E07 简体/繁体/简繁版），同频道+同作品+同发布组的同 episode 人工修订一条即可继承 season；无 manual 时至少两条结构化历史必须同季一致，有冲突绝不默认。**人工修订的即时推广**：`PATCH /resources/{id}/episode` 与 `PATCH /resources/{id}`（发送集号字段）提交前先跑 `heal_sibling_episodes`——同作品+同频道仍处 `ambiguous/raw` 的兄弟资源立即套用新约定批量修复（manual 行与批次不动），随本次定向运行一并派发，不再逐条等人修。全局 5 分钟 metadata backfill 同时扫描可修复的 `ambiguous/raw/reconciled/NULL` 行，修复后对 active Agent 定向运行（不推进水位线），以清理待确认决策并正常派发。
+- **历史优先 reconciliation**：已链接作品的单集 TV 资源先用同频道/同作品 `manual|reconciled` 记录推导发布组的 absolute 编号偏移，然后才走作品自身集数算术（季作品的 `number_of_episodes`；legacy 行回退惰性 seasons 列）。证据分两层：**近邻层**——只用目标 absolute 之前 ±2 窗口内的记录（同组相邻 manual 一条即可；跨组需双样本共识），防止同集平行资源互相强化错误解析；**远推层**——近邻无记录时放开距离窗口（双向、排除同 absolute 平行行），但规则只由人工修订锚定：全部 manual 行必须收敛到唯一 `(season, offset)` 约定、且与非 manual 历史不冲突，再经季集数 +2 容差校验才外推（一次人工修正即推广为该剧该发布规律的持久规则，跨周/跨季断档同样生效），冲突继续待确认。对于只有季号缺失的同集发布变体（如同组 E07 简体/繁体/简繁版），同频道+同作品+同发布组的同 episode 人工修订一条即可继承 season；无 manual 时至少两条结构化历史必须同季一致，有冲突绝不默认。**人工修订的即时推广**：`PATCH /resources/{id}/episode` 与 `PATCH /resources/{id}`（发送集号字段）提交前先跑 `heal_sibling_episodes`——同作品+同频道仍处 `ambiguous/raw` 的兄弟资源立即套用新约定批量修复（manual 行与批次不动），随本次定向运行一并派发，不再逐条等人修。全局 5 分钟 metadata backfill 同时扫描可修复的 `ambiguous/raw/reconciled/NULL` 行，修订与 metadata 发布事件同事务提交，之后唤醒 active Agent 普通增量运行，保留历史排除范围。
 - **LLM 指引**：系统/judge prompt 与 finalize 工具说明均要求——标题无季标记时必须依据工具结果的 `number_of_seasons`/`seasons` 验证（单季 → `inferred_season=1`；多季 → `ambiguous=true` + `ambiguous_candidates`），且输入带 `title_year` 提示时优先年份一致的候选（年份冲突 >±1 是反对证据）。
 
 `extract_search_title(resource)`（同步、无 LLM；Layer 2/3 的匹配 key 来源）优先级：
@@ -369,16 +369,16 @@ Wikipedia 数据源没有 TMDB media_type 这类权威字段，tv/movie 由页�
 
 **事务边界**（避免长时间持有 SQLite 写锁阻塞前台写请求）：handler 分两个阶段——阶段 1 短事务内插入 AgentRun、选定本次资源并立即提交；阶段 2 处理阶段（含 LLM 调用与 Transmission RPC）以 `process_resources(..., autocommit=True)` 运行，每完成一次派发/决策即增量提交，写锁绝不跨越外部调用持有。各单元操作幂等（任务去重 / 决策 upsert），块级锁重试或中途崩溃后重跑会跳过已提交部分。四种运行模式：
 
-| 模式 | 触发条件 | 处理范围 | 水位线 |
-|------|----------|----------|--------|
-| **增量运行**（scenario ①） | `resource_ids` 缺省（fetch 触发 / 手动 run） | `FileResource.created_at > agent.last_consumed_at` 的资源，按 `created_at` 升序 | 运行后推进到所处理资源的最大 `created_at`；水位线为 null 时置为 now 且不处理任何资源（避免静默回填） |
-| **定向运行**（scenario ③） | `resource_ids` 非空（如 `correct_episode`） | 只处理指定的资源，按当前规则评估 | **绕过**水位线、**不推进**水位线（资源可能较旧，推进会跳过其邻居） |
-| **回填提交**（scenario ②） | rules-preview 后保存 Agent，`dispatch_resource_ids` 非 null | 派发用户选中的资源，并把水位线推进到频道当前最大 `created_at` | 推进到频道 max（或 now） |
-| **指定起始时间运行**（scenario ④） | 手动 run 且 payload 含 `scan_since` 键（过去的时间点；null = 不限制，即全量历史） | `FileResource.created_at > scan_since` 的资源（按**入库时间**过滤；null 时不加时间条件取全部） | 只影响本次扫描范围；运行后照常推进到所处理资源的最大 `created_at`，下次增量运行恢复正常 |
+| 模式 | 触发条件 | 处理范围 | 消费进度 |
+|------|----------|----------|----------|
+| **增量运行** | 无 `resource_ids` / `scan_since` | 本次提交前缀内、cursor 之后且满足历史准入的发布事件；按事件顺序去重资源 | 无内部错误才按 channel/generation 确认快照；首次 NULL 时间且无进度时仅初始化当前前缀，不回填 |
+| **定向运行** | 显式 `resource_ids` 或 B9 持久修订请求 | 指定资源，按当前规则评估 | 绕过历史准入，不确认普通发布游标 |
+| **回填提交** | rules-preview 保存，`dispatch_resource_ids` 为数组（含空数组） | 派发所选资源 | 保存成功后同事务重置 baseline/cursor 为当前发布前缀，更换 generation、清空历史时间准入 |
+| **指定起始时间运行** | payload 含 `scan_since`，null 表示全历史 | 按 `created_at > scan_since` 选择，null 不限 | 处理前持久化历史准入及重试游标；成功只确认开始快照，失败可由普通增量恢复 |
 
 scenario ④ 的 AgentRun 记录 `scan_since` 字段：null 表示增量/定向运行，`1970-01-01` 表示显式"不限制"全量扫描，其余为实际起始时间。用途：补派"符合订阅条件但从未成功下载"的较早资源（episode 去重保证已有活动/完成任务的集数不会被重复派发，error/expired 的旧任务会被重新派发）；`scan_since` 为未来时间时 API 返回 422。
 
-> 旧实现的 `limit(200)`（按 `published_at` 取最近 200 条）已废弃——它会在高频频道上静默丢弃更早的资源。增量水位线保证每条资源都被且只被处理一次。
+> 旧实现的 `limit(200)`（按 `published_at` 取最近 200 条）已废弃——它会在高频频道上静默丢弃更早的资源。发布进度提供可重试消费；资源可能多次入选，已提交任务和决策沿用业务去重，不承诺外部副作用恰好一次。
 
 ### Agent 过滤流程（agent_service）
 
@@ -693,7 +693,7 @@ Mock downloader 面向本地开发和自动化测试；生产环境应使用 `tr
 - 频道详情页「手动抓取」先弹窗确认，默认不勾选「重新抓取所有条目的 metadata」并发送 `force=false`；勾选后发送 `force=true`。`force=true` 无扫描条数上限地重跑该频道全部既有资源，跳过 MetadataCache 与本地已知作品短路，重新查询 metadata 源以补齐作品缺失字段（包括由 `start_date`/`release_date` 派生的必选年份），并对所有作品形态重新执行 torrent 文件关联富化；有本地 torrent 缓存时即使原 URL 是 magnet 也可复用。普通抓取与全局 backfill 也会按较长冷却周期选取“已关联但仍缺 Channel 必填字段”的资源，继续执行作品富化、发布字段写回和 torrent 文件关联；未匹配资源仍按原有失败冷却与限额回填，避免周期任务反复全表扫描。
 - 内容 LLM 对普通单集文件输出互斥的 `season + episode`；仅当一个物理视频文件实际包含连续多集（例如文件名明确为 E01-E02）时才输出 `season + episode_start + episode_end`，torrent 是整季合集本身不构成单文件范围的理由。服务层校验真实路径后将单集规范化为 assignment 的闭区间 `episode_start == episode_end` 落库，保持现有数据模型兼容。
 - 向导文件 LLM 分析使用 `MetadataCache(source=batch_file_analysis:v4)` 持久缓存，key 为资源 ID、搜索标题、文件路径/大小清单及逻辑版本的 SHA-256 指纹，任一输入变化自然失效；主动重新解析用 `force=true` 覆盖缓存。缓存未命中时 web 以 `batch-analysis:<fingerprint>` 为 key 入队 `analyze_batch_files`，由 worker 完成确定性解析、LLM 调用和缓存写入；队列 result 字段承载中间状态与最多 50k 字符的累计输出，SSE 只轮询并增量转发。Redis `SET NX` active-key 在多 web/多 worker 间原子去重，关闭任一窗口不取消任务；MemoryQueue 保持 APP_ROLE=all 单进程兼容。
-- 编辑向导「重新解析元数据」按钮走 `POST /resources/{id}/reparse-metadata`：先写 `confirmation_ignored_at`（临时忽略，资源立即退出 Dashboard 待确认）并 commit，再以 `reprocess-resource:{id}` 为 key 入队 `reprocess_resource_metadata`（key 活跃期去重，已有任务 → 409）。handler 以 `force_refresh=True` 调用 `_process_resource_metadata` 重跑抓取期完整元数据管线（torrent 缓存/检测、metadata 匹配链接、reconcile、簇级绑定等），并在 finally 中清除 `confirmation_ignored_at`（**成败都清**）让待确认策略重新评估——数据仍不全重新进入待办、完整匹配留在外面；不重置 `metadata_attempts`/`metadata_failure_type`（backfill retry-eligibility 门控在调度侧），普通优先级（不进 `_PRIORITY_JOB_TYPES`），刷新后不自动派发（Agent 水位线语义不变）。
+- 编辑向导「重新解析元数据」按钮走 `POST /resources/{id}/reparse-metadata`：先写 `confirmation_ignored_at`（临时忽略，资源立即退出 Dashboard 待确认）并 commit，再以 `reprocess-resource:{id}` 为 key 入队 `reprocess_resource_metadata`（key 活跃期去重，已有任务 → 409）。handler 以 `force_refresh=True` 调用 `_process_resource_metadata` 重跑抓取期完整元数据管线（torrent 缓存/检测、metadata 匹配链接、reconcile、簇级绑定等），并在 finally 中清除 `confirmation_ignored_at`（**成败都清**）让待确认策略重新评估——数据仍不全重新进入待办、完整匹配留在外面；不重置 `metadata_attempts`/`metadata_failure_type`（backfill retry-eligibility 门控在调度侧），普通优先级（不进 `_PRIORITY_JOB_TYPES`），刷新不创建绕过历史准入的定向请求；完成事件由普通增量按现有准入范围消费。
 - 向导 LLM 输入包含服务端生成的候选作品清单：`candidate_key=series|movie:<UUID>`、work_type/work_id 与 title_cn/title_en/original_title/canonical_name 全部非空别名；输出必须复用 exact candidate_key。后端只接受输入集合内的 key，并由 key 对应候选还原作品类型/ID，拒绝模型生成或篡改的 UUID；前端优先按 candidate_key 绑定，标题归一化仅作旧结果兼容回退。最终 `season_ranges` 合并经路径与候选 ID 双重校验的 LLM 单集结果。
 - 特别篇文件统一映射到媒体库规范的 Season 0：文件名明确的 `SPxx` / `Special xx` / `OVA xx` / `OAD xx` 直接解析为 `S00Exx`；发布顺序式小数标签（`11.5`、`22.5`）不存入整数 episode 字段，而在作品关联后与 Episode 表的 Season 0 行按顺序一一校准。若作品源尚无 Season 0 数据但清单中存在明确 `.5` 插播标签，则按标签顺序映射为 `S00E01..N`；已有 Season 0 数据但数量不一致时保持未解析，禁止错配。单作品自动绑定和向导 SSE 确定性结果复用同一规则。
 
@@ -752,3 +752,24 @@ PostgreSQL 创建决策在模型调用之后、Agent 行锁之前获取事务级
 删除 API 在身份清理前取得作品 FOR UPDATE NOWAIT，55P03 整体回滚并返回 409 INVALID_STATE。现有资源和引用行同样以 NOWAIT 锁定后再检查人工计数；新 FK 引用由作品排他锁串行化。身份登记、新增引用与决策交错已有专项证据，完整单元/API 与隔离集成门禁已通过。
 
 删除前先取得决策身份变更协调锁并锁定受影响 Agent，再锁作品及当前引用；解除资源/自动文件关联后，复用 rekey_agent_choices 审核当前候选。失去有效身份的 pending 失效并进入 DecisionMigration 审计，原候选和 scope 保留；审计在旧 PendingDecision 工作 FK 置空前形成。历史终态不改状态，不派发资源。PG 创建先行、删除先行、模型窗口删除及持锁派发已有专项验证；完整门禁及最终复核已通过；具体证据见 V12-WORK-DELETION.md。
+
+
+### 发布进度与自动唤醒
+
+频道发布序号由 `ChannelPublicationCounter` 行内 UPDATE 分配，与资源和事件在同一事务提交。PostgreSQL 行锁保持到事务结束，序号代表已提交前缀；不能用非事务自增序列代替。计数器锁不跨外部调用。新抓取资源写 created，metadata 主结果和历史集数修订写 metadata；跨频道修订按频道/资源 ID 排序发布。每资源保留一条 created 和至多一条最新 metadata，替换与资源变更原子提交/回滚，origin 始终是原创建序号。
+
+Agent 的 baseline 控制历史准入，cursor 控制已确认发布前缀，两者独立且非负。事件需满足 `cursor < sequence <= through`，并且 `origin_sequence > baseline` 或资源在显式历史时间下界之后。快照包含 agent/channel/generation/through 和去重资源 IDs；成功确认采用 generation 条件更新，失败不吞掉未处理事件。`last_consumed_at` 保留兼容时间展示，不是消费游标；成功确认后取旧值与本轮资源时间最大值。
+
+首次 NULL 时间且缺进度时以当前发布前缀初始化，避免静默历史派发。有旧时间却缺进度必须先停写迁移。普通频道切换保持时间字段，以新频道当前前缀为 baseline、cursor=0，并以旧时间作为历史准入下界；NULL 时间的切换留待首次初始化。普通规则/派发参数实质变更和订阅 CRUD 只更换现有 generation，不移动准入或游标；仅改名或无变化保存不失效。
+
+指定时间扫描在处理前事务扩展历史准入、回退 cursor 至最早所选创建事件之前并更换 generation；崩溃或候选持久化失败后普通增量能重读。成功确认仅覆盖扫描开始的发布前缀。显式回填重置优先，旧 generation 的扫描或确认不得再次打开历史范围。已持久化的 RPC 错误任务仍走下载任务重试。
+
+publication/window 运行在候选组开始及最终下载 RPC 前，用独立新会话检查当前频道和 generation，避免读取旧事务快照。已提交的范围变更阻止尚未开始的旧派发；不持数据库写锁跨网络调用，也不能撤销已开始的 RPC。显式定向请求沿用其独立语义，不以此宣称所有并发副作用都可撤销。
+
+worker/all 调度器每 5 秒扫描 active Agent 的发布前缀与 cursor 差，缺进度且 NULL 时间的 Agent 也获得初始化唤醒。事务外 enqueue 普通 run_agent，复用稳定 agent key 去重；队列失败或忙碌不确认数据库进度，下轮补发。自动唤醒携带 `automatic=true`，handler 在创建运行前跳过非 active Agent，恢复后继续消费。B9 持久修订请求仍独立补偿，不把自动完成事件转成绕过历史准入的定向请求。
+
+Turso MVCC 同频道计数器写冲突通过既有 `retry_on_lock` 在尚未提交的完整 metadata 操作边界有限退避重试，每次重新创建会话。metadata 和发布已经提交后，后续海报失败不重跑主事务，避免重复计次。重试耗尽记录失败，后续回填保留恢复机会。
+
+部署迁移和启动门禁见 db-migration.md；验证记录与尚未完成的发布验收见 `docs/plans/p0-and-backlog/V13-CONSUMPTION-PROGRESS.md`。
+
+FTS sidecar 并发：派生索引独立引擎使用 pool_size=1、max_overflow=0，短读写事务通过连接池串行，避免实验性 Turso FTS 多连接并发的原生崩溃。主业务数据库池与并发不变；sidecar checkout 内不得加入网络调用。并发调用者继续等待连接，不跳过检索或写入；全量索引重建仍须遵循已有业务契约。
