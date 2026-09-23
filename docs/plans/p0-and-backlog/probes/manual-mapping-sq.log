@@ -1,0 +1,26 @@
+{
+  "case_id": "00e48de8-b5fd-4e99-8467-d384bd4a3183",
+  "recorded_title": "Mission: Impossible - Ghost Protocol 2011 2160p AI 60FPS H265 10bit SDR_Marjenbo",
+  "mapping_path": "e443a3e1-e8b6-4521-b327-70d27bd9032e",
+  "agent_path": "3cdd9346-755a-4cc4-bb8b-fc67051a46fb",
+  "manual_work": "e443a3e1-e8b6-4521-b327-70d27bd9032e",
+  "cached_work": "3cdd9346-755a-4cc4-bb8b-fc67051a46fb",
+  "data": "Recorded title; synthetic conflicting works, mapping and successful cache; real Turso persistence"
+}
+Traceback (most recent call last):
+  File "/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/manual_mapping_cache_probe.py", line 68, in <module>
+    asyncio.run(main())
+    ~~~~~~~~~~~^^^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 719, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/manual_mapping_cache_probe.py", line 62, in main
+    assert observed[1] == expected, "default agent cache bypassed manual mapping"
+           ^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: default agent cache bypassed manual mapping

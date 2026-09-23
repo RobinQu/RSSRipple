@@ -1,0 +1,145 @@
+FFF                                                                      [100%]
+=================================== FAILURES ===================================
+_________ test_single_work_mapping_preserves_franchise_shape[mapping] __________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f12877afe00>
+sample_channel = <app.models.channel.Channel object at 0x7f128774d010>
+entry = 'mapping'
+
+    @pytest.mark.parametrize("entry", ["mapping", "agent", "legacy"])
+    async def test_single_work_mapping_preserves_franchise_shape(db_session, sample_channel, entry):
+        collection = WorkCollection(title_cn="Synthetic franchise collection")
+        movie = Movie(title_en="Synthetic manual movie")
+        db_session.add_all([collection, movie])
+        await db_session.flush()
+        resource = FileResource(
+            channel_id=sample_channel.id, guid=str(uuid.uuid4()),
+            title_raw="Synthetic franchise TV plus Film pack", torrent_url="",
+            is_batch=True, batch_scope="franchise", collection_id=collection.id,
+        )
+        db_session.add(resource)
+        await db_session.flush()
+        resource_id, collection_id = resource.id, collection.id
+        db_session.add(ChannelRawTitleMapping(
+            channel_id=sample_channel.id, raw_title=resource.title_raw,
+            search_title_key=normalize_title(extract_search_title(resource)),
+            movie_id=movie.id, content_type="movie",
+        ))
+        await db_session.commit()
+        if entry == "agent":
+            await UnifiedMetadataAgent().process(resource, sample_channel, db_session)
+        elif entry == "legacy":
+            await fetch_and_link_metadata(db_session, resource, sample_channel)
+        else:
+            await apply_manual_title_mapping(db_session, resource, sample_channel)
+        await db_session.commit()
+        from app.database import async_session_factory
+    
+        async with async_session_factory() as observer:
+            saved = await observer.get(FileResource, resource_id)
+            assert saved.collection_id == collection_id
+            assert saved.batch_scope == "franchise" and saved.is_batch
+>           assert saved.movie_id is None and saved.series_id is None
+E           AssertionError: assert ('99dbcfd9-5bd0-4f1d-be5c-77f1e8986640' is None)
+E            +  where '99dbcfd9-5bd0-4f1d-be5c-77f1e8986640' = <app.models.file_resource.FileResource object at 0x7f1286d76ad0>.movie_id
+
+tests/unit/test_manual_mapping_batches.py:53: AssertionError
+__________ test_single_work_mapping_preserves_franchise_shape[agent] ___________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f1286d76d50>
+sample_channel = <app.models.channel.Channel object at 0x7f1286d76c10>
+entry = 'agent'
+
+    @pytest.mark.parametrize("entry", ["mapping", "agent", "legacy"])
+    async def test_single_work_mapping_preserves_franchise_shape(db_session, sample_channel, entry):
+        collection = WorkCollection(title_cn="Synthetic franchise collection")
+        movie = Movie(title_en="Synthetic manual movie")
+        db_session.add_all([collection, movie])
+        await db_session.flush()
+        resource = FileResource(
+            channel_id=sample_channel.id, guid=str(uuid.uuid4()),
+            title_raw="Synthetic franchise TV plus Film pack", torrent_url="",
+            is_batch=True, batch_scope="franchise", collection_id=collection.id,
+        )
+        db_session.add(resource)
+        await db_session.flush()
+        resource_id, collection_id = resource.id, collection.id
+        db_session.add(ChannelRawTitleMapping(
+            channel_id=sample_channel.id, raw_title=resource.title_raw,
+            search_title_key=normalize_title(extract_search_title(resource)),
+            movie_id=movie.id, content_type="movie",
+        ))
+        await db_session.commit()
+        if entry == "agent":
+            await UnifiedMetadataAgent().process(resource, sample_channel, db_session)
+        elif entry == "legacy":
+            await fetch_and_link_metadata(db_session, resource, sample_channel)
+        else:
+            await apply_manual_title_mapping(db_session, resource, sample_channel)
+        await db_session.commit()
+        from app.database import async_session_factory
+    
+        async with async_session_factory() as observer:
+            saved = await observer.get(FileResource, resource_id)
+            assert saved.collection_id == collection_id
+            assert saved.batch_scope == "franchise" and saved.is_batch
+>           assert saved.movie_id is None and saved.series_id is None
+E           AssertionError: assert ('be4a4b10-0f3a-4cf3-9759-c5247e03375d' is None)
+E            +  where 'be4a4b10-0f3a-4cf3-9759-c5247e03375d' = <app.models.file_resource.FileResource object at 0x7f12761cad50>.movie_id
+
+tests/unit/test_manual_mapping_batches.py:53: AssertionError
+__________ test_single_work_mapping_preserves_franchise_shape[legacy] __________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f1284a3f490>
+sample_channel = <app.models.channel.Channel object at 0x7f12761cac10>
+entry = 'legacy'
+
+    @pytest.mark.parametrize("entry", ["mapping", "agent", "legacy"])
+    async def test_single_work_mapping_preserves_franchise_shape(db_session, sample_channel, entry):
+        collection = WorkCollection(title_cn="Synthetic franchise collection")
+        movie = Movie(title_en="Synthetic manual movie")
+        db_session.add_all([collection, movie])
+        await db_session.flush()
+        resource = FileResource(
+            channel_id=sample_channel.id, guid=str(uuid.uuid4()),
+            title_raw="Synthetic franchise TV plus Film pack", torrent_url="",
+            is_batch=True, batch_scope="franchise", collection_id=collection.id,
+        )
+        db_session.add(resource)
+        await db_session.flush()
+        resource_id, collection_id = resource.id, collection.id
+        db_session.add(ChannelRawTitleMapping(
+            channel_id=sample_channel.id, raw_title=resource.title_raw,
+            search_title_key=normalize_title(extract_search_title(resource)),
+            movie_id=movie.id, content_type="movie",
+        ))
+        await db_session.commit()
+        if entry == "agent":
+            await UnifiedMetadataAgent().process(resource, sample_channel, db_session)
+        elif entry == "legacy":
+            await fetch_and_link_metadata(db_session, resource, sample_channel)
+        else:
+            await apply_manual_title_mapping(db_session, resource, sample_channel)
+        await db_session.commit()
+        from app.database import async_session_factory
+    
+        async with async_session_factory() as observer:
+            saved = await observer.get(FileResource, resource_id)
+            assert saved.collection_id == collection_id
+            assert saved.batch_scope == "franchise" and saved.is_batch
+>           assert saved.movie_id is None and saved.series_id is None
+E           AssertionError: assert ('abd3b30d-e53e-4415-b046-9e540203ecf6' is None)
+E            +  where 'abd3b30d-e53e-4415-b046-9e540203ecf6' = <app.models.file_resource.FileResource object at 0x7f1274d80050>.movie_id
+
+tests/unit/test_manual_mapping_batches.py:53: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_manual_mapping_batches.py::test_single_work_mapping_preserves_franchise_shape[mapping]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_manual_mapping_batches.py::test_single_work_mapping_preserves_franchise_shape[mapping]
+FAILED tests/unit/test_manual_mapping_batches.py::test_single_work_mapping_preserves_franchise_shape[agent]
+FAILED tests/unit/test_manual_mapping_batches.py::test_single_work_mapping_preserves_franchise_shape[legacy]
+3 failed, 1 warning in 5.80s

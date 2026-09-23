@@ -1,0 +1,67 @@
+E                                                                        [100%]
+==================================== ERRORS ====================================
+_ ERROR at setup of test_single_work_mapping_preserves_franchise_shape[metadata_api] _
+file /tmp/rssripple-v15-manual-mapping/tests/unit/test_manual_mapping_batches.py, line 22
+  @pytest.mark.parametrize("entry", ["mapping", "agent", "legacy", "pipeline_agent", "pipeline_legacy", "metadata_api"])
+  async def test_single_work_mapping_preserves_franchise_shape(db_session, sample_channel, entry, monkeypatch, client):
+      collection = WorkCollection(title_cn="Synthetic franchise collection")
+      movie = Movie(title_en="Synthetic manual movie")
+      db_session.add_all([collection, movie])
+      await db_session.flush()
+      resource = FileResource(
+          channel_id=sample_channel.id, guid=str(uuid.uuid4()),
+          title_raw="Synthetic franchise TV plus Film pack", torrent_url="",
+          is_batch=True, batch_scope="franchise", collection_id=collection.id,
+      )
+      db_session.add(resource)
+      await db_session.flush()
+      resource_id, collection_id = resource.id, collection.id
+      db_session.add(ChannelRawTitleMapping(
+          channel_id=sample_channel.id, raw_title=resource.title_raw,
+          search_title_key=normalize_title(extract_search_title(resource)),
+          movie_id=movie.id, content_type="movie",
+      ))
+      sample_channel.metadata_agent_enabled = entry == "pipeline_agent"
+      await db_session.commit()
+      if entry == "metadata_api":
+          response = await client.get(f"/api/v1/resources/{resource_id}/metadata")
+          assert response.status_code == 200
+      elif entry.startswith("pipeline_"):
+          from app.services.fetch_service import _process_resource_metadata_once
+
+          # Shape is pre-established; this test isolates matching and its real
+          # final commit, not torrent inspection or external graph enrichment.
+          monkeypatch.setattr("app.services.torrent_inspect.ensure_torrent_cached", AsyncMock())
+          monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", AsyncMock())
+          monkeypatch.setattr("app.services.bangumi_relations.expand_bangumi_series_graph", AsyncMock())
+          monkeypatch.setattr("app.services.cluster_work_binding.bind_hint_clusters", AsyncMock())
+          await _process_resource_metadata_once(resource_id, sample_channel.id, asyncio.Semaphore(1))
+      elif entry == "agent":
+          await UnifiedMetadataAgent().process(resource, sample_channel, db_session)
+      elif entry == "legacy":
+          await fetch_and_link_metadata(db_session, resource, sample_channel)
+      else:
+          await apply_manual_title_mapping(db_session, resource, sample_channel)
+      await db_session.commit()
+      from app.database import async_session_factory
+
+      async with async_session_factory() as observer:
+          saved = await observer.get(FileResource, resource_id)
+          assert saved.collection_id == collection_id
+          assert saved.batch_scope == "franchise" and saved.is_batch
+          assert saved.movie_id is None and saved.series_id is None
+          assert saved.episode is None
+E       fixture 'client' not found
+>       available fixtures: _asyncio_loop_factory, _class_scoped_runner, _function_scoped_runner, _isolate_organize_lock_directory, _isolate_runtime_config_overrides, _module_scoped_runner, _package_scoped_runner, _session_scoped_runner, anyio_backend, anyio_backend_name, anyio_backend_options, cache, capfd, capfdbinary, caplog, capsys, capsysbinary, capteesys, cov, db_engine, db_session, doctest_namespace, event_loop_policy, free_tcp_port, free_tcp_port_factory, free_udp_port, free_udp_port_factory, make_resource, mock_transmission, monkeypatch, no_cover, pytestconfig, record_property, record_testsuite_property, record_xml_attribute, recwarn, sample_channel, sample_downloader, sample_movie, sample_series, subtests, tmp_path, tmp_path_factory, tmpdir, tmpdir_factory, unused_tcp_port, unused_tcp_port_factory, unused_udp_port, unused_udp_port_factory
+>       use 'pytest --fixtures [testpath]' for help on them.
+
+/tmp/rssripple-v15-manual-mapping/tests/unit/test_manual_mapping_batches.py:22
+=============================== warnings summary ===============================
+tests/unit/test_manual_mapping_batches.py::test_single_work_mapping_preserves_franchise_shape[metadata_api]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+ERROR tests/unit/test_manual_mapping_batches.py::test_single_work_mapping_preserves_franchise_shape[metadata_api]
+5 deselected, 1 warning, 1 error in 1.85s

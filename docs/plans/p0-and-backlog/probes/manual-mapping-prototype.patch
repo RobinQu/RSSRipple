@@ -1,0 +1,875 @@
+--- a/app/services/metadata_service.py
++++ b/app/services/metadata_service.py
+@@ -1539,6 +1539,15 @@
+     return work
+ 
+ 
++class MetadataTargetMismatchError(ValueError):
++    """An automatic candidate would change an explicitly selected work."""
++
++
++def _require_series_target(expected_id: str | None, work: TVSeries | None) -> None:
++    if expected_id is not None and (work is None or work.id != expected_id):
++        raise MetadataTargetMismatchError("Metadata candidate conflicts with selected season work")
++
++
+ async def _resolve_collection_member(
+     db: AsyncSession,
+     data: dict,
+@@ -1549,6 +1558,7 @@
+     canonical_id: str | None,
+     granularity: str,
+     series_level_id: str | None,
++    expected_series_id: str | None = None,
+ ) -> TVSeries | None:
+     """Select (or lazily create) the collection member for the target season.
+ 
+@@ -1562,8 +1572,15 @@
+     # Refresh after waiting so a second matcher sees the first transaction's
+     # member instead of failing the collection/season unique constraint.
+     await db.refresh(collection, with_for_update=True)
++    members = await _collection_members(db, collection.id)
++    if expected_series_id is not None:
++        selected = next((m for m in members if m.season_number == season), None)
++        if season is None and len(members) == 1 and not _has_unresolved_title_qualifier(data):
++            selected = members[0]
++        _require_series_target(expected_series_id, selected)
++        if await _has_conflicting_identity(db, "series", selected, raw_source, data.get("external_id")):
++            raise MetadataTargetMismatchError("Metadata identity conflicts with selected season work")
+     _merge_collection_aliases(collection, data)
+-    members = await _collection_members(db, collection.id)
+     work: TVSeries | None = None
+     if season is None:
+         qualified = _has_unresolved_title_qualifier(data)
+@@ -1620,6 +1637,7 @@
+ async def create_or_update_series_from_external(
+     db: AsyncSession, data: dict, *, season_hint: int | None = None,
+     season_ambiguous: bool = False,
++    expected_series_id: str | None = None,
+ ) -> TVSeries | None:
+     """Upsert a per-season TVSeries work from a matched entity (作品单季化 P3).
+ 
+@@ -1683,6 +1701,7 @@
+     # single-member/title/fresh-work defaults further below. A real parsed or
+     # entity season above can still resolve ambiguity without guessing.
+     if season is None and season_ambiguous:
++        _require_series_target(expected_series_id, None)
+         collection = await find_collection_for_entity(db, data)
+         if collection is None:
+             collection = await _create_series_collection(
+@@ -1711,6 +1730,7 @@
+                 db, data, collection, season,
+                 raw_source=raw_source, canonical_id=canonical_id,
+                 granularity=granularity, series_level_id=series_level_id,
++                expected_series_id=expected_series_id,
+             )
+         if season is not None:
+             series = await find_work_by_external_id(
+@@ -1731,6 +1751,7 @@
+         series = result.scalars().first()
+ 
+     if series is not None:
++        _require_series_target(expected_series_id, series)
+         await _update_series_from_entity(
+             db, series, data,
+             raw_source=raw_source, canonical_id=canonical_id, granularity=granularity,
+@@ -1766,6 +1787,7 @@
+             db, data, collection, season,
+             raw_source=raw_source, canonical_id=canonical_id,
+             granularity=granularity, series_level_id=series_level_id,
++            expected_series_id=expected_series_id,
+         )
+ 
+     title_candidates = list({
+@@ -1808,6 +1830,7 @@
+             exact = [c for c in candidates if (c.season_number or 1) == season]
+             if exact:
+                 series = exact[0]
++                _require_series_target(expected_series_id, series)
+                 await _update_series_from_entity(
+                     db, series, data,
+                     raw_source=raw_source, canonical_id=canonical_id,
+@@ -1826,6 +1849,7 @@
+             # Season-known but no member with that season: create it under
+             # the candidates' collection (never collapse onto another
+             # season's work — the pre-split fallback's bug).
++            _require_series_target(expected_series_id, None)
+             coll_id = next((c.collection_id for c in candidates if c.collection_id), None)
+             collection = (
+                 await db.get(WorkCollection, coll_id)
+@@ -1836,6 +1860,7 @@
+                 db, data, collection, season,
+                 raw_source=raw_source, canonical_id=canonical_id,
+                 granularity=granularity, series_level_id=series_level_id,
++                expected_series_id=expected_series_id,
+             )
+         # Season unknown: single candidate (or all-season-1 legacy rows)
+         # keeps the old behavior; a multi-season candidate set parks on its
+@@ -1843,6 +1868,7 @@
+         seasons_present = {c.season_number or 1 for c in candidates}
+         if len(candidates) == 1 or seasons_present == {1}:
+             series = candidates[0]
++            _require_series_target(expected_series_id, series)
+             await _update_series_from_entity(
+                 db, series, data,
+                 raw_source=raw_source, canonical_id=canonical_id,
+@@ -1858,6 +1884,7 @@
+                 series_level_id=series_level_id,
+             )
+             return series
++        _require_series_target(expected_series_id, None)
+         coll_ids = {c.collection_id for c in candidates if c.collection_id}
+         if len(coll_ids) == 1:
+             collection = await db.get(WorkCollection, next(iter(coll_ids)))
+@@ -1875,6 +1902,7 @@
+     # new collection (ids bagged) without materializing a guessed season. A
+     # qualified-but-unmarked subject gets a shell named by its FULL title so
+     # the base IP name stays available for the real first season.
++    _require_series_target(expected_series_id, None)
+     qualified = season is None and _has_unresolved_title_qualifier(data)
+     collection = await _create_series_collection(
+         db, data, preserve_full_title=qualified
+@@ -2029,12 +2057,8 @@
+     )
+ 
+ 
+-async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> Movie:
+-    """Upsert a Movie by identity-bag, canonical external_id, then exact title.
+-
+-    See :func:`create_or_update_series_from_external` for the lookup order and
+-    identity-bag (P3) rationale.
+-    """
++async def find_existing_movie_for_external(db: AsyncSession, data: dict) -> Movie | None:
++    """Resolve the movie an upsert would select, without changing its fields or identity bag."""
+     raw_external_id = _qualify_incoming_wikipedia_id(data)
+     raw_source = data.get("external_source")
+     content_type = data.get("content_type")
+@@ -2076,6 +2100,15 @@
+                 )
+             )
+             movie = title_result.scalars().first()
++    return movie
++
++
++async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> Movie:
++    """Upsert a Movie using the shared identity-bag, legacy-ID and exact-title lookup."""
++    raw_external_id = _qualify_incoming_wikipedia_id(data)
++    raw_source = data.get("external_source")
++    canonical_id = canonicalize_external_id(raw_external_id, raw_source, data.get("content_type"))
++    movie = await find_existing_movie_for_external(db, data)
+ 
+     if movie:
+         if canonical_id and not field_manually_edited(movie, "external_id"):
+@@ -2460,18 +2493,14 @@
+ # Main entry points
+ # ---------------------------------------------------------------------------
+ 
+-async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any) -> None:
+-    """Match metadata for a newly-created FileResource and set its FKs.
+-
+-    Implements the 4-layer matching strategy from AGENTS.md.
+-    """
+-    # Layer 1: already linked.  Reconciliation still has work to do here:
+-    # older linked rows may gain a trusted sibling correction later.
+-    if resource.series_id or resource.movie_id:
+-        await reconcile_linked_series_resource(db, resource)
+-        return
+-
+-    # Layer 2: ChannelRawTitleMapping
++async def apply_manual_title_mapping(db: AsyncSession, resource: Any, channel: Any) -> bool:
++    """Apply a valid channel mapping without committing the caller transaction."""
++    from app.services.franchise_service import enforce_franchise_resource_invariant, is_franchise_resource
++
++    if is_franchise_resource(resource):
++        enforce_franchise_resource_invariant(resource)
++        return False
++
+     # Primary lookup: by normalized search_title_key (handles episode/resolution variations)
+     search_key = normalize_title(extract_search_title(resource))
+     mapping = None
+@@ -2492,7 +2521,12 @@
+             )
+         )
+         mapping = mapping_result.scalars().first()
+-    if mapping:
++    if mapping and (mapping.series_id or mapping.movie_id):
++        # Existing resource links take precedence over a conflicting title mapping.
++        if (resource.series_id or resource.movie_id) and (
++            resource.series_id, resource.movie_id
++        ) != (mapping.series_id, mapping.movie_id):
++            return False
+         if mapping.series_id:
+             resource.series_id = mapping.series_id
+             resource.movie_id = None
+@@ -2504,6 +2538,28 @@
+         resource.metadata_matched_at = utcnow()
+         await reconcile_linked_series_resource(db, resource)
+         await classify_is_anime_post_link(db, channel, resource)
++        return True
++    return False
++
++
++async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any) -> None:
++    """Match metadata for a newly-created FileResource and set its FKs.
++
++    Implements the 4-layer matching strategy from AGENTS.md.
++    """
++    from app.services.franchise_service import enforce_franchise_resource_invariant, is_franchise_resource
++
++    if is_franchise_resource(resource):
++        enforce_franchise_resource_invariant(resource)
++        return
++
++    # Layer 1: already linked.  Reconciliation still has work to do here:
++    # older linked rows may gain a trusted sibling correction later.
++    if resource.series_id or resource.movie_id:
++        await reconcile_linked_series_resource(db, resource)
++        return
++
++    if await apply_manual_title_mapping(db, resource, channel):
+         return
+ 
+     # Layer 3: local match
+--- a/app/services/metadata_agent.py
++++ b/app/services/metadata_agent.py
+@@ -621,6 +621,38 @@
+         raw_title = getattr(resource, "title_raw", "") or ""
+         if not raw_title.strip():
+             return None
++
++        from app.services.franchise_service import enforce_franchise_resource_invariant, is_franchise_resource
++
++        if is_franchise_resource(resource):
++            enforce_franchise_resource_invariant(resource)
++            return None
++
++        if (resource.series_id or resource.movie_id) and not force_refresh:
++            from app.services.metadata_service import reconcile_linked_series_resource
++
++            await reconcile_linked_series_resource(db, resource)
++            resource.metadata_matched_at = utcnow()
++            return ResourceMetadata(
++                clean_title=resource.search_title or raw_title,
++                content_type="movie" if resource.movie_id else "tv",
++                found=True,
++            )
++
++        # Preserve manual identity while allowing forced metadata enrichment.
++        manual_choice = None
++        manual_movie_id = None
++        manual_series_id = None
++        if await self._apply_manual_mapping(resource, channel, db):
++            manual_choice = ResourceMetadata(
++                clean_title=resource.search_title or raw_title,
++                content_type="movie" if resource.movie_id else "tv",
++                found=True,
++            )
++            manual_movie_id = resource.movie_id
++            manual_series_id = resource.series_id
++            if not force_refresh:
++                return manual_choice
+ 
+         # Resolve the channel's data source up front so the cache lookup is
+         # source-scoped (a bangumi channel must not hit a stale wikipedia cache entry).
+@@ -831,7 +863,36 @@
+         # 4. Persist — record the attempt (success or failure) and cache only
+         # definitive outcomes. Transient failures are intentionally NOT cached
+         # so the next fetch's backfill retries them.
+-        await self._apply_to_resource(meta, resource, channel, db)
++        if manual_choice is not None and (
++            not meta.found or meta.content_type != manual_choice.content_type
++        ):
++            logger.warning("Metadata refresh type conflicts with manual mapping for %s", resource.id)
++            return manual_choice
++        if manual_movie_id is not None:
++            from app.services.metadata_service import find_existing_movie_for_external
++
++            target = None
++            if meta.found and meta.content_type == "movie" and meta.matched_entity:
++                with db.no_autoflush:
++                    target = await find_existing_movie_for_external(db, meta.matched_entity)
++            if target is None or target.id != manual_movie_id:
++                logger.warning("Metadata refresh candidate conflicts with manual movie mapping for %s", resource.id)
++                return manual_choice
++        if manual_series_id is not None:
++            from app.services.metadata_service import MetadataTargetMismatchError
++
++            try:
++                async with db.begin_nested():
++                    await self._apply_to_resource(
++                        meta, resource, channel, db, expected_series_id=manual_series_id,
++                    )
++            except MetadataTargetMismatchError:
++                # Undo candidate parsing fields as well as any pending writes.
++                # The manual link was established before this savepoint.
++                await db.refresh(resource)
++                return manual_choice
++        else:
++            await self._apply_to_resource(meta, resource, channel, db)
+         _record_metadata_attempt(resource, meta)
+         if _classify_failure(meta) != "transient":
+             await self._set_cache(raw_title, data_source_type, meta, db)
+@@ -1225,15 +1286,24 @@
+ 
+     # ── Persistence ──
+ 
++    async def _apply_manual_mapping(self, resource: Any, channel: Any, db: AsyncSession) -> bool:
++        from app.services.metadata_service import apply_manual_title_mapping
++
++        return await apply_manual_title_mapping(db, resource, channel)
++
+     async def _apply_to_resource(
+         self,
+         meta: ResourceMetadata,
+         resource: Any,
+         channel: Any,
+         db: AsyncSession,
++        *,
++        expected_series_id: str | None = None,
+     ) -> None:
+         """Write metadata results back to the FileResource and DB."""
+-        return await _repo._apply_to_resource(meta, resource, channel, db)
++        return await _repo._apply_to_resource(
++            meta, resource, channel, db, expected_series_id=expected_series_id,
++        )
+ 
+     # ── Cache ──
+ 
+--- a/tests/unit/test_metadata_agent.py
++++ b/tests/unit/test_metadata_agent.py
+@@ -378,6 +378,7 @@
+     """A UnifiedMetadataAgent with all I/O methods stubbed, so process() can
+     be exercised in isolation against the cache/force_refresh logic."""
+     agent = UnifiedMetadataAgent()
++    agent._apply_manual_mapping = AsyncMock(return_value=False)
+     agent._get_cache = AsyncMock()
+     agent._set_cache = AsyncMock()
+     agent._apply_to_resource = AsyncMock()
+@@ -913,6 +914,7 @@
+ 
+ def _stub_agent() -> UnifiedMetadataAgent:
+     agent = UnifiedMetadataAgent()
++    agent._apply_manual_mapping = AsyncMock(return_value=False)
+     agent._get_cache = AsyncMock(return_value=None)
+     agent._set_cache = AsyncMock()
+     agent._apply_to_resource = AsyncMock()
+@@ -3199,12 +3201,12 @@
+ 
+ async def test_process_short_circuit_movie_links_movie_id():
+     """The movie half of the S1 known-work branch (movie_id set, series_id cleared)."""
+-    agent = UnifiedMetadataAgent()
++    agent = _patched_agent()
+     agent._get_cache = AsyncMock(return_value=None)
+     agent._find_known_work = AsyncMock(return_value=("movie", "m-123"))
+     resource = SimpleNamespace(
+         title_raw="[G] Some Movie 2025 [1080p]", title_cn="Some Movie", title_en=None,
+-        search_title=None, series_id="s-old", movie_id=None,
++        search_title=None, series_id=None, movie_id=None,
+         metadata_attempts=0, last_metadata_attempt_at=None, metadata_failure_type=None,
+     )
+     meta = await agent.process(
+--- /dev/null
++++ b/tests/unit/test_manual_title_mapping.py
+@@ -0,0 +1,267 @@
++"""Recorded release title with explicitly synthetic mapping/cache identities."""
++
++import gzip
++import json
++import uuid
++from datetime import date
++from pathlib import Path
++from unittest.mock import AsyncMock
++
++import pytest
++
++from app.models.channel import Channel
++from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
++from app.models.file_resource import FileResource
++from app.models.movie import Movie
++from app.services.metadata_agent import UnifiedMetadataAgent
++from app.services.metadata_resource_meta import ResourceMetadata
++from app.services.metadata_service import extract_search_title
++from app.services.text_normalizer import normalize_title
++
++
++async def test_movie_target_lookup_does_not_apply_candidate(db_session):
++    from sqlalchemy import func, select
++
++    from app.models.work_external_id import WorkExternalId
++    from app.services.metadata_service import find_existing_movie_for_external
++
++    movie = Movie(title_en="Synthetic identity lookup", is_anime=False)
++    db_session.add(movie)
++    await db_session.commit()
++    selected = await find_existing_movie_for_external(db_session, {
++        "title_en": movie.title_en, "content_type": "movie", "external_source": "tmdb",
++        "external_id": "90000019", "description": "Must not apply", "release_date": "2011-12-07",
++    })
++    assert selected.id == movie.id
++    await db_session.flush()
++    assert movie.description is None and movie.release_date is None and movie.external_id is None
++    assert (await db_session.execute(select(func.count()).select_from(WorkExternalId))).scalar_one() == 0
++
++
++@pytest.mark.parametrize("mapping_kind", ["normalized", "raw_fallback", "empty_target", "other_channel"])
++@pytest.mark.parametrize("force_refresh,candidate_matches_manual", [(False, False), (True, False), (True, True)])
++@pytest.mark.parametrize("already_linked", [False, True])
++async def test_manual_mapping_precedes_success_cache(
++    db_session, sample_channel, mapping_kind, force_refresh, candidate_matches_manual, already_linked,
++):
++    corpus = Path(__file__).resolve().parents[1] / "fixtures/metadata_corpus_v1/candidates.json.gz"
++    with gzip.open(corpus, "rt") as stream:
++        cases = json.load(stream)["cases"]
++    case = next(c for c in cases if c["id"] == "00e48de8-b5fd-4e99-8467-d384bd4a3183")
++    raw = case["input"]["title_raw"]
++    sample_channel.metadata_source = "tmdb"
++    manual = Movie(title_en="Synthetic manual choice", is_anime=False)
++    cached = Movie(title_en="Synthetic automatic choice", is_anime=False)
++    resource = FileResource(channel_id=sample_channel.id, guid=str(uuid.uuid4()), title_raw=raw, torrent_url="")
++    db_session.add_all([manual, cached, resource])
++    await db_session.flush()
++    if already_linked:
++        resource.movie_id = manual.id
++    channel_id = sample_channel.id
++    if mapping_kind == "other_channel":
++        other = Channel(name="Synthetic other channel", url="https://example.invalid/other", field_mapping={})
++        db_session.add(other)
++        await db_session.flush()
++        channel_id = other.id
++    key = normalize_title(extract_search_title(resource))
++    if mapping_kind == "raw_fallback":
++        key = "synthetic-legacy-key"
++    db_session.add(ChannelRawTitleMapping(
++        channel_id=channel_id, raw_title=raw, search_title_key=key,
++        movie_id=None if mapping_kind == "empty_target" else manual.id,
++        content_type="movie",
++    ))
++    agent = UnifiedMetadataAgent()
++    incoming_title = manual.title_en if candidate_matches_manual else cached.title_en
++    agent._run_react = AsyncMock(return_value=(
++        {"clean_title": incoming_title, "content_type": "movie", "found": True,
++         "matched_entity": {"title_en": incoming_title, "content_type": "movie", "is_anime": False,
++                            "release_date": "2011-12-07"}},
++        {"method": "synthetic", "data_sources_used": [], "source_errors": {}, "error": None},
++    ))
++    agent._ensure_genre = AsyncMock()
++    agent._get_cache = AsyncMock(wraps=agent._get_cache)
++    await agent._set_cache(raw, "tmdb", ResourceMetadata(
++        clean_title=cached.title_en, content_type="movie", found=True,
++        matched_entity={"title_en": cached.title_en, "content_type": "movie", "is_anime": False},
++    ), db_session)
++    await db_session.commit()
++    await agent.process(resource, sample_channel, db_session, force_refresh=force_refresh)
++    await db_session.commit()
++    if force_refresh:
++        agent._get_cache.assert_not_awaited()
++
++    from app.database import async_session_factory
++
++    async with async_session_factory() as observer:
++        saved = await observer.get(FileResource, resource.id)
++        keep_manual = (
++            mapping_kind in {"normalized", "raw_fallback"}
++            or candidate_matches_manual
++            or (already_linked and not force_refresh)
++        )
++        expected = manual.id if keep_manual else cached.id
++        assert saved.movie_id == expected
++        assert saved.series_id is None
++        assert saved.metadata_matched_at is not None
++        if force_refresh and candidate_matches_manual:
++            refreshed = await observer.get(Movie, manual.id)
++            assert refreshed.release_date == date(2011, 12, 7)
++
++
++@pytest.mark.parametrize("conflicting_link", [False, True])
++async def test_mapping_respects_existing_link_and_caller_rollback(
++    db_session, sample_channel, conflicting_link,
++):
++    from app.database import async_session_factory
++    from app.services.metadata_service import apply_manual_title_mapping
++
++    mapped = Movie(title_en="Synthetic mapped identity", is_anime=False)
++    existing = Movie(title_en="Synthetic existing identity", is_anime=False)
++    resource = FileResource(
++        channel_id=sample_channel.id, guid=str(uuid.uuid4()),
++        title_raw="Synthetic mapping transaction 2011", torrent_url="",
++    )
++    db_session.add_all([mapped, existing, resource])
++    await db_session.flush()
++    original_id = existing.id if conflicting_link else None
++    resource.movie_id = original_id
++    resource_id = resource.id
++    mapped_id = mapped.id
++    db_session.add(ChannelRawTitleMapping(
++        channel_id=sample_channel.id, raw_title=resource.title_raw,
++        search_title_key=normalize_title(extract_search_title(resource)),
++        movie_id=mapped_id, content_type="movie",
++        search_title_override="Synthetic manual title override",
++    ))
++    await db_session.commit()
++
++    applied = await apply_manual_title_mapping(db_session, resource, sample_channel)
++    assert applied is (not conflicting_link)
++    if conflicting_link:
++        assert resource.movie_id == original_id
++        assert resource.search_title is None
++        assert resource.metadata_matched_at is None
++    else:
++        assert resource.movie_id == mapped_id
++        assert resource.search_title == "Synthetic manual title override"
++        assert resource.metadata_matched_at is not None
++    await db_session.flush()
++    await db_session.rollback()
++    async with async_session_factory() as observer:
++        saved = await observer.get(FileResource, resource_id)
++        assert saved.movie_id == original_id
++        assert saved.search_title is None
++        assert saved.metadata_matched_at is None
++
++
++@pytest.mark.parametrize("force_refresh", [False, True])
++@pytest.mark.parametrize("candidate_kind", ["movie", "other_tv", "same_tv"])
++async def test_manual_season_mapping_preserves_identity(db_session, sample_channel, force_refresh, candidate_kind):
++    from app.database import async_session_factory
++    from app.models.series import TVSeries
++    from app.models.work_collection import WorkCollection
++
++    sample_channel.metadata_source = "tmdb"
++    collection = WorkCollection(title_cn="Synthetic season mapping collection")
++    db_session.add(collection)
++    await db_session.flush()
++    series = TVSeries(title_cn="Synthetic season mapping S2", season_number=2,
++                      collection_id=collection.id, is_anime=False)
++    resource = FileResource(channel_id=sample_channel.id, guid=str(uuid.uuid4()),
++                            title_raw="Synthetic series S02E01", season=2, episode=1, torrent_url="")
++    db_session.add_all([series, resource])
++    await db_session.flush()
++    series_id, resource_id = series.id, resource.id
++    db_session.add(ChannelRawTitleMapping(
++        channel_id=sample_channel.id, raw_title=resource.title_raw,
++        search_title_key=normalize_title(extract_search_title(resource)),
++        series_id=series_id, content_type="tv",
++    ))
++    await db_session.commit()
++    agent = UnifiedMetadataAgent()
++    agent._get_cache = AsyncMock(return_value=None)
++    agent._ensure_genre = AsyncMock()
++    candidate_type = "movie" if candidate_kind == "movie" else "tv"
++    candidate_title = series.title_cn if candidate_kind == "same_tv" else "Synthetic conflicting candidate S2"
++    agent._run_react = AsyncMock(return_value=(
++        {"clean_title": candidate_title, "content_type": candidate_type, "found": True,
++         "matched_entity": {"title_cn": candidate_title, "content_type": candidate_type,
++                            "start_date": "2020-01-01", "is_anime": False,
++                            "seasons": [{"season_number": 2, "air_date": "2024-01-01"}]}},
++        {"method": "synthetic", "data_sources_used": [], "source_errors": {}, "error": None},
++    ))
++    await agent.process(resource, sample_channel, db_session, force_refresh=force_refresh)
++    await db_session.commit()
++    async with async_session_factory() as observer:
++        saved = await observer.get(FileResource, resource_id)
++        from sqlalchemy import func, select
++
++        assert (await observer.execute(select(func.count()).select_from(TVSeries))).scalar_one() == 1
++        assert (await observer.execute(select(func.count()).select_from(WorkCollection))).scalar_one() == 1
++        assert saved.series_id == series_id
++        assert saved.movie_id is None
++        assert saved.season == 2
++
++        from app.models.metadata_cache import MetadataCache
++
++        assert (await observer.execute(select(func.count()).select_from(Movie))).scalar_one() == 0
++        if candidate_kind != "same_tv" or not force_refresh:
++            assert saved.search_title is None, "Rejected candidate parse fields must roll back"
++            assert (await observer.execute(select(func.count()).select_from(MetadataCache))).scalar_one() == 0
++        if candidate_kind == "same_tv" and force_refresh:
++            refreshed = await observer.get(TVSeries, series_id)
++            assert refreshed.start_date == date(2024, 1, 1)
++
++
++@pytest.mark.parametrize("candidate_kind", ["same_season", "other_season", "new_collection"])
++async def test_series_upsert_fixed_target_precedes_writes(db_session, candidate_kind):
++    from sqlalchemy import func, select
++
++    from app.database import async_session_factory
++    from app.models.series import TVSeries
++    from app.models.work_collection import WorkCollection
++    from app.models.work_external_id import WorkExternalId
++    from app.services.metadata_service import (
++        MetadataTargetMismatchError,
++        create_or_update_series_from_external,
++    )
++
++    collection = WorkCollection(title_cn="Synthetic fixed collection", aliases=["Original alias"])
++    db_session.add(collection)
++    await db_session.flush()
++    first = TVSeries(title_cn="Synthetic fixed S1", season_number=1, collection_id=collection.id)
++    target = TVSeries(title_cn="Synthetic fixed S2", season_number=2, collection_id=collection.id)
++    db_session.add_all([first, target])
++    await db_session.commit()
++    target_id, collection_id = target.id, collection.id
++    season = 1 if candidate_kind == "other_season" else 2
++    data = {
++        "title_cn": "Synthetic unrelated identity" if candidate_kind == "new_collection" else collection.title_cn,
++        "alt_titles": ["Candidate alias must not leak"],
++        "content_type": "tv", "description": "Candidate metadata",
++        "seasons": [{"season_number": season, "air_date": "2024-01-01"}],
++    }
++    if candidate_kind == "same_season":
++        saved = await create_or_update_series_from_external(
++            db_session, data, season_hint=season, expected_series_id=target_id,
++        )
++        assert saved.id == target_id
++    else:
++        with pytest.raises(MetadataTargetMismatchError):
++            await create_or_update_series_from_external(
++                db_session, data, season_hint=season, expected_series_id=target_id,
++            )
++    # Commit even after rejection: rollback must not hide early side effects.
++    await db_session.commit()
++    async with async_session_factory() as observer:
++        assert (await observer.execute(select(func.count()).select_from(TVSeries))).scalar_one() == 2
++        assert (await observer.execute(select(func.count()).select_from(WorkCollection))).scalar_one() == 1
++        saved_target = await observer.get(TVSeries, target_id)
++        saved_collection = await observer.get(WorkCollection, collection_id)
++        if candidate_kind == "same_season":
++            assert saved_target.start_date == date(2024, 1, 1)
++        else:
++            assert saved_target.start_date is None and saved_target.description is None
++            assert saved_collection.aliases == ["Original alias"]
++            assert (await observer.execute(select(func.count()).select_from(WorkExternalId))).scalar_one() == 0
+--- a/app/services/metadata_repository.py
++++ b/app/services/metadata_repository.py
+@@ -131,6 +131,8 @@
+     resource: Any,
+     channel: Any,
+     db: AsyncSession,
++    *,
++    expected_series_id: str | None = None,
+ ) -> None:
+     """Write metadata results back to the FileResource and DB."""
+     # A failed source lookup is not title-parsing evidence.  In particular,
+@@ -285,6 +287,7 @@
+                         db, meta.matched_entity,
+                         season_hint=resource_season_hint(resource, meta.matched_entity),
+                         season_ambiguous=meta.season_ambiguous,
++                        expected_series_id=expected_series_id,
+                     )
+                     if series is not None:
+                         resource.series_id = series.id
+@@ -308,6 +311,10 @@
+             # Symmetric guard: a tv verdict for an entity that already owns
+             # a Movie row links the movie instead of duplicating.
+             if await find_movie_by_external_id(db, meta.matched_entity) is not None:
++                if expected_series_id is not None:
++                    from app.services.metadata_service import MetadataTargetMismatchError
++
++                    raise MetadataTargetMismatchError("Selected season resolves to a movie identity")
+                 logger.warning(
+                     "[metadata] tv verdict for %r but a movie already owns "
+                     "external_id=%r; linking the movie instead",
+@@ -325,6 +332,7 @@
+                     db, meta.matched_entity,
+                     season_hint=resource_season_hint(resource, meta.matched_entity),
+                     season_ambiguous=meta.season_ambiguous,
++                    expected_series_id=expected_series_id,
+                 )
+                 if series is not None:
+                     resource.series_id = series.id
+--- /dev/null
++++ b/tests/unit/test_manual_mapping_batches.py
+@@ -0,0 +1,115 @@
++"""Synthetic franchise bindings in real database transactions."""
++
++import asyncio
++import uuid
++from unittest.mock import AsyncMock
++
++import pytest
++
++from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
++from app.models.file_resource import FileResource
++from app.models.movie import Movie
++from app.models.work_collection import WorkCollection
++from app.services.metadata_agent import UnifiedMetadataAgent
++from app.services.metadata_service import (
++    apply_manual_title_mapping,
++    extract_search_title,
++    fetch_and_link_metadata,
++)
++from app.services.text_normalizer import normalize_title
++
++
++@pytest.mark.parametrize("entry,force_refresh", [
++    ("mapping", False), ("agent", False), ("legacy", False),
++    ("pipeline_agent", False), ("pipeline_legacy", False), ("metadata_api", False),
++    ("agent", True), ("pipeline_agent", True), ("pipeline_legacy", True),
++])
++async def test_single_work_mapping_preserves_franchise_shape(db_session, sample_channel, entry, force_refresh, monkeypatch):
++    collection = WorkCollection(title_cn="Synthetic franchise collection")
++    movie = Movie(title_en="Synthetic manual movie")
++    db_session.add_all([collection, movie])
++    await db_session.flush()
++    resource = FileResource(
++        channel_id=sample_channel.id, guid=str(uuid.uuid4()),
++        title_raw="Synthetic franchise TV plus Film pack", torrent_url="",
++        is_batch=True, batch_scope="franchise", collection_id=collection.id,
++    )
++    db_session.add(resource)
++    await db_session.flush()
++    resource_id, collection_id = resource.id, collection.id
++    from app.models.resource_file_assignment import ResourceFileAssignment
++    from app.models.resource_work_link import ResourceWorkLink
++    from app.models.series import TVSeries
++
++    series = TVSeries(title_cn="Synthetic franchise season", season_number=1, collection_id=collection_id)
++    db_session.add(series)
++    await db_session.flush()
++    links = [ResourceWorkLink(resource_id=resource_id, movie_id=movie.id, source="manual"),
++             ResourceWorkLink(resource_id=resource_id, series_id=series.id, source="manual")]
++    assignments = [
++        ResourceFileAssignment(resource_id=resource_id, file_path="Film/movie.mkv", movie_id=movie.id,
++                               file_size=123, source="manual"),
++        ResourceFileAssignment(resource_id=resource_id, file_path="TV/episode01.mkv", series_id=series.id,
++                               season=1, episode_start=1, episode_end=1, file_size=456, source="manual"),
++    ]
++    db_session.add_all(links + assignments)
++    await db_session.flush()
++    link_snapshot = [(row.id, row.series_id, row.movie_id, row.source) for row in links]
++    file_snapshot = [(row.id, row.file_path, row.series_id, row.movie_id, row.season,
++                      row.episode_start, row.episode_end, row.file_size, row.source) for row in assignments]
++    db_session.add(ChannelRawTitleMapping(
++        channel_id=sample_channel.id, raw_title=resource.title_raw,
++        search_title_key=normalize_title(extract_search_title(resource)),
++        movie_id=movie.id, content_type="movie",
++    ))
++    sample_channel.metadata_agent_enabled = entry == "pipeline_agent"
++    await db_session.commit()
++    if entry == "metadata_api":
++        from fastapi import FastAPI
++        from httpx import ASGITransport, AsyncClient
++
++        from app.api.v1.resources import router
++        from app.database import get_db
++
++        app = FastAPI()
++        app.include_router(router, prefix="/api/v1")
++        async def session_override():
++            yield db_session
++        app.dependency_overrides[get_db] = session_override
++        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
++            response = await client.get(f"/api/v1/resources/{resource_id}/metadata")
++        assert response.status_code == 200, response.text
++    elif entry.startswith("pipeline_"):
++        from app.services.fetch_service import _process_resource_metadata_once
++
++        # Shape is pre-established; this test isolates matching and its real
++        # final commit, not torrent inspection or external graph enrichment.
++        monkeypatch.setattr("app.services.torrent_inspect.ensure_torrent_cached", AsyncMock())
++        monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", AsyncMock())
++        monkeypatch.setattr("app.services.bangumi_relations.expand_bangumi_series_graph", AsyncMock())
++        monkeypatch.setattr("app.services.cluster_work_binding.bind_hint_clusters", AsyncMock())
++        await _process_resource_metadata_once(resource_id, sample_channel.id, asyncio.Semaphore(1), force_refresh=force_refresh)
++    elif entry == "agent":
++        await UnifiedMetadataAgent().process(resource, sample_channel, db_session, force_refresh=force_refresh)
++    elif entry == "legacy":
++        await fetch_and_link_metadata(db_session, resource, sample_channel)
++    else:
++        await apply_manual_title_mapping(db_session, resource, sample_channel)
++    await db_session.commit()
++    from app.database import async_session_factory
++
++    async with async_session_factory() as observer:
++        saved = await observer.get(FileResource, resource_id)
++        assert saved.collection_id == collection_id
++        assert saved.batch_scope == "franchise" and saved.is_batch
++        assert saved.movie_id is None and saved.series_id is None
++        assert saved.episode is None
++        for expected in link_snapshot:
++            row = await observer.get(ResourceWorkLink, expected[0])
++            assert row is not None
++            assert (row.id, row.series_id, row.movie_id, row.source) == expected
++        for expected in file_snapshot:
++            row = await observer.get(ResourceFileAssignment, expected[0])
++            assert row is not None
++            assert (row.id, row.file_path, row.series_id, row.movie_id, row.season,
++                    row.episode_start, row.episode_end, row.file_size, row.source) == expected
+--- a/docs/design/business-logic.md
++++ b/docs/design/business-logic.md
+@@ -212,6 +212,8 @@
+   └─ 全部失败 → resource 保持未链接（series_id/movie_id 均为 null）
+ ```
+ 
++人工标题映射也适用于默认 UnifiedMetadataAgent 路径，先于成功缓存和自动匹配。普通已有链接保持 Layer 1 优先；强制刷新可补齐人工目标的元数据，但候选类型或季作品目标冲突时不得创建替代作品或改变关联，资源候选字段随保存点回滚。franchise 资源不进入单作品匹配：保留合集、resource_work_links 和 resource_file_assignments，清除退役的扁平作品 FK；该约束同样适用于直接 metadata GET，不依赖抓取外层收尾。
++
+ **Bangumi 频道源匹配流程（`metadata_bangumi`，镜像 wikipedia 的 search-then-judge 形态）**：复用 wikipedia 的 query 清洗（`_candidate_queries`）→ `POST /v0/search/subjects` 限 `type=[2]`（动画分类，命中即动漫）→ 确定性 auto-link（归一化标题相等 + 标题年份守卫 ±1，**唯一命中**才免 LLM；**季感知**——Bangumi 一个 subject 就是一季，资源/刷新提示带季号 >1 时基础名条目（恒为第一季）永不 auto-link，仅"候选标题自带同季标记且基础名命中查询"的唯一候选可免 LLM，其余交 judge）→ 否则单次 LLM judge（专用 prompt `_BANGUMI_JUDGE_SYSTEM_PROMPT`）→ 命中条目经详情（`GET /v0/subjects/{id}`）+ 剧集（`GET /v0/episodes` 分页）端点展开为 matched_entity：`external_id=bangumi:{id}`（身份证据自动落 `is_anime=True`）、title_cn=name_cn、original_title=name、description=summary、rating=rating.score、start_date=date、number_of_episodes=eps、genre=tags（出口钳制）、`is_anime=True`；TV 条目不伪造 `seasons`/`number_of_seasons`，而携带仅在本次匹配链路使用的 `single_season_entry=true`——Bangumi 的一个 subject 本身就是一季（作品单季化后该语义固化为注册表粒度 `granularity="season"`：`bangumi:{id}` 身份直接落**季作品**袋，匹配即得对应季作品），因此标题无季标记时可由统一缺季规则安全补季号，同时不污染作品级总季数；platform=剧场版时不写该证据。episode_list 取本篇（type=0）条目：集号优先用季内 `ep`，缺 `ep` 回退全局 `sort`——后续季 subject 常沿用全系列连续编号（如第三季条目 sort=25-36 配 ep=1-12），若整列最小值 >1 则按最小值 rebase 为 1..N（`_episode_list_from`），同时携带 `airdate` → `air_date`；season 标签用资源解析出的季号（无则 1）；platform=剧场版 → content_type=movie。found=False 走统一有序网络搜索回退（仅补身份）；缓存命名空间 `metadata_agent:bangumi`；手动搜索/评测（`process_title_only`）同样支持，手动搜索响应保留 `single_season_entry` 供链接时判定。客户端 `bangumi_client`：UA 固定 `robinqu/RSSRipple`，token 走 `runtime_config.bangumi_api_key`（env `BANGUMI_API_KEY` 或设置页覆盖），API 基础地址走 `settings.bangumi_api_base`（env `BANGUMI_API_BASE`，默认 `https://api.bgm.tv/v0`，可指向镜像/mock），无独立启用开关——token 即启用。
+ 
+ **Bangumi 关联条目扩展（系列图谱，`bangumi_relations`）**：Bangumi 一个 subject 就是一季，franchise/multi_season 合集包链接到基础条目（如「頭文字D First Stage」）只覆盖了第一季；本 pass 经关联条目端点（`bangumi_client.get_subject_relations` → `GET /v0/subjects/{id}/subjects`）把同 IP 的其余条目展开成完整系列图谱。**触发条件保持收敛**：仅 `is_batch` 且 `batch_scope ∈ {franchise, multi_season}` 且已链接 bangumi 身份的资源（种子取自互斥 FK、`resource_work_links` 与 franchise 包的合集成员；主列或身份袋中的 `bangumi:{id}` 均可），挂载点为 `_process_resource_metadata` 链接后（`bind_single_work_assignments` 之后、commit 之前），单集资源不增加任何 API 调用。从种子 BFS 遍历关系图（上限 24 节点），**续集/前传/主线故事节点入队前先过同 IP 闸门**（Bangumi 的续集边会跨 IP——頭文字D Final Stage → MFゴースト）：候选条目剥离季标记后的归一化基础名（`strip_season_from_title` + `normalize_title`，name/name_cn 双语都试）必须与种子作品基础名相等或互为包含（"Final Stage" 类无数字季标记但含基础名的仍通过）；未过闸门的节点不 upsert、不 link、**不再从其继续 BFS**（整个异 IP 子图被隔绝），空气日期阈值与日期排序也只在过闸节点集合内计算（异 IP 节点的更晚日期不再把阈值推过合法的无标记续集）。随后按关系类型 + 条目 platform 确定性映射（`classify_work_shape`，franchise 成员解析共用同一函数、relation 置 None 时仅凭 platform）：**续集/前传/主线故事** → 季作品（季号优先取条目自身标题季标记——`season_from_title` 含 Stage 英文序数；无标记条目仅在播出日期严格晚于全部有日期标记条目时按日期序续排季号——如 Final Stage 接 Fifth 之后得 6；仍不可定跳过记 warning，绝不猜）；**剧场版** → Movie 作品；**番外篇**（OVA/spinoff）→ 同合集 `season_number=0` 季作品——`(collection, season 0)` 槽位只能有一个作品：**按播出日期最早者占槽**；其余不同身份的番外条目 upsert 为各自单季壳合集（series_group，season_number=1）的作品，仍经 `resource_work_links` 链到资源（跨合集 links 合法，`sync_resource_collection` 按既有语义把 season 系 scope 的资源 `collection_id` 置空，如实反映跨合集）；**不同演绎/重制**（如 Legend 新剧场版 vs Third Stage）→ movie 形态时保持独立 Movie 条目（不合并不降级），TV 形态跳过。所有成员经既有 upsert 入口创建/链接（`create_or_update_series_from_external` 带 season_hint——`season_hint=0` 为合法特典季号，不再被真值链吞掉；电影走 `create_or_update_movie_from_external`），身份走 bangumi 逐季粒度，creator-wins 主 id、身份袋与人工编辑保护不变；**创建季作品前先按 `(目标合集, season_number)` 查成员复用**（命中且成员无冲突 bangumi 身份时仅补身份入袋，不新建重复季作品）；袋命中作品带陈旧默认季号（成员解析对无季标记条目的 s1 猜测）时，图谱的确定性季指派会**订正 `season_number`**（人工编辑过的除外、目标槽位被占除外）；同样地，种子作品的季号若出自该默认猜测（标题带限定词但无季标记——`_season_is_default_guess`，season 0 的 OVA 形态证据除外），不计入 marked/日期证据集合并可作为普通节点重新入图接受指派（`_assign_seasons` 只见过滤后的证据种子）。落入单成员 `series_group` 壳合集的成员经 `try_absorb_shell_collection` 并入目标合集；占用作品的合集若为**同基础名的 auto 合集**（series_group/franchise_pack，归一化基础名相等或互为包含，多成员也允许——两者本就是同一 IP 的重复物）经 `try_absorb_same_name_collection` 整个并入（身份袋/aliases 去重合并、季槽位冲突的成员留在原合集、有 `manually_edited_fields` 的不吸收只记 warning）；**两个吸收函数删除合集行前都会把 park 在其上的 `FileResource.collection_id` 显式重挂到存留合集**（ORM 的删除置空只覆盖当 session 加载的作品成员，资源不重挂会留下悬空外键）；解析到**其他真实合集**的作品保留但不链接（s0 槽位占用后的番外壳作品除外——跨合集 link 是如实表达）。资源侧经 `resource_work_links` 建立多关联（`source="auto"`，manual/llm 行永不动；种子作品自身也补 link——multi_season 覆盖度键读 links 表），随后 `sync_resource_collection` 沉淀 `resource.collection_id`（franchise 不碰）、`batch_seasons` 取并集镜像（含 season 0，只增不减）。**仅扩展、不降级**：关系拉取或单成员展开失败静默记日志，原链接判定完全保留，幂等可重跑。图谱扩展之后紧跟一次幂等的簇级绑定复跑（`bind_hint_clusters`）：torrent 检测期的首跑发生在 metadata 链接之前，看不到图谱新建/改判的作品——复跑让未绑簇（如 "Initial D Fifth Stage" 经季标记层命中 s5 成员）对新成员解析，并把已绑 auto 行的 season 镜像到改判后的作品季号（如 Final Stage s1→s6）。
+--- /dev/null
++++ b/tests/unit/test_manual_mapping_identity.py
+@@ -0,0 +1,65 @@
++"""Fixed-season identity checks use synthetic IDs and real database commits."""
++
++import pytest
++from sqlalchemy import select
++
++from app.models.series import TVSeries
++from app.models.work_collection import WorkCollection
++from app.models.work_external_id import WorkExternalId
++from app.services.metadata_service import MetadataTargetMismatchError, create_or_update_series_from_external
++
++
++@pytest.mark.parametrize("identity_route", ["season_bag", "collection_bag", "legacy_primary"])
++@pytest.mark.parametrize("matches_target", [False, True])
++async def test_fixed_target_covers_external_identity_routes(db_session, identity_route, matches_target):
++    collections = [WorkCollection(title_cn=f"Synthetic identity collection {i}") for i in range(2)]
++    db_session.add_all(collections)
++    await db_session.flush()
++    works = [TVSeries(title_cn=f"Synthetic season {i}", season_number=2, collection_id=c.id)
++             for i, c in enumerate(collections)]
++    db_session.add_all(works)
++    await db_session.flush()
++    target = works[0]
++    selected = works[0] if matches_target else works[1]
++    source = "bangumi" if identity_route == "season_bag" else "tmdb"
++    external_id = f"{source}:90000321"
++    if identity_route == "legacy_primary":
++        selected.external_source = source
++        selected.external_id = external_id
++    else:
++        db_session.add(WorkExternalId(
++            work_type="collection" if identity_route == "collection_bag" else "series",
++            work_id=selected.collection_id if identity_route == "collection_bag" else selected.id,
++            source=source, external_id=external_id,
++        ))
++    await db_session.commit()
++    before = [(r.work_type, r.work_id, r.source, r.external_id)
++              for r in (await db_session.execute(select(WorkExternalId))).scalars()]
++    ids = [w.id for w in works]
++    data = {"title_cn": "Incoming synthetic title", "external_source": source,
++            "external_id": external_id, "content_type": "tv", "description": "Incoming description"}
++    if matches_target:
++        result = await create_or_update_series_from_external(
++            db_session, data, season_hint=2, expected_series_id=target.id,
++        )
++        assert result.id == target.id
++    else:
++        with pytest.raises(MetadataTargetMismatchError):
++            await create_or_update_series_from_external(
++                db_session, data, season_hint=2, expected_series_id=target.id,
++            )
++    await db_session.commit()
++    from app.database import async_session_factory
++
++    async with async_session_factory() as observer:
++        for index, work_id in enumerate(ids):
++            saved = await observer.get(TVSeries, work_id)
++            if matches_target and index == 0:
++                assert saved.description == "Incoming description"
++            else:
++                assert saved.description is None
++                assert saved.title_cn == f"Synthetic season {index}"
++        if not matches_target:
++            after = [(r.work_type, r.work_id, r.source, r.external_id)
++                     for r in (await observer.execute(select(WorkExternalId))).scalars()]
++            assert sorted(after) == sorted(before)

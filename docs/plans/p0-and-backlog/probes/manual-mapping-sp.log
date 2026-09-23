@@ -1,0 +1,32 @@
+Traceback (most recent call last):
+  File "/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/manual_mapping_cache_probe.py", line 68, in <module>
+    asyncio.run(main())
+    ~~~~~~~~~~~^^^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 719, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/manual_mapping_cache_probe.py", line 38, in main
+    resources = [FileResource(channel_id=channel.id, guid=str(uuid.uuid4()), title_raw=raw,
+                 ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                              torrent_url="", is_anime=False) for _ in range(2)]
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<string>", line 4, in __init__
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/orm/state.py", line 596, in _initialize_instance
+    with util.safe_reraise():
+         ~~~~~~~~~~~~~~~~~^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/util/langhelpers.py", line 122, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/orm/state.py", line 594, in _initialize_instance
+    manager.original_init(*mixed[1:], **kwargs)
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/orm/decl_base.py", line 2179, in _declarative_constructor
+    raise TypeError(
+        "%r is an invalid keyword argument for %s" % (k, cls_.__name__)
+    )
+TypeError: 'is_anime' is an invalid keyword argument for FileResource

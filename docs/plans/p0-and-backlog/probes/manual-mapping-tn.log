@@ -1,0 +1,131 @@
+...F.F                                                                   [100%]
+=================================== FAILURES ===================================
+_________ test_manual_season_mapping_preserves_identity[other_tv-True] _________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f4d9aeef680>
+sample_channel = <app.models.channel.Channel object at 0x7f4d9af0c8a0>
+force_refresh = True, candidate_kind = 'other_tv'
+
+    @pytest.mark.parametrize("force_refresh", [False, True])
+    @pytest.mark.parametrize("candidate_kind", ["movie", "other_tv", "same_tv"])
+    async def test_manual_season_mapping_preserves_identity(db_session, sample_channel, force_refresh, candidate_kind):
+        from app.database import async_session_factory
+        from app.models.series import TVSeries
+        from app.models.work_collection import WorkCollection
+    
+        sample_channel.metadata_source = "tmdb"
+        collection = WorkCollection(title_cn="Synthetic season mapping collection")
+        db_session.add(collection)
+        await db_session.flush()
+        series = TVSeries(title_cn="Synthetic season mapping S2", season_number=2,
+                          collection_id=collection.id, is_anime=False)
+        resource = FileResource(channel_id=sample_channel.id, guid=str(uuid.uuid4()),
+                                title_raw="Synthetic series S02E01", season=2, episode=1, torrent_url="")
+        db_session.add_all([series, resource])
+        await db_session.flush()
+        series_id, resource_id = series.id, resource.id
+        db_session.add(ChannelRawTitleMapping(
+            channel_id=sample_channel.id, raw_title=resource.title_raw,
+            search_title_key=normalize_title(extract_search_title(resource)),
+            series_id=series_id, content_type="tv",
+        ))
+        await db_session.commit()
+        agent = UnifiedMetadataAgent()
+        agent._get_cache = AsyncMock(return_value=None)
+        agent._ensure_genre = AsyncMock()
+        candidate_type = "movie" if candidate_kind == "movie" else "tv"
+        candidate_title = series.title_cn if candidate_kind == "same_tv" else "Synthetic conflicting candidate S2"
+        agent._run_react = AsyncMock(return_value=(
+            {"clean_title": candidate_title, "content_type": candidate_type, "found": True,
+             "matched_entity": {"title_cn": candidate_title, "content_type": candidate_type,
+                                "start_date": "2024-01-01", "is_anime": False}},
+            {"method": "synthetic", "data_sources_used": [], "source_errors": {}, "error": None},
+        ))
+        await agent.process(resource, sample_channel, db_session, force_refresh=force_refresh)
+        await db_session.commit()
+        async with async_session_factory() as observer:
+            saved = await observer.get(FileResource, resource_id)
+>           assert saved.series_id == series_id
+E           AssertionError: assert '4b0bec0d-a37...-29114fa77984' == 'd33e6e5c-371...-a3db8d6ac92d'
+E             
+E             - d33e6e5c-371a-4166-a976-a3db8d6ac92d
+E             + 4b0bec0d-a373-41ef-af0d-29114fa77984
+
+tests/unit/test_manual_title_mapping.py:197: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.metadata_agent:metadata_agent.py:787 [metadata_agent] channel 643b112f-f5b9-426e-a179-457c4b83520b source='tmdb' is not available (disabled or missing credentials); search will return no external candidates
+_________ test_manual_season_mapping_preserves_identity[same_tv-True] __________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f4d992fcc90>
+sample_channel = <app.models.channel.Channel object at 0x7f4d9af0cfc0>
+force_refresh = True, candidate_kind = 'same_tv'
+
+    @pytest.mark.parametrize("force_refresh", [False, True])
+    @pytest.mark.parametrize("candidate_kind", ["movie", "other_tv", "same_tv"])
+    async def test_manual_season_mapping_preserves_identity(db_session, sample_channel, force_refresh, candidate_kind):
+        from app.database import async_session_factory
+        from app.models.series import TVSeries
+        from app.models.work_collection import WorkCollection
+    
+        sample_channel.metadata_source = "tmdb"
+        collection = WorkCollection(title_cn="Synthetic season mapping collection")
+        db_session.add(collection)
+        await db_session.flush()
+        series = TVSeries(title_cn="Synthetic season mapping S2", season_number=2,
+                          collection_id=collection.id, is_anime=False)
+        resource = FileResource(channel_id=sample_channel.id, guid=str(uuid.uuid4()),
+                                title_raw="Synthetic series S02E01", season=2, episode=1, torrent_url="")
+        db_session.add_all([series, resource])
+        await db_session.flush()
+        series_id, resource_id = series.id, resource.id
+        db_session.add(ChannelRawTitleMapping(
+            channel_id=sample_channel.id, raw_title=resource.title_raw,
+            search_title_key=normalize_title(extract_search_title(resource)),
+            series_id=series_id, content_type="tv",
+        ))
+        await db_session.commit()
+        agent = UnifiedMetadataAgent()
+        agent._get_cache = AsyncMock(return_value=None)
+        agent._ensure_genre = AsyncMock()
+        candidate_type = "movie" if candidate_kind == "movie" else "tv"
+        candidate_title = series.title_cn if candidate_kind == "same_tv" else "Synthetic conflicting candidate S2"
+        agent._run_react = AsyncMock(return_value=(
+            {"clean_title": candidate_title, "content_type": candidate_type, "found": True,
+             "matched_entity": {"title_cn": candidate_title, "content_type": candidate_type,
+                                "start_date": "2024-01-01", "is_anime": False}},
+            {"method": "synthetic", "data_sources_used": [], "source_errors": {}, "error": None},
+        ))
+        await agent.process(resource, sample_channel, db_session, force_refresh=force_refresh)
+        await db_session.commit()
+        async with async_session_factory() as observer:
+            saved = await observer.get(FileResource, resource_id)
+            assert saved.series_id == series_id
+            assert saved.movie_id is None
+            assert saved.season == 2
+            from sqlalchemy import func, select
+    
+            from app.models.metadata_cache import MetadataCache
+    
+            assert (await observer.execute(select(func.count()).select_from(Movie))).scalar_one() == 0
+            if candidate_kind != "same_tv" or not force_refresh:
+                assert (await observer.execute(select(func.count()).select_from(MetadataCache))).scalar_one() == 0
+            if candidate_kind == "same_tv" and force_refresh:
+                refreshed = await observer.get(TVSeries, series_id)
+>               assert refreshed.start_date == date(2024, 1, 1)
+E               assert None == datetime.date(2024, 1, 1)
+E                +  where None = <app.models.series.TVSeries object at 0x7f4da8209810>.start_date
+E                +  and   datetime.date(2024, 1, 1) = date(2024, 1, 1)
+
+tests/unit/test_manual_title_mapping.py:209: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.metadata_agent:metadata_agent.py:787 [metadata_agent] channel c2a4e280-4da5-4c37-bc36-5858ca30da3c source='tmdb' is not available (disabled or missing credentials); search will return no external candidates
+=============================== warnings summary ===============================
+tests/unit/test_manual_title_mapping.py::test_manual_season_mapping_preserves_identity[movie-False]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_manual_title_mapping.py::test_manual_season_mapping_preserves_identity[other_tv-True]
+FAILED tests/unit/test_manual_title_mapping.py::test_manual_season_mapping_preserves_identity[same_tv-True]
+2 failed, 4 passed, 27 deselected, 1 warning in 10.08s

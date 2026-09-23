@@ -1,0 +1,395 @@
+..............................F.FFF..................................... [ 35%]
+........................................................................ [ 70%]
+.............................................FF.FF..........             [100%]
+=================================== FAILURES ===================================
+______________ test_process_uses_definitive_cache_without_refresh ______________
+
+    async def test_process_uses_definitive_cache_without_refresh():
+        agent = _patched_agent()
+        resource = _ns_resource()
+        cached = _meta(found=False, reason="No matching work found in Jina")
+        agent._get_cache.return_value = cached
+>       res = await agent.process(resource, SimpleNamespace(id="ch", metadata_source=None), MagicMock())
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_metadata_agent.py:408: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/services/metadata_agent.py:630: in process
+    if await apply_manual_title_mapping(db, resource, channel):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/metadata_service.py:2466: in apply_manual_title_mapping
+    search_key = normalize_title(extract_search_title(resource))
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+resource = namespace(title_raw='[G] Show - 01', series_id=None, movie_id=None, metadata_attempts=0, last_metadata_attempt_at=None, metadata_failure_type=None)
+
+    def extract_search_title(resource: Any) -> str:
+        """Extract a base searchable title from a FileResource (sync, no LLM).
+    
+        Priority:
+        1. ``title_cn`` or ``title_en`` (already parsed by field_mapping), with a
+           trailing season suffix stripped so it matches the base work title.
+        2. ``title_raw`` cleaned: drop the leading [subtitle group] bracket, take
+           the segment before a `` / `` alt-title separator, strip the episode
+           tail / SxxExx / stray season token / trailing episode number, then
+           strip a trailing season suffix.
+        3. Simple regex cleanup of ``title_raw`` as a last resort.
+    
+        Conservative by design: many fansub titles bury the work name inside
+        bracket pairs (``[Group][Work][S04][13]``) where no regex can reliably
+        separate it from release metadata. Those are resolved by the LLM agent
+        (which sets a clean title on success) and the Wikipedia candidate-query
+        builder; this function only needs to be "good enough" for local FTS
+        matching and as a fallback when the agent is disabled or fails.
+        """
+>       title = resource.title_cn or resource.title_en
+                ^^^^^^^^^^^^^^^^^
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'title_cn'. Did you mean: 'title_raw'?
+
+app/services/metadata_service.py:262: AttributeError
+_______________ test_process_ignores_transient_cache_and_reruns ________________
+
+    async def test_process_ignores_transient_cache_and_reruns():
+        """A legacy cached transient failure must not short-circuit a live run."""
+        agent = _patched_agent()
+        agent._get_cache.return_value = _meta(found=False, reason="Agent error: Request timed out.")
+        agent._run_react.return_value = _react_return(found=True)
+>       res = await agent.process(
+            _ns_resource(), SimpleNamespace(id="ch", metadata_source=None), MagicMock(),
+        )
+
+tests/unit/test_metadata_agent.py:434: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/services/metadata_agent.py:630: in process
+    if await apply_manual_title_mapping(db, resource, channel):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/metadata_service.py:2466: in apply_manual_title_mapping
+    search_key = normalize_title(extract_search_title(resource))
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+resource = namespace(title_raw='[G] Show - 01', series_id=None, movie_id=None, metadata_attempts=0, last_metadata_attempt_at=None, metadata_failure_type=None)
+
+    def extract_search_title(resource: Any) -> str:
+        """Extract a base searchable title from a FileResource (sync, no LLM).
+    
+        Priority:
+        1. ``title_cn`` or ``title_en`` (already parsed by field_mapping), with a
+           trailing season suffix stripped so it matches the base work title.
+        2. ``title_raw`` cleaned: drop the leading [subtitle group] bracket, take
+           the segment before a `` / `` alt-title separator, strip the episode
+           tail / SxxExx / stray season token / trailing episode number, then
+           strip a trailing season suffix.
+        3. Simple regex cleanup of ``title_raw`` as a last resort.
+    
+        Conservative by design: many fansub titles bury the work name inside
+        bracket pairs (``[Group][Work][S04][13]``) where no regex can reliably
+        separate it from release metadata. Those are resolved by the LLM agent
+        (which sets a clean title on success) and the Wikipedia candidate-query
+        builder; this function only needs to be "good enough" for local FTS
+        matching and as a fallback when the agent is disabled or fails.
+        """
+>       title = resource.title_cn or resource.title_en
+                ^^^^^^^^^^^^^^^^^
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'title_cn'. Did you mean: 'title_raw'?
+
+app/services/metadata_service.py:262: AttributeError
+________________ test_process_does_not_cache_transient_failure _________________
+
+    async def test_process_does_not_cache_transient_failure():
+        agent = _patched_agent()
+        agent._get_cache.return_value = None
+        agent._run_react.return_value = _react_return(found=False, reason="Agent error: Request timed out.")
+        resource = _ns_resource()
+>       await agent.process(resource, SimpleNamespace(id="ch", metadata_source=None), MagicMock())
+
+tests/unit/test_metadata_agent.py:446: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/services/metadata_agent.py:630: in process
+    if await apply_manual_title_mapping(db, resource, channel):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/metadata_service.py:2466: in apply_manual_title_mapping
+    search_key = normalize_title(extract_search_title(resource))
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+resource = namespace(title_raw='[G] Show - 01', series_id=None, movie_id=None, metadata_attempts=0, last_metadata_attempt_at=None, metadata_failure_type=None)
+
+    def extract_search_title(resource: Any) -> str:
+        """Extract a base searchable title from a FileResource (sync, no LLM).
+    
+        Priority:
+        1. ``title_cn`` or ``title_en`` (already parsed by field_mapping), with a
+           trailing season suffix stripped so it matches the base work title.
+        2. ``title_raw`` cleaned: drop the leading [subtitle group] bracket, take
+           the segment before a `` / `` alt-title separator, strip the episode
+           tail / SxxExx / stray season token / trailing episode number, then
+           strip a trailing season suffix.
+        3. Simple regex cleanup of ``title_raw`` as a last resort.
+    
+        Conservative by design: many fansub titles bury the work name inside
+        bracket pairs (``[Group][Work][S04][13]``) where no regex can reliably
+        separate it from release metadata. Those are resolved by the LLM agent
+        (which sets a clean title on success) and the Wikipedia candidate-query
+        builder; this function only needs to be "good enough" for local FTS
+        matching and as a fallback when the agent is disabled or fails.
+        """
+>       title = resource.title_cn or resource.title_en
+                ^^^^^^^^^^^^^^^^^
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'title_cn'. Did you mean: 'title_raw'?
+
+app/services/metadata_service.py:262: AttributeError
+___________________ test_process_caches_definitive_not_found ___________________
+
+    async def test_process_caches_definitive_not_found():
+        agent = _patched_agent()
+        agent._get_cache.return_value = None
+        agent._run_react.return_value = _react_return(found=False, reason="No matching work found in Jina")
+>       await agent.process(_ns_resource(), SimpleNamespace(id="ch", metadata_source=None), MagicMock())
+
+tests/unit/test_metadata_agent.py:455: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/services/metadata_agent.py:630: in process
+    if await apply_manual_title_mapping(db, resource, channel):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/metadata_service.py:2466: in apply_manual_title_mapping
+    search_key = normalize_title(extract_search_title(resource))
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+resource = namespace(title_raw='[G] Show - 01', series_id=None, movie_id=None, metadata_attempts=0, last_metadata_attempt_at=None, metadata_failure_type=None)
+
+    def extract_search_title(resource: Any) -> str:
+        """Extract a base searchable title from a FileResource (sync, no LLM).
+    
+        Priority:
+        1. ``title_cn`` or ``title_en`` (already parsed by field_mapping), with a
+           trailing season suffix stripped so it matches the base work title.
+        2. ``title_raw`` cleaned: drop the leading [subtitle group] bracket, take
+           the segment before a `` / `` alt-title separator, strip the episode
+           tail / SxxExx / stray season token / trailing episode number, then
+           strip a trailing season suffix.
+        3. Simple regex cleanup of ``title_raw`` as a last resort.
+    
+        Conservative by design: many fansub titles bury the work name inside
+        bracket pairs (``[Group][Work][S04][13]``) where no regex can reliably
+        separate it from release metadata. Those are resolved by the LLM agent
+        (which sets a clean title on success) and the Wikipedia candidate-query
+        builder; this function only needs to be "good enough" for local FTS
+        matching and as a fallback when the agent is disabled or fails.
+        """
+>       title = resource.title_cn or resource.title_en
+                ^^^^^^^^^^^^^^^^^
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'title_cn'. Did you mean: 'title_raw'?
+
+app/services/metadata_service.py:262: AttributeError
+______________ test_process_applies_cached_success_without_rerun _______________
+
+    async def test_process_applies_cached_success_without_rerun():
+        """A definitive cached success (found + entity) short-circuits the live run."""
+        agent = _patched_agent()
+        cached = _meta(found=True, matched_entity={"external_id": "x"})
+        agent._get_cache.return_value = cached
+        resource = _ns_resource()
+>       res = await agent.process(resource, SimpleNamespace(id="ch", metadata_source=None), MagicMock())
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_metadata_agent.py:3182: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/services/metadata_agent.py:630: in process
+    if await apply_manual_title_mapping(db, resource, channel):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/metadata_service.py:2466: in apply_manual_title_mapping
+    search_key = normalize_title(extract_search_title(resource))
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+resource = namespace(title_raw='[G] Show - 01', series_id=None, movie_id=None, metadata_attempts=0, last_metadata_attempt_at=None, metadata_failure_type=None)
+
+    def extract_search_title(resource: Any) -> str:
+        """Extract a base searchable title from a FileResource (sync, no LLM).
+    
+        Priority:
+        1. ``title_cn`` or ``title_en`` (already parsed by field_mapping), with a
+           trailing season suffix stripped so it matches the base work title.
+        2. ``title_raw`` cleaned: drop the leading [subtitle group] bracket, take
+           the segment before a `` / `` alt-title separator, strip the episode
+           tail / SxxExx / stray season token / trailing episode number, then
+           strip a trailing season suffix.
+        3. Simple regex cleanup of ``title_raw`` as a last resort.
+    
+        Conservative by design: many fansub titles bury the work name inside
+        bracket pairs (``[Group][Work][S04][13]``) where no regex can reliably
+        separate it from release metadata. Those are resolved by the LLM agent
+        (which sets a clean title on success) and the Wikipedia candidate-query
+        builder; this function only needs to be "good enough" for local FTS
+        matching and as a fallback when the agent is disabled or fails.
+        """
+>       title = resource.title_cn or resource.title_en
+                ^^^^^^^^^^^^^^^^^
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'title_cn'. Did you mean: 'title_raw'?
+
+app/services/metadata_service.py:262: AttributeError
+_______________ test_process_applies_cached_non_work_immediately _______________
+
+    async def test_process_applies_cached_non_work_immediately():
+        agent = _patched_agent()
+        cached = _meta(found=False, reason="The RSS entry is a music album release")
+        agent._get_cache.return_value = cached
+>       res = await agent.process(_ns_resource(), SimpleNamespace(id="ch", metadata_source=None), MagicMock())
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_metadata_agent.py:3194: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/services/metadata_agent.py:630: in process
+    if await apply_manual_title_mapping(db, resource, channel):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/metadata_service.py:2466: in apply_manual_title_mapping
+    search_key = normalize_title(extract_search_title(resource))
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+resource = namespace(title_raw='[G] Show - 01', series_id=None, movie_id=None, metadata_attempts=0, last_metadata_attempt_at=None, metadata_failure_type=None)
+
+    def extract_search_title(resource: Any) -> str:
+        """Extract a base searchable title from a FileResource (sync, no LLM).
+    
+        Priority:
+        1. ``title_cn`` or ``title_en`` (already parsed by field_mapping), with a
+           trailing season suffix stripped so it matches the base work title.
+        2. ``title_raw`` cleaned: drop the leading [subtitle group] bracket, take
+           the segment before a `` / `` alt-title separator, strip the episode
+           tail / SxxExx / stray season token / trailing episode number, then
+           strip a trailing season suffix.
+        3. Simple regex cleanup of ``title_raw`` as a last resort.
+    
+        Conservative by design: many fansub titles bury the work name inside
+        bracket pairs (``[Group][Work][S04][13]``) where no regex can reliably
+        separate it from release metadata. Those are resolved by the LLM agent
+        (which sets a clean title on success) and the Wikipedia candidate-query
+        builder; this function only needs to be "good enough" for local FTS
+        matching and as a fallback when the agent is disabled or fails.
+        """
+>       title = resource.title_cn or resource.title_en
+                ^^^^^^^^^^^^^^^^^
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'title_cn'. Did you mean: 'title_raw'?
+
+app/services/metadata_service.py:262: AttributeError
+________________ test_process_non_media_is_non_work_and_cached _________________
+
+    async def test_process_non_media_is_non_work_and_cached():
+        agent = _patched_agent()
+        agent._get_cache.return_value = None
+        resource = _ns_resource()
+        resource.title_raw = "BitComet Stable (build 2.21.6.23) 比特彗星全功能解锁豪华版"
+>       meta = await agent.process(resource, SimpleNamespace(id="ch", metadata_source=None), MagicMock())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_metadata_agent.py:3225: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/services/metadata_agent.py:630: in process
+    if await apply_manual_title_mapping(db, resource, channel):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/metadata_service.py:2466: in apply_manual_title_mapping
+    search_key = normalize_title(extract_search_title(resource))
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+resource = namespace(title_raw='BitComet Stable (build 2.21.6.23) 比特彗星全功能解锁豪华版', series_id=None, movie_id=None, metadata_attempts=0, last_metadata_attempt_at=None, metadata_failure_type=None)
+
+    def extract_search_title(resource: Any) -> str:
+        """Extract a base searchable title from a FileResource (sync, no LLM).
+    
+        Priority:
+        1. ``title_cn`` or ``title_en`` (already parsed by field_mapping), with a
+           trailing season suffix stripped so it matches the base work title.
+        2. ``title_raw`` cleaned: drop the leading [subtitle group] bracket, take
+           the segment before a `` / `` alt-title separator, strip the episode
+           tail / SxxExx / stray season token / trailing episode number, then
+           strip a trailing season suffix.
+        3. Simple regex cleanup of ``title_raw`` as a last resort.
+    
+        Conservative by design: many fansub titles bury the work name inside
+        bracket pairs (``[Group][Work][S04][13]``) where no regex can reliably
+        separate it from release metadata. Those are resolved by the LLM agent
+        (which sets a clean title on success) and the Wikipedia candidate-query
+        builder; this function only needs to be "good enough" for local FTS
+        matching and as a fallback when the agent is disabled or fails.
+        """
+>       title = resource.title_cn or resource.title_en
+                ^^^^^^^^^^^^^^^^^
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'title_cn'. Did you mean: 'title_raw'?
+
+app/services/metadata_service.py:262: AttributeError
+_____________ test_process_routes_tmdb_to_react_then_web_fallback ______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f99600a2900>
+
+    async def test_process_routes_tmdb_to_react_then_web_fallback(monkeypatch):
+        """A tmdb-source channel runs ReAct, then the web fallback (here disabled)."""
+        agent = _stub_agent()
+        agent._run_react.return_value = (
+            {"found": False, "clean_title": "X", "content_type": "tv",
+             "reason": "No matching work found in TMDB"},
+            {"method": "react", "data_sources_used": ["tmdb"], "source_errors": {}, "error": None},
+        )
+        monkeypatch.setattr(ma_module, "web_fallback_judge", AsyncMock(return_value=None))
+        channel = SimpleNamespace(
+            id="ch", metadata_source="tmdb", metadata_fallback_sources=None, name="ch",
+        )
+>       meta = await agent.process(_ns_resource(), channel, MagicMock())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_metadata_agent.py:3246: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/services/metadata_agent.py:630: in process
+    if await apply_manual_title_mapping(db, resource, channel):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/metadata_service.py:2466: in apply_manual_title_mapping
+    search_key = normalize_title(extract_search_title(resource))
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+resource = namespace(title_raw='[G] Show - 01', series_id=None, movie_id=None, metadata_attempts=0, last_metadata_attempt_at=None, metadata_failure_type=None)
+
+    def extract_search_title(resource: Any) -> str:
+        """Extract a base searchable title from a FileResource (sync, no LLM).
+    
+        Priority:
+        1. ``title_cn`` or ``title_en`` (already parsed by field_mapping), with a
+           trailing season suffix stripped so it matches the base work title.
+        2. ``title_raw`` cleaned: drop the leading [subtitle group] bracket, take
+           the segment before a `` / `` alt-title separator, strip the episode
+           tail / SxxExx / stray season token / trailing episode number, then
+           strip a trailing season suffix.
+        3. Simple regex cleanup of ``title_raw`` as a last resort.
+    
+        Conservative by design: many fansub titles bury the work name inside
+        bracket pairs (``[Group][Work][S04][13]``) where no regex can reliably
+        separate it from release metadata. Those are resolved by the LLM agent
+        (which sets a clean title on success) and the Wikipedia candidate-query
+        builder; this function only needs to be "good enough" for local FTS
+        matching and as a fallback when the agent is disabled or fails.
+        """
+>       title = resource.title_cn or resource.title_en
+                ^^^^^^^^^^^^^^^^^
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'title_cn'. Did you mean: 'title_raw'?
+
+app/services/metadata_service.py:262: AttributeError
+=============================== warnings summary ===============================
+tests/unit/test_metadata_agent.py::test_metadata_source_normalization_defaults_to_wikipedia
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_metadata_agent.py::test_process_uses_definitive_cache_without_refresh
+FAILED tests/unit/test_metadata_agent.py::test_process_ignores_transient_cache_and_reruns
+FAILED tests/unit/test_metadata_agent.py::test_process_does_not_cache_transient_failure
+FAILED tests/unit/test_metadata_agent.py::test_process_caches_definitive_not_found
+FAILED tests/unit/test_metadata_agent.py::test_process_applies_cached_success_without_rerun
+FAILED tests/unit/test_metadata_agent.py::test_process_applies_cached_non_work_immediately
+FAILED tests/unit/test_metadata_agent.py::test_process_non_media_is_non_work_and_cached
+FAILED tests/unit/test_metadata_agent.py::test_process_routes_tmdb_to_react_then_web_fallback
+8 failed, 196 passed, 1 warning in 24.79s

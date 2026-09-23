@@ -1,0 +1,212 @@
+Traceback (most recent call last):
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/turso/lib.py", line 307, in _exec_ddl_only
+    _run_execute_with_io(stmt, self.extra_io)
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/turso/lib.py", line 185, in _run_execute_with_io
+    result = stmt.execute()
+turso.Error: Transaction error: Concurrent transaction mode is only supported when MVCC is enabled
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1969, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 230, in execute
+    self._adapt_connection._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 368, in _handle_exception
+    raise error.with_traceback(exc_info[2])
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 228, in execute
+    return self.await_(self._execute_async(operation, parameters))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 251, in _execute_async
+    result = await self._cursor.execute(operation, parameters)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/turso/lib_aio.py", line 252, in execute
+    description, lastrowid, rowcount = await self._connection._run(_exec)
+                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/turso/lib_aio.py", line 95, in _run
+    return await fut
+           ^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/turso/worker.py", line 38, in run
+    result = func()
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/turso/lib_aio.py", line 249, in _exec
+    cur.execute(sql, parameters)
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/turso/lib.py", line 678, in execute
+    self._maybe_implicit_begin(sql)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/turso/lib.py", line 665, in _maybe_implicit_begin
+    self._connection._maybe_implicit_begin(sql)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/turso/lib.py", line 469, in _maybe_implicit_begin
+    self._exec_ddl_only(f"BEGIN {level}")
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/turso/lib.py", line 311, in _exec_ddl_only
+    raise _map_turso_exception(exc)
+turso.lib.DatabaseError: Transaction error: Concurrent transaction mode is only supported when MVCC is enabled
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/manual_mapping_cache_probe.py", line 68, in <module>
+    asyncio.run(main())
+    ~~~~~~~~~~~^^^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 719, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/manual_mapping_cache_probe.py", line 37, in main
+    await db.flush()
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/ext/asyncio/session.py", line 786, in flush
+    await greenlet_spawn(self.sync_session.flush, objects=objects)
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 203, in greenlet_spawn
+    result = context.switch(value)
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py", line 4353, in flush
+    self._flush(objects)
+    ~~~~~~~~~~~^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py", line 4488, in _flush
+    with util.safe_reraise():
+         ~~~~~~~~~~~~~~~~~^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/util/langhelpers.py", line 122, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py", line 4449, in _flush
+    flush_context.execute()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/orm/unitofwork.py", line 465, in execute
+    rec.execute(self)
+    ~~~~~~~~~~~^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/orm/unitofwork.py", line 641, in execute
+    util.preloaded.orm_persistence.save_obj(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self.mapper,
+        ^^^^^^^^^^^^
+        uow.states_for_mapper_hierarchy(self.mapper, False, False),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        uow,
+        ^^^^
+    )
+    ^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/orm/persistence.py", line 94, in save_obj
+    _emit_insert_statements(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        base_mapper,
+        ^^^^^^^^^^^^
+    ...<3 lines>...
+        insert,
+        ^^^^^^^
+    )
+    ^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/orm/persistence.py", line 1234, in _emit_insert_statements
+    result = connection.execute(
+        statement,
+        params,
+        execution_options=execution_options,
+    )
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1421, in execute
+    return meth(
+        self,
+        distilled_parameters,
+        execution_options or NO_OPTIONS,
+    )
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self, distilled_params, execution_options
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1643, in _execute_clauseelement
+    ret = self._execute_context(
+        dialect,
+    ...<8 lines>...
+        cache_hit=cache_hit,
+    )
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1848, in _execute_context
+    return self._exec_single_context(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        dialect, context, statement, parameters
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1988, in _exec_single_context
+    self._handle_dbapi_exception(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        e, str_statement, effective_parameters, cursor, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 2365, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1969, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 230, in execute
+    self._adapt_connection._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 368, in _handle_exception
+    raise error.with_traceback(exc_info[2])
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 228, in execute
+    return self.await_(self._execute_async(operation, parameters))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 251, in _execute_async
+    result = await self._cursor.execute(operation, parameters)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/turso/lib_aio.py", line 252, in execute
+    description, lastrowid, rowcount = await self._connection._run(_exec)
+                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/turso/lib_aio.py", line 95, in _run
+    return await fut
+           ^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/turso/worker.py", line 38, in run
+    result = func()
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/turso/lib_aio.py", line 249, in _exec
+    cur.execute(sql, parameters)
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/turso/lib.py", line 678, in execute
+    self._maybe_implicit_begin(sql)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/turso/lib.py", line 665, in _maybe_implicit_begin
+    self._connection._maybe_implicit_begin(sql)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/turso/lib.py", line 469, in _maybe_implicit_begin
+    self._exec_ddl_only(f"BEGIN {level}")
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v14-dispatch-lx/.venv/lib/python3.13/site-packages/turso/lib.py", line 311, in _exec_ddl_only
+    raise _map_turso_exception(exc)
+sqlalchemy.exc.DatabaseError: (turso.lib.DatabaseError) Transaction error: Concurrent transaction mode is only supported when MVCC is enabled
+[SQL: INSERT INTO channels (id, name, type, url, fetch_interval, status, field_mapping, metadata_agent_enabled, metadata_source, required_metadata_fields, default_is_anime, auto_cleanup_unresolved_enabled, auto_cleanup_unresolved_days, metadata_refresh_enabled, metadata_refresh_interval_minutes, metadata_refresh_full_scope, last_fetched_at, last_fetch_status, last_fetch_error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]
+[parameters: ('1076fbe9-2dbb-44e5-ac6a-77aee08fbe09', 'Synthetic mapping conflict', 'rss_feed', 'https://example.invalid', 1800, 'active', '{}', 1, 'tmdb', '["search_title", "content_type", "is_batch", "year", "is_anime", "episode", "episode_start", "episode_end", "resource_collection"]', 0, 0, 21, 0, None, 0, None, None, None)]
+(Background on this error at: https://sqlalche.me/e/20/4xp6)

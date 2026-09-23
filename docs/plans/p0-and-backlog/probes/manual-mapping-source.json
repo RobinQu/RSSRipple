@@ -1,0 +1,31 @@
+{
+  "prototype": "/tmp/rssripple-v15-manual-mapping",
+  "base_prototype": "/tmp/rssripple-v14-dispatch-lx",
+  "base_hashes": {
+    "app/services/metadata_service.py": "ea846b437061bcb13052c8ec28800ab485f71d447c7cb2d44a1521a065ff6dd3",
+    "app/services/metadata_agent.py": "53e918d897484da8a054ec9f0c950c74e955616cd4c8d1faa2f2232e0a4b8ba9",
+    "tests/unit/test_metadata_agent.py": "7b52d6fa94e3033097700e80aaea01a3d927b34482b359b2a21a6d08b95cbd89",
+    "tests/unit/test_manual_title_mapping.py": null,
+    "app/services/metadata_repository.py": "ddc6e3c490fbc9961e42958b27d3e789fe49c47225839894aaf63fa7fe2bdf39",
+    "tests/unit/test_manual_mapping_batches.py": null,
+    "docs/design/business-logic.md": "6cde7ed775dd5083fada0f05e52e6d90cdbdb83ce553f97944a0da4eda3b721b",
+    "tests/unit/test_manual_mapping_identity.py": null
+  },
+  "files": {
+    "app/services/metadata_service.py": "82c67ef1b3a821f08116a282d11568dd19ea0b9afc8dc2f333a4c82f9cf3bbe7",
+    "app/services/metadata_agent.py": "f3a6721cfec34751fc04ae3177798c61c51e6d247ccca7c1a5e17c0669bf0844",
+    "tests/unit/test_metadata_agent.py": "b84792d8524da0c0d4493e748d95744f9955fd16db5fcdf56322c88fb1190b68",
+    "tests/unit/test_manual_title_mapping.py": "1154dca4e691ba8fbe7a5b7efae62752c6d15017d8665b9493fffc44e6648f41"
+  },
+  "status": "uc external identity routes 6 passed; ub regression running; concurrent mapping edits and full gates pending",
+  "candidate_hashes": {
+    "app/services/metadata_service.py": "dfcdf730dc0c35144b231d69e638423777f8929f4673f1c5be9cc384c9377a05",
+    "app/services/metadata_agent.py": "7ceb54f082508ef7a3e639ae17109e6695733e869ffaab4ca37a679a937eb036",
+    "tests/unit/test_metadata_agent.py": "9ee429b00fd2288e215f7f48e9d3ed8e088f35b00038fa4c0c951d06873544cb",
+    "tests/unit/test_manual_title_mapping.py": "26d9c3cb9ae24554b6c64829296cfe495e6710c4925ca1c467c7445d478380cb",
+    "app/services/metadata_repository.py": "6ed096408b895bf271eea7afaff1340387feedbbddc366e05629aca98d37a558",
+    "tests/unit/test_manual_mapping_batches.py": "c54a0bc653553f82fb94e773f4f0671ff80a24d0d3543eb46235c51f410b3aa9",
+    "docs/design/business-logic.md": "34c5ec5a0b9525ae9c01e6c96737092457cca1b7ff58e8503aa61d4799aaa30d",
+    "tests/unit/test_manual_mapping_identity.py": "392700777eb2f0352d753c473b98718ad7f70505d199687ed41856b2190d6e9f"
+  }
+}

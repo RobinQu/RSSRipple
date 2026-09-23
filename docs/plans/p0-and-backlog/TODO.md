@@ -8,7 +8,7 @@
 
 > 2026-09-23 主干复核：当前 P0（P0-1/2/3/7/8/9）及 B9 的提交 `4c804ed` 已包含在本地 `main`；原 P0-4、P0-6 降级后的修复 `7fd8121`、`e535e1f` 也已包含。原 P0-5 仍按 P2 保留。最新核验基线 `e536656`，本地领先本地记录的 `origin/main` 19 个提交，未推送远端；详情见 [PLAN.md](PLAN.md#p0-主干复核2026-09-23)。
 
-> B7 已完成 V13 全量验收，合入记录见 [V13](V13-CONSUMPTION-PROGRESS.md)。后续优先继续 B4 执行所有权及下载持久幂等，见 [V14](V14-QUEUE-OWNERSHIP.md)。
+> B7 已完成 V13 全量验收，合入记录见 [V13](V13-CONSUMPTION-PROGRESS.md)。B4 已完成严格验收并合入本地 main（`7781a81`），见 [V14](V14-QUEUE-OWNERSHIP.md)；下一批继续 [V15 M1](V15-MANUAL-MAPPING.md)。
 
 ## 优先级
 

@@ -1,0 +1,352 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="8" skipped="0" tests="204" time="24.781" timestamp="2026-09-23T11:25:08.739515+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_metadata_agent" name="test_metadata_source_normalization_defaults_to_wikipedia" time="0.002" /><testcase classname="tests.unit.test_metadata_agent" name="test_channel_metadata_source_resolution_is_two_source" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_tools_are_restricted_to_selected_source" time="0.152" /><testcase classname="tests.unit.test_metadata_agent" name="test_judge_model_sends_both_thinking_spellings" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_resource_metadata_parses_batch_fields" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_resource_metadata_parses_batch_scope" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_resource_metadata_batch_scope_absent_is_none" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_resource_metadata_batch_scope_off_whitelist_is_none" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_resource_metadata_defaults_are_non_batch" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_resource_metadata_parses_subtitle_langs" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_resource_metadata_subtitle_langs_absent_is_none" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_seasons_map_extracts_valid_entries_only" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_seasons_map_from_none_returns_empty" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestReconcileEpisode" name="test_raw_within_bounds_stays_raw" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestReconcileEpisode" name="test_raw_within_tolerance_stays_raw" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestReconcileEpisode" name="test_absolute_converts_to_per_season" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestReconcileEpisode" name="test_absolute_last_episode" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestReconcileEpisode" name="test_no_seasons_map_returns_none" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestReconcileEpisode" name="test_unknown_season_returns_none" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestReconcileEpisode" name="test_conversion_out_of_range_is_ambiguous" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestReconcileEpisode" name="test_season_1_no_prev_total_but_raw_too_big" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_classify_failure_success_returns_none" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_classify_failure_found_true_no_entity_is_transient" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_classify_failure_agent_error_recursion_is_transient" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_classify_failure_transient_markers" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_classify_failure_web_fallback_errors_are_transient" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_classify_failure_http_source_errors_are_transient" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_classify_failure_non_work_markers" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_classify_failure_not_found_default" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_record_metadata_attempt_increments_and_stamps" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_process_uses_definitive_cache_without_refresh" time="0.005"><failure message="AttributeError: 'types.SimpleNamespace' object has no attribute 'title_cn'. Did you mean: 'title_raw'?">async def test_process_uses_definitive_cache_without_refresh():
+        agent = _patched_agent()
+        resource = _ns_resource()
+        cached = _meta(found=False, reason="No matching work found in Jina")
+        agent._get_cache.return_value = cached
+&gt;       res = await agent.process(resource, SimpleNamespace(id="ch", metadata_source=None), MagicMock())
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_metadata_agent.py:408: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/services/metadata_agent.py:630: in process
+    if await apply_manual_title_mapping(db, resource, channel):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/metadata_service.py:2466: in apply_manual_title_mapping
+    search_key = normalize_title(extract_search_title(resource))
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+resource = namespace(title_raw='[G] Show - 01', series_id=None, movie_id=None, metadata_attempts=0, last_metadata_attempt_at=None, metadata_failure_type=None)
+
+    def extract_search_title(resource: Any) -&gt; str:
+        """Extract a base searchable title from a FileResource (sync, no LLM).
+    
+        Priority:
+        1. ``title_cn`` or ``title_en`` (already parsed by field_mapping), with a
+           trailing season suffix stripped so it matches the base work title.
+        2. ``title_raw`` cleaned: drop the leading [subtitle group] bracket, take
+           the segment before a `` / `` alt-title separator, strip the episode
+           tail / SxxExx / stray season token / trailing episode number, then
+           strip a trailing season suffix.
+        3. Simple regex cleanup of ``title_raw`` as a last resort.
+    
+        Conservative by design: many fansub titles bury the work name inside
+        bracket pairs (``[Group][Work][S04][13]``) where no regex can reliably
+        separate it from release metadata. Those are resolved by the LLM agent
+        (which sets a clean title on success) and the Wikipedia candidate-query
+        builder; this function only needs to be "good enough" for local FTS
+        matching and as a fallback when the agent is disabled or fails.
+        """
+&gt;       title = resource.title_cn or resource.title_en
+                ^^^^^^^^^^^^^^^^^
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'title_cn'. Did you mean: 'title_raw'?
+
+app/services/metadata_service.py:262: AttributeError</failure></testcase><testcase classname="tests.unit.test_metadata_agent" name="test_process_force_refresh_bypasses_definitive_cache" time="11.982" /><testcase classname="tests.unit.test_metadata_agent" name="test_process_ignores_transient_cache_and_reruns" time="0.004"><failure message="AttributeError: 'types.SimpleNamespace' object has no attribute 'title_cn'. Did you mean: 'title_raw'?">async def test_process_ignores_transient_cache_and_reruns():
+        """A legacy cached transient failure must not short-circuit a live run."""
+        agent = _patched_agent()
+        agent._get_cache.return_value = _meta(found=False, reason="Agent error: Request timed out.")
+        agent._run_react.return_value = _react_return(found=True)
+&gt;       res = await agent.process(
+            _ns_resource(), SimpleNamespace(id="ch", metadata_source=None), MagicMock(),
+        )
+
+tests/unit/test_metadata_agent.py:434: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/services/metadata_agent.py:630: in process
+    if await apply_manual_title_mapping(db, resource, channel):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/metadata_service.py:2466: in apply_manual_title_mapping
+    search_key = normalize_title(extract_search_title(resource))
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+resource = namespace(title_raw='[G] Show - 01', series_id=None, movie_id=None, metadata_attempts=0, last_metadata_attempt_at=None, metadata_failure_type=None)
+
+    def extract_search_title(resource: Any) -&gt; str:
+        """Extract a base searchable title from a FileResource (sync, no LLM).
+    
+        Priority:
+        1. ``title_cn`` or ``title_en`` (already parsed by field_mapping), with a
+           trailing season suffix stripped so it matches the base work title.
+        2. ``title_raw`` cleaned: drop the leading [subtitle group] bracket, take
+           the segment before a `` / `` alt-title separator, strip the episode
+           tail / SxxExx / stray season token / trailing episode number, then
+           strip a trailing season suffix.
+        3. Simple regex cleanup of ``title_raw`` as a last resort.
+    
+        Conservative by design: many fansub titles bury the work name inside
+        bracket pairs (``[Group][Work][S04][13]``) where no regex can reliably
+        separate it from release metadata. Those are resolved by the LLM agent
+        (which sets a clean title on success) and the Wikipedia candidate-query
+        builder; this function only needs to be "good enough" for local FTS
+        matching and as a fallback when the agent is disabled or fails.
+        """
+&gt;       title = resource.title_cn or resource.title_en
+                ^^^^^^^^^^^^^^^^^
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'title_cn'. Did you mean: 'title_raw'?
+
+app/services/metadata_service.py:262: AttributeError</failure></testcase><testcase classname="tests.unit.test_metadata_agent" name="test_process_does_not_cache_transient_failure" time="0.002"><failure message="AttributeError: 'types.SimpleNamespace' object has no attribute 'title_cn'. Did you mean: 'title_raw'?">async def test_process_does_not_cache_transient_failure():
+        agent = _patched_agent()
+        agent._get_cache.return_value = None
+        agent._run_react.return_value = _react_return(found=False, reason="Agent error: Request timed out.")
+        resource = _ns_resource()
+&gt;       await agent.process(resource, SimpleNamespace(id="ch", metadata_source=None), MagicMock())
+
+tests/unit/test_metadata_agent.py:446: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/services/metadata_agent.py:630: in process
+    if await apply_manual_title_mapping(db, resource, channel):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/metadata_service.py:2466: in apply_manual_title_mapping
+    search_key = normalize_title(extract_search_title(resource))
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+resource = namespace(title_raw='[G] Show - 01', series_id=None, movie_id=None, metadata_attempts=0, last_metadata_attempt_at=None, metadata_failure_type=None)
+
+    def extract_search_title(resource: Any) -&gt; str:
+        """Extract a base searchable title from a FileResource (sync, no LLM).
+    
+        Priority:
+        1. ``title_cn`` or ``title_en`` (already parsed by field_mapping), with a
+           trailing season suffix stripped so it matches the base work title.
+        2. ``title_raw`` cleaned: drop the leading [subtitle group] bracket, take
+           the segment before a `` / `` alt-title separator, strip the episode
+           tail / SxxExx / stray season token / trailing episode number, then
+           strip a trailing season suffix.
+        3. Simple regex cleanup of ``title_raw`` as a last resort.
+    
+        Conservative by design: many fansub titles bury the work name inside
+        bracket pairs (``[Group][Work][S04][13]``) where no regex can reliably
+        separate it from release metadata. Those are resolved by the LLM agent
+        (which sets a clean title on success) and the Wikipedia candidate-query
+        builder; this function only needs to be "good enough" for local FTS
+        matching and as a fallback when the agent is disabled or fails.
+        """
+&gt;       title = resource.title_cn or resource.title_en
+                ^^^^^^^^^^^^^^^^^
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'title_cn'. Did you mean: 'title_raw'?
+
+app/services/metadata_service.py:262: AttributeError</failure></testcase><testcase classname="tests.unit.test_metadata_agent" name="test_process_caches_definitive_not_found" time="0.002"><failure message="AttributeError: 'types.SimpleNamespace' object has no attribute 'title_cn'. Did you mean: 'title_raw'?">async def test_process_caches_definitive_not_found():
+        agent = _patched_agent()
+        agent._get_cache.return_value = None
+        agent._run_react.return_value = _react_return(found=False, reason="No matching work found in Jina")
+&gt;       await agent.process(_ns_resource(), SimpleNamespace(id="ch", metadata_source=None), MagicMock())
+
+tests/unit/test_metadata_agent.py:455: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/services/metadata_agent.py:630: in process
+    if await apply_manual_title_mapping(db, resource, channel):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/metadata_service.py:2466: in apply_manual_title_mapping
+    search_key = normalize_title(extract_search_title(resource))
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+resource = namespace(title_raw='[G] Show - 01', series_id=None, movie_id=None, metadata_attempts=0, last_metadata_attempt_at=None, metadata_failure_type=None)
+
+    def extract_search_title(resource: Any) -&gt; str:
+        """Extract a base searchable title from a FileResource (sync, no LLM).
+    
+        Priority:
+        1. ``title_cn`` or ``title_en`` (already parsed by field_mapping), with a
+           trailing season suffix stripped so it matches the base work title.
+        2. ``title_raw`` cleaned: drop the leading [subtitle group] bracket, take
+           the segment before a `` / `` alt-title separator, strip the episode
+           tail / SxxExx / stray season token / trailing episode number, then
+           strip a trailing season suffix.
+        3. Simple regex cleanup of ``title_raw`` as a last resort.
+    
+        Conservative by design: many fansub titles bury the work name inside
+        bracket pairs (``[Group][Work][S04][13]``) where no regex can reliably
+        separate it from release metadata. Those are resolved by the LLM agent
+        (which sets a clean title on success) and the Wikipedia candidate-query
+        builder; this function only needs to be "good enough" for local FTS
+        matching and as a fallback when the agent is disabled or fails.
+        """
+&gt;       title = resource.title_cn or resource.title_en
+                ^^^^^^^^^^^^^^^^^
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'title_cn'. Did you mean: 'title_raw'?
+
+app/services/metadata_service.py:262: AttributeError</failure></testcase><testcase classname="tests.unit.test_metadata_agent" name="test_clean_query_strips_season_episode_quality" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_clean_query_strips_parens_colon_roman" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_is_non_media_detects_software" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_normalize_title_collapses_traditional_and_simplified" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_work_name_prefix_splits_at_first_season_marker" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_work_name_prefix_splits_cjk_from_romaji" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_detect_audio_work_type" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_candidate_queries_emits_season_stripped_variants" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_candidate_queries_recovers_bracketed_work_name" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_candidate_queries_splits_full_width_slash" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_candidate_queries_uses_search_title_hint" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_candidate_queries_adds_ja_for_kana_fragments" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_clean_query_strips_orphan_brackets" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_candidate_queries_skips_station_token_leak" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_classify_wikipedia_page_work_vs_non_work" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_process_short_circuits_known_series" time="0.619" /><testcase classname="tests.unit.test_metadata_agent" name="test_process_reuses_successful_sibling_resource_title" time="0.363" /><testcase classname="tests.unit.test_metadata_agent" name="test_process_resolves_asmr_to_audio_work" time="0.415" /><testcase classname="tests.unit.test_metadata_agent" name="test_process_force_refresh_bypasses_known_work_short_circuit" time="0.446" /><testcase classname="tests.unit.test_metadata_agent" name="test_process_short_circuit_matches_season_suffixed_title" time="0.386" /><testcase classname="tests.unit.test_metadata_agent" name="test_process_routes_wikipedia_to_search_then_judge" time="0.412" /><testcase classname="tests.unit.test_metadata_agent" name="test_process_routes_bangumi_to_bangumi_search_then_judge" time="0.406" /><testcase classname="tests.unit.test_metadata_agent" name="test_process_bangumi_not_found_invokes_web_fallback" time="0.416" /><testcase classname="tests.unit.test_metadata_agent" name="test_process_bangumi_transient_miss_skips_web_fallback" time="0.326" /><testcase classname="tests.unit.test_metadata_agent" name="test_process_bangumi_found_skips_web_fallback" time="0.429" /><testcase classname="tests.unit.test_metadata_agent" name="test_title_only_bangumi_not_found_invokes_web_fallback" time="0.004" /><testcase classname="tests.unit.test_metadata_agent" name="test_title_only_bangumi_transient_miss_skips_web_fallback" time="0.003" /><testcase classname="tests.unit.test_metadata_agent" name="test_title_only_bangumi_found_skips_web_fallback" time="0.003" /><testcase classname="tests.unit.test_metadata_agent" name="test_cache_source_key_namespaces_by_source" time="0.002" /><testcase classname="tests.unit.test_metadata_agent" name="test_get_cache_is_source_scoped" time="0.361" /><testcase classname="tests.unit.test_metadata_agent" name="test_set_cache_upsert_overwrites_same_source" time="0.386" /><testcase classname="tests.unit.test_metadata_agent" name="test_classify_failure_wikipedia_infra_error_is_transient" time="0.002" /><testcase classname="tests.unit.test_metadata_agent" name="test_classify_failure_wikipedia_page_not_found_is_not_found" time="0.002" /><testcase classname="tests.unit.test_metadata_agent" name="test_classify_failure_wikipedia_legit_no_results_is_not_found" time="0.002" /><testcase classname="tests.unit.test_metadata_agent" name="test_extract_search_info_surfaces_wikipedia_infra_error" time="0.002" /><testcase classname="tests.unit.test_metadata_agent" name="test_extract_search_info_wikipedia_empty_results_no_search_error" time="0.002" /><testcase classname="tests.unit.test_metadata_agent" name="test_wikipedia_client_sets_ua_and_language" time="0.004" /><testcase classname="tests.unit.test_metadata_agent" name="test_wikipedia_client_caches_per_language" time="0.028" /><testcase classname="tests.unit.test_metadata_agent" name="test_execute_search_wikipedia_maps_infra_error_to_transient" time="0.002" /><testcase classname="tests.unit.test_metadata_agent" name="test_execute_search_wikipedia_returns_pages_on_success" time="0.004" /><testcase classname="tests.unit.test_metadata_agent" name="test_execute_search_wikipedia_empty_results_is_success_empty" time="0.004" /><testcase classname="tests.unit.test_metadata_agent" name="test_execute_search_wikipedia_skips_missing_and_summary_failure" time="0.006" /><testcase classname="tests.unit.test_metadata_agent" name="test_execute_get_wikipedia_page_returns_full_page" time="0.004" /><testcase classname="tests.unit.test_metadata_agent" name="test_execute_get_wikipedia_page_not_found" time="0.003" /><testcase classname="tests.unit.test_metadata_agent" name="test_execute_get_wikipedia_page_maps_infra_error_to_transient" time="0.004" /><testcase classname="tests.unit.test_metadata_agent" name="test_execute_get_wikipedia_page_detects_disambiguation" time="0.004" /><testcase classname="tests.unit.test_metadata_agent" name="test_search_then_judge_skips_autolink_for_non_work_page" time="0.005" /><testcase classname="tests.unit.test_metadata_agent" name="test_is_disambiguation_category_heuristic" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_fetch_wikipedia_page_image_prefers_original" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_fetch_wikipedia_page_image_falls_back_to_thumbnail" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_fetch_wikipedia_page_image_none_when_no_image" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_fetch_wikipedia_page_image_returns_none_on_http_error" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_fetch_wikipedia_page_image_falls_back_to_rest_summary" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_fetch_wikipedia_page_image_rejects_mismatched_rest_title" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_fetch_wikipedia_page_image_rejects_wrong_pageid_then_rest_rescues" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_execute_get_wikipedia_page_includes_langlinks" time="0.779" /><testcase classname="tests.unit.test_metadata_agent" name="test_search_then_judge_autolink_fills_cross_language_titles" time="1.932" /><testcase classname="tests.unit.test_metadata_agent.TestLocateAbsoluteEpisode" name="test_locates_within_seasons" time="0.002" /><testcase classname="tests.unit.test_metadata_agent.TestLocateAbsoluteEpisode" name="test_final_season_tolerance" time="0.002" /><testcase classname="tests.unit.test_metadata_agent.TestLocateAbsoluteEpisode" name="test_beyond_total_returns_none" time="0.002" /><testcase classname="tests.unit.test_metadata_agent.TestLocateAbsoluteEpisode" name="test_sparse_season_map" time="0.002" /><testcase classname="tests.unit.test_metadata_agent.TestApplyEpisodeReconcileSeasonDerivation" name="test_derives_season_from_absolute" time="0.002" /><testcase classname="tests.unit.test_metadata_agent.TestApplyEpisodeReconcileSeasonDerivation" name="test_beyond_total_marks_ambiguous" time="0.002" /><testcase classname="tests.unit.test_metadata_agent.TestApplyEpisodeReconcileSeasonDerivation" name="test_manual_untouched" time="0.002" /><testcase classname="tests.unit.test_metadata_agent.TestApplyEpisodeReconcileSeasonDerivation" name="test_batch_untouched" time="0.002" /><testcase classname="tests.unit.test_metadata_agent.TestApplyEpisodeReconcileSeasonDerivation" name="test_no_absolute_no_season_marks_raw" time="0.002" /><testcase classname="tests.unit.test_metadata_agent.TestApplyEpisodeReconcileSeasonDerivation" name="test_no_episode_no_absolute_skips" time="0.002" /><testcase classname="tests.unit.test_metadata_agent" name="test_seasons_map_from_list" time="0.008" /><testcase classname="tests.unit.test_metadata_agent.TestApplyEpisodeReconcile" name="test_converts_absolute_to_per_season" time="0.002" /><testcase classname="tests.unit.test_metadata_agent.TestApplyEpisodeReconcile" name="test_marks_ambiguous_when_arithmetic_fails" time="0.002" /><testcase classname="tests.unit.test_metadata_agent.TestApplyEpisodeReconcile" name="test_marks_raw_when_no_basis" time="0.002" /><testcase classname="tests.unit.test_metadata_agent.TestApplyEpisodeReconcile" name="test_keeps_per_season_episode" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestApplyEpisodeReconcile" name="test_skips_manual_and_reconciled" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestApplyEpisodeReconcile" name="test_skips_batch" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_process_short_circuit_reconciles_absolute_episode" time="0.469" /><testcase classname="tests.unit.test_metadata_agent" name="test_process_short_circuit_without_seasons_marks_nothing" time="0.383" /><testcase classname="tests.unit.test_metadata_agent" name="test_series_history_context_includes_siblings" time="0.393" /><testcase classname="tests.unit.test_metadata_agent" name="test_series_history_context_none_without_match" time="0.395" /><testcase classname="tests.unit.test_metadata_agent.TestApplyEpisodeReconcileCrossCheck" name="test_conflict_marks_ambiguous" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestApplyEpisodeReconcileCrossCheck" name="test_consistent_pair_passes_through" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestApplyEpisodeReconcileCrossCheck" name="test_locate_none_is_no_evidence" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestApplyEpisodeReconcileCrossCheck" name="test_manual_never_cross_checked" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestApplyEpisodeReconcileCrossCheck" name="test_reconciled_nn_mm_beyond_total_not_reflagged" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestVerifiedSeasonCount" name="test_number_of_seasons_preferred" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestVerifiedSeasonCount" name="test_seasons_list_excludes_specials" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestVerifiedSeasonCount" name="test_no_usable_data_returns_none" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestVerifiedSeasonCount" name="test_match_scoped_single_season_entry" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestVerifiedSeasonCount" name="test_bangumi_series_identity_restores_entry_evidence" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestVerifiedSeasonDefault" name="test_single_season_entity_defaults_to_1" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestVerifiedSeasonDefault" name="test_single_season_entry_defaults_without_work_count" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestVerifiedSeasonDefault" name="test_single_entry_seasons_list_defaults_to_1" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestVerifiedSeasonDefault" name="test_multi_season_entity_marks_ambiguous" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestVerifiedSeasonDefault" name="test_no_seasons_data_marks_ambiguous" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestVerifiedSeasonDefault" name="test_explicit_season_untouched" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestVerifiedSeasonDefault" name="test_movie_and_not_found_untouched" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestValidateInferredSeason" name="test_season_within_explicit_count_kept" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestValidateInferredSeason" name="test_season_present_in_map_kept" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestValidateInferredSeason" name="test_hallucinated_season_dropped" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestValidateInferredSeason" name="test_season_absent_from_map_dropped" time="0.002" /><testcase classname="tests.unit.test_metadata_agent.TestValidateInferredSeason" name="test_no_season_evidence_dropped" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestValidateInferredSeason" name="test_specials_season_zero_kept" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestValidateInferredSeason" name="test_then_verified_default_recovers_single_season" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestValidateInferredSeason" name="test_movie_not_found_and_no_season_untouched" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_build_production_message_includes_same_title_context" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_build_production_message_omits_same_title_context_when_none" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_build_same_title_context_queries_local_db" time="0.398" /><testcase classname="tests.unit.test_metadata_agent.TestResolveMissingSeason" name="test_single_season_via_number_of_seasons_defaults_1" time="0.002" /><testcase classname="tests.unit.test_metadata_agent.TestResolveMissingSeason" name="test_single_season_via_seasons_list_defaults_1" time="0.002" /><testcase classname="tests.unit.test_metadata_agent.TestResolveMissingSeason" name="test_multi_season_marks_ambiguous" time="0.002" /><testcase classname="tests.unit.test_metadata_agent.TestResolveMissingSeason" name="test_matching_bilingual_sequel_suffix_uses_verified_season" time="0.002" /><testcase classname="tests.unit.test_metadata_agent.TestResolveMissingSeason" name="test_single_or_unverified_bare_suffix_stays_ambiguous" time="0.002" /><testcase classname="tests.unit.test_metadata_agent.TestResolveMissingSeason" name="test_unknown_season_count_marks_ambiguous" time="0.002" /><testcase classname="tests.unit.test_metadata_agent.TestResolveMissingSeason" name="test_noop_when_season_known" time="0.002" /><testcase classname="tests.unit.test_metadata_agent.TestResolveMissingSeason" name="test_batch_scope_none_single_season_defaults_1" time="0.002" /><testcase classname="tests.unit.test_metadata_agent.TestResolveMissingSeason" name="test_batch_scope_season_single_season_defaults_1" time="0.002" /><testcase classname="tests.unit.test_metadata_agent.TestResolveMissingSeason" name="test_batch_multi_season_never_ambiguous" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestResolveMissingSeason" name="test_batch_no_evidence_never_ambiguous" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestResolveMissingSeason" name="test_batch_multi_scope_noop" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestResolveMissingSeason" name="test_batch_manual_noop" time="0.001" /><testcase classname="tests.unit.test_metadata_agent.TestResolveMissingSeason" name="test_noop_for_manual" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_process_short_circuit_applies_verified_season_default" time="0.416" /><testcase classname="tests.unit.test_metadata_agent" name="test_process_short_circuit_marks_season_uncertain" time="0.437" /><testcase classname="tests.unit.test_metadata_agent" name="test_process_short_circuit_derives_season_from_absolute" time="0.445" /><testcase classname="tests.unit.test_metadata_agent" name="test_normalize_finalize_dates_tv_first_air_date_fills_start_date" time="0.002" /><testcase classname="tests.unit.test_metadata_agent" name="test_normalize_finalize_dates_tv_release_date_fills_start_date" time="0.002" /><testcase classname="tests.unit.test_metadata_agent" name="test_normalize_finalize_dates_tv_keeps_existing_start_date" time="0.002" /><testcase classname="tests.unit.test_metadata_agent" name="test_normalize_finalize_dates_movie_symmetric_branch" time="0.002" /><testcase classname="tests.unit.test_metadata_agent" name="test_normalize_finalize_dates_movie_keeps_existing_release_date" time="0.002" /><testcase classname="tests.unit.test_metadata_agent" name="test_normalize_finalize_dates_no_entity_or_no_source_key_is_noop" time="0.002" /><testcase classname="tests.unit.test_metadata_agent" name="test_search_tmdb_tool_serializes_result" time="0.003" /><testcase classname="tests.unit.test_metadata_agent" name="test_get_tmdb_details_tool_serializes_result" time="0.002" /><testcase classname="tests.unit.test_metadata_agent" name="test_search_wikipedia_tool_serializes_result" time="0.002" /><testcase classname="tests.unit.test_metadata_agent" name="test_get_wikipedia_page_tool_serializes_result" time="0.002" /><testcase classname="tests.unit.test_metadata_agent" name="test_finalize_tool_returns_sentinel" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_title_year_hint_mentions_the_parsed_year" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_parse_genre_array_extracts_first_array_and_clamps" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_parse_genre_array_returns_empty_on_bad_json" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_agent_for_source_builds_and_caches_one_graph_per_source" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_ensure_genre_infers_from_synopsis" time="0.002" /><testcase classname="tests.unit.test_metadata_agent" name="test_ensure_genre_handles_non_string_content" time="0.002" /><testcase classname="tests.unit.test_metadata_agent" name="test_ensure_genre_llm_failure_is_silent" time="0.002" /><testcase classname="tests.unit.test_metadata_agent" name="test_ensure_genre_noop_without_description_or_with_genre" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_attach_tmdb_episode_list_skips_ineligible" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_attach_tmdb_episode_list_requires_tmdb_id_and_seasons" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_attach_tmdb_episode_list_fills_from_prefix_id" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_attach_tmdb_episode_list_numeric_id_without_prefix" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_run_react_success_extracts_finalize" time="0.002" /><testcase classname="tests.unit.test_metadata_agent" name="test_run_react_invocation_failure_is_wrapped_transient" time="0.003" /><testcase classname="tests.unit.test_metadata_agent" name="test_extract_finalize_result_parses_last_ai_finalize" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_extract_finalize_result_skips_bad_ai_json_then_uses_tool_message" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_extract_finalize_result_no_finalize_returns_default" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_extract_finalize_result_unparseable_tool_message_returns_default" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_extract_search_info_covers_all_tool_branches" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_process_empty_title_returns_none" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_process_applies_cached_success_without_rerun" time="0.002"><failure message="AttributeError: 'types.SimpleNamespace' object has no attribute 'title_cn'. Did you mean: 'title_raw'?">async def test_process_applies_cached_success_without_rerun():
+        """A definitive cached success (found + entity) short-circuits the live run."""
+        agent = _patched_agent()
+        cached = _meta(found=True, matched_entity={"external_id": "x"})
+        agent._get_cache.return_value = cached
+        resource = _ns_resource()
+&gt;       res = await agent.process(resource, SimpleNamespace(id="ch", metadata_source=None), MagicMock())
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_metadata_agent.py:3182: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/services/metadata_agent.py:630: in process
+    if await apply_manual_title_mapping(db, resource, channel):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/metadata_service.py:2466: in apply_manual_title_mapping
+    search_key = normalize_title(extract_search_title(resource))
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+resource = namespace(title_raw='[G] Show - 01', series_id=None, movie_id=None, metadata_attempts=0, last_metadata_attempt_at=None, metadata_failure_type=None)
+
+    def extract_search_title(resource: Any) -&gt; str:
+        """Extract a base searchable title from a FileResource (sync, no LLM).
+    
+        Priority:
+        1. ``title_cn`` or ``title_en`` (already parsed by field_mapping), with a
+           trailing season suffix stripped so it matches the base work title.
+        2. ``title_raw`` cleaned: drop the leading [subtitle group] bracket, take
+           the segment before a `` / `` alt-title separator, strip the episode
+           tail / SxxExx / stray season token / trailing episode number, then
+           strip a trailing season suffix.
+        3. Simple regex cleanup of ``title_raw`` as a last resort.
+    
+        Conservative by design: many fansub titles bury the work name inside
+        bracket pairs (``[Group][Work][S04][13]``) where no regex can reliably
+        separate it from release metadata. Those are resolved by the LLM agent
+        (which sets a clean title on success) and the Wikipedia candidate-query
+        builder; this function only needs to be "good enough" for local FTS
+        matching and as a fallback when the agent is disabled or fails.
+        """
+&gt;       title = resource.title_cn or resource.title_en
+                ^^^^^^^^^^^^^^^^^
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'title_cn'. Did you mean: 'title_raw'?
+
+app/services/metadata_service.py:262: AttributeError</failure></testcase><testcase classname="tests.unit.test_metadata_agent" name="test_process_applies_cached_non_work_immediately" time="0.002"><failure message="AttributeError: 'types.SimpleNamespace' object has no attribute 'title_cn'. Did you mean: 'title_raw'?">async def test_process_applies_cached_non_work_immediately():
+        agent = _patched_agent()
+        cached = _meta(found=False, reason="The RSS entry is a music album release")
+        agent._get_cache.return_value = cached
+&gt;       res = await agent.process(_ns_resource(), SimpleNamespace(id="ch", metadata_source=None), MagicMock())
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_metadata_agent.py:3194: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/services/metadata_agent.py:630: in process
+    if await apply_manual_title_mapping(db, resource, channel):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/metadata_service.py:2466: in apply_manual_title_mapping
+    search_key = normalize_title(extract_search_title(resource))
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+resource = namespace(title_raw='[G] Show - 01', series_id=None, movie_id=None, metadata_attempts=0, last_metadata_attempt_at=None, metadata_failure_type=None)
+
+    def extract_search_title(resource: Any) -&gt; str:
+        """Extract a base searchable title from a FileResource (sync, no LLM).
+    
+        Priority:
+        1. ``title_cn`` or ``title_en`` (already parsed by field_mapping), with a
+           trailing season suffix stripped so it matches the base work title.
+        2. ``title_raw`` cleaned: drop the leading [subtitle group] bracket, take
+           the segment before a `` / `` alt-title separator, strip the episode
+           tail / SxxExx / stray season token / trailing episode number, then
+           strip a trailing season suffix.
+        3. Simple regex cleanup of ``title_raw`` as a last resort.
+    
+        Conservative by design: many fansub titles bury the work name inside
+        bracket pairs (``[Group][Work][S04][13]``) where no regex can reliably
+        separate it from release metadata. Those are resolved by the LLM agent
+        (which sets a clean title on success) and the Wikipedia candidate-query
+        builder; this function only needs to be "good enough" for local FTS
+        matching and as a fallback when the agent is disabled or fails.
+        """
+&gt;       title = resource.title_cn or resource.title_en
+                ^^^^^^^^^^^^^^^^^
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'title_cn'. Did you mean: 'title_raw'?
+
+app/services/metadata_service.py:262: AttributeError</failure></testcase><testcase classname="tests.unit.test_metadata_agent" name="test_process_short_circuit_movie_links_movie_id" time="0.002" /><testcase classname="tests.unit.test_metadata_agent" name="test_process_non_media_is_non_work_and_cached" time="0.002"><failure message="AttributeError: 'types.SimpleNamespace' object has no attribute 'title_cn'. Did you mean: 'title_raw'?">async def test_process_non_media_is_non_work_and_cached():
+        agent = _patched_agent()
+        agent._get_cache.return_value = None
+        resource = _ns_resource()
+        resource.title_raw = "BitComet Stable (build 2.21.6.23) 比特彗星全功能解锁豪华版"
+&gt;       meta = await agent.process(resource, SimpleNamespace(id="ch", metadata_source=None), MagicMock())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_metadata_agent.py:3225: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/services/metadata_agent.py:630: in process
+    if await apply_manual_title_mapping(db, resource, channel):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/metadata_service.py:2466: in apply_manual_title_mapping
+    search_key = normalize_title(extract_search_title(resource))
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+resource = namespace(title_raw='BitComet Stable (build 2.21.6.23) 比特彗星全功能解锁豪华版', series_id=None, movie_id=None, metadata_attempts=0, last_metadata_attempt_at=None, metadata_failure_type=None)
+
+    def extract_search_title(resource: Any) -&gt; str:
+        """Extract a base searchable title from a FileResource (sync, no LLM).
+    
+        Priority:
+        1. ``title_cn`` or ``title_en`` (already parsed by field_mapping), with a
+           trailing season suffix stripped so it matches the base work title.
+        2. ``title_raw`` cleaned: drop the leading [subtitle group] bracket, take
+           the segment before a `` / `` alt-title separator, strip the episode
+           tail / SxxExx / stray season token / trailing episode number, then
+           strip a trailing season suffix.
+        3. Simple regex cleanup of ``title_raw`` as a last resort.
+    
+        Conservative by design: many fansub titles bury the work name inside
+        bracket pairs (``[Group][Work][S04][13]``) where no regex can reliably
+        separate it from release metadata. Those are resolved by the LLM agent
+        (which sets a clean title on success) and the Wikipedia candidate-query
+        builder; this function only needs to be "good enough" for local FTS
+        matching and as a fallback when the agent is disabled or fails.
+        """
+&gt;       title = resource.title_cn or resource.title_en
+                ^^^^^^^^^^^^^^^^^
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'title_cn'. Did you mean: 'title_raw'?
+
+app/services/metadata_service.py:262: AttributeError</failure></testcase><testcase classname="tests.unit.test_metadata_agent" name="test_process_routes_tmdb_to_react_then_web_fallback" time="0.002"><failure message="AttributeError: 'types.SimpleNamespace' object has no attribute 'title_cn'. Did you mean: 'title_raw'?">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f99600a2900&gt;
+
+    async def test_process_routes_tmdb_to_react_then_web_fallback(monkeypatch):
+        """A tmdb-source channel runs ReAct, then the web fallback (here disabled)."""
+        agent = _stub_agent()
+        agent._run_react.return_value = (
+            {"found": False, "clean_title": "X", "content_type": "tv",
+             "reason": "No matching work found in TMDB"},
+            {"method": "react", "data_sources_used": ["tmdb"], "source_errors": {}, "error": None},
+        )
+        monkeypatch.setattr(ma_module, "web_fallback_judge", AsyncMock(return_value=None))
+        channel = SimpleNamespace(
+            id="ch", metadata_source="tmdb", metadata_fallback_sources=None, name="ch",
+        )
+&gt;       meta = await agent.process(_ns_resource(), channel, MagicMock())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_metadata_agent.py:3246: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/services/metadata_agent.py:630: in process
+    if await apply_manual_title_mapping(db, resource, channel):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/metadata_service.py:2466: in apply_manual_title_mapping
+    search_key = normalize_title(extract_search_title(resource))
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+resource = namespace(title_raw='[G] Show - 01', series_id=None, movie_id=None, metadata_attempts=0, last_metadata_attempt_at=None, metadata_failure_type=None)
+
+    def extract_search_title(resource: Any) -&gt; str:
+        """Extract a base searchable title from a FileResource (sync, no LLM).
+    
+        Priority:
+        1. ``title_cn`` or ``title_en`` (already parsed by field_mapping), with a
+           trailing season suffix stripped so it matches the base work title.
+        2. ``title_raw`` cleaned: drop the leading [subtitle group] bracket, take
+           the segment before a `` / `` alt-title separator, strip the episode
+           tail / SxxExx / stray season token / trailing episode number, then
+           strip a trailing season suffix.
+        3. Simple regex cleanup of ``title_raw`` as a last resort.
+    
+        Conservative by design: many fansub titles bury the work name inside
+        bracket pairs (``[Group][Work][S04][13]``) where no regex can reliably
+        separate it from release metadata. Those are resolved by the LLM agent
+        (which sets a clean title on success) and the Wikipedia candidate-query
+        builder; this function only needs to be "good enough" for local FTS
+        matching and as a fallback when the agent is disabled or fails.
+        """
+&gt;       title = resource.title_cn or resource.title_en
+                ^^^^^^^^^^^^^^^^^
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'title_cn'. Did you mean: 'title_raw'?
+
+app/services/metadata_service.py:262: AttributeError</failure></testcase><testcase classname="tests.unit.test_metadata_agent" name="test_process_title_only_empty_title" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_process_title_only_without_llm_key" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_process_title_only_wikipedia_routes_search_then_judge" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_process_title_only_bangumi_with_season_hint" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_process_title_only_tmdb_react_and_fallback" time="0.002" /><testcase classname="tests.unit.test_metadata_agent" name="test_maybe_web_fallback_failure_is_transient" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_build_title_only_message_appends_year_hint" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_build_production_message_appends_title_year_hint" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_get_agent_returns_and_caches_singleton" time="0.001" /><testcase classname="tests.unit.test_metadata_agent" name="test_reset_metadata_agent_clears_singleton" time="0.001" /></testsuite></testsuites>

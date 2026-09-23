@@ -1,5 +1,10 @@
 # V14：Redis 执行所有权（P1-B4）
 
+## 已合入本地 main
+
+有效实现、测试及验收证据已提交 `7781a81`。th/ti 完整门禁通过，最终五维审查完成，根仓库 Ruff 通过，交付 67 文件哈希与候选一致。B4 已从 pending-only TODO 移除。未推送或部署；升级须停止全部旧 worker。以下未合入/待运行描述均为历史过程记录，以本节为准。下一批继续 V15 M1，其他 TODO 保持原范围。
+
+
 ## 当前验收状态：th/ti 均已完成
 
 th 完整单元/API **3937 passed、15 skipped、6 warnings，2290.65 秒，退出 0，覆盖率 97.38%（23345 行，612 未覆盖）**。ti 完整集成 **3169 passed、17 skipped、88.46%**，应用正常退出、报告导出及隔离栈清理均成功。3086 文件最终哈希无变化。证据 `probes/queue-unit-th-result.json`、`queue-unit-th*`、`queue-integration-ti*`。

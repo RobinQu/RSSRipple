@@ -1,0 +1,162 @@
+....FF......                                                             [100%]
+=================================== FAILURES ===================================
+______ test_manual_mapping_precedes_success_cache[True-False-normalized] _______
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fbbd3b7ab50>
+sample_channel = <app.models.channel.Channel object at 0x7fbbe9366fd0>
+mapping_kind = 'normalized', force_refresh = True
+candidate_matches_manual = False
+
+    @pytest.mark.parametrize("mapping_kind", ["normalized", "raw_fallback", "empty_target", "other_channel"])
+    @pytest.mark.parametrize("force_refresh,candidate_matches_manual", [(False, False), (True, False), (True, True)])
+    async def test_manual_mapping_precedes_success_cache(
+        db_session, sample_channel, mapping_kind, force_refresh, candidate_matches_manual,
+    ):
+        corpus = Path(__file__).resolve().parents[1] / "fixtures/metadata_corpus_v1/candidates.json.gz"
+        with gzip.open(corpus, "rt") as stream:
+            cases = json.load(stream)["cases"]
+        case = next(c for c in cases if c["id"] == "00e48de8-b5fd-4e99-8467-d384bd4a3183")
+        raw = case["input"]["title_raw"]
+        sample_channel.metadata_source = "tmdb"
+        manual = Movie(title_en="Synthetic manual choice", is_anime=False)
+        cached = Movie(title_en="Synthetic automatic choice", is_anime=False)
+        resource = FileResource(channel_id=sample_channel.id, guid=str(uuid.uuid4()), title_raw=raw, torrent_url="")
+        db_session.add_all([manual, cached, resource])
+        await db_session.flush()
+        channel_id = sample_channel.id
+        if mapping_kind == "other_channel":
+            other = Channel(name="Synthetic other channel", url="https://example.invalid/other", field_mapping={})
+            db_session.add(other)
+            await db_session.flush()
+            channel_id = other.id
+        key = normalize_title(extract_search_title(resource))
+        if mapping_kind == "raw_fallback":
+            key = "synthetic-legacy-key"
+        db_session.add(ChannelRawTitleMapping(
+            channel_id=channel_id, raw_title=raw, search_title_key=key,
+            movie_id=None if mapping_kind == "empty_target" else manual.id,
+            content_type="movie",
+        ))
+        agent = UnifiedMetadataAgent()
+        incoming_title = manual.title_en if candidate_matches_manual else cached.title_en
+        agent._run_react = AsyncMock(return_value=(
+            {"clean_title": incoming_title, "content_type": "movie", "found": True,
+             "matched_entity": {"title_en": incoming_title, "content_type": "movie", "is_anime": False,
+                                "release_date": "2011-12-07"}},
+            {"method": "synthetic", "data_sources_used": [], "source_errors": {}, "error": None},
+        ))
+        agent._ensure_genre = AsyncMock()
+        agent._get_cache = AsyncMock(wraps=agent._get_cache)
+        await agent._set_cache(raw, "tmdb", ResourceMetadata(
+            clean_title=cached.title_en, content_type="movie", found=True,
+            matched_entity={"title_en": cached.title_en, "content_type": "movie", "is_anime": False},
+        ), db_session)
+        await db_session.commit()
+        await agent.process(resource, sample_channel, db_session, force_refresh=force_refresh)
+        await db_session.commit()
+        if force_refresh:
+            agent._get_cache.assert_not_awaited()
+    
+        from app.database import async_session_factory
+    
+        async with async_session_factory() as observer:
+            saved = await observer.get(FileResource, resource.id)
+            expected = manual.id if mapping_kind in {"normalized", "raw_fallback"} or candidate_matches_manual else cached.id
+>           assert saved.movie_id == expected
+E           AssertionError: assert 'd71523e9-468...-507807a9ce4c' == '033d3a2b-1cc...-2cf23fe0cffc'
+E             
+E             - 033d3a2b-1cc9-4e15-8762-2cf23fe0cffc
+E             + d71523e9-468d-489f-b13b-507807a9ce4c
+
+tests/unit/test_manual_title_mapping.py:77: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.metadata_agent:metadata_agent.py:772 [metadata_agent] channel b02c8b4e-b777-444c-a72b-542168a29fb1 source='tmdb' is not available (disabled or missing credentials); search will return no external candidates
+WARNING  app.services.fts:fts.py:340 [fts] search_series_fts failed for 'mission: impossible - ghost protocol 2011 2160p ai 60fps h26': (turso.lib.DatabaseError) Internal error: FTS parse error: Syntax Error: mission: impossible - ghost protocol 2011 2160p ai 60fps h265 10bit sdr_marjenbo
+[SQL: SELECT entity_id FROM tv_series_fts WHERE fts_match(title_cn, title_en, original_title, aliases, ?) LIMIT ?]
+[parameters: ('mission: impossible - ghost protocol 2011 2160p ai 60fps h265 10bit sdr_marjenbo', 30)]
+(Background on this error at: https://sqlalche.me/e/20/4xp6)
+_____ test_manual_mapping_precedes_success_cache[True-False-raw_fallback] ______
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fbbd15fe990>
+sample_channel = <app.models.channel.Channel object at 0x7fbbe9367490>
+mapping_kind = 'raw_fallback', force_refresh = True
+candidate_matches_manual = False
+
+    @pytest.mark.parametrize("mapping_kind", ["normalized", "raw_fallback", "empty_target", "other_channel"])
+    @pytest.mark.parametrize("force_refresh,candidate_matches_manual", [(False, False), (True, False), (True, True)])
+    async def test_manual_mapping_precedes_success_cache(
+        db_session, sample_channel, mapping_kind, force_refresh, candidate_matches_manual,
+    ):
+        corpus = Path(__file__).resolve().parents[1] / "fixtures/metadata_corpus_v1/candidates.json.gz"
+        with gzip.open(corpus, "rt") as stream:
+            cases = json.load(stream)["cases"]
+        case = next(c for c in cases if c["id"] == "00e48de8-b5fd-4e99-8467-d384bd4a3183")
+        raw = case["input"]["title_raw"]
+        sample_channel.metadata_source = "tmdb"
+        manual = Movie(title_en="Synthetic manual choice", is_anime=False)
+        cached = Movie(title_en="Synthetic automatic choice", is_anime=False)
+        resource = FileResource(channel_id=sample_channel.id, guid=str(uuid.uuid4()), title_raw=raw, torrent_url="")
+        db_session.add_all([manual, cached, resource])
+        await db_session.flush()
+        channel_id = sample_channel.id
+        if mapping_kind == "other_channel":
+            other = Channel(name="Synthetic other channel", url="https://example.invalid/other", field_mapping={})
+            db_session.add(other)
+            await db_session.flush()
+            channel_id = other.id
+        key = normalize_title(extract_search_title(resource))
+        if mapping_kind == "raw_fallback":
+            key = "synthetic-legacy-key"
+        db_session.add(ChannelRawTitleMapping(
+            channel_id=channel_id, raw_title=raw, search_title_key=key,
+            movie_id=None if mapping_kind == "empty_target" else manual.id,
+            content_type="movie",
+        ))
+        agent = UnifiedMetadataAgent()
+        incoming_title = manual.title_en if candidate_matches_manual else cached.title_en
+        agent._run_react = AsyncMock(return_value=(
+            {"clean_title": incoming_title, "content_type": "movie", "found": True,
+             "matched_entity": {"title_en": incoming_title, "content_type": "movie", "is_anime": False,
+                                "release_date": "2011-12-07"}},
+            {"method": "synthetic", "data_sources_used": [], "source_errors": {}, "error": None},
+        ))
+        agent._ensure_genre = AsyncMock()
+        agent._get_cache = AsyncMock(wraps=agent._get_cache)
+        await agent._set_cache(raw, "tmdb", ResourceMetadata(
+            clean_title=cached.title_en, content_type="movie", found=True,
+            matched_entity={"title_en": cached.title_en, "content_type": "movie", "is_anime": False},
+        ), db_session)
+        await db_session.commit()
+        await agent.process(resource, sample_channel, db_session, force_refresh=force_refresh)
+        await db_session.commit()
+        if force_refresh:
+            agent._get_cache.assert_not_awaited()
+    
+        from app.database import async_session_factory
+    
+        async with async_session_factory() as observer:
+            saved = await observer.get(FileResource, resource.id)
+            expected = manual.id if mapping_kind in {"normalized", "raw_fallback"} or candidate_matches_manual else cached.id
+>           assert saved.movie_id == expected
+E           AssertionError: assert '9ddf2ad3-82c...-62a79648dbb1' == 'e1899fa1-9d1...-7944d460b22d'
+E             
+E             - e1899fa1-9d16-458e-b40d-7944d460b22d
+E             + 9ddf2ad3-82cb-4e97-88c6-62a79648dbb1
+
+tests/unit/test_manual_title_mapping.py:77: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.metadata_agent:metadata_agent.py:772 [metadata_agent] channel 48534bda-a0fe-45c8-be2c-162c21f498bd source='tmdb' is not available (disabled or missing credentials); search will return no external candidates
+WARNING  app.services.fts:fts.py:340 [fts] search_series_fts failed for 'mission: impossible - ghost protocol 2011 2160p ai 60fps h26': (turso.lib.DatabaseError) Internal error: FTS parse error: Syntax Error: mission: impossible - ghost protocol 2011 2160p ai 60fps h265 10bit sdr_marjenbo
+[SQL: SELECT entity_id FROM tv_series_fts WHERE fts_match(title_cn, title_en, original_title, aliases, ?) LIMIT ?]
+[parameters: ('mission: impossible - ghost protocol 2011 2160p ai 60fps h265 10bit sdr_marjenbo', 30)]
+(Background on this error at: https://sqlalche.me/e/20/4xp6)
+=============================== warnings summary ===============================
+tests/unit/test_manual_title_mapping.py::test_manual_mapping_precedes_success_cache[False-False-normalized]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_manual_title_mapping.py::test_manual_mapping_precedes_success_cache[True-False-normalized]
+FAILED tests/unit/test_manual_title_mapping.py::test_manual_mapping_precedes_success_cache[True-False-raw_fallback]
+2 failed, 10 passed, 1 warning in 7.28s

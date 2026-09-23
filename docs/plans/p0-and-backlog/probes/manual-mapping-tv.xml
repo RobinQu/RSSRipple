@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="3" time="5.759" timestamp="2026-09-23T12:22:26.211707+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_manual_mapping_batches" name="test_single_work_mapping_preserves_franchise_shape[mapping]" time="1.711"><failure message="AssertionError: assert ('99dbcfd9-5bd0-4f1d-be5c-77f1e8986640' is None)&#10; +  where '99dbcfd9-5bd0-4f1d-be5c-77f1e8986640' = &lt;app.models.file_resource.FileResource object at 0x7f1286d76ad0&gt;.movie_id">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f12877afe00&gt;
+sample_channel = &lt;app.models.channel.Channel object at 0x7f128774d010&gt;
+entry = 'mapping'
+
+    @pytest.mark.parametrize("entry", ["mapping", "agent", "legacy"])
+    async def test_single_work_mapping_preserves_franchise_shape(db_session, sample_channel, entry):
+        collection = WorkCollection(title_cn="Synthetic franchise collection")
+        movie = Movie(title_en="Synthetic manual movie")
+        db_session.add_all([collection, movie])
+        await db_session.flush()
+        resource = FileResource(
+            channel_id=sample_channel.id, guid=str(uuid.uuid4()),
+            title_raw="Synthetic franchise TV plus Film pack", torrent_url="",
+            is_batch=True, batch_scope="franchise", collection_id=collection.id,
+        )
+        db_session.add(resource)
+        await db_session.flush()
+        resource_id, collection_id = resource.id, collection.id
+        db_session.add(ChannelRawTitleMapping(
+            channel_id=sample_channel.id, raw_title=resource.title_raw,
+            search_title_key=normalize_title(extract_search_title(resource)),
+            movie_id=movie.id, content_type="movie",
+        ))
+        await db_session.commit()
+        if entry == "agent":
+            await UnifiedMetadataAgent().process(resource, sample_channel, db_session)
+        elif entry == "legacy":
+            await fetch_and_link_metadata(db_session, resource, sample_channel)
+        else:
+            await apply_manual_title_mapping(db_session, resource, sample_channel)
+        await db_session.commit()
+        from app.database import async_session_factory
+    
+        async with async_session_factory() as observer:
+            saved = await observer.get(FileResource, resource_id)
+            assert saved.collection_id == collection_id
+            assert saved.batch_scope == "franchise" and saved.is_batch
+&gt;           assert saved.movie_id is None and saved.series_id is None
+E           AssertionError: assert ('99dbcfd9-5bd0-4f1d-be5c-77f1e8986640' is None)
+E            +  where '99dbcfd9-5bd0-4f1d-be5c-77f1e8986640' = &lt;app.models.file_resource.FileResource object at 0x7f1286d76ad0&gt;.movie_id
+
+tests/unit/test_manual_mapping_batches.py:53: AssertionError</failure></testcase><testcase classname="tests.unit.test_manual_mapping_batches" name="test_single_work_mapping_preserves_franchise_shape[agent]" time="1.871"><failure message="AssertionError: assert ('be4a4b10-0f3a-4cf3-9759-c5247e03375d' is None)&#10; +  where 'be4a4b10-0f3a-4cf3-9759-c5247e03375d' = &lt;app.models.file_resource.FileResource object at 0x7f12761cad50&gt;.movie_id">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f1286d76d50&gt;
+sample_channel = &lt;app.models.channel.Channel object at 0x7f1286d76c10&gt;
+entry = 'agent'
+
+    @pytest.mark.parametrize("entry", ["mapping", "agent", "legacy"])
+    async def test_single_work_mapping_preserves_franchise_shape(db_session, sample_channel, entry):
+        collection = WorkCollection(title_cn="Synthetic franchise collection")
+        movie = Movie(title_en="Synthetic manual movie")
+        db_session.add_all([collection, movie])
+        await db_session.flush()
+        resource = FileResource(
+            channel_id=sample_channel.id, guid=str(uuid.uuid4()),
+            title_raw="Synthetic franchise TV plus Film pack", torrent_url="",
+            is_batch=True, batch_scope="franchise", collection_id=collection.id,
+        )
+        db_session.add(resource)
+        await db_session.flush()
+        resource_id, collection_id = resource.id, collection.id
+        db_session.add(ChannelRawTitleMapping(
+            channel_id=sample_channel.id, raw_title=resource.title_raw,
+            search_title_key=normalize_title(extract_search_title(resource)),
+            movie_id=movie.id, content_type="movie",
+        ))
+        await db_session.commit()
+        if entry == "agent":
+            await UnifiedMetadataAgent().process(resource, sample_channel, db_session)
+        elif entry == "legacy":
+            await fetch_and_link_metadata(db_session, resource, sample_channel)
+        else:
+            await apply_manual_title_mapping(db_session, resource, sample_channel)
+        await db_session.commit()
+        from app.database import async_session_factory
+    
+        async with async_session_factory() as observer:
+            saved = await observer.get(FileResource, resource_id)
+            assert saved.collection_id == collection_id
+            assert saved.batch_scope == "franchise" and saved.is_batch
+&gt;           assert saved.movie_id is None and saved.series_id is None
+E           AssertionError: assert ('be4a4b10-0f3a-4cf3-9759-c5247e03375d' is None)
+E            +  where 'be4a4b10-0f3a-4cf3-9759-c5247e03375d' = &lt;app.models.file_resource.FileResource object at 0x7f12761cad50&gt;.movie_id
+
+tests/unit/test_manual_mapping_batches.py:53: AssertionError</failure></testcase><testcase classname="tests.unit.test_manual_mapping_batches" name="test_single_work_mapping_preserves_franchise_shape[legacy]" time="1.619"><failure message="AssertionError: assert ('abd3b30d-e53e-4415-b046-9e540203ecf6' is None)&#10; +  where 'abd3b30d-e53e-4415-b046-9e540203ecf6' = &lt;app.models.file_resource.FileResource object at 0x7f1274d80050&gt;.movie_id">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f1284a3f490&gt;
+sample_channel = &lt;app.models.channel.Channel object at 0x7f12761cac10&gt;
+entry = 'legacy'
+
+    @pytest.mark.parametrize("entry", ["mapping", "agent", "legacy"])
+    async def test_single_work_mapping_preserves_franchise_shape(db_session, sample_channel, entry):
+        collection = WorkCollection(title_cn="Synthetic franchise collection")
+        movie = Movie(title_en="Synthetic manual movie")
+        db_session.add_all([collection, movie])
+        await db_session.flush()
+        resource = FileResource(
+            channel_id=sample_channel.id, guid=str(uuid.uuid4()),
+            title_raw="Synthetic franchise TV plus Film pack", torrent_url="",
+            is_batch=True, batch_scope="franchise", collection_id=collection.id,
+        )
+        db_session.add(resource)
+        await db_session.flush()
+        resource_id, collection_id = resource.id, collection.id
+        db_session.add(ChannelRawTitleMapping(
+            channel_id=sample_channel.id, raw_title=resource.title_raw,
+            search_title_key=normalize_title(extract_search_title(resource)),
+            movie_id=movie.id, content_type="movie",
+        ))
+        await db_session.commit()
+        if entry == "agent":
+            await UnifiedMetadataAgent().process(resource, sample_channel, db_session)
+        elif entry == "legacy":
+            await fetch_and_link_metadata(db_session, resource, sample_channel)
+        else:
+            await apply_manual_title_mapping(db_session, resource, sample_channel)
+        await db_session.commit()
+        from app.database import async_session_factory
+    
+        async with async_session_factory() as observer:
+            saved = await observer.get(FileResource, resource_id)
+            assert saved.collection_id == collection_id
+            assert saved.batch_scope == "franchise" and saved.is_batch
+&gt;           assert saved.movie_id is None and saved.series_id is None
+E           AssertionError: assert ('abd3b30d-e53e-4415-b046-9e540203ecf6' is None)
+E            +  where 'abd3b30d-e53e-4415-b046-9e540203ecf6' = &lt;app.models.file_resource.FileResource object at 0x7f1274d80050&gt;.movie_id
+
+tests/unit/test_manual_mapping_batches.py:53: AssertionError</failure></testcase></testsuite></testsuites>

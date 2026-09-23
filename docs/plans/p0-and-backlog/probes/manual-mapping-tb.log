@@ -1,0 +1,69 @@
+........................................................................ [ 31%]
+........................................................................ [ 62%]
+........................................................................ [ 94%]
+F............                                                            [100%]
+=================================== FAILURES ===================================
+_______________ test_process_short_circuit_movie_links_movie_id ________________
+
+    async def test_process_short_circuit_movie_links_movie_id():
+        """The movie half of the S1 known-work branch (movie_id set, series_id cleared)."""
+        agent = UnifiedMetadataAgent()
+        agent._get_cache = AsyncMock(return_value=None)
+        agent._find_known_work = AsyncMock(return_value=("movie", "m-123"))
+        resource = SimpleNamespace(
+            title_raw="[G] Some Movie 2025 [1080p]", title_cn="Some Movie", title_en=None,
+            search_title=None, series_id="s-old", movie_id=None,
+            metadata_attempts=0, last_metadata_attempt_at=None, metadata_failure_type=None,
+        )
+>       meta = await agent.process(
+            resource, SimpleNamespace(id="ch", metadata_source=None), MagicMock()
+        )
+
+tests/unit/test_metadata_agent.py:3212: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/services/metadata_agent.py:628: in process
+    await reconcile_linked_series_resource(db, resource)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+db = <MagicMock id='139760064854880'>
+resource = namespace(title_raw='[G] Some Movie 2025 [1080p]', title_cn='Some Movie', title_en=None, search_title=None, series_id='s-old', movie_id=None, metadata_attempts=0, last_metadata_attempt_at=None, metadata_failure_type=None)
+series = None, entity = None
+
+    async def reconcile_linked_series_resource(
+        db: AsyncSession,
+        resource: Any,
+        *,
+        series: TVSeries | None = None,
+        entity: dict | None = None,
+    ) -> None:
+        """Post-link season/episode reconciliation for a TV-linked resource (P3).
+    
+        Shared by every link path (known-work short-circuit, mapping/fuzzy
+        auto-link, manual link, repository write-back). Order:
+    
+          1. history-backed sibling convention (DB evidence);
+          2. a season-less resource with an ``absolute_episode`` is located along
+             the linked work's collection members (per-season model) and
+             re-pointed at the located member;
+          3. single-season arithmetic via the work's own episode counts
+             (legacy rows: the inert ``seasons`` column);
+          4. the verified-season default (:func:`resolve_missing_work` with the
+             linked work's identity as evidence).
+        """
+        if not getattr(resource, "series_id", None):
+            return
+        if series is None:
+>           series = await db.get(TVSeries, resource.series_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: object MagicMock can't be used in 'await' expression
+
+app/services/metadata_service.py:1993: TypeError
+=============================== warnings summary ===============================
+tests/unit/test_manual_title_mapping.py::test_movie_target_lookup_does_not_apply_candidate
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_metadata_agent.py::test_process_short_circuit_movie_links_movie_id
+1 failed, 228 passed, 1 warning in 82.00s (0:01:22)

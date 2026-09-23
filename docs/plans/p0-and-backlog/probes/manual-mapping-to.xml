@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="6" time="3.763" timestamp="2026-09-23T12:09:48.052036+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_manual_title_mapping" name="test_manual_season_mapping_preserves_identity[movie-False]" time="0.710" /><testcase classname="tests.unit.test_manual_title_mapping" name="test_manual_season_mapping_preserves_identity[movie-True]" time="0.564" /><testcase classname="tests.unit.test_manual_title_mapping" name="test_manual_season_mapping_preserves_identity[other_tv-False]" time="0.491" /><testcase classname="tests.unit.test_manual_title_mapping" name="test_manual_season_mapping_preserves_identity[other_tv-True]" time="0.568"><failure message="AssertionError: assert '126005bb-8bb...-18fa950bfde7' == '08aa6f11-b11...-31c472661c79'&#10;  &#10;  - 08aa6f11-b11c-4cc4-b967-31c472661c79&#10;  + 126005bb-8bbe-4667-b693-18fa950bfde7">db_session = &lt;sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7f2e3ef0b680&gt;
+sample_channel = &lt;app.models.channel.Channel object at 0x7f2e3ef2c8a0&gt;
+force_refresh = True, candidate_kind = 'other_tv'
+
+    @pytest.mark.parametrize("force_refresh", [False, True])
+    @pytest.mark.parametrize("candidate_kind", ["movie", "other_tv", "same_tv"])
+    async def test_manual_season_mapping_preserves_identity(db_session, sample_channel, force_refresh, candidate_kind):
+        from app.database import async_session_factory
+        from app.models.series import TVSeries
+        from app.models.work_collection import WorkCollection
+    
+        sample_channel.metadata_source = "tmdb"
+        collection = WorkCollection(title_cn="Synthetic season mapping collection")
+        db_session.add(collection)
+        await db_session.flush()
+        series = TVSeries(title_cn="Synthetic season mapping S2", season_number=2,
+                          collection_id=collection.id, is_anime=False)
+        resource = FileResource(channel_id=sample_channel.id, guid=str(uuid.uuid4()),
+                                title_raw="Synthetic series S02E01", season=2, episode=1, torrent_url="")
+        db_session.add_all([series, resource])
+        await db_session.flush()
+        series_id, resource_id = series.id, resource.id
+        db_session.add(ChannelRawTitleMapping(
+            channel_id=sample_channel.id, raw_title=resource.title_raw,
+            search_title_key=normalize_title(extract_search_title(resource)),
+            series_id=series_id, content_type="tv",
+        ))
+        await db_session.commit()
+        agent = UnifiedMetadataAgent()
+        agent._get_cache = AsyncMock(return_value=None)
+        agent._ensure_genre = AsyncMock()
+        candidate_type = "movie" if candidate_kind == "movie" else "tv"
+        candidate_title = series.title_cn if candidate_kind == "same_tv" else "Synthetic conflicting candidate S2"
+        agent._run_react = AsyncMock(return_value=(
+            {"clean_title": candidate_title, "content_type": candidate_type, "found": True,
+             "matched_entity": {"title_cn": candidate_title, "content_type": candidate_type,
+                                "start_date": "2020-01-01", "is_anime": False,
+                                "seasons": [{"season_number": 2, "air_date": "2024-01-01"}]}},
+            {"method": "synthetic", "data_sources_used": [], "source_errors": {}, "error": None},
+        ))
+        await agent.process(resource, sample_channel, db_session, force_refresh=force_refresh)
+        await db_session.commit()
+        async with async_session_factory() as observer:
+            saved = await observer.get(FileResource, resource_id)
+&gt;           assert saved.series_id == series_id
+E           AssertionError: assert '126005bb-8bb...-18fa950bfde7' == '08aa6f11-b11...-31c472661c79'
+E             
+E             - 08aa6f11-b11c-4cc4-b967-31c472661c79
+E             + 126005bb-8bbe-4667-b693-18fa950bfde7
+
+tests/unit/test_manual_title_mapping.py:198: AssertionError</failure></testcase><testcase classname="tests.unit.test_manual_title_mapping" name="test_manual_season_mapping_preserves_identity[same_tv-False]" time="0.430" /><testcase classname="tests.unit.test_manual_title_mapping" name="test_manual_season_mapping_preserves_identity[same_tv-True]" time="0.405" /></testsuite></testsuites>
