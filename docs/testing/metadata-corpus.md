@@ -83,3 +83,5 @@ HTTP 在 httpx 同步/异步传输层回放，未录制请求、录制次数变�
 该命令不属于离线 CI：源响应仍冻结，只允许配置的 LLM host 联网，每个场景在新数据库执行三轮。每轮必须实际调用模型；HTTP 错误/传输失败不能算模型质量通过。报告包含模型、语义差异、请求次数及耗时；它不是全模型能力或全数据集正确率。当前 Bangumi 场景的身份命中为确定性 auto-link，真实 LLM 只参与 genre 分类，而现有期望答案未断言 genre；因此三轮通过仅说明已断言的结果不受该调用影响，不代表 LLM 身份判别或分类准确率已验证。
 
 `record-llm` 用于在已有源证据上另录模型响应，需要场景 manifest 的 `seed` 指向原始 cassette、`cassette` 指向不存在的新文件。v1 的 `bangumi_single.json.gz` 是源证据种子，`bangumi_complete.json.gz` 是完整回放；无需重新请求外部源。
+
+M1 合集保护回放使用 `initial_d_franchise_collection_guard.json.gz`：由原真实录制派生，保留原文件和逐请求审计，仅删除针对整包标题、BD、AV1 的 7 个已不再执行的单作品查询。所有保留响应及审核图不变，仍要求请求完整消费，不能用诊断模式作为验收。来源哈希与移除键见同目录 `.audit.json`。

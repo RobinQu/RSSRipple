@@ -534,14 +534,24 @@ async def test_web_fallback_definitive_result_adopted(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-async def test_process_empty_raw_title_returns_none():
+def _process_agent():
+    # Only branch orchestration uses a fake DB. Mapping/concurrency integration
+    # uses real sessions in test_manual_mapping_concurrency.
     agent = _agent()
+    agent._apply_manual_mapping = AsyncMock(return_value=False)
+    agent._resource_scope_is_current = AsyncMock(return_value=True)
+    agent._manual_mapping_scope = AsyncMock(return_value=None)
+    return agent
+
+
+async def test_process_empty_raw_title_returns_none():
+    agent = _process_agent()
     result = await agent.process(SimpleNamespace(title_raw="   "), _ns_channel(), MagicMock())
     assert result is None
 
 
 async def test_process_short_circuits_known_movie():
-    agent = _agent()
+    agent = _process_agent()
     agent._get_cache = AsyncMock(return_value=None)
     agent._find_known_work = AsyncMock(return_value=("movie", "mid-1"))
     resource = _ns_resource(title_raw="[G] Some Film [1080p]")
@@ -561,7 +571,7 @@ async def test_process_short_circuits_known_series_with_reconcile(monkeypatch):
     monkeypatch.setattr(
         metadata_service, "reconcile_linked_series_resource", fake_reconcile
     )
-    agent = _agent()
+    agent = _process_agent()
     agent._get_cache = AsyncMock(return_value=None)
     agent._find_known_work = AsyncMock(return_value=("tv", "sid-1"))
     db = MagicMock()
@@ -579,7 +589,7 @@ async def test_process_short_circuits_known_series_with_reconcile(monkeypatch):
 
 
 async def test_process_cached_not_found_applied_after_short_circuit_miss():
-    agent = _agent()
+    agent = _process_agent()
     cached = ResourceMetadata(
         clean_title="X", found=False, content_type="tv",
         reason="No matching work found anywhere",
@@ -598,7 +608,7 @@ async def test_process_cached_not_found_applied_after_short_circuit_miss():
 
 async def test_process_non_media_marks_non_work_and_caches(monkeypatch):
     monkeypatch.setattr(ma, "_is_non_media", lambda t: True)
-    agent = _agent()
+    agent = _process_agent()
     agent._get_cache = AsyncMock(return_value=None)
     agent._find_known_work = AsyncMock(return_value=None)
     agent._apply_to_resource = AsyncMock()
@@ -613,7 +623,7 @@ async def test_process_non_media_marks_non_work_and_caches(monkeypatch):
 
 async def test_process_audio_work_resolution(monkeypatch):
     monkeypatch.setattr(ma, "_detect_audio_work_type", lambda t: "asmr")
-    agent = _agent()
+    agent = _process_agent()
     agent._get_cache = AsyncMock(return_value=None)
     agent._find_known_work = AsyncMock(return_value=None)
     agent._set_cache = AsyncMock()
@@ -632,7 +642,7 @@ async def test_process_audio_miss_falls_through_to_unavailable_source_run(monkey
     monkeypatch.setattr(ma, "_detect_audio_work_type", lambda t: None)
     monkeypatch.setattr(ma, "_is_non_media", lambda t: False)
     monkeypatch.setattr(ma, "is_metadata_source_available", lambda source: False)
-    agent = _agent()
+    agent = _process_agent()
     agent._get_cache = AsyncMock(return_value=None)
     agent._find_known_work = AsyncMock(return_value=None)
     agent._resolve_audio_work = AsyncMock(return_value=None)

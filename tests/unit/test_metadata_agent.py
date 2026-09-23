@@ -378,6 +378,9 @@ def _patched_agent():
     """A UnifiedMetadataAgent with all I/O methods stubbed, so process() can
     be exercised in isolation against the cache/force_refresh logic."""
     agent = UnifiedMetadataAgent()
+    agent._apply_manual_mapping = AsyncMock(return_value=False)
+    agent._resource_scope_is_current = AsyncMock(return_value=True)
+    agent._manual_mapping_scope = AsyncMock(return_value=None)
     agent._get_cache = AsyncMock()
     agent._set_cache = AsyncMock()
     agent._apply_to_resource = AsyncMock()
@@ -913,6 +916,9 @@ _FB_FOUND = (
 
 def _stub_agent() -> UnifiedMetadataAgent:
     agent = UnifiedMetadataAgent()
+    agent._apply_manual_mapping = AsyncMock(return_value=False)
+    agent._resource_scope_is_current = AsyncMock(return_value=True)
+    agent._manual_mapping_scope = AsyncMock(return_value=None)
     agent._get_cache = AsyncMock(return_value=None)
     agent._set_cache = AsyncMock()
     agent._apply_to_resource = AsyncMock()
@@ -3199,12 +3205,12 @@ async def test_process_applies_cached_non_work_immediately():
 
 async def test_process_short_circuit_movie_links_movie_id():
     """The movie half of the S1 known-work branch (movie_id set, series_id cleared)."""
-    agent = UnifiedMetadataAgent()
+    agent = _patched_agent()
     agent._get_cache = AsyncMock(return_value=None)
     agent._find_known_work = AsyncMock(return_value=("movie", "m-123"))
     resource = SimpleNamespace(
         title_raw="[G] Some Movie 2025 [1080p]", title_cn="Some Movie", title_en=None,
-        search_title=None, series_id="s-old", movie_id=None,
+        search_title=None, series_id=None, movie_id=None,
         metadata_attempts=0, last_metadata_attempt_at=None, metadata_failure_type=None,
     )
     meta = await agent.process(

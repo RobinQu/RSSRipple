@@ -339,3 +339,6 @@ B4 nf/ng 独立验证：真实 PG/Redis + loopback HTTP，默认租约下 SIGKIL
 B4 正式 queue_recovery 子套件包含 SIGKILL、SIGSTOP/SIGCONT、metadata（17 项）、agent（六项）、magnet（八项）、commit（四项）、responsiveness、organize（三项）、organize_takeover 和 multiwork（四项）十个参数。commit 覆盖内部提交失权回滚；responsiveness 验证真实续租；organize 验证 PG/文件锁边界；organize_takeover 将真实 Redis 接管、SIGSTOP/SIGCONT 和计划文件锁组合，验证旧完成不覆盖新结果及重入幂等。其余矩阵覆盖作品/资源事务、Agent 消费、magnet 迁移与恢复。完整 isolated Compose 开启 QUEUE_RECOVERY_REQUIRED=1，专用 PG/Redis 缺失即失败。数据库矩阵的失权信号为确定性替身；magnet 使用录制种子，未连接 libtorrent 网络。详细隔离/清理契约见 isolated-integration.md。
 
 B4 nk/nl 覆盖快照停种前、停种后、文件返回后失权，要求停止 RPC 链、无快照和无失败退避记录；nl 联合既有构建重试/毒任务隔离回归通过。下载器与 guard 使用替身，真实 Redis/RPC 组合仍待补充。
+
+
+M1 正式 `metadata/test_manual_mapping_concurrency.py` 包含 PostgreSQL 九项和 Turso 六项。使用录制发布标题 `00e48de8-b5fd-4e99-8467-d384bd4a3183`、真实 associations/works-merge ASGI 路由和独立数据库会话；作品、候选响应与缓存/本地命中结果为合成，队列唤醒替换，不覆盖认证中间件或实时提供者。覆盖外部查询期间编辑（含改为 franchise 的形态编辑）、已有人工映射、缓存/本地快捷返回、查询期间合并及后续恢复；PostgreSQL 另验证资源锁等待、候选写入前合并及唯一约束错误不被吞。沿用隔离门禁 `QUEUE_RECOVERY_POSTGRES_URL` 和 `QUEUE_RECOVERY_REQUIRED=1`：缺 PostgreSQL 时必失败；每项独立建库，finally DROP DATABASE。Turso 使用 pytest 临时文件并启用 MVCC，简化建库未配置 FTS sidecar，FTS 正常路径仍由现有套件承担。

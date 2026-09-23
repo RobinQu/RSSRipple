@@ -203,6 +203,9 @@ async def test_attach_tmdb_episode_list_empty_fetch_leaves_entity(monkeypatch):
 
 def _patched_agent():
     agent = ma.UnifiedMetadataAgent()
+    agent._apply_manual_mapping = AsyncMock(return_value=False)
+    agent._resource_scope_is_current = AsyncMock(return_value=True)
+    agent._manual_mapping_scope = AsyncMock(return_value=None)
     agent._get_cache = AsyncMock(return_value=None)
     agent._set_cache = AsyncMock()
     agent._apply_to_resource = AsyncMock()

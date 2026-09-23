@@ -131,6 +131,8 @@ async def _apply_to_resource(
     resource: Any,
     channel: Any,
     db: AsyncSession,
+    *,
+    expected_series_id: str | None = None,
 ) -> None:
     """Write metadata results back to the FileResource and DB."""
     # A failed source lookup is not title-parsing evidence.  In particular,
@@ -285,6 +287,7 @@ async def _apply_to_resource(
                         db, meta.matched_entity,
                         season_hint=resource_season_hint(resource, meta.matched_entity),
                         season_ambiguous=meta.season_ambiguous,
+                        expected_series_id=expected_series_id,
                     )
                     if series is not None:
                         resource.series_id = series.id
@@ -308,6 +311,10 @@ async def _apply_to_resource(
             # Symmetric guard: a tv verdict for an entity that already owns
             # a Movie row links the movie instead of duplicating.
             if await find_movie_by_external_id(db, meta.matched_entity) is not None:
+                if expected_series_id is not None:
+                    from app.services.metadata_service import MetadataTargetMismatchError
+
+                    raise MetadataTargetMismatchError("Selected season resolves to a movie identity")
                 logger.warning(
                     "[metadata] tv verdict for %r but a movie already owns "
                     "external_id=%r; linking the movie instead",
@@ -325,6 +332,7 @@ async def _apply_to_resource(
                     db, meta.matched_entity,
                     season_hint=resource_season_hint(resource, meta.matched_entity),
                     season_ambiguous=meta.season_ambiguous,
+                    expected_series_id=expected_series_id,
                 )
                 if series is not None:
                     resource.series_id = series.id

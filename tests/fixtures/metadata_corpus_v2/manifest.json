@@ -46,7 +46,7 @@
       "case_ids": [
         "995c8c1d-5c69-400d-99f3-f197c7ee953b"
       ],
-      "cassette": "http/initial_d_franchise.json.gz",
+      "cassette": "http/initial_d_franchise_collection_guard.json.gz",
       "id": "initial_d_franchise",
       "llm_base_url": "http://127.0.0.1:18000/v1",
       "llm_host": "127.0.0.1",

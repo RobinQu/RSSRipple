@@ -1539,6 +1539,15 @@ async def _create_season_work(
     return work
 
 
+class MetadataTargetMismatchError(ValueError):
+    """An automatic candidate would change an explicitly selected work."""
+
+
+def _require_series_target(expected_id: str | None, work: TVSeries | None) -> None:
+    if expected_id is not None and (work is None or work.id != expected_id):
+        raise MetadataTargetMismatchError("Metadata candidate conflicts with selected season work")
+
+
 async def _resolve_collection_member(
     db: AsyncSession,
     data: dict,
@@ -1549,6 +1558,7 @@ async def _resolve_collection_member(
     canonical_id: str | None,
     granularity: str,
     series_level_id: str | None,
+    expected_series_id: str | None = None,
 ) -> TVSeries | None:
     """Select (or lazily create) the collection member for the target season.
 
@@ -1562,8 +1572,15 @@ async def _resolve_collection_member(
     # Refresh after waiting so a second matcher sees the first transaction's
     # member instead of failing the collection/season unique constraint.
     await db.refresh(collection, with_for_update=True)
-    _merge_collection_aliases(collection, data)
     members = await _collection_members(db, collection.id)
+    if expected_series_id is not None:
+        selected = next((m for m in members if m.season_number == season), None)
+        if season is None and len(members) == 1 and not _has_unresolved_title_qualifier(data):
+            selected = members[0]
+        _require_series_target(expected_series_id, selected)
+        if await _has_conflicting_identity(db, "series", selected, raw_source, data.get("external_id")):
+            raise MetadataTargetMismatchError("Metadata identity conflicts with selected season work")
+    _merge_collection_aliases(collection, data)
     work: TVSeries | None = None
     if season is None:
         qualified = _has_unresolved_title_qualifier(data)
@@ -1620,6 +1637,7 @@ async def _resolve_collection_member(
 async def create_or_update_series_from_external(
     db: AsyncSession, data: dict, *, season_hint: int | None = None,
     season_ambiguous: bool = False,
+    expected_series_id: str | None = None,
 ) -> TVSeries | None:
     """Upsert a per-season TVSeries work from a matched entity (作品单季化 P3).
 
@@ -1683,6 +1701,7 @@ async def create_or_update_series_from_external(
     # single-member/title/fresh-work defaults further below. A real parsed or
     # entity season above can still resolve ambiguity without guessing.
     if season is None and season_ambiguous:
+        _require_series_target(expected_series_id, None)
         collection = await find_collection_for_entity(db, data)
         if collection is None:
             collection = await _create_series_collection(
@@ -1711,6 +1730,7 @@ async def create_or_update_series_from_external(
                 db, data, collection, season,
                 raw_source=raw_source, canonical_id=canonical_id,
                 granularity=granularity, series_level_id=series_level_id,
+                expected_series_id=expected_series_id,
             )
         if season is not None:
             series = await find_work_by_external_id(
@@ -1731,6 +1751,7 @@ async def create_or_update_series_from_external(
         series = result.scalars().first()
 
     if series is not None:
+        _require_series_target(expected_series_id, series)
         await _update_series_from_entity(
             db, series, data,
             raw_source=raw_source, canonical_id=canonical_id, granularity=granularity,
@@ -1766,6 +1787,7 @@ async def create_or_update_series_from_external(
             db, data, collection, season,
             raw_source=raw_source, canonical_id=canonical_id,
             granularity=granularity, series_level_id=series_level_id,
+            expected_series_id=expected_series_id,
         )
 
     title_candidates = list({
@@ -1808,6 +1830,7 @@ async def create_or_update_series_from_external(
             exact = [c for c in candidates if (c.season_number or 1) == season]
             if exact:
                 series = exact[0]
+                _require_series_target(expected_series_id, series)
                 await _update_series_from_entity(
                     db, series, data,
                     raw_source=raw_source, canonical_id=canonical_id,
@@ -1826,6 +1849,7 @@ async def create_or_update_series_from_external(
             # Season-known but no member with that season: create it under
             # the candidates' collection (never collapse onto another
             # season's work — the pre-split fallback's bug).
+            _require_series_target(expected_series_id, None)
             coll_id = next((c.collection_id for c in candidates if c.collection_id), None)
             collection = (
                 await db.get(WorkCollection, coll_id)
@@ -1836,6 +1860,7 @@ async def create_or_update_series_from_external(
                 db, data, collection, season,
                 raw_source=raw_source, canonical_id=canonical_id,
                 granularity=granularity, series_level_id=series_level_id,
+                expected_series_id=expected_series_id,
             )
         # Season unknown: single candidate (or all-season-1 legacy rows)
         # keeps the old behavior; a multi-season candidate set parks on its
@@ -1843,6 +1868,7 @@ async def create_or_update_series_from_external(
         seasons_present = {c.season_number or 1 for c in candidates}
         if len(candidates) == 1 or seasons_present == {1}:
             series = candidates[0]
+            _require_series_target(expected_series_id, series)
             await _update_series_from_entity(
                 db, series, data,
                 raw_source=raw_source, canonical_id=canonical_id,
@@ -1858,6 +1884,7 @@ async def create_or_update_series_from_external(
                 series_level_id=series_level_id,
             )
             return series
+        _require_series_target(expected_series_id, None)
         coll_ids = {c.collection_id for c in candidates if c.collection_id}
         if len(coll_ids) == 1:
             collection = await db.get(WorkCollection, next(iter(coll_ids)))
@@ -1875,6 +1902,7 @@ async def create_or_update_series_from_external(
     # new collection (ids bagged) without materializing a guessed season. A
     # qualified-but-unmarked subject gets a shell named by its FULL title so
     # the base IP name stays available for the real first season.
+    _require_series_target(expected_series_id, None)
     qualified = season is None and _has_unresolved_title_qualifier(data)
     collection = await _create_series_collection(
         db, data, preserve_full_title=qualified
@@ -2029,12 +2057,8 @@ async def reconcile_linked_series_resource(
     )
 
 
-async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> Movie:
-    """Upsert a Movie by identity-bag, canonical external_id, then exact title.
-
-    See :func:`create_or_update_series_from_external` for the lookup order and
-    identity-bag (P3) rationale.
-    """
+async def find_existing_movie_for_external(db: AsyncSession, data: dict) -> Movie | None:
+    """Resolve the movie an upsert would select, without changing its fields or identity bag."""
     raw_external_id = _qualify_incoming_wikipedia_id(data)
     raw_source = data.get("external_source")
     content_type = data.get("content_type")
@@ -2076,6 +2100,15 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
                 )
             )
             movie = title_result.scalars().first()
+    return movie
+
+
+async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> Movie:
+    """Upsert a Movie using the shared identity-bag, legacy-ID and exact-title lookup."""
+    raw_external_id = _qualify_incoming_wikipedia_id(data)
+    raw_source = data.get("external_source")
+    canonical_id = canonicalize_external_id(raw_external_id, raw_source, data.get("content_type"))
+    movie = await find_existing_movie_for_external(db, data)
 
     if movie:
         if canonical_id and not field_manually_edited(movie, "external_id"):
@@ -2460,24 +2493,16 @@ def format_same_title_works_context(works: list[dict]) -> str:
 # Main entry points
 # ---------------------------------------------------------------------------
 
-async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any) -> None:
-    """Match metadata for a newly-created FileResource and set its FKs.
-
-    Implements the 4-layer matching strategy from AGENTS.md.
-    """
-    # Layer 1: already linked.  Reconciliation still has work to do here:
-    # older linked rows may gain a trusted sibling correction later.
-    if resource.series_id or resource.movie_id:
-        await reconcile_linked_series_resource(db, resource)
-        return
-
-    # Layer 2: ChannelRawTitleMapping
+async def find_manual_title_mapping(
+    db: AsyncSession, resource: Any, channel: Any, *, refresh: bool = False
+) -> ChannelRawTitleMapping | None:
+    """Resolve channel mapping precedence without applying its work identity."""
     # Primary lookup: by normalized search_title_key (handles episode/resolution variations)
     search_key = normalize_title(extract_search_title(resource))
     mapping = None
     if search_key:
         mapping_result = await db.execute(
-            select(ChannelRawTitleMapping).where(
+            select(ChannelRawTitleMapping).execution_options(populate_existing=refresh).where(
                 ChannelRawTitleMapping.channel_id == channel.id,
                 ChannelRawTitleMapping.search_title_key == search_key,
             )
@@ -2486,13 +2511,30 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
     # Fallback: by exact raw_title (compatibility with pre-search_key mappings)
     if not mapping:
         mapping_result = await db.execute(
-            select(ChannelRawTitleMapping).where(
+            select(ChannelRawTitleMapping).execution_options(populate_existing=refresh).where(
                 ChannelRawTitleMapping.channel_id == channel.id,
                 ChannelRawTitleMapping.raw_title == resource.title_raw,
             )
         )
         mapping = mapping_result.scalars().first()
-    if mapping:
+    return mapping
+
+
+async def apply_manual_title_mapping(db: AsyncSession, resource: Any, channel: Any) -> bool:
+    """Apply a valid channel mapping without committing the caller transaction."""
+    from app.services.franchise_service import enforce_franchise_resource_invariant, is_franchise_resource
+
+    if is_franchise_resource(resource):
+        enforce_franchise_resource_invariant(resource)
+        return False
+
+    mapping = await find_manual_title_mapping(db, resource, channel)
+    if mapping and (mapping.series_id or mapping.movie_id):
+        # Existing resource links take precedence over a conflicting title mapping.
+        if (resource.series_id or resource.movie_id) and (
+            resource.series_id, resource.movie_id
+        ) != (mapping.series_id, mapping.movie_id):
+            return False
         if mapping.series_id:
             resource.series_id = mapping.series_id
             resource.movie_id = None
@@ -2504,6 +2546,28 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
         resource.metadata_matched_at = utcnow()
         await reconcile_linked_series_resource(db, resource)
         await classify_is_anime_post_link(db, channel, resource)
+        return True
+    return False
+
+
+async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any) -> None:
+    """Match metadata for a newly-created FileResource and set its FKs.
+
+    Implements the 4-layer matching strategy from AGENTS.md.
+    """
+    from app.services.franchise_service import enforce_franchise_resource_invariant, is_franchise_resource
+
+    if is_franchise_resource(resource):
+        enforce_franchise_resource_invariant(resource)
+        return
+
+    # Layer 1: already linked.  Reconciliation still has work to do here:
+    # older linked rows may gain a trusted sibling correction later.
+    if resource.series_id or resource.movie_id:
+        await reconcile_linked_series_resource(db, resource)
+        return
+
+    if await apply_manual_title_mapping(db, resource, channel):
         return
 
     # Layer 3: local match

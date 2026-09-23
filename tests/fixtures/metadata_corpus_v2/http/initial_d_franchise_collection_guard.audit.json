@@ -1,0 +1,16 @@
+{
+  "source": "initial_d_franchise.json.gz",
+  "source_sha256": "8fffae15a9dbff1e5cca944b3e01e30e53ee708b3e6f2030bbb942d8fe39fda6",
+  "derived": "initial_d_franchise_collection_guard.json.gz",
+  "derived_sha256": "b1533646c9a0ecc7cf10833a149f0e4e317147b08bbd53c933295245b87fe774",
+  "removed_request_keys": [
+    "1053a56a21657733f2806c27f29f808f275d5a6879ddbc2b82f37d71e79a7556",
+    "1419d94c3f0b7844513198d60c2ede8b84c68cdfde96f516345558a1f771da1f",
+    "18ab277eb1106700f449bd627726dd68d70288173c771ab072d7e3424bff82fa",
+    "8a5492945b46546cb38940c4baa7c9120c82c60012acaaac6b0f638c017ba4c4",
+    "d2e12ff7448f23316336e7af8163983b2498b336492487294ae770a04de1ea6e",
+    "e50742b952475df74d5c06829898e4f7ce3d9c7abbfe5fc4882f3650c96059d4",
+    "facf4f98681eda9d694da8f1604ef60595d5ddbfc4069b97f8c093bfe96c27c6"
+  ],
+  "reason": "Inspection already resolved the franchise; skip redundant single-work queries for the full pack title, BD and AV1. Retained responses unchanged; original cassette retained. Reviewed graph expectations unchanged. Strict full-consumption replay still required."
+}

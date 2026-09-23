@@ -104,6 +104,10 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
+_RESOURCE_MATCH_SCOPE_FIELDS = (
+    "series_id", "movie_id", "collection_id", "search_title", "is_batch", "batch_scope",
+)
+
 
 # ---------------------------------------------------------------------------
 # LangChain tools
@@ -622,6 +626,40 @@ class UnifiedMetadataAgent:
         if not raw_title.strip():
             return None
 
+        from app.services.franchise_service import enforce_franchise_resource_invariant, is_franchise_resource
+
+        if is_franchise_resource(resource):
+            enforce_franchise_resource_invariant(resource)
+            return None
+
+        if (resource.series_id or resource.movie_id) and not force_refresh:
+            from app.services.metadata_service import reconcile_linked_series_resource
+
+            await reconcile_linked_series_resource(db, resource)
+            resource.metadata_matched_at = utcnow()
+            return ResourceMetadata(
+                clean_title=resource.search_title or raw_title,
+                content_type="movie" if resource.movie_id else "tv",
+                found=True,
+                season=resource.season,
+                episode=resource.episode,
+                season_ambiguous=resource.episode_confidence == "ambiguous",
+            )
+
+        # Forced lookup must not flush a manual link before external I/O.
+        if not force_refresh and await self._apply_manual_mapping(resource, channel, db):
+            return ResourceMetadata(
+                clean_title=resource.search_title or raw_title,
+                content_type="movie" if resource.movie_id else "tv",
+                found=True,
+                season=resource.season,
+                episode=resource.episode,
+                season_ambiguous=resource.episode_confidence == "ambiguous",
+            )
+
+        mapping_scope = await self._manual_mapping_scope(resource, channel, db)
+        resource_scope = tuple(getattr(resource, field, None) for field in _RESOURCE_MATCH_SCOPE_FIELDS)
+
         # Resolve the channel's data source up front so the cache lookup is
         # source-scoped (a bangumi channel must not hit a stale wikipedia cache entry).
         data_source_type = resolve_metadata_source(getattr(channel, "metadata_source", None))
@@ -636,17 +674,14 @@ class UnifiedMetadataAgent:
         if not force_refresh:
             cached = await self._get_cache(raw_title, data_source_type, db)
             cached_failure = _classify_failure(cached) if cached is not None else None
-            # Release-title fields are independent of whether the metadata
-            # source found a work.  Apply the cached group before the local
-            # known-work shortcut: that shortcut deliberately supersedes an
-            # old not_found verdict, but must not discard its valid parse.
-            if cached is not None:
-                _repo._fill_subtitle_group(cached, resource)
             # Successful and definite non-work verdicts remain immediate.
             # A plain not_found is deferred until after the local historical
             # title index: a sibling linked since the miss was cached is newer,
             # stronger evidence and must be allowed to repair the resource.
             if cached is not None and cached_failure in (None, "non_work"):
+                if not await self._lookup_scope_is_current(resource, channel, db, resource_scope, mapping_scope):
+                    return None
+                _repo._fill_subtitle_group(cached, resource)
                 await self._apply_to_resource(cached, resource, channel, db)
                 _record_metadata_attempt(resource, cached)
                 return cached
@@ -665,6 +700,10 @@ class UnifiedMetadataAgent:
         # would be relinked locally without ever querying the metadata source.
         known = None if force_refresh else await self._find_known_work(resource, db)
         if known is not None:
+            if not await self._lookup_scope_is_current(resource, channel, db, resource_scope, mapping_scope):
+                return None
+            if cached is not None:
+                _repo._fill_subtitle_group(cached, resource)
             work_type, work_id = known
             if work_type == "movie":
                 resource.movie_id = work_id
@@ -719,12 +758,19 @@ class UnifiedMetadataAgent:
         # No historical work alias superseded the definitive cached miss.
         # Apply it now without spending another network/LLM call.
         if cached is not None and cached_failure == "not_found":
+            if not await self._lookup_scope_is_current(resource, channel, db, resource_scope, mapping_scope):
+                return None
+            _repo._fill_subtitle_group(cached, resource)
             await self._apply_to_resource(cached, resource, channel, db)
             _record_metadata_attempt(resource, cached)
             return cached
 
         # 0c. Non-media (software / cracked tools) -> non_work, never retried.
         if _is_non_media(raw_title):
+            if not await self._lookup_scope_is_current(resource, channel, db, resource_scope, mapping_scope):
+                return None
+            if cached is not None:
+                _repo._fill_subtitle_group(cached, resource)
             meta = ResourceMetadata(
                 clean_title=raw_title[:200],
                 found=False,
@@ -745,7 +791,8 @@ class UnifiedMetadataAgent:
         # Runs AFTER the TV/movie short-circuit so an OP/ED theme whose title
         # already matches a known series still links to that series.
         audio_type = _detect_audio_work_type(raw_title)
-        if audio_type is not None:
+        has_manual_work_target = mapping_scope is not None and any(mapping_scope[1:3])
+        if audio_type is not None and not has_manual_work_target:
             meta = await self._resolve_audio_work(
                 resource, channel, db, audio_type, force_refresh
             )
@@ -831,12 +878,74 @@ class UnifiedMetadataAgent:
         # 4. Persist — record the attempt (success or failure) and cache only
         # definitive outcomes. Transient failures are intentionally NOT cached
         # so the next fetch's backfill retries them.
-        await self._apply_to_resource(meta, resource, channel, db)
-        _record_metadata_attempt(resource, meta)
-        if _classify_failure(meta) != "transient":
-            await self._set_cache(raw_title, data_source_type, meta, db)
+        if not await self._lookup_scope_is_current(resource, channel, db, resource_scope, mapping_scope):
+            return None
+        from sqlalchemy.exc import IntegrityError
 
-        return meta
+        try:
+            async with db.begin_nested():
+                if cached is not None:
+                    _repo._fill_subtitle_group(cached, resource)
+                manual_choice = None
+                manual_movie_id = None
+                manual_series_id = None
+                if force_refresh and await self._apply_manual_mapping(resource, channel, db):
+                    manual_choice = ResourceMetadata(
+                        clean_title=resource.search_title or raw_title,
+                        content_type="movie" if resource.movie_id else "tv",
+                        found=True,
+                    )
+                    manual_movie_id = resource.movie_id
+                    manual_series_id = resource.series_id
+                if manual_choice is not None and (
+                    not meta.found or meta.content_type != manual_choice.content_type
+                ):
+                    logger.warning("Metadata refresh type conflicts with manual mapping for %s", resource.id)
+                    return manual_choice
+                if manual_movie_id is not None:
+                    from app.services.metadata_service import find_existing_movie_for_external
+
+                    target = None
+                    if meta.found and meta.content_type == "movie" and meta.matched_entity:
+                        with db.no_autoflush:
+                            target = await find_existing_movie_for_external(db, meta.matched_entity)
+                    if target is None or target.id != manual_movie_id:
+                        logger.warning("Metadata refresh candidate conflicts with manual movie mapping for %s", resource.id)
+                        return manual_choice
+                if manual_series_id is not None:
+                    from app.services.metadata_service import MetadataTargetMismatchError
+
+                    try:
+                        async with db.begin_nested():
+                            await self._apply_to_resource(
+                                meta, resource, channel, db, expected_series_id=manual_series_id,
+                            )
+                    except MetadataTargetMismatchError:
+                        # Undo candidate parsing fields as well as any pending writes.
+                        # The manual link was established before this savepoint.
+                        await db.refresh(resource)
+                        return manual_choice
+                else:
+                    await self._apply_to_resource(meta, resource, channel, db)
+                _record_metadata_attempt(resource, meta)
+                if _classify_failure(meta) != "transient":
+                    await self._set_cache(raw_title, data_source_type, meta, db)
+
+                return meta
+        except IntegrityError as exc:
+            if (
+                getattr(exc.orig, "sqlstate", None) != "23503"
+                and "foreign key constraint failed" not in str(exc.orig).lower()
+            ):
+                raise
+            # A concurrent merge can remove a pending manual target before
+            # autoflush. Roll back only this candidate, then verify that the
+            # mapping actually changed; unrelated integrity errors still fail.
+            await db.refresh(resource)
+            if await self._manual_mapping_scope(resource, channel, db) == mapping_scope:
+                raise
+            return None
+
 
     # ── Eval/testing entry ──
 
@@ -1225,15 +1334,61 @@ class UnifiedMetadataAgent:
 
     # ── Persistence ──
 
+    async def _lookup_scope_is_current(self, resource, channel, db, resource_scope, mapping_scope):
+        if not await self._resource_scope_is_current(resource, db, resource_scope):
+            return False
+        if await self._manual_mapping_scope(resource, channel, db) != mapping_scope:
+            await db.refresh(resource)
+            return False
+        return True
+
+    async def _manual_mapping_scope(self, resource, channel, db):
+        """Snapshot mapping identity; refresh ORM state after external lookup."""
+        from app.services.metadata_service import find_manual_title_mapping
+
+        with db.no_autoflush:
+            mapping = await find_manual_title_mapping(db, resource, channel, refresh=True)
+        if mapping is None:
+            return None
+        return (mapping.id, mapping.series_id, mapping.movie_id, mapping.search_title_override)
+
+    async def _resource_scope_is_current(self, resource, db, expected) -> bool:
+        """Lock after lookup; never overwrite a committed user binding."""
+        from sqlalchemy import select
+
+        from app.models.file_resource import FileResource
+
+        with db.no_autoflush:
+            current = (await db.execute(
+                select(*(getattr(FileResource, field) for field in _RESOURCE_MATCH_SCOPE_FIELDS))
+                .where(FileResource.id == resource.id)
+                .with_for_update()
+            )).one_or_none()
+        if current is None:
+            return False
+        if tuple(current) != expected:
+            await db.refresh(resource)
+            return False
+        return True
+
+    async def _apply_manual_mapping(self, resource: Any, channel: Any, db: AsyncSession) -> bool:
+        from app.services.metadata_service import apply_manual_title_mapping
+
+        return await apply_manual_title_mapping(db, resource, channel)
+
     async def _apply_to_resource(
         self,
         meta: ResourceMetadata,
         resource: Any,
         channel: Any,
         db: AsyncSession,
+        *,
+        expected_series_id: str | None = None,
     ) -> None:
         """Write metadata results back to the FileResource and DB."""
-        return await _repo._apply_to_resource(meta, resource, channel, db)
+        return await _repo._apply_to_resource(
+            meta, resource, channel, db, expected_series_id=expected_series_id,
+        )
 
     # ── Cache ──
 
