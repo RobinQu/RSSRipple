@@ -1,0 +1,19 @@
+{
+  "prototype": "/tmp/rssripple-v14-ownership-kr",
+  "exit_code": 0,
+  "passed": 61,
+  "warnings": 1,
+  "seconds": 2.77,
+  "files": {
+    "app/services/task_queue.py": "a742aa8e0d6b2acb2a24ddf931c7f18eea60b1195c4c0e76366ae1cee6217770",
+    "tests/unit/test_queue_execution_ownership.py": "a2ca8f421f66b462d49938ffc361631c3397d5acd1957deda7e5551c6755c1ee"
+  },
+  "scope": "claim and finish/cancel CAS only; not B4 acceptance",
+  "remaining": [
+    "atomic recovery and enqueue",
+    "progress context",
+    "lease ownership checks before side effects",
+    "real Redis multiprocess green",
+    "full gates"
+  ]
+}

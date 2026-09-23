@@ -1,0 +1,104 @@
+--- a/app/services/agent_service.py
++++ b/app/services/agent_service.py
+@@ -237,6 +237,9 @@
+ 
+     Shared by agent dispatch and manual creation (``POST /tasks``).
+     """
++    from app.services.task_queue import require_execution_ownership
++
++    await require_execution_ownership()
+     task = DownloadTask(
+         agent_id=agent_id,
+         file_resource_id=resource.id,
+--- /dev/null
++++ b/tests/unit/test_queue_download_ownership.py
+@@ -0,0 +1,79 @@
++"""Stale queue executions must stop before initiating a downloader operation."""
++
++import asyncio
++from types import SimpleNamespace
++from unittest.mock import AsyncMock, Mock
++
++import fakeredis
++import pytest
++
++from app.services.agent_service import create_and_submit_task
++from app.services.task_queue import ExecutionOwnershipLostError, RedisQueue
++
++
++@pytest.mark.parametrize("condition", ["token", "lease", "active", "job_id", "status", "consumer", "redis_failure", "current"])
++async def test_download_requires_current_execution(monkeypatch, condition):
++    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
++    queue = RedisQueue(redis_client=client)
++    entered, resume, finished = asyncio.Event(), asyncio.Event(), asyncio.Event()
++    wrapper = SimpleNamespace(add_torrent=AsyncMock(return_value={"torrent_id": 1}))
++    monkeypatch.setattr("app.clients.downloader.get_downloader_client", lambda _: wrapper)
++    db = SimpleNamespace(add=Mock(), flush=AsyncMock())
++    resource = SimpleNamespace(id="resource", torrent_file=None, torrent_url="magnet:?xt=synthetic")
++    downloader = SimpleNamespace(id="downloader")
++
++    errors = []
++
++    async def handler(payload):
++        entered.set()
++        await resume.wait()
++        try:
++            await create_and_submit_task(resource, downloader, db)
++        except Exception as exc:
++            errors.append(exc)
++            raise
++        finally:
++            finished.set()
++
++    queue.register("synthetic", handler)
++    await queue.start()
++    try:
++        await queue.enqueue("synthetic", "download-ownership", {})
++        await asyncio.wait_for(entered.wait(), 2)
++        job_key = "rssripple:job:download-ownership"
++        if condition in {"token", "job_id", "status", "consumer"}:
++            field = {"token": "execution_token", "job_id": "job_id", "status": "status", "consumer": "consumer_id"}[condition]
++            await client.hset(job_key, field, "replacement")
++        elif condition == "lease":
++            await client.delete(queue._consumer_key)
++        elif condition == "active":
++            await client.set("rssripple:active:download-ownership", "replacement")
++        elif condition == "redis_failure":
++            pipeline_class = type(client.pipeline())
++            execute = pipeline_class.execute
++            failed = False
++
++            async def fail_guard_once(self, *args, **kwargs):
++                nonlocal failed
++                if not failed:
++                    failed = True
++                    raise ConnectionError("Synthetic ownership read failure")
++                return await execute(self, *args, **kwargs)
++
++            monkeypatch.setattr(pipeline_class, "execute", fail_guard_once)
++        resume.set()
++        await asyncio.wait_for(finished.wait(), 2)
++        if condition == "current":
++            wrapper.add_torrent.assert_awaited_once()
++            db.add.assert_called_once()
++            db.flush.assert_awaited_once()
++            assert errors == []
++        else:
++            wrapper.add_torrent.assert_not_awaited()
++            db.add.assert_not_called()
++            db.flush.assert_not_awaited()
++            assert len(errors) == 1
++            assert isinstance(errors[0], ConnectionError if condition == "redis_failure" else ExecutionOwnershipLostError)
++    finally:
++        resume.set()
++        await queue.stop()
+--- a/docs/design/business-logic.md
++++ b/docs/design/business-logic.md
+@@ -773,3 +773,7 @@
+ 部署迁移和启动门禁见 db-migration.md；验证记录与尚未完成的发布验收见 `docs/plans/p0-and-backlog/V13-CONSUMPTION-PROGRESS.md`。
+ 
+ FTS sidecar 并发：派生索引独立引擎使用 pool_size=1、max_overflow=0，短读写事务通过连接池串行，避免实验性 Turso FTS 多连接并发的原生崩溃。主业务数据库池与并发不变；sidecar checkout 内不得加入网络调用。并发调用者继续等待连接，不跳过检索或写入；全量索引重建仍须遵循已有业务契约。
++
++### Redis 执行所有权与下载发起
++
++Redis handler 每次 claim 持有独立执行 token。创建下载任务前，从同一 Redis 事务读取 job/active/consumer lease，要求 job_id、running、token、consumer 和 active 均匹配；失权抛 ExecutionOwnershipLostError，Redis 读取失败也不允许继续发起。直接 API/MemoryQueue 无 Redis 执行上下文，沿用既有行为。此检查不保证校验之后或已开始的远端操作被撤销，不能代替下载器幂等和任务持久关联，也不代表其他 handler 副作用已经受到保护。

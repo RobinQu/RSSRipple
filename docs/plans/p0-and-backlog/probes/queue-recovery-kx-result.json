@@ -1,0 +1,21 @@
+{
+  "kw": {
+    "exit_code": 1,
+    "failed": 1,
+    "seconds": 0.14,
+    "reason": "renewed consumer recovered by stale observation"
+  },
+  "kx": {
+    "exit_code": 0,
+    "passed": 64,
+    "warnings": 1,
+    "seconds": 2.72
+  },
+  "scope": "fakeredis deterministic race, actual queue methods",
+  "remaining": [
+    "atomic enqueue and recovery-lock release",
+    "real Redis multiprocess verification",
+    "business side effects",
+    "full gates"
+  ]
+}

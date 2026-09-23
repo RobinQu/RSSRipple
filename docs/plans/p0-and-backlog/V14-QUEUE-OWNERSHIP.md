@@ -132,3 +132,9 @@ lv 首次因 Channel 种子漏 field_mapping 在插入阶段失败，未进入 R
 实施前须审查 job_id 当前长度/重用风险、同一作业多个资源和不同 Agent 的身份边界、手动 API 无队列上下文的既有行为、取消后重新派发、数据库冲突时整组事务回滚，以及主库/队列跨系统提交失败。门禁必须包含 lw 变绿（1 条任务）、真实 COMMIT 失败重试、接管前后不同目录拒绝/隔离、两后端迁移及直接并发写入。不能以本轮新增检查或 Transmission 去重宣称 B4 完成。
 
 lw 独立项目 down -v 已退出 0，PostgreSQL/Redis/Transmission 容器、专用卷与网络均已删除，cleanup_exit_code 已写入结果。
+
+## B7 合入后的续接基线
+
+本地 main 已含 B7 提交 edfceef。B4 原型仍在 /tmp/rssripple-v14-ownership-kr，运行实现未合入；可恢复队列核心补丁为 probes/queue-ownership-prototype.patch，下载入口/测试/业务文档补丁为 probes/queue-download-ownership.patch，两者现在均以含 B7 的主干为适用基线。继续前核对 source.json；不要把整个旧原型目录覆盖到主干，旧原型其余文件未包含 B7 最终配置/FTS 修复。
+
+当前无运行中的测试或专用 Compose 项目。下一步先落定持久派发身份设计，再用已保存的 lw 真实数据重复落库探针验证；补齐真实取消/崩溃恢复矩阵及其余 handler 的副作用边界。V14 的局部绿测不替代新的完整单元/API 与集成门禁。

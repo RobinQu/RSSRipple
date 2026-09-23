@@ -1,0 +1,20 @@
+{
+  "ky": {
+    "failed": 1,
+    "exit_code": 1,
+    "scope": "fault before Redis transaction leaves active key"
+  },
+  "kz": {
+    "passed": 65,
+    "warnings": 1,
+    "seconds": 2.69,
+    "exit_code": 0
+  },
+  "scope": "fakeredis; whole existing queue regression plus ownership matrix",
+  "remaining": [
+    "conditional recovery lock release",
+    "real Redis multiprocess green",
+    "business ownership",
+    "full gates"
+  ]
+}

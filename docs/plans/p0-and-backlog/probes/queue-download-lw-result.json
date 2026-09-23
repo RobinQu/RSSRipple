@@ -1,0 +1,25 @@
+{
+  "case_id": "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b",
+  "torrent_sha256": "7f2b6d96aeeb800355ca64985173449a91b4b76df85edeba6a105368e64dd813",
+  "rpc_ids": [
+    1,
+    1
+  ],
+  "daemon_torrents": 1,
+  "task_ids": [
+    "087a4fa8-2c03-46d8-a27c-9c2b648fa0eb",
+    "a423342d-b97f-4f01-bcce-9436952cc193"
+  ],
+  "persisted_tasks": 2,
+  "task_torrent_ids": [
+    1,
+    1
+  ],
+  "peers_connected": 0,
+  "received_media_bytes": 0,
+  "boundary": "actual RPC acceptance held before local task flush/commit; forced lease loss",
+  "probe_exit_code": 0,
+  "meaning": "Confirmed duplicate task persistence defect, not acceptance",
+  "source_sha256": "c0148edeac92cd9c685a46891a783e95ce4de510aa923b149ebce06d16290e45",
+  "cleanup_exit_code": 0
+}

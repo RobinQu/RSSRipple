@@ -1,0 +1,55 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______________ test_recovery_rechecks_lease_renewal_atomically ________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fd18c692ea0>
+
+    async def test_recovery_rechecks_lease_renewal_atomically(monkeypatch):
+        server = fakeredis.FakeServer()
+        clients = [fakeredis.aioredis.FakeRedis(server=server, decode_responses=True) for _ in range(2)]
+        owner, scanner = [RedisQueue(redis_client=client, max_concurrent=1) for client in clients]
+        started, release = asyncio.Event(), asyncio.Event()
+    
+        async def handler(payload):
+            started.set()
+            await release.wait()
+    
+        owner.register("synthetic", handler)
+        await owner.start()
+        await scanner.start(consume=False)
+        try:
+            await owner.enqueue("synthetic", "renewed", {})
+            await asyncio.wait_for(started.wait(), 2)
+            await clients[0].delete(owner._consumer_key)
+            original_read = clients[1].hgetall
+            renewed = False
+    
+            async def renew_during_read(key):
+                nonlocal renewed
+                state = await original_read(key)
+                if key == "rssripple:job:renewed" and not renewed:
+                    renewed = True
+                    await clients[0].set(owner._consumer_key, "1", ex=15)
+                return state
+    
+            monkeypatch.setattr(clients[1], "hgetall", renew_during_read)
+            await scanner._recover_orphaned_jobs()
+            assert renewed, "The renewal race must actually execute"
+>           assert (await owner.status("renewed"))["status"] == "running"
+E           AssertionError: assert 'queued' == 'running'
+E             
+E             - running
+E             + queued
+
+tests/unit/test_queue_execution_ownership.py:102: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.task_queue:task_queue.py:584 Recovered 1 jobs from dead consumer dl-workstation-albert:6879f764578147a191f24b074e3e9497
+=============================== warnings summary ===============================
+tests/unit/test_queue_execution_ownership.py::test_recovery_rechecks_lease_renewal_atomically
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_queue_execution_ownership.py::test_recovery_rechecks_lease_renewal_atomically
+1 failed, 8 deselected, 1 warning in 0.14s

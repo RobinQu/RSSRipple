@@ -1,0 +1,60 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________________ test_replaced_execution_cannot_begin_download _________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fb7cf2cb490>
+
+    async def test_replaced_execution_cannot_begin_download(monkeypatch):
+        client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+        queue = RedisQueue(redis_client=client)
+        entered, resume, finished = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        wrapper = SimpleNamespace(add_torrent=AsyncMock(return_value={"torrent_id": 1}))
+        monkeypatch.setattr("app.clients.downloader.get_downloader_client", lambda _: wrapper)
+        db = SimpleNamespace(add=Mock(), flush=AsyncMock())
+        resource = SimpleNamespace(id="resource", torrent_file=None, torrent_url="magnet:?xt=synthetic")
+        downloader = SimpleNamespace(id="downloader")
+    
+        async def handler(payload):
+            entered.set()
+            await resume.wait()
+            try:
+                await create_and_submit_task(resource, downloader, db)
+            finally:
+                finished.set()
+    
+        queue.register("synthetic", handler)
+        await queue.start()
+        try:
+            await queue.enqueue("synthetic", "download-ownership", {})
+            await asyncio.wait_for(entered.wait(), 2)
+            # Recovery revokes the old token even when the logical job_id survives.
+            await client.hset("rssripple:job:download-ownership", "execution_token", "replacement")
+            resume.set()
+            await asyncio.wait_for(finished.wait(), 2)
+>           wrapper.add_torrent.assert_not_awaited()
+
+tests/unit/test_queue_download_ownership.py:40: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <AsyncMock id='140427430518064'>
+
+    def assert_not_awaited(self):
+        """
+        Assert that the mock was never awaited.
+        """
+        if self.await_count != 0:
+            msg = (f"Expected {self._mock_name or 'mock'} to not have been awaited."
+                   f" Awaited {self.await_count} times.")
+>           raise AssertionError(msg)
+E           AssertionError: Expected mock to not have been awaited. Awaited 1 times.
+
+/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/unittest/mock.py:2459: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_queue_download_ownership.py::test_replaced_execution_cannot_begin_download
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_queue_download_ownership.py::test_replaced_execution_cannot_begin_download
+1 failed, 1 warning in 0.24s

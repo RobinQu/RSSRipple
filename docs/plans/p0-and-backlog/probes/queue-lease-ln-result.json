@@ -1,0 +1,29 @@
+{
+  "data": "synthetic handler; actual Redis and processes",
+  "original_alive_when_lease_expired": true,
+  "starts": [
+    "A",
+    "B"
+  ],
+  "effects": [
+    "B",
+    "A"
+  ],
+  "final_job_state": {
+    "job_id": "c8eba451",
+    "job_type": "synthetic_lease",
+    "key": "probe:lease-reentry:job",
+    "status": "done",
+    "result": {
+      "owner": "B"
+    },
+    "error": null,
+    "queued_at": "2026-09-23T03:15:49.783650",
+    "started_at": "2026-09-23T03:16:04.913695",
+    "finished_at": "2026-09-23T03:16:04.915691"
+  },
+  "probe_exit_code": 0,
+  "cleanup_exit_code": 0,
+  "source_sha256": "c2a97a23393246c09ac1b1c1b3b85f2df6fe4ae24db927cb462d3ed0acd311fe",
+  "meaning": "Queue state ownership preserved; duplicate synthetic side effects remain"
+}

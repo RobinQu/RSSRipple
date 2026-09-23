@@ -1,0 +1,31 @@
+{
+  "prototype": "/tmp/rssripple-v14-ownership-kr",
+  "files": {
+    "app/services/task_queue.py": "a49f2a11fa94519e27223c0333d4239808bf5ebff0184c69ebc6cc0cad5a4baa",
+    "tests/unit/test_queue_execution_ownership.py": "e2ed46e094f1e1a8323a4f3e486c93f1b24120ea29835bdd7b653c5202ed3be6",
+    "tests/unit/test_task_queue.py": "ebe74facc00ff258bfb7636c1391fc88121eec77fad50b4d091d54055ced0a04"
+  },
+  "kt": {
+    "failed": 2,
+    "exit_code": 1,
+    "scope": "stale progress overwrites current result"
+  },
+  "ku": {
+    "passed": 62,
+    "failed": 1,
+    "seconds": 2.72,
+    "cause": "old fixture writes progress outside handler"
+  },
+  "kv": {
+    "passed": 63,
+    "warnings": 1,
+    "seconds": 2.8,
+    "exit_code": 0
+  },
+  "remaining": [
+    "atomic recovery/enqueue",
+    "side effect ownership",
+    "real Redis green",
+    "full gates"
+  ]
+}

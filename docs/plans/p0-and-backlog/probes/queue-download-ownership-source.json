@@ -1,0 +1,8 @@
+{
+  "base": "main edfceef; queue-ownership-prototype.patch required",
+  "files": {
+    "app/services/agent_service.py": "8fd6df173800ad92a82a817c9ac03ea13b26f7acdb8ce8b7cebc3330ea81f62b",
+    "tests/unit/test_queue_download_ownership.py": "2a01a16ebea5e23e612d0376ff67ccb97e72ba39ea1c56091536f866a004aff6",
+    "docs/design/business-logic.md": "1cb01616f8baf5997ad2215f8e39c1355eeb2a069ccfe4fcf097c3343b970df4"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "data": "synthetic handler; actual Redis and processes",
+  "original_alive_when_lease_expired": true,
+  "starts": [
+    "A",
+    "B"
+  ],
+  "effects": [
+    "B",
+    "A"
+  ],
+  "final_job_state": {
+    "job_id": "54e16f48",
+    "job_type": "synthetic_lease",
+    "key": "probe:lease-reentry:job",
+    "status": "done",
+    "result": {
+      "owner": "A"
+    },
+    "error": null,
+    "queued_at": "2026-09-20T12:29:04.077502",
+    "started_at": "2026-09-20T12:29:19.209118",
+    "finished_at": "2026-09-20T12:29:26.083142"
+  },
+  "probe_exit_code": 0,
+  "meaning": "Confirmed defect, not acceptance",
+  "source_sha256": "8a3ac1b6761d911be19e1aac8c2699eaf56a53ec7085e24ff24b20552536f3d6",
+  "cleanup_exit_code": 0
+}

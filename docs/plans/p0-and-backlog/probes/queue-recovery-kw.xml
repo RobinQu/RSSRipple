@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.135" timestamp="2026-09-20T12:41:10.709650+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_queue_execution_ownership" name="test_recovery_rechecks_lease_renewal_atomically" time="0.009"><failure message="AssertionError: assert 'queued' == 'running'&#10;  &#10;  - running&#10;  + queued">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7fd18c692ea0&gt;
+
+    async def test_recovery_rechecks_lease_renewal_atomically(monkeypatch):
+        server = fakeredis.FakeServer()
+        clients = [fakeredis.aioredis.FakeRedis(server=server, decode_responses=True) for _ in range(2)]
+        owner, scanner = [RedisQueue(redis_client=client, max_concurrent=1) for client in clients]
+        started, release = asyncio.Event(), asyncio.Event()
+    
+        async def handler(payload):
+            started.set()
+            await release.wait()
+    
+        owner.register("synthetic", handler)
+        await owner.start()
+        await scanner.start(consume=False)
+        try:
+            await owner.enqueue("synthetic", "renewed", {})
+            await asyncio.wait_for(started.wait(), 2)
+            await clients[0].delete(owner._consumer_key)
+            original_read = clients[1].hgetall
+            renewed = False
+    
+            async def renew_during_read(key):
+                nonlocal renewed
+                state = await original_read(key)
+                if key == "rssripple:job:renewed" and not renewed:
+                    renewed = True
+                    await clients[0].set(owner._consumer_key, "1", ex=15)
+                return state
+    
+            monkeypatch.setattr(clients[1], "hgetall", renew_during_read)
+            await scanner._recover_orphaned_jobs()
+            assert renewed, "The renewal race must actually execute"
+&gt;           assert (await owner.status("renewed"))["status"] == "running"
+E           AssertionError: assert 'queued' == 'running'
+E             
+E             - running
+E             + queued
+
+tests/unit/test_queue_execution_ownership.py:102: AssertionError</failure></testcase></testsuite></testsuites>

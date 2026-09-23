@@ -1,0 +1,21 @@
+{
+  "status": "defect reproduced; no implementation change",
+  "exit_code": 1,
+  "failed": 6,
+  "warnings": 1,
+  "seconds": 0.18,
+  "source_sha256": "a2ca8f421f66b462d49938ffc361631c3397d5acd1957deda7e5551c6755c1ee",
+  "matrix": {
+    "old_ending": [
+      "success",
+      "failure",
+      "cancel"
+    ],
+    "replacement": [
+      "lease recovery same job",
+      "clear and enqueue new job same key"
+    ]
+  },
+  "transport": "fakeredis; actual Redis evidence remains kq",
+  "prototype": "/tmp/rssripple-v14-ownership-kr"
+}

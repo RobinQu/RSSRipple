@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.134" timestamp="2026-09-20T12:43:46.234096+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_queue_execution_ownership" name="test_failed_enqueue_does_not_leave_active_key" time="0.012"><failure message="AssertionError: assert 'e1292486' is None">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7fce7692f100&gt;
+
+    async def test_failed_enqueue_does_not_leave_active_key(monkeypatch):
+        client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+        queue = RedisQueue(redis_client=client)
+        await queue.start(consume=False)
+        try:
+            async def abort_transaction(self, *args, **kwargs):
+                raise RuntimeError("Synthetic failure before transaction execution")
+    
+            with monkeypatch.context() as patcher:
+                patcher.setattr(type(client.pipeline()), "execute", abort_transaction)
+                with pytest.raises(RuntimeError, match="Synthetic failure"):
+                    await queue.enqueue("synthetic", "atomic-enqueue", {})
+&gt;           assert await client.get("rssripple:active:atomic-enqueue") is None
+E           AssertionError: assert 'e1292486' is None
+
+tests/unit/test_queue_execution_ownership.py:122: AssertionError</failure></testcase></testsuite></testsuites>

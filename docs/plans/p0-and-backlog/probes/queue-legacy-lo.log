@@ -1,0 +1,51 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______________ test_legacy_recovery_cannot_fail_replacement_job _______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fd9a0f1f100>
+
+    async def test_legacy_recovery_cannot_fail_replacement_job(monkeypatch):
+        client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+        queue = RedisQueue(redis_client=client)
+        key = "rssripple:job:legacy-replaced"
+        active = "rssripple:active:legacy-replaced"
+        await client.hset(key, mapping={
+            "job_id": "old", "key": "legacy-replaced", "job_type": "synthetic",
+            "status": "running",
+        })
+        await client.set(active, "old")
+        original = client.hgetall
+        replaced = False
+    
+        async def replace_after_read(name):
+            nonlocal replaced
+            state = await original(name)
+            if name == key and not replaced:
+                replaced = True
+                await client.hset(key, mapping={
+                    "job_id": "new", "status": "queued", "message": "new-descriptor",
+                })
+                await client.set(active, "new")
+            return state
+    
+        monkeypatch.setattr(client, "hgetall", replace_after_read)
+        await queue._recover_orphaned_jobs(reconcile_legacy=True)
+        assert replaced
+        state = await original(key)
+        assert state["job_id"] == "new"
+>       assert state["status"] == "queued"
+E       AssertionError: assert 'failed' == 'queued'
+E         
+E         - queued
+E         + failed
+
+tests/unit/test_queue_execution_ownership.py:185: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_queue_execution_ownership.py::test_legacy_recovery_cannot_fail_replacement_job
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_queue_execution_ownership.py::test_legacy_recovery_cannot_fail_replacement_job
+1 failed, 1 warning in 0.13s

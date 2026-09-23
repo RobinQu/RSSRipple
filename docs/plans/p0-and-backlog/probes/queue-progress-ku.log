@@ -1,0 +1,25 @@
+............................F..................................          [100%]
+=================================== FAILURES ===================================
+____________ TestRedisQueue.test_update_progress_is_shared_in_redis ____________
+
+self = <tests.unit.test_task_queue.TestRedisQueue object at 0x7f49482f39b0>
+queue = <app.services.task_queue.RedisQueue object at 0x7f4948640890>
+
+    async def test_update_progress_is_shared_in_redis(self, queue):
+        await queue.start(consume=False)
+        await queue.enqueue("slow", "progress-redis", {})
+        await queue.update_progress("progress-redis", {"message": "working", "output": "abc"})
+        state = await queue.status("progress-redis")
+>       assert state["result"] == {"message": "working", "output": "abc"}
+E       AssertionError: assert None == {'message': 'working', 'output': 'abc'}
+
+tests/unit/test_task_queue.py:407: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_queue_execution_ownership.py::test_old_execution_cannot_change_current_owner[success-recover]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_task_queue.py::TestRedisQueue::test_update_progress_is_shared_in_redis
+1 failed, 62 passed, 1 warning in 2.72s

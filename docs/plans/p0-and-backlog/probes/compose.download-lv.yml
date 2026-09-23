@@ -1,0 +1,47 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: probe
+      POSTGRES_PASSWORD: probe
+      POSTGRES_DB: probe
+    ports: ['127.0.0.1::5432']
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U probe -d probe']
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    networks: [isolated]
+  redis:
+    image: redis:7-alpine
+    ports: ['127.0.0.1::6379']
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    networks: [isolated]
+  transmission:
+    image: lscr.io/linuxserver/transmission:latest
+    environment:
+      PUID: '1000'
+      PGID: '1000'
+    ports: ['127.0.0.1::9091']
+    volumes:
+      - transmission-config:/config
+      - transmission-downloads:/downloads
+      - transmission-watch:/watch
+    healthcheck:
+      test: [CMD, curl, -o, /dev/null, 'http://localhost:9091/transmission/rpc']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [isolated]
+volumes:
+  transmission-config: {}
+  transmission-downloads: {}
+  transmission-watch: {}
+networks:
+  isolated:
+    internal: true

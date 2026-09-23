@@ -1,0 +1,401 @@
+FFFFFF                                                                   [100%]
+=================================== FAILURES ===================================
+_______ test_old_execution_cannot_change_current_owner[success-recover] ________
+
+replacement = 'recover', ending = 'success'
+
+    @pytest.mark.parametrize("replacement", ["recover", "new_job"])
+    @pytest.mark.parametrize("ending", ["success", "failure", "cancel"])
+    async def test_old_execution_cannot_change_current_owner(replacement, ending):
+        server = fakeredis.FakeServer()
+        clients = [fakeredis.aioredis.FakeRedis(server=server, decode_responses=True) for _ in range(2)]
+        old, current = [RedisQueue(redis_client=client, max_concurrent=1) for client in clients]
+        old_started, current_started = asyncio.Event(), asyncio.Event()
+        old_release, current_release = asyncio.Event(), asyncio.Event()
+    
+        async def old_handler(payload):
+            old_started.set()
+            await old_release.wait()
+            if ending == "failure":
+                raise RuntimeError("Synthetic stale failure")
+            return {"owner": "old"}
+    
+        async def current_handler(payload):
+            current_started.set()
+            await current_release.wait()
+            return {"owner": "current"}
+    
+        old.register("synthetic", old_handler)
+        current.register("synthetic", current_handler)
+        await old.start()
+        try:
+            original = await old.enqueue("synthetic", "ownership", {})
+            await asyncio.wait_for(old_started.wait(), 2)
+            stale_task = next(iter(old._run_tasks))
+            # Stop claiming new descriptors while leaving the original handler live.
+            old._worker.cancel()
+            await old._worker
+            if replacement == "recover":
+                await clients[0].delete(old._consumer_key)
+            else:
+                await old.clear("ownership")
+                fresh = await old.enqueue("synthetic", "ownership", {})
+                assert fresh["job_id"] != original["job_id"]
+            await current.start()
+            await asyncio.wait_for(current_started.wait(), 2)
+            before = await current.status("ownership")
+            assert before["status"] == "running"
+            if ending == "cancel":
+                stale_task.cancel()
+            else:
+                old_release.set()
+            await asyncio.wait_for(asyncio.gather(stale_task, return_exceptions=True), 2)
+            after = await current.status("ownership")
+>           assert after == before, "Stale completion/failure/cancel changed the current execution"
+E           AssertionError: Stale completion/failure/cancel changed the current execution
+E           assert {'job_id': '4...: 'done', ...} == {'job_id': '4...running', ...}
+E             
+E             Omitting 6 identical items, use -vv to show
+E             Differing items:
+E             {'status': 'done'} != {'status': 'running'}
+E             {'result': {'owner': 'old'}} != {'result': None}
+E             {'finished_at': '2026-09-20T12:33:48.521380'} != {'finished_at': None}
+E             Use -v to get more diff
+
+tests/unit/test_queue_execution_ownership.py:58: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.task_queue:task_queue.py:548 Recovered 1 jobs from dead consumer dl-workstation-albert:032a2c35db0b4a2293c25c2e7190e65c
+_______ test_old_execution_cannot_change_current_owner[success-new_job] ________
+
+replacement = 'new_job', ending = 'success'
+
+    @pytest.mark.parametrize("replacement", ["recover", "new_job"])
+    @pytest.mark.parametrize("ending", ["success", "failure", "cancel"])
+    async def test_old_execution_cannot_change_current_owner(replacement, ending):
+        server = fakeredis.FakeServer()
+        clients = [fakeredis.aioredis.FakeRedis(server=server, decode_responses=True) for _ in range(2)]
+        old, current = [RedisQueue(redis_client=client, max_concurrent=1) for client in clients]
+        old_started, current_started = asyncio.Event(), asyncio.Event()
+        old_release, current_release = asyncio.Event(), asyncio.Event()
+    
+        async def old_handler(payload):
+            old_started.set()
+            await old_release.wait()
+            if ending == "failure":
+                raise RuntimeError("Synthetic stale failure")
+            return {"owner": "old"}
+    
+        async def current_handler(payload):
+            current_started.set()
+            await current_release.wait()
+            return {"owner": "current"}
+    
+        old.register("synthetic", old_handler)
+        current.register("synthetic", current_handler)
+        await old.start()
+        try:
+            original = await old.enqueue("synthetic", "ownership", {})
+            await asyncio.wait_for(old_started.wait(), 2)
+            stale_task = next(iter(old._run_tasks))
+            # Stop claiming new descriptors while leaving the original handler live.
+            old._worker.cancel()
+            await old._worker
+            if replacement == "recover":
+                await clients[0].delete(old._consumer_key)
+            else:
+                await old.clear("ownership")
+                fresh = await old.enqueue("synthetic", "ownership", {})
+                assert fresh["job_id"] != original["job_id"]
+            await current.start()
+            await asyncio.wait_for(current_started.wait(), 2)
+            before = await current.status("ownership")
+            assert before["status"] == "running"
+            if ending == "cancel":
+                stale_task.cancel()
+            else:
+                old_release.set()
+            await asyncio.wait_for(asyncio.gather(stale_task, return_exceptions=True), 2)
+            after = await current.status("ownership")
+>           assert after == before, "Stale completion/failure/cancel changed the current execution"
+E           AssertionError: Stale completion/failure/cancel changed the current execution
+E           assert {'job_id': '8...: 'done', ...} == {'job_id': '8...running', ...}
+E             
+E             Omitting 6 identical items, use -vv to show
+E             Differing items:
+E             {'status': 'done'} != {'status': 'running'}
+E             {'result': {'owner': 'old'}} != {'result': None}
+E             {'finished_at': '2026-09-20T12:33:48.582784'} != {'finished_at': None}
+E             Use -v to get more diff
+
+tests/unit/test_queue_execution_ownership.py:58: AssertionError
+_______ test_old_execution_cannot_change_current_owner[failure-recover] ________
+
+replacement = 'recover', ending = 'failure'
+
+    @pytest.mark.parametrize("replacement", ["recover", "new_job"])
+    @pytest.mark.parametrize("ending", ["success", "failure", "cancel"])
+    async def test_old_execution_cannot_change_current_owner(replacement, ending):
+        server = fakeredis.FakeServer()
+        clients = [fakeredis.aioredis.FakeRedis(server=server, decode_responses=True) for _ in range(2)]
+        old, current = [RedisQueue(redis_client=client, max_concurrent=1) for client in clients]
+        old_started, current_started = asyncio.Event(), asyncio.Event()
+        old_release, current_release = asyncio.Event(), asyncio.Event()
+    
+        async def old_handler(payload):
+            old_started.set()
+            await old_release.wait()
+            if ending == "failure":
+                raise RuntimeError("Synthetic stale failure")
+            return {"owner": "old"}
+    
+        async def current_handler(payload):
+            current_started.set()
+            await current_release.wait()
+            return {"owner": "current"}
+    
+        old.register("synthetic", old_handler)
+        current.register("synthetic", current_handler)
+        await old.start()
+        try:
+            original = await old.enqueue("synthetic", "ownership", {})
+            await asyncio.wait_for(old_started.wait(), 2)
+            stale_task = next(iter(old._run_tasks))
+            # Stop claiming new descriptors while leaving the original handler live.
+            old._worker.cancel()
+            await old._worker
+            if replacement == "recover":
+                await clients[0].delete(old._consumer_key)
+            else:
+                await old.clear("ownership")
+                fresh = await old.enqueue("synthetic", "ownership", {})
+                assert fresh["job_id"] != original["job_id"]
+            await current.start()
+            await asyncio.wait_for(current_started.wait(), 2)
+            before = await current.status("ownership")
+            assert before["status"] == "running"
+            if ending == "cancel":
+                stale_task.cancel()
+            else:
+                old_release.set()
+            await asyncio.wait_for(asyncio.gather(stale_task, return_exceptions=True), 2)
+            after = await current.status("ownership")
+>           assert after == before, "Stale completion/failure/cancel changed the current execution"
+E           AssertionError: Stale completion/failure/cancel changed the current execution
+E           assert {'job_id': 'f...'failed', ...} == {'job_id': 'f...running', ...}
+E             
+E             Omitting 6 identical items, use -vv to show
+E             Differing items:
+E             {'status': 'failed'} != {'status': 'running'}
+E             {'error': 'Synthetic stale failure'} != {'error': None}
+E             {'finished_at': '2026-09-20T12:33:48.590611'} != {'finished_at': None}
+E             Use -v to get more diff
+
+tests/unit/test_queue_execution_ownership.py:58: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.task_queue:task_queue.py:548 Recovered 1 jobs from dead consumer dl-workstation-albert:04d44b9500b748ba9387065cf725d59f
+ERROR    app.services.task_queue:task_queue.py:626 Failed synthetic/ownership: Synthetic stale failure
+_______ test_old_execution_cannot_change_current_owner[failure-new_job] ________
+
+replacement = 'new_job', ending = 'failure'
+
+    @pytest.mark.parametrize("replacement", ["recover", "new_job"])
+    @pytest.mark.parametrize("ending", ["success", "failure", "cancel"])
+    async def test_old_execution_cannot_change_current_owner(replacement, ending):
+        server = fakeredis.FakeServer()
+        clients = [fakeredis.aioredis.FakeRedis(server=server, decode_responses=True) for _ in range(2)]
+        old, current = [RedisQueue(redis_client=client, max_concurrent=1) for client in clients]
+        old_started, current_started = asyncio.Event(), asyncio.Event()
+        old_release, current_release = asyncio.Event(), asyncio.Event()
+    
+        async def old_handler(payload):
+            old_started.set()
+            await old_release.wait()
+            if ending == "failure":
+                raise RuntimeError("Synthetic stale failure")
+            return {"owner": "old"}
+    
+        async def current_handler(payload):
+            current_started.set()
+            await current_release.wait()
+            return {"owner": "current"}
+    
+        old.register("synthetic", old_handler)
+        current.register("synthetic", current_handler)
+        await old.start()
+        try:
+            original = await old.enqueue("synthetic", "ownership", {})
+            await asyncio.wait_for(old_started.wait(), 2)
+            stale_task = next(iter(old._run_tasks))
+            # Stop claiming new descriptors while leaving the original handler live.
+            old._worker.cancel()
+            await old._worker
+            if replacement == "recover":
+                await clients[0].delete(old._consumer_key)
+            else:
+                await old.clear("ownership")
+                fresh = await old.enqueue("synthetic", "ownership", {})
+                assert fresh["job_id"] != original["job_id"]
+            await current.start()
+            await asyncio.wait_for(current_started.wait(), 2)
+            before = await current.status("ownership")
+            assert before["status"] == "running"
+            if ending == "cancel":
+                stale_task.cancel()
+            else:
+                old_release.set()
+            await asyncio.wait_for(asyncio.gather(stale_task, return_exceptions=True), 2)
+            after = await current.status("ownership")
+>           assert after == before, "Stale completion/failure/cancel changed the current execution"
+E           AssertionError: Stale completion/failure/cancel changed the current execution
+E           assert {'job_id': '6...'failed', ...} == {'job_id': '6...running', ...}
+E             
+E             Omitting 6 identical items, use -vv to show
+E             Differing items:
+E             {'status': 'failed'} != {'status': 'running'}
+E             {'error': 'Synthetic stale failure'} != {'error': None}
+E             {'finished_at': '2026-09-20T12:33:48.598384'} != {'finished_at': None}
+E             Use -v to get more diff
+
+tests/unit/test_queue_execution_ownership.py:58: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    app.services.task_queue:task_queue.py:626 Failed synthetic/ownership: Synthetic stale failure
+________ test_old_execution_cannot_change_current_owner[cancel-recover] ________
+
+replacement = 'recover', ending = 'cancel'
+
+    @pytest.mark.parametrize("replacement", ["recover", "new_job"])
+    @pytest.mark.parametrize("ending", ["success", "failure", "cancel"])
+    async def test_old_execution_cannot_change_current_owner(replacement, ending):
+        server = fakeredis.FakeServer()
+        clients = [fakeredis.aioredis.FakeRedis(server=server, decode_responses=True) for _ in range(2)]
+        old, current = [RedisQueue(redis_client=client, max_concurrent=1) for client in clients]
+        old_started, current_started = asyncio.Event(), asyncio.Event()
+        old_release, current_release = asyncio.Event(), asyncio.Event()
+    
+        async def old_handler(payload):
+            old_started.set()
+            await old_release.wait()
+            if ending == "failure":
+                raise RuntimeError("Synthetic stale failure")
+            return {"owner": "old"}
+    
+        async def current_handler(payload):
+            current_started.set()
+            await current_release.wait()
+            return {"owner": "current"}
+    
+        old.register("synthetic", old_handler)
+        current.register("synthetic", current_handler)
+        await old.start()
+        try:
+            original = await old.enqueue("synthetic", "ownership", {})
+            await asyncio.wait_for(old_started.wait(), 2)
+            stale_task = next(iter(old._run_tasks))
+            # Stop claiming new descriptors while leaving the original handler live.
+            old._worker.cancel()
+            await old._worker
+            if replacement == "recover":
+                await clients[0].delete(old._consumer_key)
+            else:
+                await old.clear("ownership")
+                fresh = await old.enqueue("synthetic", "ownership", {})
+                assert fresh["job_id"] != original["job_id"]
+            await current.start()
+            await asyncio.wait_for(current_started.wait(), 2)
+            before = await current.status("ownership")
+            assert before["status"] == "running"
+            if ending == "cancel":
+                stale_task.cancel()
+            else:
+                old_release.set()
+            await asyncio.wait_for(asyncio.gather(stale_task, return_exceptions=True), 2)
+            after = await current.status("ownership")
+>           assert after == before, "Stale completion/failure/cancel changed the current execution"
+E           AssertionError: Stale completion/failure/cancel changed the current execution
+E           assert {'job_id': '1...'queued', ...} == {'job_id': '1...running', ...}
+E             
+E             Omitting 7 identical items, use -vv to show
+E             Differing items:
+E             {'status': 'queued'} != {'status': 'running'}
+E             {'started_at': None} != {'started_at': '2026-09-20T12:33:48.605714'}
+E             Use -v to get more diff
+
+tests/unit/test_queue_execution_ownership.py:58: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.task_queue:task_queue.py:548 Recovered 1 jobs from dead consumer dl-workstation-albert:97b045bdea87478f9d171dddcd0bdd8f
+________ test_old_execution_cannot_change_current_owner[cancel-new_job] ________
+
+replacement = 'new_job', ending = 'cancel'
+
+    @pytest.mark.parametrize("replacement", ["recover", "new_job"])
+    @pytest.mark.parametrize("ending", ["success", "failure", "cancel"])
+    async def test_old_execution_cannot_change_current_owner(replacement, ending):
+        server = fakeredis.FakeServer()
+        clients = [fakeredis.aioredis.FakeRedis(server=server, decode_responses=True) for _ in range(2)]
+        old, current = [RedisQueue(redis_client=client, max_concurrent=1) for client in clients]
+        old_started, current_started = asyncio.Event(), asyncio.Event()
+        old_release, current_release = asyncio.Event(), asyncio.Event()
+    
+        async def old_handler(payload):
+            old_started.set()
+            await old_release.wait()
+            if ending == "failure":
+                raise RuntimeError("Synthetic stale failure")
+            return {"owner": "old"}
+    
+        async def current_handler(payload):
+            current_started.set()
+            await current_release.wait()
+            return {"owner": "current"}
+    
+        old.register("synthetic", old_handler)
+        current.register("synthetic", current_handler)
+        await old.start()
+        try:
+            original = await old.enqueue("synthetic", "ownership", {})
+            await asyncio.wait_for(old_started.wait(), 2)
+            stale_task = next(iter(old._run_tasks))
+            # Stop claiming new descriptors while leaving the original handler live.
+            old._worker.cancel()
+            await old._worker
+            if replacement == "recover":
+                await clients[0].delete(old._consumer_key)
+            else:
+                await old.clear("ownership")
+                fresh = await old.enqueue("synthetic", "ownership", {})
+                assert fresh["job_id"] != original["job_id"]
+            await current.start()
+            await asyncio.wait_for(current_started.wait(), 2)
+            before = await current.status("ownership")
+            assert before["status"] == "running"
+            if ending == "cancel":
+                stale_task.cancel()
+            else:
+                old_release.set()
+            await asyncio.wait_for(asyncio.gather(stale_task, return_exceptions=True), 2)
+            after = await current.status("ownership")
+>           assert after == before, "Stale completion/failure/cancel changed the current execution"
+E           AssertionError: Stale completion/failure/cancel changed the current execution
+E           assert {'job_id': '3...'queued', ...} == {'job_id': '3...running', ...}
+E             
+E             Omitting 7 identical items, use -vv to show
+E             Differing items:
+E             {'status': 'queued'} != {'status': 'running'}
+E             {'started_at': None} != {'started_at': '2026-09-20T12:33:48.613064'}
+E             Use -v to get more diff
+
+tests/unit/test_queue_execution_ownership.py:58: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_queue_execution_ownership.py::test_old_execution_cannot_change_current_owner[success-recover]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_queue_execution_ownership.py::test_old_execution_cannot_change_current_owner[success-recover]
+FAILED tests/unit/test_queue_execution_ownership.py::test_old_execution_cannot_change_current_owner[success-new_job]
+FAILED tests/unit/test_queue_execution_ownership.py::test_old_execution_cannot_change_current_owner[failure-recover]
+FAILED tests/unit/test_queue_execution_ownership.py::test_old_execution_cannot_change_current_owner[failure-new_job]
+FAILED tests/unit/test_queue_execution_ownership.py::test_old_execution_cannot_change_current_owner[cancel-recover]
+FAILED tests/unit/test_queue_execution_ownership.py::test_old_execution_cannot_change_current_owner[cancel-new_job]
+6 failed, 1 warning in 0.18s

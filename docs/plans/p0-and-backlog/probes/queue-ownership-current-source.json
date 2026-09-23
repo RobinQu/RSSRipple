@@ -1,0 +1,8 @@
+{
+  "prototype": "/tmp/rssripple-v14-ownership-kr",
+  "files": {
+    "app/services/task_queue.py": "87b5d8b38c08eb41d13fd7ad019518dc7f8b2cc1e11529b7fcb9ba93aae55b17",
+    "tests/unit/test_queue_execution_ownership.py": "50bcb20aec201debed1742d915b9a89cefacd199adfb2f1836b910cc2aec7478",
+    "tests/unit/test_task_queue.py": "ebe74facc00ff258bfb7636c1391fc88121eec77fad50b4d091d54055ced0a04"
+  }
+}

@@ -1,0 +1,42 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________________ test_recovery_release_preserves_successor_lock ________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f4801447100>
+
+    async def test_recovery_release_preserves_successor_lock(monkeypatch):
+        client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+        queue = RedisQueue(redis_client=client)
+        lock = "rssripple:recovery-lock"
+        from app.services.task_queue import _RECOVERY_LOCK
+        lock = _RECOVERY_LOCK
+        replaced = False
+    
+        def racing_get(original):
+            async def get(self, key, *args, **kwargs):
+                nonlocal replaced
+                value = await original(self, key, *args, **kwargs)
+                if key == lock and value is not None and not replaced:
+                    replaced = True
+                    # Expiration and a successor acquiring the lock after our read.
+                    await client.set(lock, "successor-token", ex=30)
+                return value
+            return get
+    
+        for cls in [type(client), type(client.pipeline())]:
+            monkeypatch.setattr(cls, "get", racing_get(cls.get))
+        await queue._recover_orphaned_jobs()
+        assert replaced, "The lock replacement race must execute"
+>       assert await client.get(lock) == "successor-token"
+E       AssertionError: assert None == 'successor-token'
+
+tests/unit/test_queue_execution_ownership.py:153: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_queue_execution_ownership.py::test_recovery_release_preserves_successor_lock
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_queue_execution_ownership.py::test_recovery_release_preserves_successor_lock
+1 failed, 1 warning in 0.14s

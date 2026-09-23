@@ -329,3 +329,7 @@ lk 原 session 66950 已终态退出 0：3152 passed、17 skipped、8 warnings�
 按 code-review-and-quality 复核模型约束、事务发布顺序、最新 metadata 保留、generation 条件确认、历史排除、暂停与规则变更、迁移审核和启动门禁；同时核对 PG 锁/回滚、实际 CLI/web/worker 启动、Redis 清空后双消费者恢复及真实 torrent 流水线证据。全部 manifest 当前哈希一致，运行代码与通过 lj/lk 的冻结源码一致，全部变更 Python Ruff 通过。未发现阻止本批 B7 合入的问题。FTS 本轮完整负载无原生崩溃，但不将独立 btree 复现与此前 page_cache 崩溃描述为已证明同源。
 
 合入范围仅 B7 及其验证中证实的配置刷新/FTS 并发修复；B4 执行所有权和下载持久幂等实验均不纳入。现有库升级必须遵循 docs/design/db-migration.md 的停写、备份、prepare-schema、审核指纹与 apply 流程，本次未执行生产迁移。
+
+## 本地主干合入
+
+已通过 bugfix/resource-publication-cursors 快进合入本地 main，提交 edfceef（fix: consume resource publications in committed order）。TODO 中 B7 条目已按完成规则移除，PLAN 保留验收记录。所有 B7 测试/覆盖率/清理进程均已终态，勿继续轮询旧 session。未推送远端，未执行生产迁移。后续继续 V14/B4。

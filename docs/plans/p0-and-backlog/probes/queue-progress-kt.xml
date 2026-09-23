@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="0.138" timestamp="2026-09-20T12:37:35.548753+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_queue_execution_ownership" name="test_old_execution_cannot_change_current_owner[progress-recover]" time="0.010"><failure message="AssertionError: Stale completion/failure/cancel changed the current execution&#10;assert {'job_id': '3...running', ...} == {'job_id': '3...running', ...}&#10;  &#10;  Omitting 8 identical items, use -vv to show&#10;  Differing items:&#10;  {'result': {'owner': 'stale progress'}} != {'result': None}&#10;  Use -v to get more diff">replacement = 'recover', ending = 'progress'
+
+    @pytest.mark.parametrize("replacement", ["recover", "new_job"])
+    @pytest.mark.parametrize("ending", ["success", "failure", "cancel", "progress"])
+    async def test_old_execution_cannot_change_current_owner(replacement, ending):
+        server = fakeredis.FakeServer()
+        clients = [fakeredis.aioredis.FakeRedis(server=server, decode_responses=True) for _ in range(2)]
+        old, current = [RedisQueue(redis_client=client, max_concurrent=1) for client in clients]
+        old_started, current_started = asyncio.Event(), asyncio.Event()
+        old_release, current_release = asyncio.Event(), asyncio.Event()
+    
+        async def old_handler(payload):
+            old_started.set()
+            await old_release.wait()
+            if ending == "progress":
+                await old.update_progress("ownership", {"owner": "stale progress"})
+            if ending == "failure":
+                raise RuntimeError("Synthetic stale failure")
+            return {"owner": "old"}
+    
+        async def current_handler(payload):
+            current_started.set()
+            await current_release.wait()
+            return {"owner": "current"}
+    
+        old.register("synthetic", old_handler)
+        current.register("synthetic", current_handler)
+        await old.start()
+        try:
+            original = await old.enqueue("synthetic", "ownership", {})
+            await asyncio.wait_for(old_started.wait(), 2)
+            stale_task = next(iter(old._run_tasks))
+            # Stop claiming new descriptors while leaving the original handler live.
+            old._worker.cancel()
+            await old._worker
+            if replacement == "recover":
+                await clients[0].delete(old._consumer_key)
+            else:
+                await old.clear("ownership")
+                fresh = await old.enqueue("synthetic", "ownership", {})
+                assert fresh["job_id"] != original["job_id"]
+            await current.start()
+            await asyncio.wait_for(current_started.wait(), 2)
+            before = await current.status("ownership")
+            assert before["status"] == "running"
+            if ending == "cancel":
+                stale_task.cancel()
+            else:
+                old_release.set()
+            await asyncio.wait_for(asyncio.gather(stale_task, return_exceptions=True), 2)
+            after = await current.status("ownership")
+&gt;           assert after == before, "Stale completion/failure/cancel changed the current execution"
+E           AssertionError: Stale completion/failure/cancel changed the current execution
+E           assert {'job_id': '3...running', ...} == {'job_id': '3...running', ...}
+E             
+E             Omitting 8 identical items, use -vv to show
+E             Differing items:
+E             {'result': {'owner': 'stale progress'}} != {'result': None}
+E             Use -v to get more diff
+
+tests/unit/test_queue_execution_ownership.py:60: AssertionError</failure></testcase><testcase classname="tests.unit.test_queue_execution_ownership" name="test_old_execution_cannot_change_current_owner[progress-new_job]" time="0.006"><failure message="AssertionError: Stale completion/failure/cancel changed the current execution&#10;assert {'job_id': 'c...running', ...} == {'job_id': 'c...running', ...}&#10;  &#10;  Omitting 8 identical items, use -vv to show&#10;  Differing items:&#10;  {'result': {'owner': 'stale progress'}} != {'result': None}&#10;  Use -v to get more diff">replacement = 'new_job', ending = 'progress'
+
+    @pytest.mark.parametrize("replacement", ["recover", "new_job"])
+    @pytest.mark.parametrize("ending", ["success", "failure", "cancel", "progress"])
+    async def test_old_execution_cannot_change_current_owner(replacement, ending):
+        server = fakeredis.FakeServer()
+        clients = [fakeredis.aioredis.FakeRedis(server=server, decode_responses=True) for _ in range(2)]
+        old, current = [RedisQueue(redis_client=client, max_concurrent=1) for client in clients]
+        old_started, current_started = asyncio.Event(), asyncio.Event()
+        old_release, current_release = asyncio.Event(), asyncio.Event()
+    
+        async def old_handler(payload):
+            old_started.set()
+            await old_release.wait()
+            if ending == "progress":
+                await old.update_progress("ownership", {"owner": "stale progress"})
+            if ending == "failure":
+                raise RuntimeError("Synthetic stale failure")
+            return {"owner": "old"}
+    
+        async def current_handler(payload):
+            current_started.set()
+            await current_release.wait()
+            return {"owner": "current"}
+    
+        old.register("synthetic", old_handler)
+        current.register("synthetic", current_handler)
+        await old.start()
+        try:
+            original = await old.enqueue("synthetic", "ownership", {})
+            await asyncio.wait_for(old_started.wait(), 2)
+            stale_task = next(iter(old._run_tasks))
+            # Stop claiming new descriptors while leaving the original handler live.
+            old._worker.cancel()
+            await old._worker
+            if replacement == "recover":
+                await clients[0].delete(old._consumer_key)
+            else:
+                await old.clear("ownership")
+                fresh = await old.enqueue("synthetic", "ownership", {})
+                assert fresh["job_id"] != original["job_id"]
+            await current.start()
+            await asyncio.wait_for(current_started.wait(), 2)
+            before = await current.status("ownership")
+            assert before["status"] == "running"
+            if ending == "cancel":
+                stale_task.cancel()
+            else:
+                old_release.set()
+            await asyncio.wait_for(asyncio.gather(stale_task, return_exceptions=True), 2)
+            after = await current.status("ownership")
+&gt;           assert after == before, "Stale completion/failure/cancel changed the current execution"
+E           AssertionError: Stale completion/failure/cancel changed the current execution
+E           assert {'job_id': 'c...running', ...} == {'job_id': 'c...running', ...}
+E             
+E             Omitting 8 identical items, use -vv to show
+E             Differing items:
+E             {'result': {'owner': 'stale progress'}} != {'result': None}
+E             Use -v to get more diff
+
+tests/unit/test_queue_execution_ownership.py:60: AssertionError</failure></testcase></testsuite></testsuites>
