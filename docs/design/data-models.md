@@ -857,3 +857,9 @@ baseline 和 cursor 分别表示历史准入与消费确认，不要求 cursor>=
 队列派发的稳定身份表 download_dispatches：id 为 UUID v4 主键；operation_key 为唯一 SHA256 字符串；task_id 为唯一预留 UUID v4；parameters 为冻结 JSON（资源、Agent、下载器、目录和 payload 摘要）；settled 为非空 Boolean，数据库默认 false；created_at 为 UTC。task_id 在任务创建之前预留，因此不指向 DownloadTask 外键；任务删除后保留记录以阻止旧执行重建。身份 JSON 的 ID 是不可变操作快照，不建立级联外键。新增可空 job_key（512）与 job_id（32）保存逻辑队列身份，created_at 建索引；身份缺失时保守保留。正常 queued 派发始终填入两字段。
 
 `WebhookDelivery.attempt_token` 为 nullable String(36)，表示当前发送尝试/失效代次；旧行 NULL 可被首次条件领取。发送、人工重试及快照更新均更换 UUID，结果按 id/token/pending 条件写入。
+
+## OTP 请求额度（auth_rate_limit_buckets）
+
+AuthRateLimitBucket 使用 UUID v4 主键；bucket_key 为唯一 String(72)，global 为全局桶，peer: 后接服务器解析来源地址的 SHA-256。attempts 为正整数；resets_at 为 UTC DateTime 并建索引。表不保存验证码或密钥。全局及来源的条件 upsert 在同一短事务中完成，提交后才执行 OTP 验证；验证失败不得回滚额度。过期来源桶按 resets_at/id 排序每次最多删除 100 行。
+
+Turso 单进程内，同一引擎的额度短事务串行执行，防止全局桶的 MVCC 写冲突耗尽重试。锁不保存计数或决定是否放行；持久化数据库始终是额度依据。PostgreSQL 继续由条件 upsert 和行锁协调跨进程并发，外部写冲突仍使用独立事务重试。

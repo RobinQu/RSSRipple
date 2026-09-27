@@ -62,3 +62,7 @@
 
 ---
 
+
+### RATE_LIMITED（429）
+
+OTP 尝试超出持久化来源或全局额度时返回统一错误结构，code 为 RATE_LIMITED，并携带 Retry-After（秒）。HTTP 异常处理器保留 exc.headers；401 仍表示验证码错误。额度数据库故障按既有 500 处理，不绕过额度继续认证。

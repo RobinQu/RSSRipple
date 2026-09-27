@@ -314,3 +314,7 @@ web/worker 在运行配置和调度启动前检查迁移状态；真正空库初
 派发表包含可空 job_key/job_id 与 created_at 索引，正常派发填入身份供清理验证；缺身份记录不清理。尚未发布的旧实验表不属于支持升级来源。两后端升级、约束与完整门禁证据见 `docs/plans/p0-and-backlog/V14-QUEUE-OWNERSHIP.md`。
 
 升级新增 `webhook_deliveries.attempt_token VARCHAR(36) NULL`；老行无需回填。该安全字段的添加失败必须中止启动，不允许 best-effort 吞错。升级须停掉旧 worker，不能让不检查 token 的旧进程继续写投递结果。
+
+### OTP 额度表新增
+
+本版本增加 auth_rate_limit_buckets，应用启动的 Base.metadata.create_all 在已有 PostgreSQL/Turso 库上幂等创建该新表，无历史计数需要回填。上线前须让所有 web 实例升级；旧版本不预留额度，混跑期间不能声称全局限流已生效。不会修改已有 TOTP/Cookie 密钥或使已签发会话失效。回退旧版本会丢失限流保护；不要以删表清除额度作为登录流程。

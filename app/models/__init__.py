@@ -10,6 +10,7 @@ from app.models.agent_work import AgentWork
 from app.models.api_key import ApiKey
 from app.models.app_setting import AppSetting
 from app.models.audio_work import AudioWork
+from app.models.auth_rate_limit import AuthRateLimitBucket
 from app.models.channel import Channel
 from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
 from app.models.decision_migration import DecisionMigration
@@ -44,6 +45,7 @@ from app.models.work_collection import WorkCollection
 from app.models.work_external_id import WorkExternalId
 
 __all__ = [
+    "AuthRateLimitBucket",
     "AgentPublicationProgress",
     "ChannelPublicationCounter",
     "ResourcePublication",

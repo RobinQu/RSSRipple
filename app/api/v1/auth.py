@@ -13,6 +13,7 @@ from app.config import settings
 from app.database import get_db
 from app.schemas.auth import AuthStatusResponse, OTPRequest
 from app.schemas.common import success_response
+from app.services.auth_rate_limit import reserve_otp_attempt
 from app.services.auth_service import (
     AUTH_COOKIE_NAME,
     COOKIE_MAX_AGE_DAYS,
@@ -53,10 +54,19 @@ async def _request_authenticated(request: Request, db: AsyncSession) -> bool:
 @router.post("/auth/otp")
 async def auth_otp(
     body: OTPRequest,
+    request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
 ):
     """Verify a TOTP code and issue a session cookie on success."""
+    peer = request.client.host if request.client else "unknown"
+    retry_after = await reserve_otp_attempt(peer)
+    if retry_after:
+        raise HTTPException(
+            status_code=429,
+            detail={"code": "RATE_LIMITED", "message": "too many OTP attempts"},
+            headers={"Retry-After": str(retry_after)},
+        )
     totp_secret = await get_or_create_totp_secret(db)
     if not verify_totp(totp_secret, body.code.strip()):
         raise HTTPException(
