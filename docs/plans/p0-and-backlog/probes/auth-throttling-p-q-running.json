@@ -1,0 +1,22 @@
+{
+  "accepted": false,
+  "prototype": "/tmp/rssripple-v18-turso-review",
+  "freeze": "auth-throttling-p-frozen.json",
+  "effective_files": "auth-throttling-p-source.json",
+  "unit": {
+    "session": 60783,
+    "log": "/tmp/rssripple-v18-unit-p.log",
+    "junit": "/tmp/rssripple-v18-unit-p.xml",
+    "coverage": "/tmp/rssripple-v18-unit-p-coverage.xml",
+    "postgres_container": "rssripple-v18-unit-pg-j",
+    "postgres_port": 32848,
+    "threshold": 95
+  },
+  "integration": {
+    "session": 90642,
+    "project": "rssripple-v18-final-q",
+    "startup_exit": 0,
+    "log": "/tmp/rssripple-v18-integration-q.log",
+    "threshold": 85
+  }
+}

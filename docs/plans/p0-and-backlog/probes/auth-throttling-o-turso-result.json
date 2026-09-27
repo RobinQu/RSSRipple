@@ -1,0 +1,104 @@
+{
+  "cases": [
+    {
+      "concurrent": 12,
+      "allowed": 5,
+      "denied": 7,
+      "errors": [],
+      "attempts": [
+        5,
+        12
+      ]
+    },
+    {
+      "concurrent": 40,
+      "allowed": 5,
+      "denied": 35,
+      "errors": [],
+      "attempts": [
+        5,
+        30
+      ]
+    },
+    {
+      "concurrent": 12,
+      "allowed": 5,
+      "denied": 7,
+      "errors": [],
+      "attempts": [
+        5,
+        12
+      ]
+    },
+    {
+      "concurrent": 40,
+      "allowed": 5,
+      "denied": 35,
+      "errors": [],
+      "attempts": [
+        5,
+        30
+      ]
+    },
+    {
+      "concurrent": 12,
+      "allowed": 5,
+      "denied": 7,
+      "errors": [],
+      "attempts": [
+        5,
+        12
+      ]
+    },
+    {
+      "concurrent": 40,
+      "allowed": 5,
+      "denied": 35,
+      "errors": [],
+      "attempts": [
+        5,
+        30
+      ]
+    },
+    {
+      "concurrent": 12,
+      "allowed": 5,
+      "denied": 7,
+      "errors": [],
+      "attempts": [
+        5,
+        12
+      ]
+    },
+    {
+      "concurrent": 40,
+      "allowed": 5,
+      "denied": 35,
+      "errors": [],
+      "attempts": [
+        5,
+        30
+      ]
+    },
+    {
+      "concurrent": 12,
+      "allowed": 5,
+      "denied": 7,
+      "errors": [],
+      "attempts": [
+        5,
+        12
+      ]
+    },
+    {
+      "concurrent": 40,
+      "allowed": 5,
+      "denied": 35,
+      "errors": [],
+      "attempts": [
+        5,
+        30
+      ]
+    }
+  ]
+}

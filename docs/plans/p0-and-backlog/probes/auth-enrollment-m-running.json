@@ -1,0 +1,19 @@
+{
+  "accepted": false,
+  "prototype": "/tmp/rssripple-v19-turso-review-2m88z4f9",
+  "freeze": "auth-enrollment-m-frozen.json",
+  "effective_files": "auth-enrollment-m-source.json",
+  "unit": {
+    "session": 34744,
+    "log": "/tmp/rssripple-v19-unit-m.log",
+    "junit": "/tmp/rssripple-v19-unit-m.xml",
+    "coverage": "/tmp/rssripple-v19-unit-m-coverage.xml",
+    "postgres_container": "rssripple-v19-unit-pg-m",
+    "postgres_port": 32849,
+    "threshold": 95
+  },
+  "integration": {
+    "status": "not started; start unique project from same frozen candidate after existing integration capacity frees",
+    "threshold": 85
+  }
+}

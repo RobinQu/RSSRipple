@@ -1,0 +1,20 @@
+[{"concurrent": 12, "allowed": 5, "denied": 7, "errors": [], "attempts": [5, 12]}, {"concurrent": 40, "allowed": 5, "denied": 30, "errors": ["DatabaseError: (turso.lib.DatabaseError) Write-write conflict", "DatabaseError: (turso.lib.DatabaseError) Write-write conflict", "DatabaseError: (turso.lib.DatabaseError) Write-write conflict", "DatabaseError: (turso.lib.DatabaseError) Write-write conflict", "DatabaseError: (turso.lib.DatabaseError) Write-write conflict"], "attempts": [5, 30]}, {"concurrent": 12, "allowed": 5, "denied": 7, "errors": [], "attempts": [5, 12]}, {"concurrent": 40, "allowed": 5, "denied": 26, "errors": ["DatabaseError: (turso.lib.DatabaseError) Write-write conflict", "DatabaseError: (turso.lib.DatabaseError) Write-write conflict", "DatabaseError: (turso.lib.DatabaseError) Write-write conflict", "DatabaseError: (turso.lib.DatabaseError) Write-write conflict", "DatabaseError: (turso.lib.DatabaseError) Write-write conflict", "DatabaseError: (turso.lib.DatabaseError) Write-write conflict", "DatabaseError: (turso.lib.DatabaseError) Write-write conflict", "DatabaseError: (turso.lib.DatabaseError) Write-write conflict", "DatabaseError: (turso.lib.DatabaseError) Write-write conflict"], "attempts": [5, 30]}, {"concurrent": 12, "allowed": 5, "denied": 7, "errors": [], "attempts": [5, 12]}, {"concurrent": 40, "allowed": 5, "denied": 34, "errors": ["DatabaseError: (turso.lib.DatabaseError) Write-write conflict"], "attempts": [5, 30]}, {"concurrent": 12, "allowed": 5, "denied": 7, "errors": [], "attempts": [5, 12]}, {"concurrent": 40, "allowed": 5, "denied": 35, "errors": [], "attempts": [5, 30]}, {"concurrent": 12, "allowed": 5, "denied": 7, "errors": [], "attempts": [5, 12]}, {"concurrent": 40, "allowed": 5, "denied": 30, "errors": ["DatabaseError: (turso.lib.DatabaseError) Write-write conflict", "DatabaseError: (turso.lib.DatabaseError) Write-write conflict", "DatabaseError: (turso.lib.DatabaseError) Write-write conflict", "DatabaseError: (turso.lib.DatabaseError) Write-write conflict", "DatabaseError: (turso.lib.DatabaseError) Write-write conflict"], "attempts": [5, 30]}]
+Traceback (most recent call last):
+  File "/tmp/rssripple-auth-turso-contention.py", line 52, in <module>
+    asyncio.run(run())
+    ~~~~~~~~~~~^^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 719, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/tmp/rssripple-auth-turso-contention.py", line 45, in run
+    assert all(not r["errors"] and r["allowed"] == 5 and r["denied"] == r["concurrent"] - 5
+           ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+               and r["attempts"] == [5, min(r["concurrent"], 30)] for r in records)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError

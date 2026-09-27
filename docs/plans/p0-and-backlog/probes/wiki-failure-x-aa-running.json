@@ -9,7 +9,10 @@
     "log": "/tmp/rssripple-v17-unit-x.log",
     "junit": "/tmp/rssripple-v17-unit-x.xml",
     "coverage": "/tmp/rssripple-v17-unit-x-coverage.xml",
-    "reuse_basis": "Only integration/metadata/test_metadata_search_agent_coverage.py changed; runtime and all unit/API inputs byte-identical"
+    "reuse_basis": "Only integration/metadata/test_metadata_search_agent_coverage.py changed; runtime and all unit/API inputs byte-identical",
+    "exit_code": 0,
+    "status": "passed",
+    "terminal": "wiki-failure-x-terminal.json"
   },
   "integration": {
     "project": "rssripple-v17-final-aa",

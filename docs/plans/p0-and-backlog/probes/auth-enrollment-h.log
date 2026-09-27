@@ -1,0 +1,140 @@
+......F..................................                                [100%]
+=================================== FAILURES ===================================
+______________ test_concurrent_sessions_cannot_exceed_peer_budget ______________
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:823: in _fetchone_tuple
+    status = _step_once_with_io(self._active_stmt, self._connection.extra_io)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:200: in _step_once_with_io
+    status = stmt.step()
+             ^^^^^^^^^^^
+E   turso.Error: Write-write conflict
+
+During handling of the above exception, another exception occurred:
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1969: in _exec_single_context
+    self.dialect.do_execute(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:230: in execute
+    self._adapt_connection._handle_exception(error)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:368: in _handle_exception
+    raise error.with_traceback(exc_info[2])
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:228: in execute
+    return self.await_(self._execute_async(operation, parameters))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:254: in _execute_async
+    self._rows = collections.deque(await self._cursor.fetchall())
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:303: in fetchall
+    return await self._connection._run(_all)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:95: in _run
+    return await fut
+           ^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/worker.py:38: in run
+    result = func()
+             ^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:301: in _all
+    return list(self._bcursor.fetchall())  # type: ignore[union-attr]
+                ^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:879: in fetchall
+    row = self._fetchone_tuple()
+          ^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:841: in _fetchone_tuple
+    raise _map_turso_exception(exc)
+E   turso.lib.DatabaseError: Write-write conflict
+
+The above exception was the direct cause of the following exception:
+tests/unit/test_auth_rate_limit.py:16: in test_concurrent_sessions_cannot_exceed_peer_budget
+    results = await asyncio.gather(*(limiter.reserve_otp_attempt("192.0.2.1") for _ in range(12)))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/auth_rate_limit.py:71: in reserve_otp_attempt
+    return await database.retry_on_lock(reserve_transaction)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/database.py:106: in retry_on_lock
+    return await coro_factory()
+           ^^^^^^^^^^^^^^^^^^^^
+app/services/auth_rate_limit.py:58: in reserve_transaction
+    retry_after = await _reserve(db, "global", GLOBAL_LIMIT, now)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/auth_rate_limit.py:38: in _reserve
+    if (await db.execute(statement)).scalar_one_or_none() is not None:
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/ext/asyncio/session.py:448: in execute
+    result = await greenlet_spawn(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:2373: in execute
+    return self._execute_internal(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:2271: in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/bulk_persistence.py:1306: in orm_execute_statement
+    result = conn.execute(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1421: in execute
+    return meth(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/sql/elements.py:526: in _execute_on_connection
+    return connection._execute_clauseelement(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1643: in _execute_clauseelement
+    ret = self._execute_context(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1848: in _execute_context
+    return self._exec_single_context(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1988: in _exec_single_context
+    self._handle_dbapi_exception(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:2365: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1969: in _exec_single_context
+    self.dialect.do_execute(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:230: in execute
+    self._adapt_connection._handle_exception(error)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:368: in _handle_exception
+    raise error.with_traceback(exc_info[2])
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:228: in execute
+    return self.await_(self._execute_async(operation, parameters))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:254: in _execute_async
+    self._rows = collections.deque(await self._cursor.fetchall())
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:303: in fetchall
+    return await self._connection._run(_all)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:95: in _run
+    return await fut
+           ^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/worker.py:38: in run
+    result = func()
+             ^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:301: in _all
+    return list(self._bcursor.fetchall())  # type: ignore[union-attr]
+                ^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:879: in fetchall
+    row = self._fetchone_tuple()
+          ^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:841: in _fetchone_tuple
+    raise _map_turso_exception(exc)
+E   sqlalchemy.exc.DatabaseError: (turso.lib.DatabaseError) Write-write conflict
+E   [SQL: INSERT INTO auth_rate_limit_buckets (id, bucket_key, attempts, resets_at) VALUES (?, ?, ?, ?) ON CONFLICT (bucket_key) DO UPDATE SET attempts = CASE WHEN (auth_rate_limit_buckets.resets_at <= ?) THEN ? ELSE auth_rate_limit_buckets.attempts + ? END, resets_at = CASE WHEN (auth_rate_limit_buckets.resets_at <= ?) THEN ? ELSE auth_rate_limit_buckets.resets_at END WHERE auth_rate_limit_buckets.resets_at <= ? OR auth_rate_limit_buckets.attempts < ? RETURNING id]
+E   [parameters: ('334946b7-d58f-4188-8e25-2ec3a07f8ccb', 'global', 1, '2026-09-27 13:06:16.218929', '2026-09-27 13:05:16.218929', 1, 1, '2026-09-27 13:05:16.218929', '2026-09-27 13:06:16.218929', '2026-09-27 13:05:16.218929', 30)]
+E   (Background on this error at: https://sqlalche.me/e/20/4xp6)
+=============================== warnings summary ===============================
+tests/unit/test_auth_bootstrap_logging.py::test_startup_does_not_publish_authenticator_secret
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_auth_rate_limit.py::test_concurrent_sessions_cannot_exceed_peer_budget
+1 failed, 40 passed, 1 warning in 62.83s (0:01:02)

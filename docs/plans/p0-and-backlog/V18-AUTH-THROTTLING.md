@@ -1,5 +1,25 @@
 # V18 S2 TOTP 登录限流
 
+## 最新状态：Turso 突发修订与 p/q 完整门禁
+
+S3 组合 h 暴露继承的 S2 问题：12 并发预留可能耗尽 Turso 写冲突重试。为排除单元夹具快进 sleep 的干扰，新增独立进程探针：m 缺少 MVCC 配置的建库错误不算业务复现；n 正确开启 MVCC 并使用生产退避，在十轮 12/40 并发中，五轮 40 并发有四轮出现数据库异常（分别 5/9/1/5 个请求），没有额度超发，但不能正常返回拒绝结果。证据为 probes/auth-throttling-contention-n-result.json、日志及探针原文；数据是专用临时库与合成来源。
+
+必要修订：仅 Turso 在同一 AsyncEngine 内用异步锁串行额度短事务，弱引用保存引擎对应锁；计数和窗口仍由数据库决定，锁不是进程内额度表。PG 仍依赖原子 upsert/行锁协调跨进程；其他数据库写冲突仍使用既有独立事务重试。该改变解决真实突发退化，不降低断言或提高重试次数来掩盖问题。
+
+o 正式组合 **16 passed，36.55 秒**，包括新增 Turso 子进程十轮突发（真实退避，无 pytest sleep 替换）、PG 服务/真实 HTTP 参数以及单元/API 边界。每轮恰好 5 次放行，其余拒绝，零数据库异常，来源/全局落库额度正确。候选增为 18 文件，完整 3063 输入冻结于 auth-throttling-p-frozen.json，tar/source manifest 同前缀；权威模型、约定和测试清单同步，全仓 Ruff 通过。
+
+旧 k/l 已因独立复现的运行缺陷主动 SIGINT 中断：单元退出 1（中断后 pytest tmp_path teardown KeyError，无完整验收结果），集成退出 2（仅部分 110 passed/1 skipped）。两应用退出 0，部分报告/原始覆盖率导出和项目清理完成，不计算或宣称完整覆盖率通过；3062 原冻结输入未改。摘要 auth-throttling-k-l-terminal.json。专用 PG 容器 rssripple-v18-unit-pg-j 继续供新单元门禁使用。
+
+p 完整单元/API session 60783（显式 PG，95%），q 完整集成 session 90642（唯一项目 rssripple-v18-final-q，85%）已启动，记录 auth-throttling-p-q-running.json。当前目录 `/tmp/rssripple-v18-turso-review`，运行中禁止修改冻结源；必须两道完整门禁、跳过审计、哈希核验与清理全部完成，且前序 M3 验收后才能合入。S2 仍未关闭。
+
+## 组合验证与原门禁（i/j → k/l，已被替代）
+
+候选已接到 M3 的 aa 冻结基线，保留已合入 M2 的全部修订。仅测试清单追加段落产生三方合并冲突，已同时保留 M2/M3 和 S2 的明确范围；17 个 S2 有效文件中的运行实现与 h 完全一致。新目录 `/tmp/rssripple-v18-rebased-7vcwttma`，候选依赖 M3 验收后才能合入 main。
+
+i 认证/限流/API key 与 M2/M3 组合回归 **85 passed，119.25 秒**。j 专用 PostgreSQL 迁移回归 **8 passed、0 skipped，2.09 秒**；JUnit 确认此前 f 跳过的 `test_create_tables_postgres_path`、`test_light_migrations_postgres_legacy_shapes`、`test_light_migrations_postgres_legacy_delivery_columns_nullable` 均实际通过。专用 PG 容器 `rssripple-v18-unit-pg-j`（回环 32848、tmpfs、自动删除）继续供本批完整单元/API 使用，不能提前清理。
+
+17 文件候选与完整 3062 输入已冻结：probes/auth-throttling-k-source.json、auth-throttling-k-frozen.json、auth-throttling-k-candidate.tar.gz。全仓 Ruff 通过。k 完整单元/API session 71817，显式设置 RSSRIPPLE_TEST_POSTGRES_URL，95% 门禁；l 完整集成 session 57265，唯一项目 rssripple-v18-final-l，85% 门禁。记录见 probes/auth-throttling-k-l-running.json；两者尚未终态，不关闭 S2。测试期间不改冻结源，终态后需审计覆盖率、跳过、应用退出和项目/专用 PG 清理。
+
 ## 必要性复核
 
 main a8a09bd 的认证入口没有失败计数或请求额度。a 本地 ASGI 使用真实 AuthMiddleware、API 路由与独立测试数据库，验证码验证替换为明确的拒绝函数：连续 20 次请求均 401，验证调用 20 次，无 429，红测失败（1.89 秒）。不使用生产账户、真实密钥或网络攻击；该测试只证明缺少限流，不声称实际破解。原型 /tmp/rssripple-v18-auth-limit，证据 probes/auth-throttling-a.*。

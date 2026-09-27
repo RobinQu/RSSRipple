@@ -1,0 +1,205 @@
+Traceback (most recent call last):
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/turso/lib.py", line 307, in _exec_ddl_only
+    _run_execute_with_io(stmt, self.extra_io)
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/turso/lib.py", line 185, in _run_execute_with_io
+    result = stmt.execute()
+turso.Error: Transaction error: Concurrent transaction mode is only supported when MVCC is enabled
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1969, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 230, in execute
+    self._adapt_connection._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 368, in _handle_exception
+    raise error.with_traceback(exc_info[2])
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 228, in execute
+    return self.await_(self._execute_async(operation, parameters))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 251, in _execute_async
+    result = await self._cursor.execute(operation, parameters)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/turso/lib_aio.py", line 252, in execute
+    description, lastrowid, rowcount = await self._connection._run(_exec)
+                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/turso/lib_aio.py", line 95, in _run
+    return await fut
+           ^^^^^^^^^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/turso/worker.py", line 38, in run
+    result = func()
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/turso/lib_aio.py", line 249, in _exec
+    cur.execute(sql, parameters)
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/turso/lib.py", line 678, in execute
+    self._maybe_implicit_begin(sql)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/turso/lib.py", line 665, in _maybe_implicit_begin
+    self._connection._maybe_implicit_begin(sql)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/turso/lib.py", line 469, in _maybe_implicit_begin
+    self._exec_ddl_only(f"BEGIN {level}")
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/turso/lib.py", line 311, in _exec_ddl_only
+    raise _map_turso_exception(exc)
+turso.lib.DatabaseError: Transaction error: Concurrent transaction mode is only supported when MVCC is enabled
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/tmp/rssripple-auth-turso-contention.py", line 51, in <module>
+    asyncio.run(run())
+    ~~~~~~~~~~~^^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 719, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/tmp/rssripple-auth-turso-contention.py", line 30, in run
+    await db.execute(delete(AuthRateLimitBucket))
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/ext/asyncio/session.py", line 448, in execute
+    result = await greenlet_spawn(
+             ^^^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+    )
+    ^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 203, in greenlet_spawn
+    result = context.switch(value)
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py", line 2373, in execute
+    return self._execute_internal(
+           ~~~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+    ...<4 lines>...
+        _add_event=_add_event,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py", line 2271, in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self,
+        ^^^^^
+    ...<4 lines>...
+        conn,
+        ^^^^^
+    )
+    ^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/orm/bulk_persistence.py", line 2033, in orm_execute_statement
+    return super().orm_execute_statement(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        session, statement, params, execution_options, bind_arguments, conn
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+    result = conn.execute(
+        statement, params or {}, execution_options=execution_options
+    )
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1421, in execute
+    return meth(
+        self,
+        distilled_parameters,
+        execution_options or NO_OPTIONS,
+    )
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self, distilled_params, execution_options
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1643, in _execute_clauseelement
+    ret = self._execute_context(
+        dialect,
+    ...<8 lines>...
+        cache_hit=cache_hit,
+    )
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1848, in _execute_context
+    return self._exec_single_context(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        dialect, context, statement, parameters
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1988, in _exec_single_context
+    self._handle_dbapi_exception(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        e, str_statement, effective_parameters, cursor, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 2365, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1969, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 230, in execute
+    self._adapt_connection._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 368, in _handle_exception
+    raise error.with_traceback(exc_info[2])
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 228, in execute
+    return self.await_(self._execute_async(operation, parameters))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 251, in _execute_async
+    result = await self._cursor.execute(operation, parameters)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/turso/lib_aio.py", line 252, in execute
+    description, lastrowid, rowcount = await self._connection._run(_exec)
+                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/turso/lib_aio.py", line 95, in _run
+    return await fut
+           ^^^^^^^^^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/turso/worker.py", line 38, in run
+    result = func()
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/turso/lib_aio.py", line 249, in _exec
+    cur.execute(sql, parameters)
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/turso/lib.py", line 678, in execute
+    self._maybe_implicit_begin(sql)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/turso/lib.py", line 665, in _maybe_implicit_begin
+    self._connection._maybe_implicit_begin(sql)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/turso/lib.py", line 469, in _maybe_implicit_begin
+    self._exec_ddl_only(f"BEGIN {level}")
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "/tmp/rssripple-v18-rebased-7vcwttma/.venv/lib/python3.13/site-packages/turso/lib.py", line 311, in _exec_ddl_only
+    raise _map_turso_exception(exc)
+sqlalchemy.exc.DatabaseError: (turso.lib.DatabaseError) Transaction error: Concurrent transaction mode is only supported when MVCC is enabled
+[SQL: DELETE FROM auth_rate_limit_buckets]
+(Background on this error at: https://sqlalche.me/e/20/4xp6)

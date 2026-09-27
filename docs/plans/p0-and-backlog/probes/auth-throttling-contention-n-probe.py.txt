@@ -1,0 +1,52 @@
+"""Dedicated Turso contention probe with production retry timing, no pytest patches."""
+import asyncio
+import json
+import os
+import tempfile
+from datetime import datetime
+from pathlib import Path
+
+directory = tempfile.TemporaryDirectory(prefix="rssripple-auth-contention-")
+os.environ["DATABASE_URL"] = f"sqlite+aioturso:///{directory.name}/auth_limit_probe.db"
+os.environ["LLM_API_KEY"] = ""
+os.environ["TMDB_API_KEY"] = ""
+
+from sqlalchemy import delete, select, text
+
+from app import database
+from app.models.auth_rate_limit import AuthRateLimitBucket
+from app.services import auth_rate_limit as limiter
+
+limiter.utcnow = lambda: datetime(2026, 9, 27, 12)
+
+
+async def run():
+    records = []
+    try:
+        async with database.engine.begin() as conn:
+            await conn.run_sync(database.Base.metadata.create_all)
+            await conn.execute(text("PRAGMA journal_mode='mvcc'"))
+        for count in (12, 40) * 5:
+            async with database.async_session_factory() as db, db.begin():
+                await db.execute(delete(AuthRateLimitBucket))
+            results = await asyncio.gather(
+                *(limiter.reserve_otp_attempt("192.0.2.1") for _ in range(count)),
+                return_exceptions=True,
+            )
+            errors = [type(result).__name__ + ": " + str(result).splitlines()[0]
+                      for result in results if isinstance(result, BaseException)]
+            async with database.async_session_factory() as db:
+                attempts = sorted((await db.scalars(select(AuthRateLimitBucket.attempts))).all())
+            records.append({"concurrent": count, "allowed": results.count(0),
+                            "denied": sum(isinstance(r, int) and r > 0 for r in results),
+                            "errors": errors, "attempts": attempts})
+        Path("/tmp/rssripple-v18-contention-n-result.json").write_text(json.dumps(records, indent=2))
+        print(json.dumps(records))
+        assert all(not r["errors"] and r["allowed"] == 5 and r["denied"] == r["concurrent"] - 5
+                   and r["attempts"] == [5, min(r["concurrent"], 30)] for r in records)
+    finally:
+        await database.engine.dispose()
+        directory.cleanup()
+
+
+asyncio.run(run())

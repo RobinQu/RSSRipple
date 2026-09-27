@@ -2,6 +2,8 @@
 
 ## 当前门禁状态：y 失败后 z 修订与 aa 重验
 
+x 单元/API 已退出 0：**4042 passed、15 skipped、6 warnings，3047.53 秒，22856/23509（97.22%）**。3054 原冻结输入未变，跳过项及理由与 M2 相同；完整报告和原始 coverage 归档于 probes/wiki-failure-x.*，机器摘要 wiki-failure-x-terminal.json。aa 完整集成仍在运行，不能关闭 M3。
+
 前序 M2 已验收并合入 `756bce6`，M3 基线哈希与 main 一致。y 完整集成已退出 1：**3183 passed、3 failed、17 skipped，1958.29 秒**；两应用退出 0，覆盖率汇总退出 0，**20735/23509（88.20%）**。3054 冻结文件未变，跳过项及理由与 M2 完全相同，导出和清理完成。三个失败均在 test_metadata_search_agent_coverage.py：旧测试要求 HTTP/响应解析/任务异常返回空列表，与本修复明确区分失败和未命中的契约冲突。覆盖率达标不能抵消失败。
 
 新独立副本 `/tmp/rssripple-v17-error-review` 只修改该集成文件：异常必须抛出，工具包装必须返回 success=false，失败不写负缓存，来源恢复为完整空结果后才允许缓存。保留原成功合并、字段归一化和完整空缓存断言。z 联合 Wiki/TMDB 单元与此集成文件 **55 passed，8.85 秒**，无运行实现改动。

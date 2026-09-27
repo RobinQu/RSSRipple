@@ -1,0 +1,37 @@
+{
+  "prototype": "/tmp/rssripple-v19-rebased-69kjq3or",
+  "base_prototype": "/tmp/rssripple-v18-rebased-7vcwttma",
+  "base_hashes": {
+    "app/main.py": "9cc9da3db2bcd0d145c7a9123d4f9a5f68acd774dbe7e6b6e925d7f1c55458a2",
+    "app/scripts/auth_enrollment.py": null,
+    "tests/unit/test_auth_bootstrap_logging.py": null,
+    "tests/unit/test_auth_enrollment.py": null,
+    "tests/integration/security/auth_enrollment_driver.py": null,
+    "tests/integration/security/test_auth_enrollment.py": null,
+    "docs/design/api-endpoints.md": "c22ec13fb2626f9c414fbd0c942cb63768197c7f3686588654bb81fae6899f09",
+    "docs/design/conventions.md": "328c430434f1eeae05a759550dd9a87759aeb106f419f2bb7137ec5b218858e2",
+    "docs/design/frontend.md": "3dda4435b79cb82cf6e10e07c1b819eef3327d61d429a913d950d75ae2a3ed0e",
+    "docs/testing/integration-inventory.md": "58e6584a3014a76fa39ea390ffb2ce75ef595df2cae1b6251da1aa3ee71bbf3f",
+    "README.md": null,
+    "README_CN.md": null,
+    "frontend/src/i18n/locales/en-US.json": null,
+    "frontend/src/i18n/locales/zh-CN.json": null
+  },
+  "files": {
+    "app/main.py": "9710454b349a77ffb5fb54b8d841ea765e300296126611b3f33681727e38fe73",
+    "app/scripts/auth_enrollment.py": "faf63535f13080931105eebbdbb674fbc4bcdba221bab8a5e16be6df746e175f",
+    "tests/unit/test_auth_bootstrap_logging.py": "c78f798cc782a3f5adc31485e6a8804454d5be8110b27c1e6e6df01c9b608133",
+    "tests/unit/test_auth_enrollment.py": "51a64422af053ba3fdc067b7cec11acbd38a5f8444e896ec911d3b70b9a3cb4f",
+    "tests/integration/security/auth_enrollment_driver.py": "444cd2aeeac2696111efa2a81b9056f6c4d6de3e39b70f91ccba8604756a5b0d",
+    "tests/integration/security/test_auth_enrollment.py": "c9949e58355f1555b346f591d8cae402f7756dd44a4d337071210ece82e57e63",
+    "docs/design/api-endpoints.md": "d588c6cac97bfdc14d0a0935a31044fcb5a92c6a013642ecc0f15754e7ed78b6",
+    "docs/design/conventions.md": "6abbe0936d4596a1ae82584058c2d45b3cd7e5e6e8fd50a92a97689204706643",
+    "docs/design/frontend.md": "21be73a75383e2bcd92adb9cd7adce8197126a8748e4437c6b09aa2325b9dd6f",
+    "docs/testing/integration-inventory.md": "6d9db21b76e99e484d3e004fe016f0133606035239c28868563b9448e88b9f3e",
+    "README.md": "8671876ccb9e6affbed323b7adf209def94c8d91bab94c337929834588c28efd",
+    "README_CN.md": "64eb115d4ca5fa4cbc90c3eabb735575ad8a128b96eee4af7470bf5f70a2b534",
+    "frontend/src/i18n/locales/en-US.json": "44eb30b4d3114b3fd0d947065fb71336d5a647f3a539f86a7abc7a224f87acbf",
+    "frontend/src/i18n/locales/zh-CN.json": "45372e23b7836ce4222a3c42bd894452c712e9dc7ca08c48c7a7158378e58221"
+  },
+  "status": "h 40 passed / 1 Turso contention failure; i 4 passed; investigating production retry vs accelerated test sleep; not frozen or accepted"
+}

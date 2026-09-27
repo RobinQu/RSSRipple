@@ -1,0 +1,137 @@
+ Container rssripple-v18-final-l-queue-recovery-postgres-1  Running
+ Container rssripple-v18-final-l-transmission-1  Running
+ Container rssripple-v18-final-l-queue-recovery-redis-1  Running
+ Container rssripple-v18-final-l-test-server-1  Running
+ Container rssripple-v18-final-l-app-1  Running
+ Container rssripple-v18-final-l-app-llm-1  Running
+ Container rssripple-v18-final-l-test-server-1  Waiting
+ Container rssripple-v18-final-l-test-server-1  Waiting
+ Container rssripple-v18-final-l-test-server-1  Healthy
+ Container rssripple-v18-final-l-test-server-1  Healthy
+============================= test session starts ==============================
+platform linux -- Python 3.12.14, pytest-9.1.1, pluggy-1.6.0 -- /app/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /app
+configfile: pyproject.toml
+plugins: asyncio-1.4.0, anyio-4.14.0, langsmith-0.9.3, cov-7.1.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 3205 items
+
+tests/integration/auth/test_rate_limit.py::test_otp_rate_limit_postgres[service] PASSED [  0%]
+tests/integration/auth/test_rate_limit.py::test_otp_rate_limit_postgres[http] PASSED [  0%]
+tests/integration/http/test_agent_dispatch.py::TestMockDownloader::test_create_mock_downloader PASSED [  0%]
+tests/integration/http/test_agent_dispatch.py::TestMockDownloader::test_mock_downloader_connection PASSED [  0%]
+tests/integration/http/test_agent_dispatch.py::TestAutoDispatch::test_resources_auto_linked PASSED [  0%]
+tests/integration/http/test_agent_dispatch.py::TestAutoDispatch::test_rules_preview_new_agent PASSED [  0%]
+tests/integration/http/test_agent_dispatch.py::TestAutoDispatch::test_create_agent_with_backfill_dispatch PASSED [  0%]
+tests/integration/http/test_agent_dispatch.py::TestAutoDispatch::test_list_tasks_status_filter PASSED [  0%]
+tests/integration/http/test_agent_dispatch.py::TestAutoDispatch::test_task_detail_pause_resume_retry PASSED [  0%]
+tests/integration/http/test_agent_dispatch.py::TestAutoDispatch::test_downloader_live_torrents PASSED [  0%]
+tests/integration/http/test_agent_dispatch.py::TestAutoDispatch::test_downloader_tasks_listing PASSED [  0%]
+tests/integration/http/test_agent_dispatch.py::TestAutoDispatch::test_rules_preview_in_queue_skipped PASSED [  0%]
+tests/integration/http/test_agent_dispatch.py::TestAutoDispatch::test_rules_preview_existing_agent PASSED [  0%]
+tests/integration/http/test_agent_dispatch.py::TestAutoDispatch::test_run_agent_delta_after_watermark PASSED [  0%]
+tests/integration/http/test_agent_dispatch.py::TestAutoDispatch::test_agent_runs_history PASSED [  0%]
+tests/integration/http/test_agent_dispatch.py::TestAutoDispatch::test_dashboard_download_groups PASSED [  0%]
+tests/integration/http/test_agent_dispatch.py::TestAutoDispatch::test_task_delete PASSED [  0%]
+tests/integration/http/test_agent_dispatch.py::TestAutoDispatch::test_task_404s PASSED [  0%]
+tests/integration/http/test_agent_dispatch.py::TestDispatchErrorPath::test_dispatch_failure_marks_task_error PASSED [  0%]
+tests/integration/http/test_agent_pipeline.py::TestAgentCRUD::test_create_channel_for_agent PASSED [  0%]
+tests/integration/http/test_agent_pipeline.py::TestAgentCRUD::test_create_agent PASSED [  0%]
+tests/integration/http/test_agent_pipeline.py::TestAgentCRUD::test_get_agent PASSED [  0%]
+tests/integration/http/test_agent_pipeline.py::TestAgentCRUD::test_list_agents PASSED [  0%]
+tests/integration/http/test_agent_pipeline.py::TestAgentCRUD::test_update_agent PASSED [  0%]
+tests/integration/http/test_agent_pipeline.py::TestAgentCRUD::test_delete_agent PASSED [  0%]
+tests/integration/http/test_agent_pipeline.py::TestAgentWorksManagement::test_add_work PASSED [  0%]
+tests/integration/http/test_agent_pipeline.py::TestAgentWorksManagement::test_list_works PASSED [  0%]
+tests/integration/http/test_agent_pipeline.py::TestAgentWorksManagement::test_remove_work PASSED [  0%]
+tests/integration/http/test_agent_pipeline.py::TestAgentWorksManagement::test_max_works_limit PASSED [  0%]
+tests/integration/http/test_agent_pipeline.py::TestAgentRun::test_run_agent PASSED [  0%]
+tests/integration/http/test_agent_pipeline.py::TestAgentRun::test_run_status PASSED [  0%]
+tests/integration/http/test_agent_pipeline.py::TestAgentFilterDSL::test_set_filter_config PASSED [  0%]
+tests/integration/http/test_agent_pipeline.py::TestAgentFilterDSL::test_set_filter_config_with_bool_nesting PASSED [  1%]
+tests/integration/http/test_agent_pipeline.py::TestAgentFilterDSL::test_set_filter_config_is_not PASSED [  1%]
+tests/integration/http/test_agent_pipeline.py::TestAgentFilterDSL::test_set_invalid_filter_field_accepted_deferred PASSED [  1%]
+tests/integration/http/test_agent_pipeline.py::TestAgentFilterDSL::test_test_filters_no_args PASSED [  1%]
+tests/integration/http/test_agent_pipeline.py::TestAgentFilterDSL::test_test_filters_with_everything_passes PASSED [  1%]
+tests/integration/http/test_agent_pipeline.py::TestAgentFilterDSL::test_test_filters_with_nothing_passes PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestQueueApi::test_overview PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestQueueApi::test_jobs_filters_and_pagination PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestQueueApi::test_scheduler_disabled_snapshot PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestResourceListing::test_matched_filters PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestResourceListing::test_grouped_series_and_unknown_buckets PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestResourceListing::test_grouped_download_status_annotation PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestResourceListing::test_channel_404 PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestResourceListing::test_field_values PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestResourceListing::test_field_values_subtitle_langs_aggregation PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestParseCorrection::test_404 PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestParseCorrection::test_episode_fields_mark_manual PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestParseCorrection::test_generic_media_fields PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestParseCorrection::test_subtitle_groups_sync_and_conflict PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestParseCorrection::test_subtitle_group_scalar_only PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestParseCorrection::test_batch_invariants PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestEpisodeCorrection::test_404 PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestEpisodeCorrection::test_explicit_season_and_absolute PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestEpisodeCorrection::test_absolute_episode_derives_season_via_collection PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestResourceFiles::test_404 PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestResourceFiles::test_torrent_listing PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestResourceFiles::test_magnet_resource_reports_resolve_state PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestResourceFiles::test_metadata_linked_movie PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestResourceFiles::test_metadata_404 PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestMagnetResolve::test_404 PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestMagnetResolve::test_non_magnet_422 PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestMagnetResolve::test_conflict_while_in_progress_or_done PASSED [  1%]
+tests/integration/http/test_api_coverage2.py::TestMagnetResolve::test_terminal_retry_flow SKIPPED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAssociations::test_404 PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAssociations::test_unknown_work_422 PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAssociations::test_multi_work_pack_requires_assignments_422 PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAssociations::test_single_work_bind_success PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAssociations::test_empty_works_keeps_mount PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAssociations::test_linked_channel_resource_retriggers_agents PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAnalyzeBatch::test_404 PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAnalyzeBatch::test_no_listing_returns_none_suggestion PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAnalyzeBatch::test_batch_resource_analysis PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAnalyzeBatch::test_stream_404 PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAnalyzeBatch::test_stream_events PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAgentValidation::test_create_invalid_filter_422 PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAgentValidation::test_create_invalid_pick_preferences_422 PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAgentValidation::test_create_invalid_work_overrides_422 PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAgentValidation::test_create_too_many_works_422 PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAgentValidation::test_create_skips_invalid_work_entries PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAgentValidation::test_create_run_immediately PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAgentUpdate::test_update_filter_error_422 PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAgentUpdate::test_update_unknown_downloader_422 PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAgentUpdate::test_update_replaces_works PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAgentUpdate::test_update_404 PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAgentRun::test_scan_since_future_422 PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAgentRun::test_scan_since_past_enqueues PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAgentRun::test_run_404 PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAgentRun::test_run_status_404 PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAgentRun::test_runs_history_annotations PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAgentRun::test_runs_pending_decision_marks PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAgentRun::test_runs_404 PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAgentMisc::test_test_filters PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAgentMisc::test_test_filters_404 PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAgentMisc::test_rules_preview PASSED [  2%]
+tests/integration/http/test_api_coverage2.py::TestAgentMisc::test_rules_preview_errors PASSED [  3%]
+tests/integration/http/test_api_coverage2.py::TestAgentMisc::test_works_crud PASSED [  3%]
+tests/integration/http/test_api_coverage2.py::TestAgentMisc::test_works_validation PASSED [  3%]
+tests/integration/http/test_api_coverage2.py::TestAgentMisc::test_works_404s PASSED [  3%]
+tests/integration/http/test_api_coverage2.py::TestAgentMisc::test_suggestions_404 PASSED [  3%]
+tests/integration/http/test_api_coverage2.py::TestAgentMisc::test_suggestions_list PASSED [  3%]
+tests/integration/http/test_api_coverage2.py::TestAgentMisc::test_create_work_max_10 PASSED [  3%]
+tests/integration/http/test_api_coverage2.py::TestDashboard::test_overview_split_endpoint PASSED [  3%]
+tests/integration/http/test_api_coverage2.py::TestDashboard::test_downloads_split_endpoint PASSED [  3%]
+tests/integration/http/test_api_coverage2.py::TestDashboard::test_overview_confirmations PASSED [  3%]
+tests/integration/http/test_api_coverage2.py::TestDashboard::test_ignore_decision_todos PASSED [  3%]
+tests/integration/http/test_api_coverage2.py::TestDashboard::test_ignore_confirmation_todos PASSED [  3%]
+tests/integration/http/test_api_coverage2.py::TestDashboard::test_ignore_plan_todos_unknown_ids PASSED [  3%]
+tests/integration/http/test_api_coverage2.py::TestDashboard::test_aggregate_endpoint PASSED [  3%]
+tests/integration/http/test_api_coverage2.py::TestDashboard::test_run_status_correction_after_all_decisions_resolved PASSED [  3%]
+tests/integration/http/test_api_coverage2_llm.py::TestPlanListing::test_list_filters
+
+-------- generated xml file: /app/data/metadata-corpus/integration.xml ---------
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+/app/tests/integration/http/test_api_coverage2_llm.py:69: KeyboardInterrupt
+(to show a full traceback on KeyboardInterrupt use --full-trace)
+================== 110 passed, 1 skipped in 618.38s (0:10:18) ==================

@@ -1,0 +1,26 @@
+{
+  "accepted": false,
+  "status": "intentionally interrupted after independent production Turso contention failure; not complete gates",
+  "unit": {
+    "session": 71817,
+    "exit_code": 1,
+    "reason": "SIGINT; pytest teardown reports tmp_path stash KeyError; no complete test or coverage verdict"
+  },
+  "integration": {
+    "session": 57265,
+    "exit_code": 2,
+    "partial_passed": 110,
+    "partial_skipped": 1,
+    "seconds": 618.38,
+    "project": "rssripple-v18-final-l",
+    "application_exit_codes": [
+      0,
+      0
+    ],
+    "export_exit": 0,
+    "cleanup_exit": 0,
+    "coverage": "raw partial files only; no full gate percentage claimed"
+  },
+  "frozen_files_unchanged": 3062,
+  "replacement": "auth-throttling-p-source.json"
+}

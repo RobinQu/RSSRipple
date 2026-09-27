@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="41" time="62.509" timestamp="2026-09-27T13:05:08.092364+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_auth_bootstrap_logging" name="test_startup_does_not_publish_authenticator_secret" time="1.871" /><testcase classname="tests.unit.test_auth_enrollment" name="test_enrollment_preserves_credentials_and_existing_cookie" time="1.511" /><testcase classname="tests.unit.test_auth_enrollment" name="test_uninitialized_enrollment_does_not_create_credentials" time="1.666" /><testcase classname="tests.unit.test_auth_enrollment" name="test_explicit_show_required" time="0.003" /><testcase classname="tests.unit.test_auth_enrollment" name="test_redirected_output_refused_before_database_access" time="0.007" /><testcase classname="tests.unit.test_auth_enrollment" name="test_connection_error_does_not_print_credentials" time="0.003" /><testcase classname="tests.unit.test_auth_rate_limit" name="test_concurrent_sessions_cannot_exceed_peer_budget" time="3.039"><failure message="sqlalchemy.exc.DatabaseError: (turso.lib.DatabaseError) Write-write conflict&#10;[SQL: INSERT INTO auth_rate_limit_buckets (id, bucket_key, attempts, resets_at) VALUES (?, ?, ?, ?) ON CONFLICT (bucket_key) DO UPDATE SET attempts = CASE WHEN (auth_rate_limit_buckets.resets_at &lt;= ?) THEN ? ELSE auth_rate_limit_buckets.attempts + ? END, resets_at = CASE WHEN (auth_rate_limit_buckets.resets_at &lt;= ?) THEN ? ELSE auth_rate_limit_buckets.resets_at END WHERE auth_rate_limit_buckets.resets_at &lt;= ? OR auth_rate_limit_buckets.attempts &lt; ? RETURNING id]&#10;[parameters: ('334946b7-d58f-4188-8e25-2ec3a07f8ccb', 'global', 1, '2026-09-27 13:06:16.218929', '2026-09-27 13:05:16.218929', 1, 1, '2026-09-27 13:05:16.218929', '2026-09-27 13:06:16.218929', '2026-09-27 13:05:16.218929', 30)]&#10;(Background on this error at: https://sqlalche.me/e/20/4xp6)">/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:823: in _fetchone_tuple
+    status = _step_once_with_io(self._active_stmt, self._connection.extra_io)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:200: in _step_once_with_io
+    status = stmt.step()
+             ^^^^^^^^^^^
+E   turso.Error: Write-write conflict
+
+During handling of the above exception, another exception occurred:
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1969: in _exec_single_context
+    self.dialect.do_execute(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:230: in execute
+    self._adapt_connection._handle_exception(error)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:368: in _handle_exception
+    raise error.with_traceback(exc_info[2])
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:228: in execute
+    return self.await_(self._execute_async(operation, parameters))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:254: in _execute_async
+    self._rows = collections.deque(await self._cursor.fetchall())
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:303: in fetchall
+    return await self._connection._run(_all)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:95: in _run
+    return await fut
+           ^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/worker.py:38: in run
+    result = func()
+             ^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:301: in _all
+    return list(self._bcursor.fetchall())  # type: ignore[union-attr]
+                ^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:879: in fetchall
+    row = self._fetchone_tuple()
+          ^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:841: in _fetchone_tuple
+    raise _map_turso_exception(exc)
+E   turso.lib.DatabaseError: Write-write conflict
+
+The above exception was the direct cause of the following exception:
+tests/unit/test_auth_rate_limit.py:16: in test_concurrent_sessions_cannot_exceed_peer_budget
+    results = await asyncio.gather(*(limiter.reserve_otp_attempt("192.0.2.1") for _ in range(12)))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/auth_rate_limit.py:71: in reserve_otp_attempt
+    return await database.retry_on_lock(reserve_transaction)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/database.py:106: in retry_on_lock
+    return await coro_factory()
+           ^^^^^^^^^^^^^^^^^^^^
+app/services/auth_rate_limit.py:58: in reserve_transaction
+    retry_after = await _reserve(db, "global", GLOBAL_LIMIT, now)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/auth_rate_limit.py:38: in _reserve
+    if (await db.execute(statement)).scalar_one_or_none() is not None:
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/ext/asyncio/session.py:448: in execute
+    result = await greenlet_spawn(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:2373: in execute
+    return self._execute_internal(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:2271: in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/orm/bulk_persistence.py:1306: in orm_execute_statement
+    result = conn.execute(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1421: in execute
+    return meth(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/sql/elements.py:526: in _execute_on_connection
+    return connection._execute_clauseelement(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1643: in _execute_clauseelement
+    ret = self._execute_context(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1848: in _execute_context
+    return self._exec_single_context(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1988: in _exec_single_context
+    self._handle_dbapi_exception(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:2365: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1969: in _exec_single_context
+    self.dialect.do_execute(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:230: in execute
+    self._adapt_connection._handle_exception(error)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:368: in _handle_exception
+    raise error.with_traceback(exc_info[2])
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:228: in execute
+    return self.await_(self._execute_async(operation, parameters))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py:254: in _execute_async
+    self._rows = collections.deque(await self._cursor.fetchall())
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:303: in fetchall
+    return await self._connection._run(_all)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:95: in _run
+    return await fut
+           ^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/worker.py:38: in run
+    result = func()
+             ^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py:301: in _all
+    return list(self._bcursor.fetchall())  # type: ignore[union-attr]
+                ^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:879: in fetchall
+    row = self._fetchone_tuple()
+          ^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py:841: in _fetchone_tuple
+    raise _map_turso_exception(exc)
+E   sqlalchemy.exc.DatabaseError: (turso.lib.DatabaseError) Write-write conflict
+E   [SQL: INSERT INTO auth_rate_limit_buckets (id, bucket_key, attempts, resets_at) VALUES (?, ?, ?, ?) ON CONFLICT (bucket_key) DO UPDATE SET attempts = CASE WHEN (auth_rate_limit_buckets.resets_at &lt;= ?) THEN ? ELSE auth_rate_limit_buckets.attempts + ? END, resets_at = CASE WHEN (auth_rate_limit_buckets.resets_at &lt;= ?) THEN ? ELSE auth_rate_limit_buckets.resets_at END WHERE auth_rate_limit_buckets.resets_at &lt;= ? OR auth_rate_limit_buckets.attempts &lt; ? RETURNING id]
+E   [parameters: ('334946b7-d58f-4188-8e25-2ec3a07f8ccb', 'global', 1, '2026-09-27 13:06:16.218929', '2026-09-27 13:05:16.218929', 1, 1, '2026-09-27 13:05:16.218929', '2026-09-27 13:06:16.218929', '2026-09-27 13:05:16.218929', 30)]
+E   (Background on this error at: https://sqlalche.me/e/20/4xp6)</failure></testcase><testcase classname="tests.unit.test_auth_rate_limit" name="test_rotating_peers_hit_global_budget_and_expired_rows_are_removed" time="2.298" /><testcase classname="tests.unit.test_auth_rate_limit" name="test_unavailable_database_cannot_allow_reservation" time="0.001" /><testcase classname="tests.unit.test_auth_rate_limit" name="test_existing_database_addition_is_idempotent_and_preserves_settings" time="1.674" /><testcase classname="tests.unit.test_auth_rate_limit" name="test_new_connections_preserve_exhausted_budget" time="1.640" /><testcase classname="tests.unit.test_auth_rate_limit" name="test_cleanup_is_bounded_and_keeps_active_peer" time="1.516" /><testcase classname="tests.api.test_auth.TestMiddlewareGating" name="test_no_credentials_401" time="1.583" /><testcase classname="tests.api.test_auth.TestMiddlewareGating" name="test_wrong_api_key_401" time="1.556" /><testcase classname="tests.api.test_auth.TestMiddlewareGating" name="test_static_key_bearer" time="1.652" /><testcase classname="tests.api.test_auth.TestMiddlewareGating" name="test_static_key_x_api_key_header" time="1.625" /><testcase classname="tests.api.test_auth.TestMiddlewareGating" name="test_db_api_key" time="1.576" /><testcase classname="tests.api.test_auth.TestMiddlewareGating" name="test_posters_gated" time="1.520" /><testcase classname="tests.api.test_auth.TestMiddlewareGating" name="test_auth_paths_exempt" time="1.551" /><testcase classname="tests.api.test_auth.TestMiddlewareGating" name="test_non_api_path_open" time="1.532" /><testcase classname="tests.api.test_auth.TestMiddlewareGating" name="test_auth_disabled_passthrough" time="1.479" /><testcase classname="tests.api.test_auth.TestOtpLogin" name="test_otp_login_issues_cookie_and_authenticates" time="1.636" /><testcase classname="tests.api.test_auth.TestOtpLogin" name="test_otp_wrong_code_401" time="1.648" /><testcase classname="tests.api.test_auth.TestOtpLogin" name="test_logout_clears_cookie" time="1.590" /><testcase classname="tests.api.test_auth.TestCookieValidation" name="test_tampered_cookie_401" time="1.578" /><testcase classname="tests.api.test_auth.TestCookieValidation" name="test_expired_cookie_401" time="1.608" /><testcase classname="tests.api.test_auth.TestCookieValidation" name="test_valid_cookie_passes" time="1.543" /><testcase classname="tests.api.test_auth.TestCookieValidation" name="test_status_with_api_key" time="1.454" /><testcase classname="tests.api.test_auth_throttling" name="test_repeated_invalid_otp_is_bounded" time="1.942" /><testcase classname="tests.api.test_auth_throttling" name="test_budget_survives_401_and_returns_retry_after" time="1.901" /><testcase classname="tests.api.test_auth_throttling" name="test_forged_forwarded_header_does_not_reset_budget" time="1.735" /><testcase classname="tests.api.test_auth_throttling" name="test_successful_codes_also_consume_budget" time="1.824" /><testcase classname="tests.api.test_auth_throttling" name="test_schema_rejections_do_not_consume_verification_budget" time="1.590" /><testcase classname="tests.api.test_auth_throttling" name="test_database_failure_never_verifies_otp" time="1.512" /><testcase classname="tests.api.test_api_keys.TestApiKeys" name="test_create_returns_plaintext_once" time="1.651" /><testcase classname="tests.api.test_api_keys.TestApiKeys" name="test_list_never_exposes_secret" time="1.603" /><testcase classname="tests.api.test_api_keys.TestApiKeys" name="test_multiple_keys_are_distinct" time="1.566" /><testcase classname="tests.api.test_api_keys.TestApiKeys" name="test_created_key_authenticates" time="1.648" /><testcase classname="tests.api.test_api_keys.TestApiKeys" name="test_delete" time="1.570" /><testcase classname="tests.api.test_api_keys.TestApiKeys" name="test_delete_missing_404" time="1.623" /><testcase classname="tests.api.test_api_keys.TestApiKeys" name="test_empty_name_rejected" time="1.530" /></testsuite></testsuites>

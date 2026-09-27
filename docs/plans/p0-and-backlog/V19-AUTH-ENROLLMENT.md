@@ -1,6 +1,16 @@
 # S3：认证器密钥不进入启动日志
 
-状态：独立候选 `/tmp/rssripple-v19-auth-enrollment`，基于已验收 M1 运行代码 a8a09bd；尚未叠加 M2/M3/S2，未全量验收或合入。
+状态：尚未全量验收或合入。最新目录 `/tmp/rssripple-v19-turso-review-2m88z4f9` 已叠加 M2/M3 及 S2 p 的 Turso 突发修订，j 组合回归、k 正式组合入口、l 最终指引回归均通过；已冻结并启动 m 完整单元/API。原 `/tmp/rssripple-v19-auth-enrollment` 是基于 M1 a8a09bd 的历史候选。
+
+## 最新验收准备（j/k/l → m）
+
+j **42 passed，58.93 秒**，覆盖先前失败的认证组合及 12/40 并发。k **5 passed，28.33 秒**，涵盖绑定 Turso/PG、Turso 十轮真实突发、PG 服务和双 HTTP 进程；未复现旧 h 的写冲突。最终核对 Dockerfile 发现依赖安装在 .venv，容器绑定文档须沿用服务的 `uv run --no-project` 解释器选择，已修正中英文 README/约定；启动提示只指向部署文档。实际核验 uv 选择候选 .venv 解释器，最后 l **6 passed，5.25 秒**。前端源码相对 g 未变，继承已通过的生产构建。
+
+[五维审查](V19-REVIEW.md) 允许完整门禁，14 有效文件与 3072 输入已冻结，source/tar/frozen 见 probes/auth-enrollment-m-*。m session 34744，日志 /tmp/rssripple-v19-unit-m.log，要求 ≥95%；显式使用独立 PG 容器 rssripple-v19-unit-pg-m（回环 32849、tmpfs）。避免与 S2 并发迁移争用固定 scratch 库名。完整集成尚未启动，待现有集成门禁释放资源后基于同一冻结源启动唯一项目；不能用 k 五项替代全量 ≥85% 门禁。测试期间不得修改该目录的冻结输入，前序 M3/S2 验收与基线匹配仍是合入条件。
+
+h/i 终态：原组合 h 为 **40 passed、1 failed，62.83 秒**，失败是继承的 S2 Turso 12 并发写冲突耗尽重试；没有放松测试。i 正式绑定双库与 PG 服务/HTTP 四入口 **4 passed，22.41 秒**。随后 V18 独立探针确认生产退避下也会突发失败，并增加同引擎短事务串行。新 j 基于该修订重新组合；S3 不能继承旧 h 的失败状态宣称通过，也不能只引用 i 覆盖全部组合行为。历史日志原件 gzip、可读副本、JUnit 与 i 候选 tar/source 均已归档。
+
+后续 g 前端验证：`corepack pnpm run build` 退出 0，构建资产确认包含新的中英文登录绑定提示，14 个候选源文件哈希不变。产物生成于候选 app/static，不作为新的手写源文件提交；生产 Dockerfile 会重新构建前端。原候选已三方合并到 M2/M3/S2 组合基线，新目录 `/tmp/rssripple-v19-rebased-69kjq3or`，无冲突；h 认证组合回归与 i 双库/多进程正式组合入口正在运行。两次合并不能代替完整门禁，也不表示 S3 已合入。
 
 ## 必要性复核
 
