@@ -100,23 +100,18 @@ async def lifespan(app: FastAPI):  # pragma: no cover
         await load_runtime_config(sess)
     logger.info("Runtime settings loaded.")
 
-    # Auth bootstrap: ensure the TOTP + cookie secrets exist (generated on
-    # first run and persisted in app_settings), and surface the provisioning
-    # URI every startup so the operator can enroll an authenticator.
+    # Persist credentials without publishing them to application logs.
+    # Enrollment is an explicit operator action via the local CLI.
     from app.services.auth_service import (
         get_or_create_cookie_secret,
         get_or_create_totp_secret,
-        totp_provisioning_uri,
     )
 
     async with async_session_factory() as sess:
-        totp_secret = await get_or_create_totp_secret(sess)
+        await get_or_create_totp_secret(sess)
         await get_or_create_cookie_secret(sess)
         await sess.commit()
-    logger.warning(
-        "OTP provisioning URI (add to your authenticator): %s",
-        totp_provisioning_uri(totp_secret),
-    )
+    logger.info("Authentication ready. See deployment docs to enroll an authenticator.")
 
     # Web/worker separation: with APP_ROLE=web this process only serves HTTP
     # and enqueues jobs — the scheduler and queue consumer live in the worker

@@ -1342,7 +1342,7 @@
   },
   "auth": {
     "title": "Sign in to RSSRipple",
-    "hint": "Enter the 6-digit one-time code. The OTP setup link is printed in the server startup logs.",
+    "hint": "Enter the 6-digit code from your authenticator. Before your first login, follow the deployment guide to enroll it.",
     "submit": "Sign in",
     "failed": "Sign-in failed",
     "logout": "Log out"

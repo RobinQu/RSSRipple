@@ -57,6 +57,12 @@ uv run uvicorn app.main:app --reload --port 9001
 
 The frontend build requires Node.js 20.19+ or 22.12+ (Vite 8).
 
+### Enroll an authenticator
+
+After the first successful startup, run `docker compose exec app uv run --no-project python -m app.scripts.auth_enrollment --show` in a trusted interactive terminal. Import the displayed URI into your authenticator and use its six-digit code to log in. Startup logs do not contain the enrollment secret. The command reads existing credentials without changing them and refuses redirected output.
+
+For standalone Turso, stop the app first, run `docker compose -f docker-compose.standalone.yml run --rm --no-deps app uv run --no-project python -m app.scripts.auth_enrollment --show`, then start the app again. For a manual installation, stop Uvicorn and run `uv run python -m app.scripts.auth_enrollment --show` with the same database configuration before restarting. See [authentication conventions](docs/design/conventions.md#认证器绑定).
+
 ## Obtaining API Credentials
 
 RSSRipple needs an LLM and at least one metadata source. Get the keys you want, then put them in `.env`.

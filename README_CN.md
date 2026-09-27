@@ -57,6 +57,12 @@ uv run uvicorn app.main:app --reload --port 9001
 
 前端构建需要 Node.js 20.19+ 或 22.12+（Vite 8）。
 
+### 绑定认证器
+
+应用首次成功启动后，在可信交互终端运行 `docker compose exec app uv run --no-project python -m app.scripts.auth_enrollment --show`，将显示的 URI 导入认证器，再用其六位验证码登录。启动日志不包含绑定密钥。命令只读已有凭证，不修改密钥，并拒绝重定向输出。
+
+独立 Turso 部署须先停止 app，再运行 `docker compose -f docker-compose.standalone.yml run --rm --no-deps app uv run --no-project python -m app.scripts.auth_enrollment --show`，最后重启 app。本地手动部署须先停止 Uvicorn，使用同一数据库配置运行 `uv run python -m app.scripts.auth_enrollment --show`，然后重新启动。详见[认证器绑定约定](docs/design/conventions.md#认证器绑定)。
+
 ## 获取 API 凭证
 
 RSSRipple 需要一个 LLM 和至少一个元数据源。按需申请 key 后填入 `.env`。

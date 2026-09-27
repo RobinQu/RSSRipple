@@ -38,7 +38,15 @@
   - 内置文件整理子系统（organize）**无环境变量开关**：常开，存在 enabled 规则即激活。语义见 file-organization.md；逻辑卷/媒体服务器/库根/规则/模板全部入库（StorageVolume/MediaServerInstance/Library/OrganizeRule），不走环境变量。媒体服务器**无全局配置**：旧版 `PLEX_URL`/`PLEX_TOKEN` 已移除，存量环境变量由启动轻迁移转为一条 `MediaServerInstance`（type=plex）。
   - `AUTH_ENABLED`：应用认证总开关（默认 `true`）。开启时 `/api/v1/*` 与 `/posters/*` 需携带凭证，`/api/v1/auth/*`、`/health`（容器健康检查探针）与 SPA/静态资源开放。
   - `API_KEY`：可选静态引导 API key（运维恢复与集成测试用；与 `api_keys` 表中的 key 同等效力）。
-- **认证凭证约定**：Web 端 TOTP 登录（秘钥 `auth_totp_secret` 首次启动自动生成并持久化于 `app_settings`，provisioning URI 每次启动以 WARNING 打印，运维手动加入认证器）；登录成功签发 HttpOnly Cookie `rssripple_auth`（值格式 `{expiry_ts}.{hmac_sha256}`，以 `app_settings` 的 `auth_cookie_secret` 签名，30 天有效，SameSite=Lax）。程序端用全局 API key（`Authorization: Bearer` 或 `X-API-Key` 头；`api_keys` 表仅存 SHA-256 摘要，`rr_` 明文仅创建时返回一次）。
+- **认证凭证约定**：Web 端 TOTP 登录（秘钥 `auth_totp_secret` 首次启动自动生成并持久化于 `app_settings`，启动日志不输出秘钥或 provisioning URI，运维通过下述终端命令主动绑定认证器）；登录成功签发 HttpOnly Cookie `rssripple_auth`（值格式 `{expiry_ts}.{hmac_sha256}`，以 `app_settings` 的 `auth_cookie_secret` 签名，30 天有效，SameSite=Lax）。程序端用全局 API key（`Authorization: Bearer` 或 `X-API-Key` 头；`api_keys` 表仅存 SHA-256 摘要，`rr_` 明文仅创建时返回一次）。
+
+### 认证器绑定
+
+应用至少成功启动一次后，在应用虚拟环境的可信交互终端显式执行 `python -m app.scripts.auth_enrollment --show`。默认 PostgreSQL Compose 可执行 `docker compose exec app uv run --no-project python -m app.scripts.auth_enrollment --show`，通过与容器服务相同的 uv 启动方式选择已安装依赖。命令使用应用相同的 DATABASE_URL，只读取已有 TOTP 密钥；不执行 DDL、不创建/轮换密钥、不使现有 Cookie 失效。未初始化、数据库不可访问或输出不是终端时返回非零，标准输出为空；省略 `--show` 也拒绝显示。数据库异常只给固定提示，避免泄露连接凭证。
+
+Turso 文件由单一进程独占：先 `docker compose -f docker-compose.standalone.yml stop app`，再 `docker compose -f docker-compose.standalone.yml run --rm --no-deps app uv run --no-project python -m app.scripts.auth_enrollment --show`，最后 `docker compose -f docker-compose.standalone.yml start app`。本地开发同样先停止 Uvicorn，再用相同环境执行 `uv run python -m app.scripts.auth_enrollment --show`，之后重启应用。不要用第二个进程打开运行中的 Turso 文件。
+
+URI 包含管理员长期密钥，只用于手动导入认证器，不转发到日志系统或共享终端录制。此改动停止今后的自动日志暴露，不自动轮换旧密钥或清除历史日志；已有泄露需由运维另行处理。
   - `DEBUG` / `LOG_LEVEL`（默认 `INFO`）：调试开关与日志级别。
   - Wikipedia Search 通过免费 `wikipedia` Python 库实现，无需额外 API key。
 - **海报服务**：FastAPI 挂载 StaticFiles 到 `/posters`，物理目录为 `POSTER_CACHE_DIR`。缓存文件名 `{sha256(url)[:16]}.{ext}`，扩展名由下载内容的魔数嗅探决定（jpg/png/webp/gif/svg，`download_and_cache_poster` 内 `_sniff_image_ext`），**不取 URL 后缀**——URL 后缀不可靠（如 Wikimedia 在无扩展路径下返回 SVG），内容与扩展名不符会被浏览器按静态 MIME 拒绝渲染；无法识别的内容不缓存、返回 None。

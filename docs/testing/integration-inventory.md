@@ -1,5 +1,11 @@
 # 集成测试清单（重组后）
 
+## 认证器绑定安全回归
+
+`security/test_auth_enrollment.py` 正式包含 Turso 与 PostgreSQL 两个入口，每个以五项断言组覆盖实际进程首次启动/重启不记密钥、真实伪终端运行绑定 CLI、拒绝重定向、要求显式 `--show`、导入 URI 后经生产 ASGI 认证路由登录且旧 Cookie/持久凭证不变。应用使用 web 角色与内存队列，执行实际 lifespan/DDL，未访问外部来源；认证 HTTP 为 ASGI transport，不宣称网络服务器覆盖。密钥均在专用空库自动生成，不使用生产配置。
+
+Turso 的应用子进程完全退出后才由 CLI 打开文件；仅 dispose SQLAlchemy 不代表已释放底层独占句柄。PostgreSQL 沿用 `QUEUE_RECOVERY_POSTGRES_URL` 的专用管理库，每次建 `auth_enrollment_*` 子库并 finally 删除；完整隔离门禁设置 `QUEUE_RECOVERY_REQUIRED=1`，缺库必失败。父测试超时杀进程组，终端文件描述符 finally 关闭。
+
 > 重组完成于 2026-07-24 ｜ 分支 `refactor/integration-tests`
 > 范围：`tests/integration/` ｜ 最新验收（2026-09-09）：**82 个测试文件 / 单节点 2351 passed + 17 skipped**（历史计数：重组前 16 文件 / 166 用例，重组去重 17 个）
 

@@ -32,7 +32,7 @@ B4 候选：资源 magnet 人工重试以读取时的 attempt、状态和 magnet
 | POST | `/api-keys` | 创建 API key：body `{"name": "..."}` → 201，`data` 额外含 `key`（`rr_...` 明文，**仅本次响应返回一次**） |
 | DELETE | `/api-keys/{id}` | 删除 API key；不存在 404 |
 
-TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 `app_settings`（`auth_totp_secret` / `auth_cookie_secret`）；provisioning URI（`otpauth://totp/RSSRipple:admin?...`）每次启动以 WARNING 级别打印，由运维手动添加到认证器。
+TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 `app_settings`（`auth_totp_secret` / `auth_cookie_secret`）；首次启动和重启均不在日志输出秘钥或 provisioning URI。运维通过本地终端执行 `python -m app.scripts.auth_enrollment --show`，只读获取已有绑定 URI；命令拒绝重定向输出，不创建或轮换秘钥，不新增公开绑定 API。Turso 需先停止应用以释放独占文件锁，详见 conventions.md 的认证器绑定流程。
 
 ### 健康检查（Health）
 
