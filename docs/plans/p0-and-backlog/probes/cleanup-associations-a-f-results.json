@@ -1,0 +1,68 @@
+{
+  "accepted": false,
+  "runs": {
+    "a": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "6",
+      "skipped": "0",
+      "tests": "6",
+      "time": "9.751",
+      "timestamp": "2026-09-27T15:16:37.105172+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "b": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "4",
+      "skipped": "0",
+      "tests": "6",
+      "time": "9.443",
+      "timestamp": "2026-09-27T15:17:10.554713+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "c": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "21",
+      "time": "30.889",
+      "timestamp": "2026-09-27T15:18:13.945432+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "d": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "32",
+      "time": "39.152",
+      "timestamp": "2026-09-27T15:20:36.887017+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "e": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "1",
+      "skipped": "0",
+      "tests": "1",
+      "time": "0.642",
+      "timestamp": "2026-09-27T15:22:38.927505+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "f": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "33",
+      "time": "16.098",
+      "timestamp": "2026-09-27T15:23:53.571005+00:00",
+      "hostname": "dl-workstation-albert"
+    }
+  },
+  "postgres_container": "rssripple-v21-cleanup-pg-d",
+  "postgres_cleanup_exit": 0,
+  "note": "a fixture omission, b actual loss, e real PG FK-lock race; f targeted only, complete gates pending"
+}

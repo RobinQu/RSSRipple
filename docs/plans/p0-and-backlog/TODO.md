@@ -41,7 +41,7 @@
 
 ## P2
 
-- [ ] `resource_cleanup._stale_unresolved_where` 忽略 work-links/collection 状态（`resource_cleanup.py:39-64`）。
+- [ ] `resource_cleanup._stale_unresolved_where` 忽略权威关联，已实际复现自动/手动清理删除合集待确认及人工多作品资源；补条件后又复现 PostgreSQL 等待 FK 锁后用旧快照删除。V21 已有双库原型与 33 项专项通过，仍须扩大并发/入口验证及完整门禁，见 [V21](V21-CLEANUP-ASSOCIATIONS.md)。
 
 - [ ] **P1-S4 CORS 通配 + 凭证且中间件顺序错**：`app/main.py:220-226` `allow_origins=["*"]` +
       `allow_credentials=True`，Starlette 反射 Origin 携带 Cookie；Auth 中间件先于 CORS 执行，预检被 401、

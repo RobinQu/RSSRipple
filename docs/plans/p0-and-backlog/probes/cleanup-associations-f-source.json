@@ -1,0 +1,22 @@
+{
+  "prototype": "/tmp/rssripple-v21-cleanup-fs3vtp33",
+  "base_runtime_commit": "b0e2ce1",
+  "base_main_head": "fa4a1e1",
+  "accepted": false,
+  "files": {
+    "app/services/resource_cleanup.py": "99fc334f44e754e64b19c05d96444699c52804057a2b26693728d25ea6a9ba4d",
+    "tests/integration/organize/test_cleanup_associations.py": "c3ace264bf144638c11e24afe45691368129a2ced918e542b85b1d471fd70acf",
+    "tests/integration/organize/test_cleanup_postgres.py": "6300ee0de1fa0c02007e22a75c405fa02836c1f779c935c1adb4e66c467c9a95",
+    "docs/design/business-logic.md": "0c1461b5bdbb3e5f29142b76bdfe542c299dabed74fc3e620a211d65f429ea85",
+    "docs/design/api-endpoints.md": "ddd6e9d591b60bcc38c6d538ab6193b9ef8b4641fbfd06094f3863795c4cbc19",
+    "docs/testing/integration-inventory.md": "b8f370e286a95a070eee7c25f1e322ec1d7008bc6f6cb71fb8bdffa0bd53fe83"
+  },
+  "base_hashes": {
+    "app/services/resource_cleanup.py": "b421272f4dd7f49b5c5601f75a7bdda5a1da7ad806b9df786db597d5c4a9b48f",
+    "tests/integration/organize/test_cleanup_associations.py": null,
+    "tests/integration/organize/test_cleanup_postgres.py": null,
+    "docs/design/business-logic.md": "c46b2b76d4125cede7b9d73957e3be5c0fa1c3704919877281cdfd1642d547aa",
+    "docs/design/api-endpoints.md": "d588c6cac97bfdc14d0a0935a31044fcb5a92c6a013642ecc0f15754e7ed78b6",
+    "docs/testing/integration-inventory.md": "14d9b0d4d296f10b53c04f4e80767349a3c1c401d567dc1ba8583b6389d1f208"
+  }
+}
