@@ -82,3 +82,13 @@ q 组合 144 passed / 20 failed（12.06 秒）：真实网络专项通过，20 �
 之后三方合并到已验收 main `b0e2ce1`。仅 integration-inventory 顶部发生文字冲突，保留 S3 绑定与 S1 出站两节；运行代码无冲突。新目录 s 再跑同一组合 164 passed，14 个源文件哈希不变。后续实现应使用新目录，不继续在旧 M2 副本开发。
 
 剩余项：batch_content_analysis 的普通/流式 OpenAI、metadata_agent 的 LangChain 模型、OpenRouter SDK 和 Wiki REST 异步跳转仍需逐路径论证/验证；配置私网资源例外、企业代理/CA 与同步 DNS 超时策略尚未定案；httpcore 直接依赖、HTTPX/Transmission 私有接点须明确约束与兼容测试；旧本地文件 feed 夹具和相关客户端 mock 须迁移。最后必须在完整新基线执行 ≥95%/≥85% 两道门禁、零失败与完整审计，才可关闭 S1。
+
+## t–af：补齐 LLM/Wiki 路径、连接边界与旧测试适配
+
+必要性续验覆盖实际 SDK：u 的四个直连控制通过，batch 普通/流式与 LangChain 同步/异步四个跨私网重定向失败，目标实际收到请求；t 的部分失败来自误用 `path` 而非 `name` 的文件夹具，不能用作漏洞证据。改用录制 torrent `987a72c09d5b0c2e934fa5016cc4dda6427a80dc5a4594e284a06ccf966acdb2.torrent` 的生产解析文件表，接入受控客户端后 v 八项通过。w 再证实 OpenRouter 普通/流式两条路径越界（2 passed / 2 failed）；SDK 注入并尊重配置的 server_url 后 x 20 项通过。y 的 Wiki pageimages→REST summary 路径 1 passed / 1 failed，修复 REST 跳转后 z 网络组合 69 项通过。模型输出、HTTP 服务及证书为合成，保留真实 HTTP/TLS 与 SDK 调用，不宣称访问真实模型服务。
+
+方案补充：`OUTBOUND_PRIVATE_ORIGINS` 仅接受精确 HTTP(S) origin，默认无例外；不接受凭证、通配、路径/查询/片段，默认端口规范化。aa 暴露大写 scheme 配合默认端口未归一化，修正后 ab 57 项通过，含同步/异步 SSL_CERT_FILE 可信 CA 正例。受控客户端仍关闭环境代理；没有使用 verify=False。DNS 共用最多四线程和八个未完成查询，响应超时不释放尚在执行的系统查询槽；ac 62 项通过，包含同步/异步超时与容量边界。依赖锁仅明确 HTTPX 0.28.1/httpcore 1.0.9 的现有版本，无包升级。MetadataAgent 零空闲连接池避免配置重置后遗留空闲连接，同时允许在途调用完成。
+
+ad 在 Transmission hook 消除 self 引用环后再次验证实际 SDK，并适配旧 batch/feed mock 的 async context 生命周期，136 passed、1 warning、47.13 秒。ae 扩大到 torrent、magnet、MetadataAgent、RSS 和集成覆盖，443 passed / 5 failed / 2 skipped、84.65 秒：四项是测试迁移漏加 HTTPX 导入，一项是镜像 mock 不接受新增 auth 参数；均保留失败日志。magnet E2E 现以本地 HTTP 回放未改写的既有 XML，首轮两个离线端到端用例通过；两项 live swarm 用例保持原 opt-in 条件。修正 mock 后 af 重跑相同范围：448 passed、2 skipped、7 warnings、77.71 秒，退出 0；两项仍为原 live swarm opt-in 跳过。全仓 Ruff 通过。隔离 Compose 已为测试资源明确配置 `http://test-server:8080`，没有放宽生产默认策略。
+
+当前 31 文件候选及主干基础哈希见 `probes/outbound-policy-ae-source.json`，可从同名前缀 candidate.tar.gz 恢复；t–ae 原始日志/JUnit 均以 gzip 留存，结果见 `outbound-policy-t-ae-results.json`。main 运行代码未变，S1 未验收、未合入。af 结束后 31 文件候选哈希与归档一致，终态见 `probes/outbound-policy-af-result.json`。下一步补非重定向 webhook/media-server/Wigolo 的真实请求兼容性证据，检查完整集成环境与剩余旧 mock，然后执行完整单元/API ≥95%、隔离集成 ≥85%（零失败、跳过审计、冻结哈希、应用退出、覆盖率导出、唯一项目清理）。局部通过不能替代这两道完整门禁。

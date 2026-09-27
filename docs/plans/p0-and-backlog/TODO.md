@@ -8,7 +8,7 @@
 
 > 2026-09-27 主干复核：当前 P0（P0-1/2/3/7/8/9）及 B9 的提交 `4c804ed` 已包含在本地 `main`；原 P0-4、P0-6 降级后的修复 `7fd8121`、`e535e1f` 也已包含。原 P0-5 仍按 P2 保留。最新核验基线 `098c5c3`，本地领先本地记录的 `origin/main` 45 个提交（核验记录提交前），未推送远端；详情见 [PLAN.md](PLAN.md#p0-主干复核2026-09-27)。
 
-> B7/B4/M1/M2 已验收合入，详见 V13–V16；M3 也已通过 x/aa 完整门禁并合入 `2274768`，见 [V17](V17-WIKI-TRANSIENT-FAILURE.md)。S2 已通过 p/q 合入 `f343b7b`，S3 已通过 m/n 合入 `b0e2ce1`；下一批继续 S1 剩余出站路径和严格验证；S1 的必要性与严格出站验证方案见 [V20](V20-OUTBOUND-POLICY.md)。
+> B7/B4/M1/M2 已验收合入，详见 V13–V16；M3 也已通过 x/aa 完整门禁并合入 `2274768`，见 [V17](V17-WIKI-TRANSIENT-FAILURE.md)。S2 已通过 p/q 合入 `f343b7b`，S3 已通过 m/n 合入 `b0e2ce1`；下一批继续 S1 剩余出站路径和严格验证；S1 的必要性与严格出站验证方案见 [V20](V20-OUTBOUND-POLICY.md)。候选已补 batch/LangChain/OpenRouter/Wiki 路径及真实 HTTP feed 回放；ad 136 项、af 448 项通过，仍须完整门禁，不能关闭 S1。
 
 ## 优先级
 

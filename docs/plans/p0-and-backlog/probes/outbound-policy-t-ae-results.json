@@ -1,0 +1,126 @@
+{
+  "runs": {
+    "t": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "6",
+      "skipped": "0",
+      "tests": "8",
+      "time": "1.310",
+      "timestamp": "2026-09-27T14:36:21.100095+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "u": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "4",
+      "skipped": "0",
+      "tests": "8",
+      "time": "1.434",
+      "timestamp": "2026-09-27T14:37:54.406886+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "v": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "8",
+      "time": "10.074",
+      "timestamp": "2026-09-27T14:40:29.026697+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "w": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "2",
+      "skipped": "0",
+      "tests": "4",
+      "time": "1.249",
+      "timestamp": "2026-09-27T14:41:35.220038+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "x": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "20",
+      "time": "23.411",
+      "timestamp": "2026-09-27T14:42:20.529504+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "y": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "1",
+      "skipped": "0",
+      "tests": "2",
+      "time": "0.635",
+      "timestamp": "2026-09-27T14:44:29.540129+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "z": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "69",
+      "time": "30.119",
+      "timestamp": "2026-09-27T14:45:10.038668+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "aa": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "1",
+      "skipped": "0",
+      "tests": "55",
+      "time": "3.385",
+      "timestamp": "2026-09-27T14:47:46.347099+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "ab": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "57",
+      "time": "3.869",
+      "timestamp": "2026-09-27T14:48:53.857496+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "ac": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "62",
+      "time": "4.219",
+      "timestamp": "2026-09-27T14:51:12.800890+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "ad": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "136",
+      "time": "47.121",
+      "timestamp": "2026-09-27T14:57:18.267550+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "ae": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "5",
+      "skipped": "2",
+      "tests": "450",
+      "time": "84.605",
+      "timestamp": "2026-09-27T14:58:41.288992+00:00",
+      "hostname": "dl-workstation-albert"
+    }
+  },
+  "accepted": false,
+  "note": "Historical red and targeted green evidence only; t includes fixture failures, aa config normalization, ae legacy fixture adaptation; no full coverage gate."
+}

@@ -1,0 +1,33 @@
+{
+  "accepted": false,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "2",
+    "tests": "450",
+    "time": "77.663",
+    "timestamp": "2026-09-27T15:00:56.658321+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "skips": [
+    {
+      "test": "test_live_magnet_resolution",
+      "reason": {
+        "type": "pytest.skip",
+        "message": "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)"
+      }
+    },
+    {
+      "test": "test_live_fetch_to_resolve_end_to_end",
+      "reason": {
+        "type": "pytest.skip",
+        "message": "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)"
+      }
+    }
+  ],
+  "exit_code": 0,
+  "candidate_hashes_unchanged": 31,
+  "source_manifest": "outbound-policy-ae-source.json",
+  "full_gates_run": false
+}
