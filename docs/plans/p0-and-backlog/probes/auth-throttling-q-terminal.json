@@ -1,0 +1,45 @@
+{
+  "accepted": false,
+  "reason": "Integration gate passed; full unit/API p still running",
+  "integration": {
+    "passed": 3189,
+    "skipped": {
+      "tests.integration.http.test_api_coverage2.TestMagnetResolve::test_terminal_retry_flow": "no magnet resolution reached a terminal state in time",
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream::test_mapping_structure": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream::test_mapping_has_torrent_url": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream::test_mapping_has_title_field": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream::test_all_rules_have_source_key": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream::test_confidence_not_low": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping::test_fetch_succeeded": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping::test_fetch_created_resources": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping::test_resources_have_torrent_url": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping::test_resources_have_title_raw": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping::test_channel_stream_analyze_also_works": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping::test_no_duplicates_on_refetch": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "tests.integration.http.test_metadata_api.TestMetadataLink::test_link_metadata_creates_series": "No metadata API keys configured \u2014 cannot perform search+link",
+      "tests.integration.http.test_task_queue.TestRedisDistributedDedup::test_status_key_shared_after_enqueue": "No distinct Redis-backed app instance configured",
+      "tests.integration.http.test_task_queue.TestRedisDistributedDedup::test_redis_job_state_persists_after_done": "No distinct Redis-backed app instance configured",
+      "tests.integration.magnet.test_magnet_resolve_e2e::test_live_magnet_resolution": "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)",
+      "tests.integration.magnet.test_magnet_resolve_e2e::test_live_fetch_to_resolve_end_to_end": "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)"
+    },
+    "failures": [],
+    "new_skips": [],
+    "changed_skip_reasons": {},
+    "seconds": 1974.16,
+    "exit_code": 0,
+    "coverage": {
+      "lines-covered": "20794",
+      "lines-valid": "23573",
+      "line-rate": "0.8821"
+    },
+    "application_exit_codes": [
+      0,
+      0
+    ],
+    "coverage_report_exit": 0,
+    "export_exit": 0,
+    "project": "rssripple-v18-final-q",
+    "cleanup_exit": 0
+  },
+  "frozen_files_unchanged": 3063
+}

@@ -17,6 +17,10 @@
     "project": "rssripple-v18-final-q",
     "startup_exit": 0,
     "log": "/tmp/rssripple-v18-integration-q.log",
-    "threshold": 85
+    "threshold": 85,
+    "status": "complete",
+    "exit_code": 0,
+    "cleanup_exit": 0,
+    "terminal_record": "auth-throttling-q-terminal.json"
   }
 }

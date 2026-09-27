@@ -66,3 +66,7 @@ g 为 **1 passed、1 failed，6.12 秒**。HTTP 的第一组 12 并发请求已�
 h 两个正式入口 **2 passed、0 skipped，8.18 秒，退出 0**，包含五个跨进程服务场景和四个真实 HTTP 场景。HTTP 确认来源并发上限、跨进程 Cookie 与进程替换后额度持久、八个真实回环源地址共享全局上限，以及错误验证码耗额和到期恢复。全部数据为专用测试库的合成配置；真实部分是 PostgreSQL、多进程、HTTP、生产认证处理与 pyotp 校验，不使用生产密钥。
 
 专用数据库由父测试 finally 删除，`rssripple-v18-auth-g` 以 `--rm` 和 tmpfs 运行并已停止清理，未发现认证测试子进程。日志原件 gzip、可读副本、JUnit 和九场景结果见 probes/auth-throttling-g.* / auth-throttling-h.*。候选现为 17 文件，完整 tar、文本补丁、候选/基线哈希见 probes/auth-throttling-h-source.json 等。Ruff 通过；[审查](V18-REVIEW.md) 仅允许进入全量门禁，S2 尚未验收或合入。
+
+## q 完整集成终态
+
+18 文件修订候选的 q 完整集成 3189 passed、17 skipped、8 warnings，1974.16 秒，退出 0；覆盖率 20794/23573 = 88.21%，汇总门禁退出 0。与 M3 aa 相比无新增跳过、无理由变更。3063 冻结输入不变，两个应用经 SIGINT 均正常退出 0，产物导出和 `rssripple-v18-final-q` 的 down -v 清理均退出 0。证据见 `probes/auth-throttling-q-terminal.json` 及同前缀报告。p 完整单元/API 仍运行，专用 PG 容器继续供其使用；S2 尚不能验收或合入。

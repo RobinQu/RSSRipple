@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="24" time="3.618" timestamp="2026-09-27T13:51:52.071591+00:00" hostname="dl-workstation-albert"><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_untrusted_resource_never_contacts_private_target[False-torrent]" time="1.053" /><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_untrusted_resource_never_contacts_private_target[False-poster]" time="0.053" /><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_untrusted_resource_never_contacts_private_target[True-torrent]" time="1.055" /><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_untrusted_resource_never_contacts_private_target[True-poster]" time="0.052" /><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_explicit_private_origin_does_not_authorize_redirect" time="0.115" /><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_pinned_https_preserves_sni_and_certificate_checks[True-public.test-True]" time="0.197" /><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_pinned_https_preserves_sni_and_certificate_checks[False-public.test-False]" time="0.283" /><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_pinned_https_preserves_sni_and_certificate_checks[True-wrong.test-False]" time="0.114" /><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_dns_answers_rejected_before_dial[addresses0]" time="0.026" /><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_dns_answers_rejected_before_dial[addresses1]" time="0.013" /><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_dns_answers_rejected_before_dial[addresses2]" time="0.013" /><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_dns_answers_rejected_before_dial[addresses3]" time="0.013" /><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_dns_answers_rejected_before_dial[addresses4]" time="0.013" /><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_dns_answers_rejected_before_dial[addresses5]" time="0.013" /><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_dns_answers_rejected_before_dial[addresses6]" time="0.013" /><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_dns_answers_rejected_before_dial[addresses7]" time="0.013" /><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_dns_answers_rejected_before_dial[addresses8]" time="0.013" /><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_public_dns_is_pinned_and_proxy_cannot_bypass" time="0.101" /><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_real_fetch_path_keeps_valid_payload[torrent]" time="0.101" /><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_real_fetch_path_keeps_valid_payload[poster]" time="0.101" /><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_noncanonical_loopback_never_reaches_socket[127.1]" time="0.032" /><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_noncanonical_loopback_never_reaches_socket[2130706433]" time="0.030" /><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_noncanonical_loopback_never_reaches_socket[0x7f000001]" time="0.017" /><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_noncanonical_loopback_never_reaches_socket[0177.0.0.1]" time="0.013"><failure message="httpx.InvalidURL: Invalid IPv4 address: '0177.0.0.1'">/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/httpx/_urlparse.py:359: in encode_host
+    ipaddress.IPv4Address(host)
+/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/ipaddress.py:1319: in __init__
+    self._ip = self._ip_int_from_string(addr_str)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/ipaddress.py:1211: in _ip_int_from_string
+    raise AddressValueError("%s in %r" % (exc, ip_str)) from None
+E   ipaddress.AddressValueError: At most 3 characters permitted in '0177' in '0177.0.0.1'
+
+During handling of the above exception, another exception occurred:
+tests/integration/security/test_untrusted_outbound.py:261: in test_noncanonical_loopback_never_reaches_socket
+    client.get(f"http://{host}/private/torrent")
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/httpx/_client.py:1053: in get
+    return self.request(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/httpx/_client.py:812: in request
+    request = self.build_request(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/httpx/_client.py:366: in build_request
+    url = self._merge_url(url)
+          ^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/httpx/_client.py:396: in _merge_url
+    merge_url = URL(url)
+                ^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/httpx/_urls.py:117: in __init__
+    self._uri_reference = urlparse(url, **kwargs)
+                          ^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/httpx/_urlparse.py:320: in urlparse
+    parsed_host: str = encode_host(host)
+                       ^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/httpx/_urlparse.py:361: in encode_host
+    raise InvalidURL(f"Invalid IPv4 address: {host!r}")
+E   httpx.InvalidURL: Invalid IPv4 address: '0177.0.0.1'</failure></testcase></testsuite></testsuites>

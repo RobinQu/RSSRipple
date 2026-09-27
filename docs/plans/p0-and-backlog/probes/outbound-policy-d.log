@@ -1,0 +1,37 @@
+.......................F                                                 [100%]
+=================================== FAILURES ===================================
+_________ test_noncanonical_loopback_never_reaches_socket[0177.0.0.1] __________
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/httpx/_urlparse.py:359: in encode_host
+    ipaddress.IPv4Address(host)
+/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/ipaddress.py:1319: in __init__
+    self._ip = self._ip_int_from_string(addr_str)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/ipaddress.py:1211: in _ip_int_from_string
+    raise AddressValueError("%s in %r" % (exc, ip_str)) from None
+E   ipaddress.AddressValueError: At most 3 characters permitted in '0177' in '0177.0.0.1'
+
+During handling of the above exception, another exception occurred:
+tests/integration/security/test_untrusted_outbound.py:261: in test_noncanonical_loopback_never_reaches_socket
+    client.get(f"http://{host}/private/torrent")
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/httpx/_client.py:1053: in get
+    return self.request(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/httpx/_client.py:812: in request
+    request = self.build_request(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/httpx/_client.py:366: in build_request
+    url = self._merge_url(url)
+          ^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/httpx/_client.py:396: in _merge_url
+    merge_url = URL(url)
+                ^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/httpx/_urls.py:117: in __init__
+    self._uri_reference = urlparse(url, **kwargs)
+                          ^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/httpx/_urlparse.py:320: in urlparse
+    parsed_host: str = encode_host(host)
+                       ^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/httpx/_urlparse.py:361: in encode_host
+    raise InvalidURL(f"Invalid IPv4 address: {host!r}")
+E   httpx.InvalidURL: Invalid IPv4 address: '0177.0.0.1'
+=========================== short test summary info ============================
+FAILED tests/integration/security/test_untrusted_outbound.py::test_noncanonical_loopback_never_reaches_socket[0177.0.0.1]
+1 failed, 23 passed in 3.62s

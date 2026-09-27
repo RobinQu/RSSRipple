@@ -1,0 +1,226 @@
+Metadata dedup complete:
+  series groups merged: 1
+  series rows removed:  1
+  movie  groups merged: 1
+  movie  rows removed:  1
+  file_resources re-pointed: 0
+  agent_works    re-pointed: 1
+  channel_mappings re-pointed: 0
+  pending_decisions re-pointed: 0
+  episodes re-pointed: 0
+  [series] kept=1ec91286-dd76-4621-be3e-c90d56a54caa title='去重重复剧-7f283c1721' removed=1
+  [movie] kept=1f35815f-922b-4c99-890f-4b8e064a91de title='去重重复剧-7f283c1721' removed=1
+  [cross-type] movie 1f35815f-922b-4c99-890f-4b8e064a91de merged into series 1ec91286-dd76-4621-be3e-c90d56a54caa ('去重重复剧-7f283c1721'; episode evidence)
+Combined 4 files
+Wrote XML report to /app/data/coverage.xml
+Name                                         Stmts   Miss  Cover   Missing
+--------------------------------------------------------------------------
+app/__init__.py                                  0      0   100%
+app/api/__init__.py                              0      0   100%
+app/api/v1/__init__.py                           0      0   100%
+app/api/v1/agents.py                           410      5    99%   175, 422, 467-469, 686
+app/api/v1/api_keys.py                          25      0   100%
+app/api/v1/audio_works.py                       65     19    71%   31-32, 50, 76-96, 115-120, 137-144
+app/api/v1/auth.py                              48     10    79%   36, 43-44, 48-50, 65, 76-85
+app/api/v1/channels.py                         302     51    83%   39, 52, 56, 93, 111-113, 146-147, 201-207, 275, 286, 297-301, 319-320, 353-354, 386, 389-390, 394, 413-414, 438-440, 442-443, 458, 466-469, 471-472, 515, 548-549, 568-571, 596-597, 601-602, 618
+app/api/v1/collections.py                      164     15    91%   131-136, 214, 268, 271, 273, 289, 321-329
+app/api/v1/dashboard.py                        221     11    95%   59-61, 66-80, 234, 290
+app/api/v1/decisions.py                        208     29    86%   34, 90, 93, 111, 117, 129, 142, 144, 146, 150, 228, 241, 295, 297, 350, 363, 416-422, 437, 443, 449-458
+app/api/v1/downloaders.py                      165     32    81%   43, 60, 65-66, 96-97, 109, 112, 152-153, 166, 215-216, 246, 285, 313, 328, 362-377
+app/api/v1/media_servers.py                    124     10    92%   202, 206, 208, 210, 212, 240, 249-250, 277-282
+app/api/v1/metadata.py                          22      1    95%   49
+app/api/v1/movies.py                           126     19    85%   32-51, 183-186, 209-211, 233, 247
+app/api/v1/notifications.py                    151     12    92%   96, 112, 116-119, 217, 261, 285, 309, 353-354
+app/api/v1/organize.py                         404     51    87%   87-88, 218, 258, 274, 428, 505-518, 592-601, 607-608, 686-689, 720-721, 723, 725, 730-743, 781-783, 807-810, 828, 833, 841, 857
+app/api/v1/queue.py                             80      5    94%   23, 26-27, 34, 36
+app/api/v1/resources.py                        553     88    84%   194-195, 212, 215, 222-223, 325, 376-382, 414, 438-442, 570, 624-626, 644-646, 734-738, 740, 763-764, 817-821, 839-840, 853-855, 933, 940, 954-996, 1023-1049, 1089-1092, 1112-1113, 1156-1158, 1223-1224, 1229-1230, 1232, 1234, 1241-1242, 1284, 1339, 1360-1361
+app/api/v1/series.py                           138     18    87%   30-49, 198, 214-217, 242-244, 280
+app/api/v1/system_settings.py                   61      2    97%   53, 124
+app/api/v1/task_listing.py                      47      3    94%   35, 57, 77
+app/api/v1/tasks.py                            160     13    92%   40, 43, 58, 67-71, 311-315
+app/api/v1/volumes.py                          115      9    92%   115-118, 174, 179, 203-205
+app/api/v1/works.py                            149     48    68%   37, 39, 56-67, 122, 139-189, 211, 347, 359, 372
+app/clients/__init__.py                          0      0   100%
+app/clients/downloader.py                        9      0   100%
+app/clients/mock_downloader.py                 168     31    82%   61, 74, 114-116, 127, 142, 145, 152, 156, 162-165, 168-169, 174, 199, 220-225, 241-242, 256-260, 266, 274, 284
+app/clients/rss_parser.py                      107     31    71%   63-65, 72, 79, 91-106, 113-116, 134-151, 208-209, 217, 227
+app/clients/transmission.py                    124     32    74%   46-54, 59-60, 68-69, 76, 78, 80, 84, 126, 147-148, 186-192, 204-207, 225-226, 234-235
+app/config.py                                   46      0   100%
+app/database.py                                534    184    66%   109, 111, 116, 158, 174, 179, 190, 240-241, 246-282, 288-299, 321-322, 359-363, 386-393, 396-399, 423-424, 610-618, 621-631, 672-679, 681-706, 756-757, 774-777, 779, 782, 821-822, 839-842, 845, 848, 873-874, 891-894, 898-909, 914, 932-933, 950-953, 957-968, 973, 992-995, 999-1016, 1018, 1035-1036, 1058-1064, 1075, 1088-1089, 1118, 1132-1137, 1148-1160, 1194-1195, 1231-1232, 1265-1266, 1304-1305, 1361-1369, 1371, 1377, 1394-1401, 1404-1431, 1435-1441, 1457-1501, 1525-1536, 1557
+app/db_turso_dialect.py                         25      0   100%
+app/job_handlers.py                            265     19    93%   352, 413, 444-465, 612, 802
+app/main.py                                     91     10    89%   44, 185, 231, 317-327
+app/middleware/__init__.py                       0      0   100%
+app/middleware/auth.py                          69      8    88%   89-90, 106-108, 111-113
+app/migrate.py                                   8      8     0%   10-30
+app/models/__init__.py                          46      0   100%
+app/models/agent.py                             34      0   100%
+app/models/agent_publication_progress.py        15      0   100%
+app/models/agent_resource_request.py            16      0   100%
+app/models/agent_run.py                         24      0   100%
+app/models/agent_suggestion.py                  16      0   100%
+app/models/agent_webhook.py                     16      0   100%
+app/models/agent_work.py                        21      0   100%
+app/models/api_key.py                           12      0   100%
+app/models/app_setting.py                        9      0   100%
+app/models/audio_work.py                        29      0   100%
+app/models/auth_rate_limit.py                   12      0   100%
+app/models/channel.py                           35      0   100%
+app/models/channel_raw_title_mapping.py         21      0   100%
+app/models/decision_migration.py                12      0   100%
+app/models/download_dispatch.py                 15      0   100%
+app/models/download_notification.py             16      0   100%
+app/models/download_task.py                     30      0   100%
+app/models/downloader.py                        24      0   100%
+app/models/episode.py                           17      0   100%
+app/models/eval_job.py                          18      0   100%
+app/models/file_resource.py                     67      0   100%
+app/models/fts_outbox.py                        12      0   100%
+app/models/ground_truth.py                      18      0   100%
+app/models/library.py                           24      0   100%
+app/models/media_server.py                      28      0   100%
+app/models/metadata_cache.py                    17      0   100%
+app/models/movie.py                             36      0   100%
+app/models/notification_build_failure.py        13      0   100%
+app/models/organize_audit.py                    13      0   100%
+app/models/organize_configuration.py             9      0   100%
+app/models/organize_plan.py                     29      0   100%
+app/models/organize_plan_op.py                  19      0   100%
+app/models/organize_rule.py                     18      0   100%
+app/models/pending_decision.py                  29      0   100%
+app/models/resource_file_assignment.py          24      0   100%
+app/models/resource_publication.py              21      0   100%
+app/models/resource_work_link.py                17      0   100%
+app/models/series.py                            42      0   100%
+app/models/storage_volume.py                    13      0   100%
+app/models/subtitle_group_mapping.py            15      0   100%
+app/models/webhook_delivery.py                  21      0   100%
+app/models/work_collection.py                   25      0   100%
+app/models/work_external_id.py                  14      0   100%
+app/schemas/__init__.py                          0      0   100%
+app/schemas/agent.py                           189      1    99%   104
+app/schemas/api_key.py                          11      0   100%
+app/schemas/audio_work.py                       52      0   100%
+app/schemas/auth.py                              5      0   100%
+app/schemas/channel.py                         170     29    83%   49, 59, 64, 89, 94, 99, 109, 140, 142, 148-155, 167, 170, 182-193, 213, 219, 247
+app/schemas/common.py                           24      1    96%   38
+app/schemas/dashboard.py                        31      0   100%
+app/schemas/download_task.py                    39      0   100%
+app/schemas/downloader.py                       84      3    96%   40, 42, 63
+app/schemas/episode.py                          12      0   100%
+app/schemas/file_resource.py                   202     19    91%   15-17, 128-140, 164-173, 260, 262, 270, 272, 294
+app/schemas/filter_dsl.py                       22     22     0%   3-50
+app/schemas/genre.py                             2      0   100%
+app/schemas/media_server.py                     64      1    98%   31
+app/schemas/metadata_search.py                  88     16    82%   36, 44-51, 57, 91, 94, 98, 113, 115, 117
+app/schemas/movie.py                            60      0   100%
+app/schemas/notification.py                    140      5    96%   26, 28, 43-44, 46
+app/schemas/organize.py                        142      2    99%   138, 140
+app/schemas/pending_decision.py                 40      0   100%
+app/schemas/series.py                           74      0   100%
+app/schemas/storage_volume.py                   32      1    97%   29
+app/schemas/work_collection.py                  31      0   100%
+app/scripts/__init__.py                          0      0   100%
+app/scripts/dedup_metadata.py                   33      3    91%   27-29
+app/services/__init__.py                         0      0   100%
+app/services/agent_publication_progress.py      85     13    85%   70, 115, 118, 142-154, 211, 232, 258
+app/services/agent_resource_requests.py         67      0   100%
+app/services/agent_service.py                  461     17    96%   247-263, 302-304, 528, 538, 920-921, 1016, 1025
+app/services/anime_signals.py                   57      5    91%   137, 144, 149, 153-154
+app/services/auth_rate_limit.py                 46      4    91%   46-49, 66, 84
+app/services/auth_service.py                    63      0   100%
+app/services/bangumi_client.py                  48      0   100%
+app/services/bangumi_relations.py              390     46    88%   113, 125, 185-187, 211, 320-326, 331-337, 389, 440-445, 458, 486, 488-489, 517, 519-524, 527-532, 571, 577, 580, 653, 665-669, 679, 734, 741, 747-748, 772, 787, 806-811, 855-856, 861-866
+app/services/batch_content_analysis.py         405      0   100%
+app/services/channel_schedule.py                51     10    80%   43, 48, 51, 66-70, 76-78
+app/services/cluster_work_binding.py           357     26    93%   209, 221, 236, 264, 282, 284, 290, 311, 328, 330, 558, 595, 608-610, 628, 634-637, 750-754, 768-773, 809
+app/services/collection_lifecycle.py            92      5    95%   98, 110, 124, 137-138
+app/services/collection_service.py             199     47    76%   68-72, 98-102, 128, 162, 231, 236, 263, 274, 289-295, 303-304, 397-439
+app/services/decision_identity_lock.py          11      5    55%   19-23
+app/services/decision_migration.py              56     56     0%   3-93
+app/services/decision_rekey.py                  96     10    90%   86-91, 114, 149, 152, 159
+app/services/decision_review.py                155     40    74%   17, 21, 35, 49, 52-53, 55, 68, 91-120, 175, 177, 180, 182, 212, 220, 224, 226, 229
+app/services/decision_schema.py                 67     56    16%   16-17, 21, 30-59, 63-119, 126
+app/services/decision_service.py                13      0   100%
+app/services/decision_store.py                  77     22    71%   18, 28-39, 53, 59, 92, 99, 126-140
+app/services/download_dispatch.py               46     46     0%   3-86
+app/services/download_dispatch_cleanup.py       38     14    63%   24, 36, 49-64
+app/services/episode_history.py                134      4    97%   75, 300, 373-374
+app/services/external_ids.py                   114     11    90%   73, 117-118, 132, 147-148, 178, 245, 249, 261, 267
+app/services/feed_analyzer.py                  317      0   100%
+app/services/fetch_service.py                  427     22    95%   201, 204, 224-227, 301, 311, 370-373, 391-394, 411-414, 451, 989
+app/services/filter_engine.py                  317      0   100%
+app/services/franchise_service.py              262     41    84%   210-229, 247-248, 317-319, 351-353, 407, 492-493, 508-514, 555-563, 571-579, 637, 639, 646, 680
+app/services/fts.py                            349      2    99%   602, 707
+app/services/genre_registry.py                  58      6    90%   87, 91, 93, 96, 113, 117
+app/services/magnet_resolve.py                 318      8    97%   548, 582-586, 614-615
+app/services/media_server_client.py            101     24    76%   81-82, 110-128, 149, 176, 189-196, 228
+app/services/media_server_service.py            98     11    89%   59, 88, 128, 191-201
+app/services/metadata_agent.py                 575     46    92%   243, 247, 651, 683, 704, 706, 762, 771, 773, 882, 888, 893-899, 903-904, 906-914, 916-927, 935-947, 983, 1339, 1341-1342, 1353, 1368, 1370-1371
+app/services/metadata_audio.py                  14      2    86%   44, 47
+app/services/metadata_audio_resolver.py         73      0   100%
+app/services/metadata_bangumi.py               218     13    94%   161-162, 297, 300, 310-314, 318, 322, 337, 341-345, 347
+app/services/metadata_dedup.py                 407      5    99%   123-126, 696
+app/services/metadata_episode_reconcile.py     218     48    78%   33-48, 53, 65, 77-90, 101, 255, 280, 282, 284, 292, 363-364, 383, 386-388, 447-450, 459-466
+app/services/metadata_failure.py                20      0   100%
+app/services/metadata_identity_evidence.py     104     14    87%   12, 15, 25, 28-29, 31, 47, 82, 90, 93, 95, 137, 140-141
+app/services/metadata_prompts.py                 6      0   100%
+app/services/metadata_repository.py            185      2    99%   315-317
+app/services/metadata_resource_meta.py          45      1    98%   25
+app/services/metadata_search.py                248     64    74%   37-38, 44-45, 166, 206, 225, 228, 234-235, 237, 247, 269, 295, 298, 300, 311-312, 320, 347, 355, 369, 371, 376, 387, 394, 404, 417-420, 429, 471, 478-506, 515, 529-552
+app/services/metadata_search_agent.py          185      2    99%   339-340
+app/services/metadata_service.py              1341    382    72%   102, 135, 169, 180-186, 188-189, 299-308, 323, 325, 327, 336, 352-354, 358, 361-362, 368-370, 384, 387, 433, 436, 449, 535-541, 556, 607, 642, 645, 661-662, 670-674, 677, 714-716, 720, 730, 733, 754, 770, 772-780, 796, 813, 877, 881-883, 917, 940-952, 954, 994, 1017, 1029, 1097-1099, 1106, 1109, 1116, 1136, 1139, 1151-1153, 1158, 1170-1172, 1177, 1228, 1240, 1326, 1328, 1388-1390, 1407, 1410, 1439-1440, 1480-1481, 1548, 1574-1581, 1601-1610, 1682, 1819, 1823-1832, 1834-1903, 1968, 1977, 1980-1983, 1993-1997, 2026, 2041-2051, 2122, 2136, 2158-2159, 2165-2166, 2255-2291, 2297-2303, 2417-2424, 2443, 2461, 2483-2490, 2531-2532, 2537-2552, 2564-2565, 2574, 2579-2580, 2598, 2613-2617, 2627-2688, 2733, 2736, 2800-2807, 2840-2856, 2873-2983
+app/services/metadata_source_io.py              96      0   100%
+app/services/metadata_source_registry.py       212     43    80%   175, 202, 209, 215, 217, 248, 273, 279-280, 283, 345, 378, 404, 407, 424-433, 461-464, 471, 476, 489-493, 495-500, 511, 525, 527-530, 533, 544, 547
+app/services/metadata_sources.py                35      3    91%   39, 71, 85
+app/services/metadata_title_index.py            72      2    97%   74, 158
+app/services/metadata_web_fallback.py          142     22    85%   64, 83, 152, 156, 174-176, 179, 198, 210-212, 215, 218, 225, 278, 292, 320, 334-335, 373-374
+app/services/metadata_wiki_classify.py          51      1    98%   147
+app/services/metadata_wiki_judge.py            237      7    97%   242, 284, 300-303, 325
+app/services/metadata_wiki_query.py             88      4    95%   148, 160, 164, 202
+app/services/metadata_wikipedia_client.py      179    161    10%   73-75, 90-94, 105-119, 126-169, 193-281, 293-331, 342-377, 382-463
+app/services/notification_build.py              63      5    92%   81, 87-90
+app/services/notify_service.py                 311     36    88%   123-124, 132, 280-281, 348-351, 396, 426-427, 430, 503-504, 562, 664, 673-674, 696-724, 728-731
+app/services/organize_config_events.py          33      0   100%
+app/services/organize_executor.py              203     18    91%   79, 82, 98, 127, 166, 202-205, 317-324, 328-346
+app/services/organize_file_safety.py           120     17    86%   34, 44, 63, 69, 72, 92-93, 105, 117, 136, 139, 146, 162-163, 172, 174, 184
+app/services/organize_ownership.py             128     19    85%   32, 35, 50, 60-61, 83-84, 96, 106-107, 125, 136-137, 152, 155, 158-159, 180, 183
+app/services/organize_parser.py                 67      0   100%
+app/services/organize_plan_state.py             21      1    95%   35
+app/services/organize_planner.py               434     97    78%   140-152, 163, 306-307, 349, 367-371, 378, 387, 423, 439-440, 501, 503, 541, 561, 595, 599-605, 633-634, 638-639, 651, 653, 712, 726, 733, 735, 739, 774, 782, 808-809, 814-815, 830, 840, 844-851, 856-862, 881, 898-905, 919-935, 952, 956, 976-986
+app/services/organize_service.py               452     12    97%   205, 515, 665, 667, 707, 720, 724, 739, 778, 800, 814, 989
+app/services/organize_source.py                116      8    93%   35, 58, 64, 72, 134, 137, 147, 152
+app/services/organize_template.py               97      0   100%
+app/services/publication_dispatch.py            17      2    88%   45-46
+app/services/publication_migration.py           42      5    88%   24, 28, 31, 60, 81
+app/services/publication_startup.py             24      3    88%   21, 40, 55
+app/services/required_fields.py                143      0   100%
+app/services/resource_association.py           296     35    88%   105, 116, 130, 238, 255-259, 272-294, 349, 406-411, 550
+app/services/resource_cleanup.py                35      5    86%   80, 82, 91, 107, 109
+app/services/resource_confirmation.py           47      0   100%
+app/services/resource_coverage.py              103     14    86%   16, 33, 35, 37, 50, 60, 65, 69, 86, 92, 98, 105, 118, 120
+app/services/resource_parser.py                430     57    87%   62, 75, 100, 150-152, 208, 215, 225, 234, 247-248, 250-253, 255-258, 261-264, 345, 353-357, 385, 387, 403, 463-464, 466, 471, 486, 524-525, 696, 708, 711-715, 769, 773, 796, 799, 825, 829, 841, 899, 918, 927, 929
+app/services/resource_publication.py            26      3    88%   15, 18, 43
+app/services/runtime_config.py                  80      3    96%   197-199
+app/services/scheduler.py                      282     47    83%   187-190, 410, 417, 448, 452, 550-557, 588-592, 605-622, 637, 715-716, 730-731, 740-744, 761, 778-785
+app/services/schema_foreign_keys.py             64     41    36%   39, 41-55, 60-93, 98-129
+app/services/settings_service.py                35      0   100%
+app/services/submission_guard.py                26      1    96%   49
+app/services/subtitle_groups.py                 78      7    91%   26, 38, 89-90, 108, 114, 125
+app/services/task_cleanup.py                    56      0   100%
+app/services/task_queue.py                     519     63    88%   71-82, 161, 271-272, 381-382, 393, 405-406, 470-471, 476-488, 499-516, 542, 548-549, 580, 618, 632-633, 645, 709, 721-722, 732, 737-738, 765-766, 786, 808-809
+app/services/text_normalizer.py                 98      4    96%   163-165, 191
+app/services/torrent_inspect.py                366      6    98%   244, 756-757, 762-764
+app/services/volume_service.py                  50      0   100%
+app/services/wigolo_client.py                   42      6    86%   35, 52, 68-69, 74, 81
+app/services/wikidata_collection.py            175      3    98%   364-370
+app/services/wikipedia_episode_parser.py       421      0   100%
+app/services/work_deletion.py                   40      5    88%   17, 80-83
+app/services/work_search_events.py              84      1    99%   141
+app/utils/__init__.py                            0      0   100%
+app/utils/download_paths.py                     55      1    98%   80
+app/utils/path_safety.py                        32      2    94%   27, 33
+app/utils/time.py                                3      0   100%
+app/worker.py                                   40      2    95%   54-55
+--------------------------------------------------------------------------
+TOTAL                                        23573   2779    88%

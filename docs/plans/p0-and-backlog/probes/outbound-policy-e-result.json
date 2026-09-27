@@ -1,0 +1,21 @@
+{
+  "accepted": false,
+  "prototype": "/tmp/rssripple-v20-outbound-policy",
+  "runtime_unchanged_from_c": true,
+  "d": {
+    "passed": 23,
+    "failed": 1,
+    "seconds": 3.62,
+    "exit_code": 1,
+    "reason": "HTTPX rejected malformed octal IPv4 before destination policy; test expected only policy exception"
+  },
+  "e": {
+    "passed": 24,
+    "failed": 0,
+    "seconds": 3.95,
+    "exit_code": 0
+  },
+  "source_manifest": "outbound-policy-e-source.json",
+  "full_gates_run": false,
+  "remaining": "See V20; partial prototype only"
+}
