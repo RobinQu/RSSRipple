@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="1" time="2.308" timestamp="2026-09-23T16:02:22.972636+00:00" hostname="dl-workstation-albert"><testcase classname="tests.integration.auth.test_rate_limit" name="test_otp_rate_limit_postgres" time="2.284" /></testsuite></testsuites>

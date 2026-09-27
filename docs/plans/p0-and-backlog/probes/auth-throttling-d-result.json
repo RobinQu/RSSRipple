@@ -1,0 +1,9 @@
+{
+  "cases": [
+    "existing-schema-idempotent-addition",
+    "four-process-peer-budget",
+    "four-process-global-budget",
+    "budget-survives-process-exit",
+    "expired-budget-recovers-and-cleans-up"
+  ]
+}

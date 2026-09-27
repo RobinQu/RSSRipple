@@ -1,0 +1,20 @@
+{
+  "prototype": "/tmp/rssripple-v16-failure-review",
+  "freeze": "single-member-an-frozen.json",
+  "effective_files": "single-member-an-source.json",
+  "unit": {
+    "session": 16605,
+    "log": "/tmp/rssripple-v16-unit-an.log",
+    "junit": "/tmp/rssripple-v16-unit-an.xml",
+    "coverage": "/tmp/rssripple-v16-unit-an-coverage.xml",
+    "threshold": 95
+  },
+  "integration": {
+    "project": "rssripple-v16-final-ao",
+    "session": 75569,
+    "startup_exit": 0,
+    "log": "/tmp/rssripple-v16-integration-ao.log",
+    "threshold": 85
+  },
+  "accepted": false
+}

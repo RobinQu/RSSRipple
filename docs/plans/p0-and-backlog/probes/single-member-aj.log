@@ -1,0 +1,31 @@
+........FFF.                                                             [100%]
+=================================== FAILURES ===================================
+______________ test_series_upsert_populates_and_updates_episodes _______________
+../rssripple-v16-rebased/tests/unit/test_wikipedia_content_integration.py:248: in test_series_upsert_populates_and_updates_episodes
+    assert s2.id == s.id
+           ^^^^^
+E   AttributeError: 'NoneType' object has no attribute 'id'
+_______________________ test_upsert_episodes_idempotent ________________________
+../rssripple-v16-rebased/tests/unit/test_wikipedia_content_integration.py:261: in test_upsert_episodes_idempotent
+    n1 = await ms.upsert_episodes(db_session, s, ep_list)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/metadata_service.py:955: in upsert_episodes
+    result = await db.execute(select(Episode).where(Episode.series_id == series.id))
+                                                                         ^^^^^^^^^
+E   AttributeError: 'NoneType' object has no attribute 'id'
+________________ test_upsert_episodes_skips_incomplete_entries _________________
+../rssripple-v16-rebased/tests/unit/test_wikipedia_content_integration.py:275: in test_upsert_episodes_skips_incomplete_entries
+    assert await _episode_rows(db_session, s.id) == []
+                                           ^^^^
+E   AttributeError: 'NoneType' object has no attribute 'id'
+=============================== warnings summary ===============================
+tests/unit/test_wikipedia_content_integration.py::test_attach_merges_seasons_and_episode_list
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_wikipedia_content_integration.py::test_series_upsert_populates_and_updates_episodes
+FAILED tests/unit/test_wikipedia_content_integration.py::test_upsert_episodes_idempotent
+FAILED tests/unit/test_wikipedia_content_integration.py::test_upsert_episodes_skips_incomplete_entries
+3 failed, 9 passed, 1 warning in 5.61s

@@ -121,3 +121,27 @@ ac 单元/API 与 ad 集成原进程继续运行，冻结候选未修改。通�
 权威 business-logic.md 的 franchise ④/⑧ 两处仍描述“无证据创建独立 S1 壳”与“基础名可默认 S1”，与 M2 终态冲突。已在独立候选中同步改为未定季不建作品/派发关联，保留明确 First Stage、specials 和已有季身份路径；修订随 ag 补丁归档。
 
 ag 已退出 0：**160 passed、1 warning，128.49 秒**。覆盖四个原失败文件及完整 38 项季号证据矩阵，五份候选修改哈希核对一致，Ruff 通过。证据 probes/single-member-ag.*。ac 原全量已执行约 2160 项，已见失败仍为首批 14 项；ad 原隔离集成仍运行。必须等待完整终态并排查其余失败，再应用候选夹具修订和重新执行严格全量门禁，不能以 ag 专项替代验收。
+
+## 第二批全量失败（ah/ai）
+
+ac 又出现 test_per_season_upsert 四项失败，独立副本 ah 复现 4 failed、22 passed（24.46 秒）。必要性复核：一项明确要求未知季号选择唯一 S3，违反 M2 目标；两项创建 S1 夹具未提供季证据；所谓 legacy 兼容用例实际传入另一 TMDB 身份。修订为不根据单成员猜季、前置夹具显式 season_hint=1，并将 legacy 拆成相同身份兼容与不同身份不得误绑两项，断言原作品/退役季数字段/身份袋不被改变。
+
+ai **27 passed、24.53 秒，退出 0**；仅改测试，运行代码不变。日志、JUnit、补丁和哈希见 probes/single-member-ah.*、single-member-ai.*。原 ac/ad 继续运行；必须等待全量终态，不能据此合入。
+
+## Wikipedia 剧集写入夹具（aj/ak）
+
+ac 第三批为 Wikipedia upsert 三项：aj 复现 **3 failed、9 passed（5.61 秒）**。两项仅验证 episode 幂等/非法字段过滤，却无证据创建 S1；另一项第二次刷新来源已变为两季，却未传入被刷新的作品季号。候选为前两项补 season_hint=1，刷新传 s.season_number，保留首次通过真实单季证据选季、各集内容更新、去重和不写退役列的断言。ak **12 passed（5.73 秒）**；未修改运行逻辑，补丁/哈希/两轮日志已归档。
+
+## ac/ad 完整门禁终态与跳过审计（2026-09-27 归档）
+
+ac 已退出 1：4008 passed、21 failed、15 skipped，2465.01 秒，覆盖率 22836/23487（97.23%）。21 个失败均已在独立副本经 ag/ai/ak 定位与修订，尚未执行修订后的全量门禁。
+
+ad 已退出 1：3174 passed、4 failed、24 skipped，1907.90 秒；两个应用 SIGINT 后均退出 0，覆盖率汇总退出 0，20713/23487（88.19%）。3051 个冻结文件哈希不变，JUnit 与原始覆盖率已导出并归档；唯一项目 rssripple-v16-final-ad 的容器、网络与临时卷已清理。覆盖率超过阈值不能抵消失败，候选不得验收。
+
+相比 M1 的 17 项已审计跳过，新增 7 项均由季作品关联前置失败引起：4 个 genre DSL 用例和 3 个手工映射/重关联用例。已将这些失败分支的 skip 改为断言，补明确 Season 1 来源证据，保留 genre 归一化、映射、别名、去重与 FTS 断言；franchise 夹具亦补明确季标记。新项目 rssripple-v16-review-al 正在重跑三个受影响集成文件与 P0 季号持久化回归。终态摘要见 probes/single-member-ac-ad-terminal.json，原始报告为 single-member-ac.* / single-member-ad.*。
+
+## 修订后专项与完整门禁重跑（al/am → an/ao）
+
+al 55 passed、1 failed、零 skipped，119.86 秒：所有 HTTP/genre/映射/FTS 用例及六项 P0 季号持久化通过；剩余 franchise 失败来自夹具同时给电影形态候选添加了 TV 季别名。仅对 TV 非电影成员补季标记后，am 同文件 **9 passed（3.13 秒）**。未降低成员数量或任何原关联断言，也未改运行实现。al/am JUnit 已归档，两个应用均退出 0，项目 rssripple-v16-review-al 已清理。
+
+修订后有效 22 文件与完整 3051 输入文件均冻结并保存哈希，包含完整候选归档 single-member-an-candidate.tar.gz（含派生录制 gzip），便于临时目录丢失后恢复。候选全仓 Ruff 通过。an 完整单元/API 原句柄 16605，ao 完整集成原句柄 75569，唯一项目 rssripple-v16-final-ao；运行中记录见 probes/single-member-an-ao-running.json。测试期间不得修改 /tmp/rssripple-v16-failure-review 冻结文件；终态前不关闭 M2。

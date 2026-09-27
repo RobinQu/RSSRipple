@@ -32,10 +32,10 @@
 ### 后台执行 / 调度 / 队列
 
 - [ ] **P1-M2 单成员合集被当作可验证单季**：`app/services/metadata_service.py:1564-1575` 在
-      `len(members)==1` 时直接链接，未校验 `verified_season_count`。**修复**：单成员不等于单季证据。已用真实 Turso upsert 复现无季证据却返回唯一 S3 成员；独立原型与门禁见 [V16](V16-SINGLE-MEMBER-SEASON.md)：已修复合集及系列级外层无证据兜底，36 项季证据测试通过，旧 p 失败已处理；后续取消季粒度默认季号，x/z 双库 38 项通过；y 的语料失败经来源重审处理，ab 严格回放 3 项通过，完整门禁仍待执行；尚未合入 main。
+      `len(members)==1` 时直接链接，未校验 `verified_season_count`。**修复**：单成员不等于单季证据。真实 Turso 红测已复现无季证据却返回唯一 S3；独立候选取消合集、同名作品和季粒度来源的默认季号，x/z 双库 38 项、ab 严格录制回放 3 项通过。ac 全量 4008 passed/21 failed，ad 集成 3174 passed/4 failed；覆盖率 97.23%/88.19%，失败均须处理。单元旧夹具已修订并通过 ag/ai/ak；集成补明确季号并把 7 项前置失败 skip 改为断言，al 正在复验。仍须修订后完整门禁，尚未合入 main，见 [V16](V16-SINGLE-MEMBER-SEASON.md)。
 - [ ] **P1-M3 维基整体故障被缓存为 `not_found`**：judge 路径硬编码 `"error": None`
       （`app/services/metadata_wiki_judge.py:481/545`），`_classify_failure` 看不到瞬态信号。
-      **修复**：区分部分语言失败与所有可信路径失败，只有瞬态整体失败不缓存；成功证据不因其他源错误被丢弃。同步检查 TMDB 搜索吞异常后缓存空列表的路径。V17 已复现并补修维基/TMDB 全部及部分失败的负缓存污染，真实双库恢复与候选保留专项通过，q 扩大回归 332 passed；完整门禁未执行，见 [V17](V17-WIKI-TRANSIENT-FAILURE.md)。
+      **修复**：区分部分语言失败与所有可信路径失败，只有瞬态整体失败不缓存；成功证据不因其他源错误被丢弃。同步检查 TMDB 搜索吞异常后缓存空列表的路径。V17 已复现并补修维基/TMDB 全部及部分失败的负缓存污染，真实双库恢复与候选保留专项通过，q 扩大回归 332 passed，M2 候选上的 r 组合回归 370 passed；完整门禁未执行，见 [V17](V17-WIKI-TRANSIENT-FAILURE.md)。
 
 ### 安全
 
@@ -45,7 +45,7 @@
       `app/services/notify_service.py:475` 等）。恶意 feed 可在正常抓取中触发。
       **修复**：外部 feed 派生 torrent/poster URL 按不可信输入校验地址、DNS 与重定向；管理员配置的下载器/媒体服务器/webhook 必须允许明确配置的内网服务，不能一刀切禁私网。
 - [ ] **P1-S2 TOTP 登录无速率限制/锁定**：`app/api/v1/auth.py:53-75`，6 位码可取窗口 3，在线暴力可行。
-      **修复**：失败计数 + 退避/锁定 + 全局限流。
+      **修复**：持久化来源/全局额度与窗口到期恢复。独立候选真实 Turso 并发/API 回归与 PostgreSQL 四进程五场景通过；f 扩大回归 98 passed、3 项既有 PG 迁移因未配置地址跳过。完整门禁尚未执行，未合入 main，见 [V18](V18-AUTH-THROTTLING.md)。
 - [ ] **P1-S3 TOTP 密钥每次启动写日志**：`app/main.py:90-93` 打印完整 `otpauth://...secret=`。
       **修复**：停止记录 secret，并提供首次绑定方式；现有设计依赖 provisioning URI 日志，需同步更新初始化契约。
 

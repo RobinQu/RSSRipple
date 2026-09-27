@@ -1,0 +1,2054 @@
+--- a/app/services/metadata_service.py
++++ b/app/services/metadata_service.py
+@@ -1561,11 +1561,8 @@
+     expected_series_id: str | None = None,
+ ) -> TVSeries | None:
+-    """Select (or lazily create) the collection member for the target season.
+-
+-    Season unknown: a single-member collection is verifiably single-season →
+-    its member; a multi-member collection (or a multi-season entity over an
+-    empty collection) cannot be pinned — the series-level ids are bagged on
+-    the collection and None is returned so the caller parks the resource on
+-    the collection for Channel confirmation (挂合集待确认).
++    """Resolve an evidenced season; collection size never determines a season.
++
++    An explicit manual target can supply its own season identity. Otherwise
++    unknown-season candidates keep their identity on the collection.
+     """
+     # Serialize member discovery and lazy creation on the existing parent.
+@@ -1575,24 +1572,20 @@
+     members = await _collection_members(db, collection.id)
+     if expected_series_id is not None:
+-        selected = next((m for m in members if m.season_number == season), None)
+-        if season is None and len(members) == 1 and not _has_unresolved_title_qualifier(data):
+-            selected = members[0]
++        selected = next((m for m in members if m.id == expected_series_id
++                         and (season is None or m.season_number == season)), None)
++        if season is None and _has_unresolved_title_qualifier(data):
++            selected = None
+         _require_series_target(expected_series_id, selected)
+         if await _has_conflicting_identity(db, "series", selected, raw_source, data.get("external_id")):
+             raise MetadataTargetMismatchError("Metadata identity conflicts with selected season work")
++        season = selected.season_number
+     _merge_collection_aliases(collection, data)
+     work: TVSeries | None = None
+     if season is None:
+-        qualified = _has_unresolved_title_qualifier(data)
+-        if len(members) == 1 and not qualified:
+-            work = members[0]
+-        elif len(members) >= 1 or (verified_season_count(data) or 0) > 1:
+-            await _bag_entity_ids_by_granularity(
+-                db, work=None, collection=collection, data=data,
+-                series_level_id=series_level_id,
+-            )
+-            return None
+-        else:
+-            season = 1
++        await _bag_entity_ids_by_granularity(
++            db, work=None, collection=collection, data=data,
++            series_level_id=series_level_id,
++        )
++        return None
+     if work is None:
+         work = next((m for m in members if m.season_number == season), None)
+@@ -1826,4 +1819,16 @@
+             kept.append(candidate)
+         candidates = kept
++    if candidates and season is None and expected_series_id is None:
++        # Title similarity and source identity granularity supply no ordinal.
++        coll_ids = {candidate.collection_id for candidate in candidates if candidate.collection_id}
++        collection = await db.get(WorkCollection, next(iter(coll_ids))) if len(coll_ids) == 1 else None
++        if collection is None:
++            collection = await _create_series_collection(db, data)
++        _merge_collection_aliases(collection, data)
++        await _bag_entity_ids_by_granularity(
++            db, work=None, collection=collection, data=data,
++            series_level_id=series_level_id,
++        )
++        return None
+     if candidates:
+         if season is not None:
+@@ -1909,11 +1914,9 @@
+     )
+     if season is None:
+-        if (verified_season_count(data) or 0) > 1:
+-            await _bag_entity_ids_by_granularity(
+-                db, work=None, collection=collection, data=data,
+-                series_level_id=series_level_id,
+-            )
+-            return None
+-        season = 1
++        await _bag_entity_ids_by_granularity(
++            db, work=None, collection=collection, data=data,
++            series_level_id=series_level_id,
++        )
++        return None
+     return await _create_season_work(
+         db, data, collection, season,
+--- a/docs/design/business-logic.md
++++ b/docs/design/business-logic.md
+@@ -219,5 +219,5 @@
+ **Bangumi 关联条目扩展（系列图谱，`bangumi_relations`）**：Bangumi 一个 subject 就是一季，franchise/multi_season 合集包链接到基础条目（如「頭文字D First Stage」）只覆盖了第一季；本 pass 经关联条目端点（`bangumi_client.get_subject_relations` → `GET /v0/subjects/{id}/subjects`）把同 IP 的其余条目展开成完整系列图谱。**触发条件保持收敛**：仅 `is_batch` 且 `batch_scope ∈ {franchise, multi_season}` 且已链接 bangumi 身份的资源（种子取自互斥 FK、`resource_work_links` 与 franchise 包的合集成员；主列或身份袋中的 `bangumi:{id}` 均可），挂载点为 `_process_resource_metadata` 链接后（`bind_single_work_assignments` 之后、commit 之前），单集资源不增加任何 API 调用。从种子 BFS 遍历关系图（上限 24 节点），**续集/前传/主线故事节点入队前先过同 IP 闸门**（Bangumi 的续集边会跨 IP——頭文字D Final Stage → MFゴースト）：候选条目剥离季标记后的归一化基础名（`strip_season_from_title` + `normalize_title`，name/name_cn 双语都试）必须与种子作品基础名相等或互为包含（"Final Stage" 类无数字季标记但含基础名的仍通过）；未过闸门的节点不 upsert、不 link、**不再从其继续 BFS**（整个异 IP 子图被隔绝），空气日期阈值与日期排序也只在过闸节点集合内计算（异 IP 节点的更晚日期不再把阈值推过合法的无标记续集）。随后按关系类型 + 条目 platform 确定性映射（`classify_work_shape`，franchise 成员解析共用同一函数、relation 置 None 时仅凭 platform）：**续集/前传/主线故事** → 季作品（季号优先取条目自身标题季标记——`season_from_title` 含 Stage 英文序数；无标记条目仅在播出日期严格晚于全部有日期标记条目时按日期序续排季号——如 Final Stage 接 Fifth 之后得 6；仍不可定跳过记 warning，绝不猜）；**剧场版** → Movie 作品；**番外篇**（OVA/spinoff）→ 同合集 `season_number=0` 季作品——`(collection, season 0)` 槽位只能有一个作品：**按播出日期最早者占槽**；其余不同身份的番外条目 upsert 为各自单季壳合集（series_group，season_number=1）的作品，仍经 `resource_work_links` 链到资源（跨合集 links 合法，`sync_resource_collection` 按既有语义把 season 系 scope 的资源 `collection_id` 置空，如实反映跨合集）；**不同演绎/重制**（如 Legend 新剧场版 vs Third Stage）→ movie 形态时保持独立 Movie 条目（不合并不降级），TV 形态跳过。所有成员经既有 upsert 入口创建/链接（`create_or_update_series_from_external` 带 season_hint——`season_hint=0` 为合法特典季号，不再被真值链吞掉；电影走 `create_or_update_movie_from_external`），身份走 bangumi 逐季粒度，creator-wins 主 id、身份袋与人工编辑保护不变；**创建季作品前先按 `(目标合集, season_number)` 查成员复用**（命中且成员无冲突 bangumi 身份时仅补身份入袋，不新建重复季作品）；袋命中作品带陈旧默认季号（成员解析对无季标记条目的 s1 猜测）时，图谱的确定性季指派会**订正 `season_number`**（人工编辑过的除外、目标槽位被占除外）；同样地，种子作品的季号若出自该默认猜测（标题带限定词但无季标记——`_season_is_default_guess`，season 0 的 OVA 形态证据除外），不计入 marked/日期证据集合并可作为普通节点重新入图接受指派（`_assign_seasons` 只见过滤后的证据种子）。落入单成员 `series_group` 壳合集的成员经 `try_absorb_shell_collection` 并入目标合集；占用作品的合集若为**同基础名的 auto 合集**（series_group/franchise_pack，归一化基础名相等或互为包含，多成员也允许——两者本就是同一 IP 的重复物）经 `try_absorb_same_name_collection` 整个并入（身份袋/aliases 去重合并、季槽位冲突的成员留在原合集、有 `manually_edited_fields` 的不吸收只记 warning）；**两个吸收函数删除合集行前都会把 park 在其上的 `FileResource.collection_id` 显式重挂到存留合集**（ORM 的删除置空只覆盖当 session 加载的作品成员，资源不重挂会留下悬空外键）；解析到**其他真实合集**的作品保留但不链接（s0 槽位占用后的番外壳作品除外——跨合集 link 是如实表达）。资源侧经 `resource_work_links` 建立多关联（`source="auto"`，manual/llm 行永不动；种子作品自身也补 link——multi_season 覆盖度键读 links 表），随后 `sync_resource_collection` 沉淀 `resource.collection_id`（franchise 不碰）、`batch_seasons` 取并集镜像（含 season 0，只增不减）。**仅扩展、不降级**：关系拉取或单成员展开失败静默记日志，原链接判定完全保留，幂等可重跑。图谱扩展之后紧跟一次幂等的簇级绑定复跑（`bind_hint_clusters`）：torrent 检测期的首跑发生在 metadata 链接之前，看不到图谱新建/改判的作品——复跑让未绑簇（如 "Initial D Fifth Stage" 经季标记层命中 s5 成员）对新成员解析，并把已绑 auto 行的 season 镜像到改判后的作品季号（如 Final Stage s1→s6）。
+ 
+-**关联形态与成员解析的配套规则（franchise 成员解析 / 簇绑定侧）**：①franchise 合集标题（`_pack_title`）只用清洗后的作品名——优先 `search_title`/`title_cn`，否则原始标题经发布信息 token 清洗（剥括号块、全N季/季范围/季标记、语言/字幕/清晰度/编码分节丢弃），含「全六季.日语.英文字幕.[BD][1080p][AV1]」的原始串禁止成为合集名；②franchise 成员解析与簇绑定的外部命中在 upsert 前**先查本地库**（`find_local_work_for_entity`：身份袋反查 + 归一化标题精确/模糊匹配 ≥ `AUTO_LINK_THRESHOLD` 85，两道拒绝守卫——候选已携带同 source 不同 id 即"同 IP 不同条目"绝不复用，以及标题数字 token 一致才接受——"Extra Stage 2" 不会并入 "Extra Stage"），命中仅补身份入袋（creator-wins 不抢主 id）、不新建重复行；web fallback 保持 identity-only 语义（只补身份，内容以主源为准）；③形态分类两处统一走 `classify_work_shape`（TV→季作品、剧场版→Movie、番外/OVA platform→s0 季作品，bangumi matched_entity 新增随实体携带的 `_platform` 键供成员解析判形态，落库前 pop）；④**带限定词但无数字季标记的 TV 条目**（"頭文字D Final Stage"——`single_season_entry` 只证明"是一季"不证明"是哪一季"）在 upsert 内不再享受单季默认 s1：`_has_unresolved_title_qualifier` 命中时 season 保持 None——合集中有多成员或单成员+限定词时挂合集待确认（袋身份），无合集可归时落各自单季壳合集（season_number=1），季号由系列图谱的确定性指派补正；`_resolve_collection_member` 复用成员前另加同 source 身份冲突守卫（成员已携带同 source 不同 id——含合成 `{id}#s{N}` 的基形式比对；wikipedia 豁免——不同 pageid 是同作品的不同语言版本）——冲突则身份挂合集、绝不合并进错误作品；⑤**图谱季槽位两阶段接纳（C1）**：季节点 upsert 前先跑"既有作品季号纠正"阶段（按节点指派订正默认猜测/簇提示落的错位季号，滚动至 fixpoint 最多 3 轮——`_correct_work_season`，人工编辑与槽位占用守卫不变），再逐节点 upsert 新季作品（纠正分支保留为兜底重试）——"Fifth 槽位被 Final 的簇提示落位占住、Final 随后被改判 s6"的序列下 Fifth/Final 都落位，无重试丢失；⑥**混合 franchise 包合集挂载（C2）**：LLM 精判绑定电影后不再整体跳过 `link_franchise_pack`——跳过条件收紧为纯电影包（精判自身把全电影作品包的 `batch_scope` 升级为 `movies`，franchise 判定分支天然排除），混合包（电影已绑、TV 簇 hint-only）照常建立/复用清洗标题的 franchise 合集并把全部关联作品（含已绑电影）挂入，`resource.collection_id` 沉淀；⑦**同资源同日期电影去重（C4，`dedupe_resource_movies`，挂在系列图谱扩展与二次簇绑定之后）**：成员解析（web fallback 英文标题）与系列图谱（日文标题）可能为同一部电影各建一行且跨语言标题无法桥接——同一资源 links 的电影作品中，**同 IP**（共享合集或 Round A 基础名 family：归一化基础名相等/互为包含）且**日期证据一致**（`release_date` 年份相等；web fallback 行无内容字段时改用其绑定文件路径的 `[YYYY]` 目录年份，单一取值才算）的不同身份行经既有去重合并机器（`_merge_movie_group`：assignments/links/decisions/agent works 重指向、身份袋并集、删重复行）合并——存留方为**频道主源身份行**（随后按 bangumi > tmdb > wikipedia > douban > mal > anilist > imdb > exa_web 次序），creator-wins 恢复存留方主 id/主 source（合并机器的 canonical 主 id 重选被回滚）；**无日期证据绝不合并**；⑧**无季证据 TV 成员不占主合集季槽位（D1）**：franchise 成员解析中，没有任何季证据（标题无季/Stage 数字标记——注意后缀表会剥但不能映射数字的 "Final Stage" 类词在此处只算限定词）的 TV 形态成员**不得**以默认 s1 挂入主合集——只有标题与合集基础名**原文**（不剥季）相等或包含于合集基础名的真基础名条目（"头文字D"/"Initial D" vs 双语合集名"头文字D Initial D"，`_is_pack_base_name`）才允许占 (collection, s1)；其余落限定名壳合集（series_group）并照常 link——否则占位者会让真首季滞留壳合集、季标记层把整季文件错绑到占位作品（"Initial D Battle Stage" 占 s1 → First Stage 26 文件误绑的录制事故）。bangumi/逐季粒度身份经 `classify_work_shape` 落 s0 的番外行为不变；⑨**季标记层限定词兼容（D2，纵深防御）**：season marker tier 选中成员前校验簇 hint 与候选成员标题的限定词残量（标题 token 减去合集名 token 与 hint 基础名 token 的差集；只有映射得出数字的季标记才被剥离——`_strip_numbered_marker`，"Final Stage" 不剥）——成员残量与 hint 残量必须相等（双方皆空=基础名作品，不受限），否则拒绝该层匹配（不绑，hint 保留）。
++**关联形态与成员解析的配套规则（franchise 成员解析 / 簇绑定侧）**：①franchise 合集标题（`_pack_title`）只用清洗后的作品名——优先 `search_title`/`title_cn`，否则原始标题经发布信息 token 清洗（剥括号块、全N季/季范围/季标记、语言/字幕/清晰度/编码分节丢弃），含「全六季.日语.英文字幕.[BD][1080p][AV1]」的原始串禁止成为合集名；②franchise 成员解析与簇绑定的外部命中在 upsert 前**先查本地库**（`find_local_work_for_entity`：身份袋反查 + 归一化标题精确/模糊匹配 ≥ `AUTO_LINK_THRESHOLD` 85，两道拒绝守卫——候选已携带同 source 不同 id 即"同 IP 不同条目"绝不复用，以及标题数字 token 一致才接受——"Extra Stage 2" 不会并入 "Extra Stage"），命中仅补身份入袋（creator-wins 不抢主 id）、不新建重复行；web fallback 保持 identity-only 语义（只补身份，内容以主源为准）；③形态分类两处统一走 `classify_work_shape`（TV→季作品、剧场版→Movie、番外/OVA platform→s0 季作品，bangumi matched_entity 新增随实体携带的 `_platform` 键供成员解析判形态，落库前 pop）；④**带限定词但无数字季标记的 TV 条目**（"頭文字D Final Stage"——`single_season_entry` 只证明"是一季"不证明"是哪一季"）在 upsert 内不再享受单季默认 s1：`_has_unresolved_title_qualifier` 命中时 season 保持 None——不论合集为空、单成员或多成员，均不能据成员数决定季号；无合集时仅创建合集，不创建默认 S1 作品或作品关联。已有合法季身份、明确季标记或后续系列图谱证据可再建立季作品；`_resolve_collection_member` 复用成员前另加同 source 身份冲突守卫（成员已携带同 source 不同 id——含合成 `{id}#s{N}` 的基形式比对；wikipedia 豁免——不同 pageid 是同作品的不同语言版本）——冲突则身份挂合集、绝不合并进错误作品；⑤**图谱季槽位两阶段接纳（C1）**：季节点 upsert 前先跑"既有作品季号纠正"阶段（按节点指派订正默认猜测/簇提示落的错位季号，滚动至 fixpoint 最多 3 轮——`_correct_work_season`，人工编辑与槽位占用守卫不变），再逐节点 upsert 新季作品（纠正分支保留为兜底重试）——"Fifth 槽位被 Final 的簇提示落位占住、Final 随后被改判 s6"的序列下 Fifth/Final 都落位，无重试丢失；⑥**混合 franchise 包合集挂载（C2）**：LLM 精判绑定电影后不再整体跳过 `link_franchise_pack`——跳过条件收紧为纯电影包（精判自身把全电影作品包的 `batch_scope` 升级为 `movies`，franchise 判定分支天然排除），混合包（电影已绑、TV 簇 hint-only）照常建立/复用清洗标题的 franchise 合集并把全部关联作品（含已绑电影）挂入，`resource.collection_id` 沉淀；⑦**同资源同日期电影去重（C4，`dedupe_resource_movies`，挂在系列图谱扩展与二次簇绑定之后）**：成员解析（web fallback 英文标题）与系列图谱（日文标题）可能为同一部电影各建一行且跨语言标题无法桥接——同一资源 links 的电影作品中，**同 IP**（共享合集或 Round A 基础名 family：归一化基础名相等/互为包含）且**日期证据一致**（`release_date` 年份相等；web fallback 行无内容字段时改用其绑定文件路径的 `[YYYY]` 目录年份，单一取值才算）的不同身份行经既有去重合并机器（`_merge_movie_group`：assignments/links/decisions/agent works 重指向、身份袋并集、删重复行）合并——存留方为**频道主源身份行**（随后按 bangumi > tmdb > wikipedia > douban > mal > anilist > imdb > exa_web 次序），creator-wins 恢复存留方主 id/主 source（合并机器的 canonical 主 id 重选被回滚）；**无日期证据绝不合并**；⑧**无季证据 TV 成员不占主合集季槽位（D1）**：franchise 成员解析中，没有任何季证据（标题无季/Stage 数字标记——注意后缀表会剥但不能映射数字的 "Final Stage" 类词在此处只算限定词）的 TV 形态成员**不得**以默认 s1 挂入主合集——即使标题与合集基础名相等也不能据此创建 S1；无证据成员保持未定季，不建立季作品或可派发作品关联。明确的 First Stage 仍可创建并占用 S1；`_is_pack_base_name` 只参与已解析作品的合集归属判断，不能作为季号证据——否则占位者会让真首季滞留壳合集、季标记层把整季文件错绑到占位作品（"Initial D Battle Stage" 占 s1 → First Stage 26 文件误绑的录制事故）。bangumi/逐季粒度身份经 `classify_work_shape` 落 s0 的番外行为不变；⑨**季标记层限定词兼容（D2，纵深防御）**：season marker tier 选中成员前校验簇 hint 与候选成员标题的限定词残量（标题 token 减去合集名 token 与 hint 基础名 token 的差集；只有映射得出数字的季标记才被剥离——`_strip_numbered_marker`，"Final Stage" 不剥）——成员残量与 hint 残量必须相等（双方皆空=基础名作品，不受限），否则拒绝该层匹配（不绑，hint 保留）。
+ 
+ **Bangumi 手动搜索列表模式**：`POST /metadata/search`（UI 手动搜索，`listing=True`）在 `source=bangumi` 时不走 search-then-judge 收敛管线，直接 `list_bangumi_subjects`（复用 `_bangumi_queries` 查询清洗，多查询合并去重，limit 20，仍限 `type=[2]` 动画分类），每个 subject 映射一条薄候选（身份 `bangumi:{id}`、标题/年份/海报/简介 + `metadata.subject_season` 标注条目自身季标记供前端对照 season_hint），全量返回、不调 LLM；剧场版 platform 的条目 content_type=movie（受请求的 content_type 边界过滤）。作品刷新管线（`refresh_work_by_source`）保持 `listing=False` 的确定性 pick-one 行为不变。列表候选被选定后，preview/apply 检测到 bangumi 身份且候选 metadata 缺 `episode_list` 时按需展开——`build_entity_for_subject`（复用 `_build_matched_entity`：详情+剧集端点，season 取作品自身 `season_number`）补齐完整 entity 再比对（`_expanded_candidate_values`，展开失败保留薄候选、diff 相应变少，apply 内部 preview 复用同一份展开值不重复取网）。
+@@ -856,2 +856,9 @@
+ 
+ 人工映射与已链接资源的 Agent 短路返回必须携带协调后的 season、episode 和 season_ambiguous，避免返回状态与持久化资源不一致。已由 torrent inspection 识别为 franchise 的资源保留合集/文件指派，不再执行整包标题的单作品匹配。
++
++
++已匹配合集的成员数量不构成季号证据：season_hint、季级身份、可信标题季标记及经校验单季证据均不能确定季号时，保留合集身份并返回未定季状态；即使合集只有一个成员（含 S0/S1/S3）或尚无成员，也不自动选择/创建 S1。明确人工目标 expected_series_id 是用户指定的季作品身份，可在验证同合集、季号和外部身份兼容后补全该目标，不依赖合集成员数量。
++
++系列级候选没有季数/季号证据时，唯一同名季作品也不等于季身份；仅能归并到其合集。新系列同样先建合集并保留身份，不默认创建 S1。明确季号、已验证单季以及季级来源身份的既有语义保留。
++
++季粒度来源（如 Bangumi）只说明条目对应一季，不提供系列季号；未命中已知身份、无显式季证据时不能用同标题成员或新建默认 S1 兜底。未知季保留合集待确认，明确季号或已存在的季身份关联仍可使用。
+--- a/docs/design/per-season-works.md
++++ b/docs/design/per-season-works.md
+@@ -258,2 +258,9 @@
+ 
+ 创建/更新 API 显式拒绝 seasons 和 number_of_seasons（含 null），只读响应兼容保留，去重不继承退役计数。历史数据清理必须逐作品人工复核；流程见 db-migration.md「退役季数的人工复核清理」。清理保留原 seasons 与关联，只清计数并以 manually_edited_fields 中的 season_number 记录明确确认。work_verified_season 先拒绝真正未拆季证据，再接受有效人工确认，避免清空 count=1 后丢失 S1 的已确认身份；缺少季号或畸形人工字段不据此猜季。
++
++
++已匹配合集的成员数量不构成季号证据：season_hint、季级身份、可信标题季标记及经校验单季证据均不能确定季号时，保留合集身份并返回未定季状态；即使合集只有一个成员（含 S0/S1/S3）或尚无成员，也不自动选择/创建 S1。明确人工目标 expected_series_id 是用户指定的季作品身份，可在验证同合集、季号和外部身份兼容后补全该目标，不依赖合集成员数量。
++
++系列级候选没有季数/季号证据时，唯一同名季作品也不等于季身份；仅能归并到其合集。新系列同样先建合集并保留身份，不默认创建 S1。明确季号、已验证单季以及季级来源身份的既有语义保留。
++
++季粒度来源（如 Bangumi）只说明条目对应一季，不提供系列季号；未命中已知身份、无显式季证据时不能用同标题成员或新建默认 S1 兜底。未知季保留合集待确认，明确季号或已存在的季身份关联仍可使用。
+--- a/docs/testing/integration-inventory.md
++++ b/docs/testing/integration-inventory.md
+@@ -343,2 +343,5 @@
+ 
+ M1 正式 `metadata/test_manual_mapping_concurrency.py` 包含 PostgreSQL 九项和 Turso 六项。使用录制发布标题 `00e48de8-b5fd-4e99-8467-d384bd4a3183`、真实 associations/works-merge ASGI 路由和独立数据库会话；作品、候选响应与缓存/本地命中结果为合成，队列唤醒替换，不覆盖认证中间件或实时提供者。覆盖外部查询期间编辑（含改为 franchise 的形态编辑）、已有人工映射、缓存/本地快捷返回、查询期间合并及后续恢复；PostgreSQL 另验证资源锁等待、候选写入前合并及唯一约束错误不被吞。沿用隔离门禁 `QUEUE_RECOVERY_POSTGRES_URL` 和 `QUEUE_RECOVERY_REQUIRED=1`：缺 PostgreSQL 时必失败；每项独立建库，finally DROP DATABASE。Turso 使用 pytest 临时文件并启用 MVCC，简化建库未配置 FTS sidecar，FTS 正常路径仍由现有套件承担。
++
++
++M2 正式 `metadata/test_collection_season_evidence.py` 在专用 PostgreSQL 子库执行 38 项真实断言：标题/合集身份袋的 16 种季证据组合、2 种显式人工目标、16 种录制标题经 repository/MetadataAgent/成功缓存/实际抓取元数据事务的资源写入，以及系列身份/季身份各两种无季号外层兜底反例。复用 Turso 单元矩阵的断言并独立 commit/观察，不把 mock upsert 当作持久化证据。原始标题取录制 case `011c6d44-68cf-43a8-bad3-f0398ce20a95`；合集成员、TMDB ID 和来源响应明确合成，语料中历史候选 season 不作为真值。未知季必须保持 resource 工作 FK 空、collection 关联与 ambiguous，且不新增季作品；显式季号正例须实际创建/关联。沿用 QUEUE_RECOVERY_REQUIRED=1 缺 PG 必失败，独立建库与 finally 删除，子进程超时 120 秒。
+--- a/docs/testing/metadata-corpus.md
++++ b/docs/testing/metadata-corpus.md
+@@ -86,2 +86,4 @@
+ 
+ M1 合集保护回放使用 `initial_d_franchise_collection_guard.json.gz`：由原真实录制派生，保留原文件和逐请求审计，仅删除针对整包标题、BD、AV1 的 7 个已不再执行的单作品查询。所有保留响应及审核图不变，仍要求请求完整消费，不能用诊断模式作为验收。来源哈希与移除键见同目录 `.audit.json`。
++
++M2 季证据重审使用 reviews-season-evidence.json 与 initial_d_franchise_season_evidence.json.gz，保留原审核和录制。仅三个 identity-only MAL OVA（821/3931/5228）缺少季号，旧 S1 壳作品不能作为真值；三文件保持未绑定/season=null，其余关联、集数和禁止派发断言保持不变。派生录制只调整完全相同请求的计数、移除不再请求的响应，保留响应字节。来源哈希与字段变化见同目录 audit.json；严格完整消费仍是门禁。
+--- /dev/null
++++ b/tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_season_evidence.audit.json
+@@ -0,0 +1,90 @@
++{
++  "source_cassette": "http/initial_d_franchise_collection_guard.json.gz",
++  "source_sha256": "b1533646c9a0ecc7cf10833a149f0e4e317147b08bbd53c933295245b87fe774",
++  "source_review": "reviews.json",
++  "source_review_sha256": "faa7c6cda84fea227c603c6ea13ff11e97cbfb63cb7b199345354fa615996d23",
++  "changed_assignments_before": [
++    {
++      "episode_end": 1,
++      "episode_start": 1,
++      "file_path": "[2002] [OVA] Initial D Battle Stage/[2002] [OVA] Initial D Battle Stage.mkv",
++      "season": 1,
++      "work": "series:mal:mal:821:s1"
++    },
++    {
++      "episode_end": 1,
++      "episode_start": 1,
++      "file_path": "[2007] [OVA] Initial D Battle Stage 2/[2007] [OVA] Initial D Battle Stage 2.mkv",
++      "season": 1,
++      "work": "series:mal:mal:3931:s1"
++    },
++    {
++      "episode_end": 1,
++      "episode_start": 1,
++      "file_path": "[2008] [OVA] Initial D Extra Stage 2/[2008] [OVA] Initial D Extra Stage 2 Green Departure.mkv",
++      "season": 1,
++      "work": "series:mal:mal:5228:s1"
++    }
++  ],
++  "removed_unsupported_season_work_keys": [
++    "series:mal:mal:3931:s1",
++    "series:mal:mal:5228:s1",
++    "series:mal:mal:821:s1"
++  ],
++  "request_count_changes": {
++    "112c04f0738a48c223a2e30bda506685627ead232a188dbe22abb398f5ff6d8d": {
++      "before": 1,
++      "after": 3
++    },
++    "2eb25f30bc74485701713c447cf98642f1f5156ea6493afd924f91918dada8ee": {
++      "before": 1,
++      "after": 3
++    },
++    "439a5c717c358facce09b8e3441a68867d01bcdeedb11556935e071047994846": {
++      "before": 1,
++      "after": 3
++    },
++    "4aca9aad35b0ea75384ddd25e4f3f290eb85e43c28c7b7406527fad2d0eeb6f6": {
++      "before": 1,
++      "after": 3
++    },
++    "6b3d0af928a5ad6bccf55b3d283bb64756512566ad09aac4b56c1a3bb51ba278": {
++      "before": 1,
++      "after": 3
++    },
++    "7fc9dbcfd73a27ff111cff46d77474ad5b60711b1e881a430a75c441b36cde86": {
++      "before": 1,
++      "after": 3
++    },
++    "852e3c933732cad437eee41674f6ddccb700842e93ee07c684e7085b46b1c248": {
++      "before": 1,
++      "after": 3
++    },
++    "90c5f3b3286860f9391e86ce5186e087d26487c9301d9152d1092689eb29b15a": {
++      "before": 1,
++      "after": 3
++    },
++    "a876e57317b58c878ac349c6d2f6677b38d6c26dce240665e787d414032ecca9": {
++      "before": 1,
++      "after": 3
++    },
++    "b8d3215c279ceabe53ad4e6c314aca8a93c40b4717301715567e82a6335ace34": {
++      "before": 3,
++      "after": 2
++    },
++    "ed1b24d00caccecffda9a0f5b2f66747a387088c55ba9687f79d61b9ae64ebed": {
++      "before": 1,
++      "after": 3
++    },
++    "f49ccef4e5f15d88f7f350af35da5e651eb6d0e93ef0113209cd78b7aaab8ae9": {
++      "before": 1,
++      "after": 3
++    },
++    "fb338b176f581de95bb5848cc72e4ce085819e6ace458dc627d90e158332b25c": {
++      "before": 1,
++      "after": 3
++    }
++  },
++  "retained_response_content": "unchanged; repeated only exact previously recorded responses",
++  "reason": "Identity-only MAL evidence lacks season ordinal; legacy S1 defaults violate no-guess invariant. Formal replay must validate revised counts and narrowly revised expectations."
++}
+--- a/tests/fixtures/metadata_corpus_v2/manifest.json
++++ b/tests/fixtures/metadata_corpus_v2/manifest.json
+@@ -19,5 +19,5 @@
+   "file_list_sha256": "ddd232d1b6fea0ebb79dd902d9ea191e8e693ed0f325a81fc1dc480d9801dfb6",
+   "input_limitation": "Historical RSS bodies were not persisted; title/torrent inputs do not claim RSS mapping coverage.",
+-  "review_file": "reviews.json",
++  "review_file": "reviews-season-evidence.json",
+   "scenarios": [
+     {
+@@ -47,5 +47,5 @@
+         "995c8c1d-5c69-400d-99f3-f197c7ee953b"
+       ],
+-      "cassette": "http/initial_d_franchise_collection_guard.json.gz",
++      "cassette": "http/initial_d_franchise_season_evidence.json.gz",
+       "id": "initial_d_franchise",
+       "llm_base_url": "http://127.0.0.1:18000/v1",
+--- /dev/null
++++ b/tests/fixtures/metadata_corpus_v2/reviews-season-evidence.json
+@@ -0,0 +1,977 @@
++{
++  "995c8c1d-5c69-400d-99f3-f197c7ee953b": {
++    "evidence_note": "Independent review against frozen evidence. Works: bangumi subjects from cassette detail/episode endpoints (First 8290 s1 26ep 1998-04-19; Second 9568 s2 13ep 1999-10-15; Fourth 3816 s4 24ep 2004-04-17; Fifth 46312 s5 14ep 2012-11-09; Final 104569 s6 4ep 2014-05-16 - unmarked title, 6th TV series by air-date after Fifth; Extra 44758 OVA s0 2ep 2001-03-22); Third Stage 9569 + Legend 78796/111760/111761 movies (剧场版, dates from details). Assignments derived from the frozen bencode file list: S01-S05 pack numbering remapped to Stage ordinals (S03=Fourth s4, S04=Fifth s5, S05=Final s6); Third Stage file keeps parsed season 3 from the ordinal marker; Extra Stage 01/02 -> s0; Fourth Stage Battle Digest bound to 3816 per the frozen LLM judge verdict; Battle Stage -> mal:821 (frozen wigolo hit myanimelist.net/anime/821/Initial_D_Battle_Stage, shell collection); Battle Stage 2 / Extra Stage 2 -> mal:3931 / mal:5228 (identity-only, own shell collections). Evidence-boundary residuals: Battle Stage 3 unbound (frozen wigolo returned only an unrelated wikipedia stub, found=False is the correct verdict); Movie Battle Digest bound to the wikipedia Legend-trilogy umbrella movie (only available frozen identity); episode_seasons keys omitted for 104569/44758 because the accepted self-heal season corrections (s1->s6, s1->s0) leave stale-season Episode rows that must not be blessed as gold. batch_seasons [1..5] is the torrent-folder derived cache (franchise scope does not re-derive it from work identities). V11 policy re-review (2026-09-20): the unchanged recorded Battle Stage 3 assignment remains unbound; incomplete authoritative file coverage requires batch_coverage_unknown Channel confirmation and no dispatch. All recorded work identities, file placements and other expected fields are unchanged. M2 season-evidence re-review: the three MAL identity-only OVA matches (821/3931/5228) have no season ordinal in the frozen source hits or finalize (inferred_season=null). Their former S1 shells were legacy defaults, not gold evidence. Require those three files to remain unbound with season=null; keep episode ranges, other works/assignments, unknown-coverage confirmation and dispatch rejection unchanged.",
++    "expected": {
++      "assignments": [
++        {
++          "episode_end": 1,
++          "episode_start": 1,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E01 - The Ultimate Tofu Store Drift.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 2,
++          "episode_start": 2,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E02 - Revenge! The Rumbling Turbo.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 3,
++          "episode_start": 3,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E03 - The Downhill Specialist Appears.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 4,
++          "episode_start": 4,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E04 - Into the Battle!.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 5,
++          "episode_start": 5,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E05 - Dogfight!.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 6,
++          "episode_start": 6,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E06 - A New Challenger.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 7,
++          "episode_start": 7,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E07 - A Racers Pride.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 8,
++          "episode_start": 8,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E08 - Times Almost Up!.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 9,
++          "episode_start": 9,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E09 - Battle to the Limit!.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 10,
++          "episode_start": 10,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E10 - The 5 Consecutive Hairpins.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 11,
++          "episode_start": 11,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E11 - Shingo Arrives!.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 12,
++          "episode_start": 12,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E12 - The FR Killer.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 13,
++          "episode_start": 13,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E13 - First Date.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 14,
++          "episode_start": 14,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E14 - Evolving Drift.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 15,
++          "episode_start": 15,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E15 - Takumis Fury!.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 16,
++          "episode_start": 16,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E16 - The Angel of Usui.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 17,
++          "episode_start": 17,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E17 - Sudden-Death Death Match.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 18,
++          "episode_start": 18,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E18 - Hot Winds and Furious Driving.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 19,
++          "episode_start": 19,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E19 - Super Drift!.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 20,
++          "episode_start": 20,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E20 - The End of Summer.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 21,
++          "episode_start": 21,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E21 - Challenge from a Superstar.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 22,
++          "episode_start": 22,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E22 - Fierce Uphill Battle!.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 23,
++          "episode_start": 23,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E23 - The Rainy Downhill.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 24,
++          "episode_start": 24,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E24 - Akagis White Comet!.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 25,
++          "episode_start": 25,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E25 - The Last Battle.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 26,
++          "episode_start": 26,
++          "file_path": "[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E26 - The New Downhill Legend!.mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:8290:s1"
++        },
++        {
++          "episode_end": 1,
++          "episode_start": 1,
++          "file_path": "[1999] [Season 2] Initial D Second Stage/Initial D [1999] - S02E01 - A New Threat.mkv",
++          "season": 2,
++          "work": "series:bangumi:bangumi:9568:s2"
++        },
++        {
++          "episode_end": 2,
++          "episode_start": 2,
++          "file_path": "[1999] [Season 2] Initial D Second Stage/Initial D [1999] - S02E02 - Team Emperor on Akina.mkv",
++          "season": 2,
++          "work": "series:bangumi:bangumi:9568:s2"
++        },
++        {
++          "episode_end": 3,
++          "episode_start": 3,
++          "file_path": "[1999] [Season 2] Initial D Second Stage/Initial D [1999] - S02E03 - Premonition of Defeat.mkv",
++          "season": 2,
++          "work": "series:bangumi:bangumi:9568:s2"
++        },
++        {
++          "episode_end": 4,
++          "episode_start": 4,
++          "file_path": "[1999] [Season 2] Initial D Second Stage/Initial D [1999] - S02E04 - Hollow Victory.mkv",
++          "season": 2,
++          "work": "series:bangumi:bangumi:9568:s2"
++        },
++        {
++          "episode_end": 5,
++          "episode_start": 5,
++          "file_path": "[1999] [Season 2] Initial D Second Stage/Initial D [1999] - S02E05 - Countdown to Destruction.mkv",
++          "season": 2,
++          "work": "series:bangumi:bangumi:9568:s2"
++        },
++        {
++          "episode_end": 6,
++          "episode_start": 6,
++          "file_path": "[1999] [Season 2] Initial D Second Stage/Initial D [1999] - S02E06 - Goodbye Eight-Six.mkv",
++          "season": 2,
++          "work": "series:bangumi:bangumi:9568:s2"
++        },
++        {
++          "episode_end": 7,
++          "episode_start": 7,
++          "file_path": "[1999] [Season 2] Initial D Second Stage/Initial D [1999] - S02E07 - Battle at Akagi!.mkv",
++          "season": 2,
++          "work": "series:bangumi:bangumi:9568:s2"
++        },
++        {
++          "episode_end": 8,
++          "episode_start": 8,
++          "file_path": "[1999] [Season 2] Initial D Second Stage/Initial D [1999] - S02E08 - Dangerous Car.mkv",
++          "season": 2,
++          "work": "series:bangumi:bangumi:9568:s2"
++        },
++        {
++          "episode_end": 9,
++          "episode_start": 9,
++          "file_path": "[1999] [Season 2] Initial D Second Stage/Initial D [1999] - S02E09 - The New Eight-Six.mkv",
++          "season": 2,
++          "work": "series:bangumi:bangumi:9568:s2"
++        },
++        {
++          "episode_end": 10,
++          "episode_start": 10,
++          "file_path": "[1999] [Season 2] Initial D Second Stage/Initial D [1999] - S02E10 - The Eight-Six Turbo!.mkv",
++          "season": 2,
++          "work": "series:bangumi:bangumi:9568:s2"
++        },
++        {
++          "episode_end": 11,
++          "episode_start": 11,
++          "file_path": "[1999] [Season 2] Initial D Second Stage/Initial D [1999] - S02E11 - The Seal Is Broken.mkv",
++          "season": 2,
++          "work": "series:bangumi:bangumi:9568:s2"
++        },
++        {
++          "episode_end": 12,
++          "episode_start": 12,
++          "file_path": "[1999] [Season 2] Initial D Second Stage/Initial D [1999] - S02E12 - Eight-Six vs. Eight-Six.mkv",
++          "season": 2,
++          "work": "series:bangumi:bangumi:9568:s2"
++        },
++        {
++          "episode_end": 13,
++          "episode_start": 13,
++          "file_path": "[1999] [Season 2] Initial D Second Stage/Initial D [1999] - S02E13 - Changing Seasons.mkv",
++          "season": 2,
++          "work": "series:bangumi:bangumi:9568:s2"
++        },
++        {
++          "episode_end": null,
++          "episode_start": null,
++          "file_path": "[2001] [Movie] Initial D Third Stage/[2001] [Movie] Initial D Third Stage.mkv",
++          "season": 3,
++          "work": "movie:bangumi:bangumi:9569"
++        },
++        {
++          "episode_end": 1,
++          "episode_start": 1,
++          "file_path": "[2001] [OVA] Initial D Extra Stage/[2001] [OVA] Initial D Extra Stage 01 Beyond The Impact Blue.mkv",
++          "season": 0,
++          "work": "series:bangumi:bangumi:44758:s0"
++        },
++        {
++          "episode_end": 2,
++          "episode_start": 2,
++          "file_path": "[2001] [OVA] Initial D Extra Stage/[2001] [OVA] Initial D Extra Stage 02 Sentimental White.mkv",
++          "season": 0,
++          "work": "series:bangumi:bangumi:44758:s0"
++        },
++        {
++          "episode_end": 1,
++          "episode_start": 1,
++          "file_path": "[2002] [OVA] Initial D Battle Stage/[2002] [OVA] Initial D Battle Stage.mkv",
++          "season": null,
++          "work": null
++        },
++        {
++          "episode_end": 1,
++          "episode_start": 1,
++          "file_path": "[2004] [Season 3] Initial D Fourth Stage/Initial D [2004] - S03E01 - Project D.mkv",
++          "season": 4,
++          "work": "series:bangumi:bangumi:3816:s4"
++        },
++        {
++          "episode_end": 2,
++          "episode_start": 2,
++          "file_path": "[2004] [Season 3] Initial D Fourth Stage/Initial D [2004] - S03E02 - Full Speed! Downhill Battle.mkv",
++          "season": 4,
++          "work": "series:bangumi:bangumi:3816:s4"
++        },
++        {
++          "episode_end": 3,
++          "episode_start": 3,
++          "file_path": "[2004] [Season 3] Initial D Fourth Stage/Initial D [2004] - S03E03 - The Most Powerful Man of the Toudou School.mkv",
++          "season": 4,
++          "work": "series:bangumi:bangumi:3816:s4"
++        },
++        {
++          "episode_end": 4,
++          "episode_start": 4,
++          "file_path": "[2004] [Season 3] Initial D Fourth Stage/Initial D [2004] - S03E04 - Two Pieces of Advice.mkv",
++          "season": 4,
++          "work": "series:bangumi:bangumi:3816:s4"
++        },
++        {
++          "episode_end": 5,
++          "episode_start": 5,
++          "file_path": "[2004] [Season 3] Initial D Fourth Stage/Initial D [2004] - S03E05 - The Starting Line to Victory.mkv",
++          "season": 4,
++          "work": "series:bangumi:bangumi:3816:s4"
++        },
++        {
++          "episode_end": 6,
++          "episode_start": 6,
++          "file_path": "[2004] [Season 3] Initial D Fourth Stage/Initial D [2004] - S03E06 - Blind Attack.mkv",
++          "season": 4,
++          "work": "series:bangumi:bangumi:3816:s4"
++        },
++        {
++          "episode_end": 7,
++          "episode_start": 7,
++          "file_path": "[2004] [Season 3] Initial D Fourth Stage/Initial D [2004] - S03E07 - The 85s Raging Turbo.mkv",
++          "season": 4,
++          "work": "series:bangumi:bangumi:3816:s4"
++        },
++        {
++          "episode_end": 8,
++          "episode_start": 8,
++          "file_path": "[2004] [Season 3] Initial D Fourth Stage/Initial D [2004] - S03E08 - Fateful Battle of FDs.mkv",
++          "season": 4,
++          "work": "series:bangumi:bangumi:3816:s4"
++        },
++        {
++          "episode_end": 9,
++          "episode_start": 9,
++          "file_path": "[2004] [Season 3] Initial D Fourth Stage/Initial D [2004] - S03E09 - Kyokos Confession.mkv",
++          "season": 4,
++          "work": "series:bangumi:bangumi:3816:s4"
++        },
++        {
++          "episode_end": 10,
++          "episode_start": 10,
++          "file_path": "[2004] [Season 3] Initial D Fourth Stage/Initial D [2004] - S03E10 - The Saitama Areas Ultimate Weapon.mkv",
++          "season": 4,
++          "work": "series:bangumi:bangumi:3816:s4"
++        },
++        {
++          "episode_end": 11,
++          "episode_start": 11,
++          "file_path": "[2004] [Season 3] Initial D Fourth Stage/Initial D [2004] - S03E11 - Rainy Downhill Battle.mkv",
++          "season": 4,
++          "work": "series:bangumi:bangumi:3816:s4"
++        },
++        {
++          "episode_end": 12,
++          "episode_start": 12,
++          "file_path": "[2004] [Season 3] Initial D Fourth Stage/Initial D [2004] - S03E12 - Straightaway of Struggles.mkv",
++          "season": 4,
++          "work": "series:bangumi:bangumi:3816:s4"
++        },
++        {
++          "episode_end": 13,
++          "episode_start": 13,
++          "file_path": "[2004] [Season 3] Initial D Fourth Stage/Initial D [2004] - S03E13 - Motivation.mkv",
++          "season": 4,
++          "work": "series:bangumi:bangumi:3816:s4"
++        },
++        {
++          "episode_end": 14,
++          "episode_start": 14,
++          "file_path": "[2004] [Season 3] Initial D Fourth Stage/Initial D [2004] - S03E14 - Sad Lonely Driver.mkv",
++          "season": 4,
++          "work": "series:bangumi:bangumi:3816:s4"
++        },
++        {
++          "episode_end": 15,
++          "episode_start": 15,
++          "file_path": "[2004] [Season 3] Initial D Fourth Stage/Initial D [2004] - S03E15 - 4WD Complex.mkv",
++          "season": 4,
++          "work": "series:bangumi:bangumi:3816:s4"
++        },
++        {
++          "episode_end": 16,
++          "episode_start": 16,
++          "file_path": "[2004] [Season 3] Initial D Fourth Stage/Initial D [2004] - S03E16 - Hillclimb of Fury.mkv",
++          "season": 4,
++          "work": "series:bangumi:bangumi:3816:s4"
++        },
++        {
++          "episode_end": 17,
++          "episode_start": 17,
++          "file_path": "[2004] [Season 3] Initial D Fourth Stage/Initial D [2004] - S03E17 - The Saitama Areas Decisive Final Battle.mkv",
++          "season": 4,
++          "work": "series:bangumi:bangumi:3816:s4"
++        },
++        {
++          "episode_end": 18,
++          "episode_start": 18,
++          "file_path": "[2004] [Season 3] Initial D Fourth Stage/Initial D [2004] - S03E18 - Last Drive.mkv",
++          "season": 4,
++          "work": "series:bangumi:bangumi:3816:s4"
++        },
++        {
++          "episode_end": 19,
++          "episode_start": 19,
++          "file_path": "[2004] [Season 3] Initial D Fourth Stage/Initial D [2004] - S03E19 - God Foot and God Arm.mkv",
++          "season": 4,
++          "work": "series:bangumi:bangumi:3816:s4"
++        },
++        {
++          "episode_end": 20,
++          "episode_start": 20,
++          "file_path": "[2004] [Season 3] Initial D Fourth Stage/Initial D [2004] - S03E20 - The Unmatched GT-R!.mkv",
++          "season": 4,
++          "work": "series:bangumi:bangumi:3816:s4"
++        },
++        {
++          "episode_end": 21,
++          "episode_start": 21,
++          "file_path": "[2004] [Season 3] Initial D Fourth Stage/Initial D [2004] - S03E21 - Dogfight.mkv",
++          "season": 4,
++          "work": "series:bangumi:bangumi:3816:s4"
++        },
++        {
++          "episode_end": 22,
++          "episode_start": 22,
++          "file_path": "[2004] [Season 3] Initial D Fourth Stage/Initial D [2004] - S03E22 - The Sorcerer of the Single-Handed Steer.mkv",
++          "season": 4,
++          "work": "series:bangumi:bangumi:3816:s4"
++        },
++        {
++          "episode_end": 23,
++          "episode_start": 23,
++          "file_path": "[2004] [Season 3] Initial D Fourth Stage/Initial D [2004] - S03E23 - Endless Battle.mkv",
++          "season": 4,
++          "work": "series:bangumi:bangumi:3816:s4"
++        },
++        {
++          "episode_end": 24,
++          "episode_start": 24,
++          "file_path": "[2004] [Season 3] Initial D Fourth Stage/Initial D [2004] - S03E24 - The Never-Ending Challenge.mkv",
++          "season": 4,
++          "work": "series:bangumi:bangumi:3816:s4"
++        },
++        {
++          "episode_end": 1,
++          "episode_start": 1,
++          "file_path": "[2007] [OAD] Initial D Fourth Stage Battle Digest/[2007] [OAD] Initial D Fourth Stage Battle Digest.mkv",
++          "season": 4,
++          "work": "series:bangumi:bangumi:3816:s4"
++        },
++        {
++          "episode_end": 1,
++          "episode_start": 1,
++          "file_path": "[2007] [OVA] Initial D Battle Stage 2/[2007] [OVA] Initial D Battle Stage 2.mkv",
++          "season": null,
++          "work": null
++        },
++        {
++          "episode_end": 1,
++          "episode_start": 1,
++          "file_path": "[2008] [OVA] Initial D Extra Stage 2/[2008] [OVA] Initial D Extra Stage 2 Green Departure.mkv",
++          "season": null,
++          "work": null
++        },
++        {
++          "episode_end": 1,
++          "episode_start": 1,
++          "file_path": "[2012] [Season 4] Initial D Fifth Stage/Initial D [2012] - S04E01 - Encounter of Destiny.mkv",
++          "season": 5,
++          "work": "series:bangumi:bangumi:46312:s5"
++        },
++        {
++          "episode_end": 2,
++          "episode_start": 2,
++          "file_path": "[2012] [Season 4] Initial D Fifth Stage/Initial D [2012] - S04E02 - A New Battlefield.mkv",
++          "season": 5,
++          "work": "series:bangumi:bangumi:46312:s5"
++        },
++        {
++          "episode_end": 3,
++          "episode_start": 3,
++          "file_path": "[2012] [Season 4] Initial D Fifth Stage/Initial D [2012] - S04E03 - Dead Line.mkv",
++          "season": 5,
++          "work": "series:bangumi:bangumi:46312:s5"
++        },
++        {
++          "episode_end": 4,
++          "episode_start": 4,
++          "file_path": "[2012] [Season 4] Initial D Fifth Stage/Initial D [2012] - S04E04 - Revenge Battle of Fate.mkv",
++          "season": 5,
++          "work": "series:bangumi:bangumi:46312:s5"
++        },
++        {
++          "episode_end": 5,
++          "episode_start": 5,
++          "file_path": "[2012] [Season 4] Initial D Fifth Stage/Initial D [2012] - S04E05 - Fujiwara Zone.mkv",
++          "season": 5,
++          "work": "series:bangumi:bangumi:46312:s5"
++        },
++        {
++          "episode_end": 6,
++          "episode_start": 6,
++          "file_path": "[2012] [Season 4] Initial D Fifth Stage/Initial D [2012] - S04E06 - Keisukes Determination.mkv",
++          "season": 5,
++          "work": "series:bangumi:bangumi:46312:s5"
++        },
++        {
++          "episode_end": 7,
++          "episode_start": 7,
++          "file_path": "[2012] [Season 4] Initial D Fifth Stage/Initial D [2012] - S04E07 - Zero Hearts.mkv",
++          "season": 5,
++          "work": "series:bangumi:bangumi:46312:s5"
++        },
++        {
++          "episode_end": 8,
++          "episode_start": 8,
++          "file_path": "[2012] [Season 4] Initial D Fifth Stage/Initial D [2012] - S04E08 - White Devil.mkv",
++          "season": 5,
++          "work": "series:bangumi:bangumi:46312:s5"
++        },
++        {
++          "episode_end": 9,
++          "episode_start": 9,
++          "file_path": "[2012] [Season 4] Initial D Fifth Stage/Initial D [2012] - S04E09 - Grim Reaper.mkv",
++          "season": 5,
++          "work": "series:bangumi:bangumi:46312:s5"
++        },
++        {
++          "episode_end": 10,
++          "episode_start": 10,
++          "file_path": "[2012] [Season 4] Initial D Fifth Stage/Initial D [2012] - S04E10 - Full Stop.mkv",
++          "season": 5,
++          "work": "series:bangumi:bangumi:46312:s5"
++        },
++        {
++          "episode_end": 11,
++          "episode_start": 11,
++          "file_path": "[2012] [Season 4] Initial D Fifth Stage/Initial D [2012] - S04E11 - Full Stop Continued.mkv",
++          "season": 5,
++          "work": "series:bangumi:bangumi:46312:s5"
++        },
++        {
++          "episode_end": 12,
++          "episode_start": 12,
++          "file_path": "[2012] [Season 4] Initial D Fifth Stage/Initial D [2012] - S04E12 - Brothers.mkv",
++          "season": 5,
++          "work": "series:bangumi:bangumi:46312:s5"
++        },
++        {
++          "episode_end": 13,
++          "episode_start": 13,
++          "file_path": "[2012] [Season 4] Initial D Fifth Stage/Initial D [2012] - S04E13 - Unexpected Battle.mkv",
++          "season": 5,
++          "work": "series:bangumi:bangumi:46312:s5"
++        },
++        {
++          "episode_end": 14,
++          "episode_start": 14,
++          "file_path": "[2012] [Season 4] Initial D Fifth Stage/Initial D [2012] - S04E14 - Conclusion! Extreme Hill Climb.mkv",
++          "season": 5,
++          "work": "series:bangumi:bangumi:46312:s5"
++        },
++        {
++          "episode_end": null,
++          "episode_start": null,
++          "file_path": "[2014] [Movie] New Initial D Movie Legend 1 - Kakusei/[2014] [Movie] New Initial D Movie Legend 1 - Kakusei.mkv",
++          "season": null,
++          "work": "movie:bangumi:bangumi:78796"
++        },
++        {
++          "episode_end": 1,
++          "episode_start": 1,
++          "file_path": "[2014] [Season 5] Initial D Final Stage/Initial D [2014] - S05E01 - Natural.mkv",
++          "season": 6,
++          "work": "series:bangumi:bangumi:104569:s6"
++        },
++        {
++          "episode_end": 2,
++          "episode_start": 2,
++          "file_path": "[2014] [Season 5] Initial D Final Stage/Initial D [2014] - S05E02 - The Strongest Enemy.mkv",
++          "season": 6,
++          "work": "series:bangumi:bangumi:104569:s6"
++        },
++        {
++          "episode_end": 3,
++          "episode_start": 3,
++          "file_path": "[2014] [Season 5] Initial D Final Stage/Initial D [2014] - S05E03 - Dangerous Scent.mkv",
++          "season": 6,
++          "work": "series:bangumi:bangumi:104569:s6"
++        },
++        {
++          "episode_end": 4,
++          "episode_start": 4,
++          "file_path": "[2014] [Season 5] Initial D Final Stage/Initial D [2014] - S05E04 - Dream.mkv",
++          "season": 6,
++          "work": "series:bangumi:bangumi:104569:s6"
++        },
++        {
++          "episode_end": null,
++          "episode_start": null,
++          "file_path": "[2015] [Movie] New Initial D Movie Legend 2 - Tousou/[2015] [Movie] New Initial D Movie Legend 2 - Tousou.mkv",
++          "season": null,
++          "work": "movie:bangumi:bangumi:111760"
++        },
++        {
++          "episode_end": null,
++          "episode_start": null,
++          "file_path": "[2016] [Movie] New Initial D Movie Legend 3 - Mugen/[2016] [Movie] New Initial D Movie Legend 3 - Mugen.mkv",
++          "season": null,
++          "work": "movie:bangumi:bangumi:111761"
++        },
++        {
++          "episode_end": 1,
++          "episode_start": 1,
++          "file_path": "[2021] [OVA] Initial D Battle Stage 3/[2021] [OVA] Initial D Battle Stage 3.mkv",
++          "season": null,
++          "work": null
++        },
++        {
++          "episode_end": 1,
++          "episode_start": 1,
++          "file_path": "[2022] [OVA] New Initial D Movie Battle Digest/[2022] [OVA] New Initial D Movie Battle Digest.mkv",
++          "season": null,
++          "work": "movie:wikipedia:wikipedia:new_initial_d_the_movie"
++        }
++      ],
++      "batch_scope": "franchise",
++      "batch_seasons": [
++        1,
++        2,
++        3,
++        4,
++        5
++      ],
++      "collection": "collection:title:头文字D Initial D",
++      "confirmation": {
++        "kinds": [
++          "batch_coverage_unknown"
++        ],
++        "missing_fields": []
++      },
++      "dispatch": {
++        "dispatched": 0,
++        "error_tasks": 0,
++        "repeat_dispatched": 0,
++        "task_count": 0
++      },
++      "episode": null,
++      "episode_end": null,
++      "episode_start": null,
++      "is_batch": true,
++      "season": null,
++      "season_ranges": [
++        {
++          "episode_end": 2,
++          "episode_start": 1,
++          "season": 0
++        },
++        {
++          "episode_end": 26,
++          "episode_start": 1,
++          "season": 1
++        },
++        {
++          "episode_end": 13,
++          "episode_start": 1,
++          "season": 2
++        },
++        {
++          "episode_end": 24,
++          "episode_start": 1,
++          "season": 4
++        },
++        {
++          "episode_end": 14,
++          "episode_start": 1,
++          "season": 5
++        },
++        {
++          "episode_end": 4,
++          "episode_start": 1,
++          "season": 6
++        }
++      ],
++      "work_details": {
++        "movie:bangumi:bangumi:111760": {
++          "collection": "collection:title:头文字D Initial D",
++          "is_anime": true,
++          "release_date": "2015-05-23"
++        },
++        "movie:bangumi:bangumi:111761": {
++          "collection": "collection:title:头文字D Initial D",
++          "is_anime": true,
++          "release_date": "2016-02-06"
++        },
++        "movie:bangumi:bangumi:78796": {
++          "collection": "collection:title:头文字D Initial D",
++          "is_anime": true,
++          "release_date": "2014-08-23"
++        },
++        "movie:bangumi:bangumi:9569": {
++          "collection": "collection:title:头文字D Initial D",
++          "is_anime": true,
++          "release_date": "2001-01-13"
++        },
++        "movie:wikipedia:wikipedia:new_initial_d_the_movie": {
++          "collection": "collection:title:头文字D Initial D",
++          "is_anime": true,
++          "release_date": null
++        },
++        "series:bangumi:bangumi:104569:s6": {
++          "collection": "collection:title:头文字D Initial D",
++          "is_anime": true,
++          "number_of_episodes": 4,
++          "release_date": null,
++          "season_number": 6,
++          "start_date": "2014-05-16"
++        },
++        "series:bangumi:bangumi:3816:s4": {
++          "collection": "collection:title:头文字D Initial D",
++          "episode_seasons": [
++            4
++          ],
++          "episodes": [
++            1,
++            2,
++            3,
++            4,
++            5,
++            6,
++            7,
++            8,
++            9,
++            10,
++            11,
++            12,
++            13,
++            14,
++            15,
++            16,
++            17,
++            18,
++            19,
++            20,
++            21,
++            22,
++            23,
++            24
++          ],
++          "is_anime": true,
++          "number_of_episodes": 24,
++          "release_date": null,
++          "season_number": 4,
++          "start_date": "2004-04-17"
++        },
++        "series:bangumi:bangumi:44758:s0": {
++          "collection": "collection:title:头文字D Initial D",
++          "episodes": [
++            1,
++            2
++          ],
++          "is_anime": true,
++          "number_of_episodes": 2,
++          "release_date": null,
++          "season_number": 0,
++          "start_date": "2001-03-22"
++        },
++        "series:bangumi:bangumi:46312:s5": {
++          "collection": "collection:title:头文字D Initial D",
++          "episode_seasons": [
++            5
++          ],
++          "episodes": [
++            1,
++            2,
++            3,
++            4,
++            5,
++            6,
++            7,
++            8,
++            9,
++            10,
++            11,
++            12,
++            13,
++            14
++          ],
++          "is_anime": true,
++          "number_of_episodes": 14,
++          "release_date": null,
++          "season_number": 5,
++          "start_date": "2012-11-09"
++        },
++        "series:bangumi:bangumi:8290:s1": {
++          "collection": "collection:title:头文字D Initial D",
++          "episode_seasons": [
++            1
++          ],
++          "episodes": [
++            1,
++            2,
++            3,
++            4,
++            5,
++            6,
++            7,
++            8,
++            9,
++            10,
++            11,
++            12,
++            13,
++            14,
++            15,
++            16,
++            17,
++            18,
++            19,
++            20,
++            21,
++            22,
++            23,
++            24,
++            25,
++            26
++          ],
++          "is_anime": true,
++          "number_of_episodes": 26,
++          "release_date": null,
++          "season_number": 1,
++          "start_date": "1998-04-19"
++        },
++        "series:bangumi:bangumi:9568:s2": {
++          "collection": "collection:title:头文字D Initial D",
++          "episode_seasons": [
++            2
++          ],
++          "episodes": [
++            1,
++            2,
++            3,
++            4,
++            5,
++            6,
++            7,
++            8,
++            9,
++            10,
++            11,
++            12,
++            13
++          ],
++          "is_anime": true,
++          "number_of_episodes": 13,
++          "release_date": null,
++          "season_number": 2,
++          "start_date": "1999-10-15"
++        }
++      },
++      "works": [
++        "movie:bangumi:bangumi:111760",
++        "movie:bangumi:bangumi:111761",
++        "movie:bangumi:bangumi:78796",
++        "movie:bangumi:bangumi:9569",
++        "movie:wikipedia:wikipedia:new_initial_d_the_movie",
++        "series:bangumi:bangumi:104569:s6",
++        "series:bangumi:bangumi:3816:s4",
++        "series:bangumi:bangumi:44758:s0",
++        "series:bangumi:bangumi:46312:s5",
++        "series:bangumi:bangumi:8290:s1",
++        "series:bangumi:bangumi:9568:s2"
++      ]
++    },
++    "status": "confirmed"
++  },
++  "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b": {
++    "evidence_note": "Reviewed against frozen Bangumi subject 538760 (猫と竜/猫与龙, TV, type 2, 2026-07-04), twelve type-0 integer episodes and the original torrent S01E10 media filename. Production episode count 9 is stale; resource collection NULL is a legacy gap. Cold reconstruction must create the single-season shell and map the file to S1E10.",
++    "expected": {
++      "assignments": [
++        {
++          "episode_end": 10,
++          "episode_start": 10,
++          "file_path": "[Nix-Raws] Neko to Ryuu S01E10 [CR WEB-DL 1080p AVC AAC][SC_TC].mkv",
++          "season": 1,
++          "work": "series:bangumi:bangumi:538760:s1"
++        }
++      ],
++      "batch_scope": null,
++      "batch_seasons": null,
++      "collection": "collection:title:猫与龙",
++      "confirmation": {
++        "kinds": [],
++        "missing_fields": []
++      },
++      "dispatch": {
++        "dispatched": 1,
++        "error_tasks": 0,
++        "repeat_dispatched": 0,
++        "task_count": 1
++      },
++      "episode": 10,
++      "episode_end": null,
++      "episode_start": null,
++      "is_batch": false,
++      "season": 1,
++      "season_ranges": [
++        {
++          "episode_end": 10,
++          "episode_start": 10,
++          "season": 1
++        }
++      ],
++      "work_details": {
++        "series:bangumi:bangumi:538760:s1": {
++          "collection": "collection:title:猫与龙",
++          "episode_seasons": [
++            1
++          ],
++          "episodes": [
++            1,
++            2,
++            3,
++            4,
++            5,
++            6,
++            7,
++            8,
++            9,
++            10,
++            11,
++            12
++          ],
++          "is_anime": true,
++          "number_of_episodes": 12,
++          "season_number": 1,
++          "start_date": "2026-07-04"
++        }
++      },
++      "works": [
++        "series:bangumi:bangumi:538760:s1"
++      ]
++    },
++    "status": "confirmed"
++  }
++}
+--- a/tests/integration/http/test_genre_unification.py
++++ b/tests/integration/http/test_genre_unification.py
+@@ -185,4 +185,5 @@
+                     "title_en": "Jujutsu Kaisen",
+                     "external_id": "genre-test-jjk",
++                    "alt_titles": ["Jujutsu Kaisen Season 1"],
+                     "external_source": "tmdb",
+                     "genre": ["Anime", "Isekai", "action", 16],
+@@ -224,4 +225,5 @@
+                     "title_en": "Jujutsu Kaisen",
+                     "external_id": "genre-dsl-jjk",
++                    "alt_titles": ["Jujutsu Kaisen Season 1"],
+                     "external_source": "tmdb",
+                     "genre": ["Animation", "Action"],
+@@ -229,6 +231,5 @@
+             },
+         )
+-        if r.status_code != 200:
+-            pytest.skip(f"link failed: {r.text}")
++        assert r.status_code == 200, f"link prerequisite failed: {r.text}"
+         series_id = r.json()["data"]["series_id"]
+ 
+--- a/tests/integration/http/test_metadata_local.py
++++ b/tests/integration/http/test_metadata_local.py
+@@ -317,4 +317,5 @@
+                     "original_title": "本好きの下剋上",
+                     "description": "Ascendance of a Bookworm test entry",
++                    "alt_titles": ["Honzuki no Gekokujou Season 1"],
+                     "external_id": "manual-honzuki-1",
+                     "external_source": "tmdb",
+@@ -332,6 +333,5 @@
+     def test_mapping_auto_links_sibling(self, _unlinked_channel):
+         """GET metadata on a sibling resource hits the Layer-2 mapping."""
+-        if not TestManualSearchLink.series_id:
+-            pytest.skip("no series — prerequisite failed")
++        assert TestManualSearchLink.series_id, "series creation prerequisite failed"
+         sibling = _unlinked_channel["resources"][1]
+         r = _api(f"/api/v1/resources/{sibling['id']}/metadata")
+@@ -416,6 +416,5 @@
+     def test_relink_same_external_id_updates(self, _unlinked_channel):
+         """Re-linking with the same external_id updates, not duplicates."""
+-        if not TestManualSearchLink.series_id:
+-            pytest.skip("no series — prerequisite failed")
++        assert TestManualSearchLink.series_id, "series creation prerequisite failed"
+         res = _unlinked_channel["resources"][4]
+         r = associate_metadata_request(
+@@ -429,8 +428,7 @@
+                     "external_id": "manual-honzuki-1",
+                     "external_source": "tmdb",
+-                    # No season marker here: entity title season markers
+-                    # (作品单季化) would legitimately resolve a different
+-                    # season work instead of updating the existing one.
+-                    "alt_titles": ["Honzuki Alias"],
++                    # Re-link the explicitly selected season; the collection
++                    # having one local member cannot identify that season.
++                    "alt_titles": ["Honzuki Alias", "Honzuki no Gekokujou Season 1"],
+                 }
+             },
+@@ -447,6 +445,5 @@
+     def test_title_fallback_dedup(self, _unlinked_channel):
+         """Link with a new external_id but same title → title fallback hits."""
+-        if not TestManualSearchLink.series_id:
+-            pytest.skip("no series — prerequisite failed")
++        assert TestManualSearchLink.series_id, "series creation prerequisite failed"
+         res = _unlinked_channel["resources"][5]
+         r = associate_metadata_request(
+@@ -458,4 +455,5 @@
+                     "title_cn": HONZUKI_TITLE_CN,
+                     "external_id": "manual-honzuki-other-source",
++                    "alt_titles": ["Honzuki no Gekokujou Season 1"],
+                     "external_source": "wikipedia",
+                 }
+--- /dev/null
++++ b/tests/integration/metadata/season_evidence_driver.py
+@@ -0,0 +1,76 @@
++"""Dedicated PostgreSQL: reuse season evidence assertions with real commits."""
++import asyncio
++import json
++import os
++from pathlib import Path
++from urllib.parse import urlsplit
++
++url = os.environ["SEASON_EVIDENCE_DATABASE_URL"]
++assert urlsplit(url).path.startswith("/season_evidence_")
++os.environ["DATABASE_URL"] = url
++
++import pytest  # noqa: E402
++from sqlalchemy import inspect, text  # noqa: E402
++
++from app import database  # noqa: E402
++from app.models.channel import Channel  # noqa: E402
++from tests.unit.test_collection_member_season_evidence import (  # noqa: E402
++    test_collection_size_does_not_supply_season,
++    test_explicit_manual_target_supplies_its_season,
++    test_recorded_title_preserves_unknown_season,
++    test_season_identity_does_not_supply_season_number,
++    test_series_level_unknown_season_cannot_use_outer_defaults,
++)
++
++
++async def main():
++    results = []
++    try:
++        async with database.engine.begin() as conn:
++            assert not await conn.run_sync(lambda c: inspect(c).has_table("tv_series"))
++            await conn.run_sync(database.Base.metadata.create_all)
++        table_names = ", ".join('"' + name + '"' for name in database.Base.metadata.tables)
++        async def reset():
++            async with database.engine.begin() as conn:
++                await conn.execute(text("TRUNCATE TABLE " + table_names + " CASCADE"))
++        cases = [([0], None, None, None), ([1], None, None, None), ([3], None, None, None),
++                 ([1], None, 3, None), ([], None, None, None), ([1, 3], None, None, None),
++                 ([3], 3, None, 3), ([1], None, 1, 1)]
++        for route in ("title", "collection_bag"):
++            for members, hint, count, expected in cases:
++                await reset()
++                async with database.async_session_factory() as db:
++                    await test_collection_size_does_not_supply_season(db, route, members, hint, count, expected)
++                results.append({"case": "evidence", "route": route, "members": members, "hint": hint, "count": count})
++        for sibling in (False, True):
++            await reset()
++            async with database.async_session_factory() as db:
++                await test_explicit_manual_target_supplies_its_season(db, sibling)
++            results.append({"case": "manual_target", "sibling": sibling})
++        for entry in ("repository", "agent", "cache", "pipeline"):
++            for member in (None, 3):
++                for hint in (None, 3):
++                    await reset()
++                    async with database.async_session_factory() as db:
++                        channel = Channel(name="Synthetic recorded-title channel", url="https://example.invalid", field_mapping={})
++                        db.add(channel)
++                        await db.commit()
++                        with pytest.MonkeyPatch.context() as patch:
++                            await test_recorded_title_preserves_unknown_season(db, channel, patch, entry, member, hint)
++                    results.append({"case": "recorded_resource", "entry": entry, "member": member, "hint": hint})
++        for existing in (False, True):
++            await reset()
++            async with database.async_session_factory() as db:
++                await test_series_level_unknown_season_cannot_use_outer_defaults(db, existing)
++            results.append({"case": "outer_series_default", "existing": existing})
++        for existing in (False, True):
++            await reset()
++            async with database.async_session_factory() as db:
++                await test_season_identity_does_not_supply_season_number(db, existing)
++            results.append({"case": "season_identity_no_ordinal", "existing": existing})
++        Path(os.environ["SEASON_EVIDENCE_RESULT"]).write_text(json.dumps({"cases": results}))
++    finally:
++        await database.engine.dispose()
++
++
++asyncio.run(main())
+--- /dev/null
++++ b/tests/integration/metadata/test_collection_season_evidence.py
+@@ -0,0 +1,40 @@
++"""Mandatory PostgreSQL counterpart of the Turso season-evidence matrix."""
++import asyncio
++import json
++import os
++import subprocess
++import sys
++import uuid
++from pathlib import Path
++from urllib.parse import urlsplit, urlunsplit
++
++import asyncpg
++import pytest
++
++
++async def test_collection_season_evidence_postgres(tmp_path):
++    url = os.environ.get('QUEUE_RECOVERY_POSTGRES_URL')
++    if not url:
++        if os.environ.get('QUEUE_RECOVERY_REQUIRED') == '1':
++            pytest.fail('Season evidence gate requires dedicated PostgreSQL')
++        pytest.skip('Run the isolated integration gate for PostgreSQL')
++    parts = urlsplit(url)
++    assert parts.path == '/queue_recovery'
++    name = 'season_evidence_' + uuid.uuid4().hex
++    admin = await asyncpg.connect(url)
++    try:
++        await admin.execute(f'CREATE DATABASE "{name}"')
++        output = tmp_path / 'result.json'
++        env = dict(os.environ,
++                   SEASON_EVIDENCE_DATABASE_URL=urlunsplit(parts._replace(scheme='postgresql+asyncpg', path='/' + name)),
++                   SEASON_EVIDENCE_RESULT=str(output))
++        result = await asyncio.to_thread(subprocess.run,
++            [sys.executable, '-m', 'tests.integration.metadata.season_evidence_driver'],
++            cwd=Path(__file__).resolve().parents[3], env=env,
++            capture_output=True, text=True, timeout=120)
++        (tmp_path / 'driver.log').write_text(result.stdout + result.stderr)
++        assert result.returncode == 0, result.stdout + result.stderr
++        assert len(json.loads(output.read_text())['cases']) == 38
++    finally:
++        await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
++        await admin.close()
+--- a/tests/integration/organize/test_franchise_service.py
++++ b/tests/integration/organize/test_franchise_service.py
+@@ -87,4 +87,5 @@
+             if found:
+                 entity["external_id"] = f"{external_id}-{raw_title}"
++                entity["alt_titles"] = [f"{raw_title} Season 1"]
+             return SimpleNamespace(found=found, content_type=content_type,
+                                    matched_entity=entity)
+--- a/tests/unit/test_anime_signals.py
++++ b/tests/unit/test_anime_signals.py
+@@ -156,23 +156,21 @@
+     with _poster_patch():
+         s = await ms.create_or_update_series_from_external(
+-            db_session, {**base, "is_anime": False}
+-        )
++            db_session, {**base, "is_anime": False}, season_hint=1)
+     assert s.is_anime is False
+ 
+     with _poster_patch():
+-        s = await ms.create_or_update_series_from_external(db_session, dict(base))
++        s = await ms.create_or_update_series_from_external(db_session, dict(base), season_hint=1)
+     assert s.is_anime is False  # absent key keeps the value
+ 
+     with _poster_patch():
+         s = await ms.create_or_update_series_from_external(
+-            db_session, {**base, "is_anime": True}
+-        )
++            db_session, {**base, "is_anime": True}, season_hint=1)
+     assert s.is_anime is True  # NULL/False can be upgraded
+ 
+     with _poster_patch():
+         s = await ms.create_or_update_series_from_external(
+-            db_session, {**base, "is_anime": False}
+-        )
++            db_session, {**base, "is_anime": False}, season_hint=1)
+     assert s.is_anime is True  # True is never downgraded
++
+ 
+ 
+@@ -186,6 +184,7 @@
+     }
+     with _poster_patch():
+-        s = await ms.create_or_update_series_from_external(db_session, data)
++        s = await ms.create_or_update_series_from_external(db_session, data, season_hint=1)
+     assert s.is_anime is True
++
+ 
+ 
+@@ -210,6 +209,7 @@
+     }
+     with _poster_patch():
+-        s = await ms.create_or_update_series_from_external(db_session, data)
++        s = await ms.create_or_update_series_from_external(db_session, data, season_hint=1)
+     assert s.is_anime is None
++
+ 
+ 
+--- /dev/null
++++ b/tests/unit/test_collection_member_season_evidence.py
+@@ -0,0 +1,205 @@
++"""Collection membership is inventory, not evidence of a resource's season."""
++import pytest
++from sqlalchemy import select
++
++from app.models.series import TVSeries
++from app.models.work_collection import WorkCollection
++from app.models.work_external_id import WorkExternalId
++from app.services.metadata_service import create_or_update_series_from_external
++
++
++@pytest.mark.parametrize('route', ['title', 'collection_bag'])
++@pytest.mark.parametrize('members,hint,count,expected', [
++    ([0], None, None, None), ([1], None, None, None), ([3], None, None, None),
++    ([1], None, 3, None), ([], None, None, None), ([1, 3], None, None, None),
++    ([3], 3, None, 3), ([1], None, 1, 1),
++])
++async def test_collection_size_does_not_supply_season(db_session, route, members, hint, count, expected):
++    collection = WorkCollection(title_cn='Synthetic evidence family')
++    db_session.add(collection)
++    await db_session.flush()
++    cid = collection.id
++    db_session.add_all([TVSeries(title_cn=collection.title_cn, collection_id=cid,
++                                season_number=n, is_anime=False) for n in members])
++    entity = {'title_cn': collection.title_cn, 'content_type': 'tv', 'external_source': 'tmdb', 'is_anime': False}
++    if route == 'collection_bag':
++        entity.update(title_cn='Synthetic source title', external_id='tmdb:90006001')
++        db_session.add(WorkExternalId(work_type='collection', work_id=cid,
++                                     source='tmdb', external_id=entity['external_id']))
++    if count is not None:
++        entity['number_of_seasons'] = count
++    await db_session.commit()
++    selected = await create_or_update_series_from_external(db_session, entity, season_hint=hint)
++    assert (selected.season_number if selected else None) == expected
++    await db_session.commit()
++    from app.database import async_session_factory
++    async with async_session_factory() as observer:
++        seasons = list((await observer.scalars(select(TVSeries.season_number).where(
++            TVSeries.collection_id == cid))).all())
++        assert sorted(seasons) == sorted(members)
++        if expected is None and route == 'collection_bag':
++            identities = list((await observer.scalars(select(WorkExternalId).where(
++                WorkExternalId.source == 'tmdb', WorkExternalId.external_id == entity['external_id']))).all())
++            assert [(row.work_type, row.work_id) for row in identities] == [('collection', cid)]
++
++
++@pytest.mark.parametrize('with_sibling', [False, True])
++async def test_explicit_manual_target_supplies_its_season(db_session, with_sibling):
++    collection = WorkCollection(title_cn='Synthetic manually selected family')
++    db_session.add(collection)
++    await db_session.flush()
++    target = TVSeries(title_cn=collection.title_cn, collection_id=collection.id,
++                      season_number=3, is_anime=False)
++    db_session.add(target)
++    if with_sibling:
++        db_session.add(TVSeries(title_cn=collection.title_cn, collection_id=collection.id,
++                               season_number=1, is_anime=False))
++    await db_session.commit()
++    selected = await create_or_update_series_from_external(db_session, {
++        'title_cn': collection.title_cn, 'content_type': 'tv', 'external_source': 'tmdb',
++        'is_anime': False, 'description': 'Same family, explicit manual season identity',
++    }, expected_series_id=target.id)
++    assert selected.id == target.id and selected.season_number == 3
++    await db_session.commit()
++    await db_session.refresh(target)
++    assert target.description == 'Same family, explicit manual season identity'
++
++
++@pytest.mark.parametrize('entry', ['repository', 'agent', 'cache', 'pipeline'])
++@pytest.mark.parametrize('existing_season', [None, 3])
++@pytest.mark.parametrize('hint', [None, 3])
++async def test_recorded_title_preserves_unknown_season(db_session, sample_channel, monkeypatch,
++                                                      entry, existing_season, hint):
++    import gzip
++    import json
++    import uuid
++    from pathlib import Path
++    from unittest.mock import AsyncMock
++
++    from app.models.file_resource import FileResource
++    from app.services.metadata_agent import UnifiedMetadataAgent
++    from app.services.metadata_repository import _apply_to_resource
++    from app.services.metadata_resource_meta import ResourceMetadata
++
++    corpus = Path(__file__).resolve().parents[1] / 'fixtures/metadata_corpus_v1/candidates.json.gz'
++    with gzip.open(corpus, 'rt') as stream:
++        case = next(c for c in json.load(stream)['cases'] if c['id'] == '011c6d44-68cf-43a8-bad3-f0398ce20a95')
++    sample_channel.metadata_source = 'tmdb'
++    sample_channel.metadata_agent_enabled = True
++    collection = WorkCollection(title_cn='攻壳机动队')
++    db_session.add(collection)
++    await db_session.flush()
++    cid = collection.id
++    if existing_season is not None:
++        db_session.add(TVSeries(title_cn=collection.title_cn, season_number=existing_season,
++                                collection_id=cid, is_anime=True))
++    db_session.add(WorkExternalId(work_type='collection', work_id=cid,
++                                 source='tmdb', external_id='tmdb:90006484'))
++    resource = FileResource(channel_id=sample_channel.id, guid=str(uuid.uuid4()),
++                            title_raw=case['input']['title_raw'], torrent_url='', season=hint, episode=6)
++    db_session.add(resource)
++    if entry == 'pipeline':
++        from app.services.resource_publication import publish_resource
++        await db_session.flush()
++        await publish_resource(db_session, resource.id, kind='created')
++    await db_session.commit()
++    rid = resource.id
++    entity = {'title_cn': collection.title_cn, 'content_type': 'tv', 'external_source': 'tmdb',
++              'external_id': 'tmdb:90006484', 'is_anime': True}
++    payload = {'found': True, 'content_type': 'tv', 'clean_title': collection.title_cn, 'matched_entity': entity}
++    if entry == 'repository':
++        await _apply_to_resource(ResourceMetadata.from_dict(payload), resource, sample_channel, db_session)
++    else:
++        agent = UnifiedMetadataAgent()
++        agent._ensure_genre = AsyncMock()
++        agent._run_react = AsyncMock(return_value=(payload, {
++            'method': 'synthetic', 'data_sources_used': [], 'source_errors': {}, 'error': None,
++        }))
++        monkeypatch.setattr('app.services.metadata_agent._attach_tmdb_episode_list', AsyncMock())
++        if entry == 'cache':
++            await agent._set_cache(resource.title_raw, 'tmdb', ResourceMetadata.from_dict(payload), db_session)
++            await db_session.commit()
++        if entry == 'pipeline':
++            import asyncio
++
++            from app.services.fetch_service import _process_resource_metadata_once
++            monkeypatch.setattr('app.services.metadata_agent.get_agent', lambda: agent)
++            monkeypatch.setattr('app.services.torrent_inspect.ensure_torrent_cached', AsyncMock())
++            monkeypatch.setattr('app.services.torrent_inspect.maybe_inspect_torrent', AsyncMock())
++            await _process_resource_metadata_once(rid, sample_channel.id, asyncio.Semaphore(1), force_refresh=True)
++        else:
++            await agent.process(resource, sample_channel, db_session, force_refresh=entry != 'cache')
++        if entry == 'cache':
++            agent._run_react.assert_not_awaited()
++        else:
++            agent._run_react.assert_awaited_once()
++    await db_session.commit()
++    from app.database import async_session_factory
++    async with async_session_factory() as observer:
++        saved = await observer.get(FileResource, rid)
++        if entry == 'pipeline':
++            from app.models.resource_publication import ResourcePublication
++            published = (await observer.scalars(select(ResourcePublication).where(
++                ResourcePublication.resource_id == rid, ResourcePublication.kind == 'metadata'))).all()
++            assert len(published) == 1
++        works = (await observer.scalars(select(TVSeries).where(TVSeries.collection_id == cid))).all()
++        if hint is None:
++            assert saved.series_id is None and saved.movie_id is None
++            assert saved.collection_id == cid and saved.season is None
++            assert saved.episode_confidence == 'ambiguous'
++            assert len(works) == int(existing_season is not None)
++        else:
++            assert saved.series_id == works[0].id and saved.season == 3
++            assert len(works) == 1 and works[0].season_number == 3
++        identities = (await observer.scalars(select(WorkExternalId).where(
++            WorkExternalId.source == 'tmdb', WorkExternalId.external_id == 'tmdb:90006484'))).all()
++        assert [(r.work_type, r.work_id) for r in identities] == [('collection', cid)]
++
++
++@pytest.mark.parametrize('existing_work', [False, True])
++async def test_series_level_unknown_season_cannot_use_outer_defaults(db_session, existing_work):
++    """Missing season evidence cannot be replaced by fresh/one-title defaults."""
++    title = 'Synthetic undecided series-level candidate'
++    if existing_work:
++        collection = WorkCollection(title_cn='Synthetic differently named collection')
++        db_session.add(collection)
++        await db_session.flush()
++        db_session.add(TVSeries(title_cn=title, collection_id=collection.id,
++                                season_number=3, is_anime=False))
++    await db_session.commit()
++    selected = await create_or_update_series_from_external(db_session, {
++        'title_cn': title, 'content_type': 'tv', 'external_source': 'tmdb',
++        'external_id': 'tmdb:90006485', 'is_anime': False,
++    })
++    await db_session.commit()
++    assert selected is None, 'Series-level identity supplies no season number'
++    from app.database import async_session_factory
++    async with async_session_factory() as observer:
++        works = (await observer.scalars(select(TVSeries))).all()
++        assert len(works) == int(existing_work)
++        identities = (await observer.scalars(select(WorkExternalId).where(
++            WorkExternalId.source == 'tmdb', WorkExternalId.external_id == 'tmdb:90006485'))).all()
++        assert len(identities) == 1 and identities[0].work_type == 'collection'
++
++
++@pytest.mark.parametrize('existing_work', [False, True])
++async def test_season_identity_does_not_supply_season_number(db_session, existing_work):
++    """A synthetic Bangumi subject identifies a season, not its series ordinal."""
++    title = 'Synthetic ordinal-free season subject'
++    if existing_work:
++        collection = WorkCollection(title_cn='Synthetic differently named collection')
++        db_session.add(collection)
++        await db_session.flush()
++        db_session.add(TVSeries(title_cn=title, collection_id=collection.id,
++                                season_number=3, is_anime=False))
++    await db_session.commit()
++    selected = await create_or_update_series_from_external(db_session, {
++        'title_cn': title, 'content_type': 'tv', 'external_source': 'bangumi',
++        'external_id': 'bangumi:90006487', 'is_anime': False,
++    })
++    await db_session.commit()
++    assert selected is None, 'Season-granularity identity supplies no ordinal'
++    from app.database import async_session_factory
++    async with async_session_factory() as observer:
++        works = (await observer.scalars(select(TVSeries))).all()
++        assert len(works) == int(existing_work)
+--- a/tests/unit/test_external_ids.py
++++ b/tests/unit/test_external_ids.py
+@@ -143,5 +143,5 @@
+             "external_id": "wikipedia:7727654", "external_source": "wikipedia",
+             "title_cn": "黃泉使者", "content_type": "tv",
+-        })
++        }, season_hint=1)
+         assert s1.collection_id is not None
+         assert await _bag_pairs(db_session, "series", s1.id) == {
+@@ -156,5 +156,5 @@
+             "external_id": "tmdb:82684", "external_source": "tmdb",
+             "title_cn": "黃泉使者", "content_type": "tv",
+-        })
++        }, season_hint=1)
+         assert s2.id == s1.id
+         assert await _bag_pairs(db_session, "collection", s1.collection_id) == {
+@@ -167,9 +167,10 @@
+             "external_id": "tmdb:82684", "external_source": "tmdb",
+             "title_cn": "完全不同的标题", "content_type": "tv",
+-        })
++        }, season_hint=1)
+         assert s3.id == s1.id
+ 
+     all_series = (await db_session.execute(select(TVSeries))).scalars().all()
+     assert len(all_series) == 1
++
+ 
+ 
+@@ -194,5 +195,5 @@
+                 {"source": "not_a_registry", "id": "x"},          # skipped
+             ],
+-        })
++        }, season_hint=1)
+         assert await _bag_pairs(db_session, "series", s1.id) == {
+             ("wikipedia", "wikipedia:100#s1"),
+@@ -208,9 +209,10 @@
+             "external_id": "wikipedia:200", "external_source": "wikipedia",
+             "title_en": "Some Work EN", "content_type": "tv",
+-        })
++        }, season_hint=1)
+         assert s2.id == s1.id
+ 
+     all_series = (await db_session.execute(select(TVSeries))).scalars().all()
+     assert len(all_series) == 1
++
+ 
+ 
+@@ -318,5 +320,5 @@
+             "external_id": "wikipedia:1", "external_source": "wikipedia",
+             "title_cn": "剧集丙", "content_type": "tv",
+-        })
++        }, season_hint=1)
+     await db_session.commit()
+ 
+@@ -332,4 +334,5 @@
+         ("series", s.id, "wikipedia:1#s1"),
+     }
++
+ 
+ 
+--- a/tests/unit/test_franchise_service.py
++++ b/tests/unit/test_franchise_service.py
+@@ -85,4 +85,5 @@
+             "external_source": "tmdb",
+             "title_cn": title_cn,
++            "alt_titles": [f"{title_cn} Season 1"],
+         },
+     )
+@@ -446,4 +447,5 @@
+                 "external_source": "bangumi",
+                 "title_cn": title_cn,
++                "alt_titles": [f"{title_cn} Season 1"],
+             },
+         )
+@@ -715,8 +717,6 @@
+ 
+ 
+-async def test_unmarked_tv_member_goes_to_shell_not_pack_s1(db_session):
+-    """D1: a no-season-evidence TV member ("Initial D Battle Stage" via web
+-    fallback) keeps its own named shell + link; the true First Stage takes
+-    the pack's season-1 slot regardless of resolution order."""
++async def test_unmarked_tv_member_does_not_create_guessed_season(db_session):
++    """Unknown-season members cannot create S1; explicit First Stage still resolves."""
+     ch = await _channel(db_session, metadata_source="bangumi")
+     resource = _resource(ch.id, search_title="头文字D Initial D")
+@@ -747,24 +747,19 @@
+         for w in (await db_session.execute(select(TVSeries))).scalars().all()
+     }
+-    battle, first = works["mal:821"], works["bangumi:8290"]
+-    # The squatter candidate never enters the pack…
+-    assert battle.collection_id != pack.id
+-    shell = await db_session.get(WorkCollection, battle.collection_id)
+-    assert shell is not None and shell.external_source == "series_group"
+-    assert battle.season_number == 1  # its own shell's s1 work
+-    # …the true First Stage occupies (pack, s1) instead.
++    assert "mal:821" not in works
++    first = works["bangumi:8290"]
+     assert first.collection_id == pack.id
+     assert first.season_number == 1
+-    # The shell work is still linked to the resource.
++    # Identity-only evidence must not create a work or a dispatchable work link.
++    assert len(works) == 1
+     links = (await db_session.execute(
+         select(ResourceWorkLink).where(ResourceWorkLink.resource_id == resource.id)
+     )).scalars().all()
+-    assert battle.id in {link.series_id for link in links}
++    assert all(link.series_id in {None, first.id} for link in links)
+     assert resource.collection_id == pack.id
+ 
+ 
+-async def test_unmarked_base_name_member_takes_pack_s1(db_session):
+-    """D1: an unmarked title that IS the pack's base name ("头文字D" in the
+-    bilingual "头文字D Initial D") may still take the season-1 slot."""
++async def test_unmarked_base_name_member_does_not_imply_season_one(db_session):
++    """Matching the pack base name establishes identity, not a season number."""
+     ch = await _channel(db_session, metadata_source="bangumi")
+     resource = _resource(ch.id, search_title="头文字D Initial D")
+@@ -783,7 +778,8 @@
+         if c.external_source == FRANCHISE_PACK_SOURCE
+     )
+-    work = (await db_session.execute(select(TVSeries))).scalars().one()
+-    assert work.collection_id == pack.id
+-    assert work.season_number == 1
++    assert (await db_session.execute(select(TVSeries))).scalars().all() == []
++    assert (await db_session.execute(select(ResourceWorkLink))).scalars().all() == []
++    assert resource.collection_id == pack.id
++    assert resource.series_id is None
+ 
+ 
+--- a/tests/unit/test_genre_registry.py
++++ b/tests/unit/test_genre_registry.py
+@@ -135,7 +135,8 @@
+         return_value=None,
+     ):
+-        s = await ms.create_or_update_series_from_external(db_session, data)
++        s = await ms.create_or_update_series_from_external(db_session, data, season_hint=1)
+     await db_session.flush()
+     assert s.genre == ["Animation", "Drama"]
++
+ 
+ 
+--- a/tests/unit/test_metadata_service.py
++++ b/tests/unit/test_metadata_service.py
+@@ -379,5 +379,5 @@
+ async def test_manual_link_updates_existing_mapping(db_session, channel):
+     """Calling manual_link a second time updates the existing mapping row."""
+-    res = _resource(channel.id, title_raw="[G] Show 01")
++    res = _resource(channel.id, season=1, title_raw="[G] Show 01")
+     db_session.add(res)
+     await db_session.flush()
+@@ -427,5 +427,5 @@
+         "external_source": "llm_search",
+     }]
+-    res = _resource(channel.id, search_title="some new show")
++    res = _resource(channel.id, season=1, search_title="some new show")
+     db_session.add(res)
+     await db_session.flush()
+@@ -578,5 +578,5 @@
+         new_callable=AsyncMock, return_value=None,
+     ):
+-        s1 = await ms.create_or_update_series_from_external(db_session, data)
++        s1 = await ms.create_or_update_series_from_external(db_session, data, season_hint=1)
+     await db_session.flush()
+     # Update with new alias
+@@ -587,5 +587,5 @@
+         new_callable=AsyncMock, return_value=None,
+     ):
+-        s2 = await ms.create_or_update_series_from_external(db_session, data2)
++        s2 = await ms.create_or_update_series_from_external(db_session, data2, season_hint=1)
+     await db_session.flush()
+     assert s1.id == s2.id
+@@ -771,5 +771,5 @@
+             "external_id": "wikipedia:7727654",
+             "external_source": "wikipedia",
+-        })
++        }, season_hint=1)
+         await db_session.flush()
+ 
+@@ -781,5 +781,5 @@
+             "external_id": "wikipedia:70545449",
+             "external_source": "wikipedia",
+-        })
++        }, season_hint=1)
+         await db_session.flush()
+ 
+@@ -801,5 +801,5 @@
+             "external_id": "wikipedia:7727654",
+             "external_source": "wikipedia",
+-        })
++        }, season_hint=1)
+         await db_session.flush()
+ 
+@@ -810,5 +810,5 @@
+             "external_id": "wikipedia:70545449",
+             "external_source": "wikipedia",
+-        })
++        }, season_hint=1)
+         await db_session.flush()
+ 
+@@ -1389,5 +1389,5 @@
+         new_callable=AsyncMock, return_value=None,
+     ):
+-        updated = await ms.create_or_update_series_from_external(db_session, data)
++        updated = await ms.create_or_update_series_from_external(db_session, data, season_hint=1)
+     assert updated.id == work.id
+     assert updated.external_id == "tmdb:900"  # manual edit preserved
+@@ -2191,9 +2191,21 @@
+         work = await ms.create_or_update_series_from_external(db_session, {
+             "content_type": "tv", "title_cn": "剧集",
+-            "external_source": "llm_search", "external_id": "wikipedia:999",
++            "external_source": "tmdb", "external_id": "tmdb:90006486",
+             "number_of_seasons": 2,
+         })
+-    assert work is not None
+-    assert work.season_number == 1
++    # Neither candidate cardinality nor a multi-season count supplies a season.
++    assert work is None
++    await db_session.commit()
++    from sqlalchemy import select
++
++    from app.models.work_external_id import WorkExternalId
++
++    works = (await db_session.execute(select(TVSeries))).scalars().all()
++    assert sorted(row.season_number for row in works) == [1, 2]
++    identity = (await db_session.execute(select(WorkExternalId).where(
++        WorkExternalId.external_id == "tmdb:90006486",
++    ))).scalar_one()
++    assert identity.work_type == "collection"
++    assert await db_session.get(WorkCollection, identity.work_id) is not None
+ 
+ 
+@@ -2897,5 +2909,7 @@
+ 
+ 
+-async def test_series_upsert_creates_season_1_unverified_empty_collection(db_session):
++async def test_series_upsert_parks_unverified_empty_collection(db_session):
++    from sqlalchemy import select
++
+     from app.services.external_ids import add_external_id
+ 
+@@ -2912,7 +2926,14 @@
+             "external_id": "tmdb:778", "external_source": "tmdb",
+         })
+-    assert work is not None
+-    assert work.season_number == 1
+-    assert work.collection_id == coll.id
++    assert work is None
++    await db_session.commit()
++    from app.database import async_session_factory
++    from app.models.work_external_id import WorkExternalId
++    async with async_session_factory() as observer:
++        assert not (await observer.scalars(select(TVSeries).where(TVSeries.collection_id == coll.id))).all()
++        identity = (await observer.scalars(select(WorkExternalId).where(
++            WorkExternalId.source == "tmdb", WorkExternalId.external_id == "tmdb:778"
++        ))).one()
++        assert identity.work_type == "collection" and identity.work_id == coll.id
+ 
+ 
+--- a/tests/unit/test_per_season_upsert.py
++++ b/tests/unit/test_per_season_upsert.py
+@@ -11,4 +11,5 @@
+ from unittest.mock import AsyncMock, patch
+ 
++import pytest
+ from sqlalchemy import select
+ 
+@@ -274,6 +275,6 @@
+ 
+ 
+-async def test_series_level_id_single_member_collection_defaults_to_it(db_session):
+-    """No season hint + a collection with exactly one member → that member."""
++async def test_series_level_id_single_member_requires_season_evidence(db_session):
++    """An incomplete local collection does not prove the incoming season."""
+     with _no_poster():
+         w1 = await ms.create_or_update_series_from_external(
+@@ -283,6 +284,10 @@
+             db_session, _tmdb_multi_season_entity(), season_hint=None,
+         )
+-    assert w2 is not None
+-    assert w2.id == w1.id
++    assert w2 is None
++    works = await _series_rows(db_session)
++    assert [w.id for w in works] == [w1.id]
++    assert works[0].season_number == 3
++    collection = await ms.find_collection_for_entity(db_session, _tmdb_multi_season_entity())
++    assert collection.id == w1.collection_id
+ 
+ 
+@@ -354,5 +359,5 @@
+             "external_id": "245842",
+             "external_source": "tmdb",
+-        })
++        }, season_hint=1)
+         s3 = await ms.create_or_update_series_from_external(db_session, {
+             "content_type": "tv",
+@@ -377,5 +382,5 @@
+             "content_type": "tv", "title_cn": "某剧",
+             "external_id": "245842", "external_source": "tmdb",
+-        })
++        }, season_hint=1)
+         await ms.create_or_update_series_from_external(db_session, {
+             "content_type": "tv", "title_cn": "某剧 第二季",
+@@ -581,7 +586,7 @@
+ 
+ 
+-async def test_legacy_series_row_keeps_absorbing_series_level_id(db_session):
+-    """A pre-split row owning the tmdb primary converges as before (no new
+-    collection) until the season-split migration re-homes it."""
++@pytest.mark.parametrize("same_identity", [True, False])
++async def test_legacy_series_identity_reuse_requires_matching_identity(db_session, same_identity):
++    """Known legacy identity still resolves; another identity cannot guess a season."""
+     legacy = TVSeries(
+         id=_uuid(), title_cn="Legacy Show", content_type="tv",
+@@ -602,5 +607,5 @@
+                 "content_type": "tv",
+                 "title_en": "Legacy Show",
+-                "external_id": "82684-ish-unused",
++                "external_id": "tmdb:555" if same_identity else "tmdb:90007555",
+                 "external_source": "tmdb",
+                 "seasons": [{"season_number": 1, "episode_count": 12},
+@@ -609,10 +614,23 @@
+             season_hint=None,
+         )
+-    # Title fallback matched the legacy row (season unknown, all-S1-season set
+-    # does not apply here: the row's season_number defaults to 1 and it is the
+-    # single candidate).
+-    assert result is not None
+-    assert result.id == legacy.id
+-    assert await _collection_rows(db_session) == []
++    assert [w.id for w in await _series_rows(db_session)] == [legacy.id]
++    assert legacy.external_id == "tmdb:555"
++    assert legacy.number_of_seasons == 2
++    if same_identity:
++        assert result is not None and result.id == legacy.id
++        assert await _collection_rows(db_session) == []
++    else:
++        assert result is None
++        assert legacy.collection_id is None
++        collections = await _collection_rows(db_session)
++        assert len(collections) == 1
++        bag = list((await db_session.execute(
++            _bag_rows("collection", collections[0].id)
++        )).scalars().all())
++        assert {row.external_id for row in bag} == {"tmdb:90007555"}
++        legacy_bag = list((await db_session.execute(
++            _bag_rows("series", legacy.id)
++        )).scalars().all())
++        assert {row.external_id for row in legacy_bag} == {"tmdb:555"}
+ 
+ 
+--- a/tests/unit/test_wikipedia_content_integration.py
++++ b/tests/unit/test_wikipedia_content_integration.py
+@@ -244,5 +244,5 @@
+             number_of_seasons=2,
+             episode_list=ep_list_v2,
+-        )
++        ), season_hint=s.season_number,
+     )
+     assert s2.id == s.id
+@@ -257,5 +257,5 @@
+ 
+ async def test_upsert_episodes_idempotent(db_session):
+-    s = await ms.create_or_update_series_from_external(db_session, _wiki_entity())
++    s = await ms.create_or_update_series_from_external(db_session, _wiki_entity(), season_hint=1)
+     ep_list = [{"season": 1, "episode": 1, "title": "甲", "air_date": "2024-01-01"}]
+     n1 = await ms.upsert_episodes(db_session, s, ep_list)
+@@ -266,5 +266,5 @@
+ 
+ async def test_upsert_episodes_skips_incomplete_entries(db_session):
+-    s = await ms.create_or_update_series_from_external(db_session, _wiki_entity())
++    s = await ms.create_or_update_series_from_external(db_session, _wiki_entity(), season_hint=1)
+     n = await ms.upsert_episodes(db_session, s, [
+         {"season": None, "episode": 1},

@@ -1,0 +1,107 @@
+--- a/tests/unit/test_per_season_upsert.py
++++ b/tests/unit/test_per_season_upsert.py
+@@ -10,6 +10,7 @@
+ from types import SimpleNamespace
+ from unittest.mock import AsyncMock, patch
+ 
++import pytest
+ from sqlalchemy import select
+ 
+ from app.models.episode import Episode
+@@ -273,8 +274,8 @@
+     assert work.external_id == "wikipedia:zh:5659657#s2"
+ 
+ 
+-async def test_series_level_id_single_member_collection_defaults_to_it(db_session):
+-    """No season hint + a collection with exactly one member → that member."""
++async def test_series_level_id_single_member_requires_season_evidence(db_session):
++    """An incomplete local collection does not prove the incoming season."""
+     with _no_poster():
+         w1 = await ms.create_or_update_series_from_external(
+             db_session, _tmdb_multi_season_entity(), season_hint=3,
+@@ -282,8 +283,12 @@
+         w2 = await ms.create_or_update_series_from_external(
+             db_session, _tmdb_multi_season_entity(), season_hint=None,
+         )
+-    assert w2 is not None
+-    assert w2.id == w1.id
++    assert w2 is None
++    works = await _series_rows(db_session)
++    assert [w.id for w in works] == [w1.id]
++    assert works[0].season_number == 3
++    collection = await ms.find_collection_for_entity(db_session, _tmdb_multi_season_entity())
++    assert collection.id == w1.collection_id
+ 
+ 
+ async def test_indeterminate_season_parks_on_collection(db_session):
+@@ -353,7 +358,7 @@
+             "title_cn": "某剧",
+             "external_id": "245842",
+             "external_source": "tmdb",
+-        })
++        }, season_hint=1)
+         s3 = await ms.create_or_update_series_from_external(db_session, {
+             "content_type": "tv",
+             "title_cn": "某剧 第三季",
+@@ -376,7 +381,7 @@
+         s1 = await ms.create_or_update_series_from_external(db_session, {
+             "content_type": "tv", "title_cn": "某剧",
+             "external_id": "245842", "external_source": "tmdb",
+-        })
++        }, season_hint=1)
+         await ms.create_or_update_series_from_external(db_session, {
+             "content_type": "tv", "title_cn": "某剧 第二季",
+             "external_id": "245842", "external_source": "tmdb",
+@@ -580,9 +585,9 @@
+ # ---------------------------------------------------------------------------
+ 
+ 
+-async def test_legacy_series_row_keeps_absorbing_series_level_id(db_session):
+-    """A pre-split row owning the tmdb primary converges as before (no new
+-    collection) until the season-split migration re-homes it."""
++@pytest.mark.parametrize("same_identity", [True, False])
++async def test_legacy_series_identity_reuse_requires_matching_identity(db_session, same_identity):
++    """Known legacy identity still resolves; another identity cannot guess a season."""
+     legacy = TVSeries(
+         id=_uuid(), title_cn="Legacy Show", content_type="tv",
+         external_id="tmdb:555", external_source="tmdb",
+@@ -601,19 +606,32 @@
+             {
+                 "content_type": "tv",
+                 "title_en": "Legacy Show",
+-                "external_id": "82684-ish-unused",
++                "external_id": "tmdb:555" if same_identity else "tmdb:90007555",
+                 "external_source": "tmdb",
+                 "seasons": [{"season_number": 1, "episode_count": 12},
+                             {"season_number": 2, "episode_count": 12}],
+             },
+             season_hint=None,
+         )
+-    # Title fallback matched the legacy row (season unknown, all-S1-season set
+-    # does not apply here: the row's season_number defaults to 1 and it is the
+-    # single candidate).
+-    assert result is not None
+-    assert result.id == legacy.id
+-    assert await _collection_rows(db_session) == []
++    assert [w.id for w in await _series_rows(db_session)] == [legacy.id]
++    assert legacy.external_id == "tmdb:555"
++    assert legacy.number_of_seasons == 2
++    if same_identity:
++        assert result is not None and result.id == legacy.id
++        assert await _collection_rows(db_session) == []
++    else:
++        assert result is None
++        assert legacy.collection_id is None
++        collections = await _collection_rows(db_session)
++        assert len(collections) == 1
++        bag = list((await db_session.execute(
++            _bag_rows("collection", collections[0].id)
++        )).scalars().all())
++        assert {row.external_id for row in bag} == {"tmdb:90007555"}
++        legacy_bag = list((await db_session.execute(
++            _bag_rows("series", legacy.id)
++        )).scalars().all())
++        assert {row.external_id for row in legacy_bag} == {"tmdb:555"}
+ 
+ 
+ # ---------------------------------------------------------------------------

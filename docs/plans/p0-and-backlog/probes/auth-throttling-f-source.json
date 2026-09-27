@@ -1,0 +1,38 @@
+{
+  "prototype": "/tmp/rssripple-v18-auth-limit",
+  "base_runtime_commit": "a8a09bd",
+  "files": {
+    "app/models/auth_rate_limit.py": "0719afcc55b135c7fe42854c7c72b879eb9370dce8297e24f3c0116f89d6f06d",
+    "app/models/__init__.py": "34467b58212f9dcf1edf911cdba3494b3cac63cab04393c211bab49a0954ee43",
+    "app/services/auth_rate_limit.py": "23fb9e2f986bddb7a7f8cdc64f04519054e5d3178453464f84b94baddc0e1da7",
+    "app/api/v1/auth.py": "6063b7a6d7fc28e0333fea6a1745229c9a7177cf97675660757bbe5175211ce8",
+    "app/main.py": "9cc9da3db2bcd0d145c7a9123d4f9a5f68acd774dbe7e6b6e925d7f1c55458a2",
+    "tests/api/test_auth_throttling.py": "7c42f8c7b4522a198579811b9f21318ffe580df2dbc83b73ee815a3aa7522b19",
+    "tests/unit/test_auth_rate_limit.py": "50cdbc45b608a87ea6fba5db5a4b21c0993b641c3080e464bd2b86a3c94a6a7b",
+    "tests/integration/auth/__init__.py": "e7f1824e88e4370a8d0ae1206c3556de33b56c96daf9da696cf3e1da3f6f9ccb",
+    "tests/integration/auth/rate_limit_driver.py": "3b5b9a924ee723e7856cfee1c7ecb8ef94f5a49d846e99cb6d9183dfe6fea488",
+    "tests/integration/auth/test_rate_limit.py": "75caedc111b3864360bb67ee80a7fed32667cbeca3caf08d81dc1d137dee7547",
+    "docs/design/data-models.md": "b055584eaa3927fb2753f4ba1aacf216db2d6204c75fcb5704e9f1b9761a95af",
+    "docs/design/api-endpoints.md": "c22ec13fb2626f9c414fbd0c942cb63768197c7f3686588654bb81fae6899f09",
+    "docs/design/error-handling.md": "f49395ac467af2d0168f84d2846a5196be70a1410477dbfa250a6b8357b53f2b",
+    "docs/design/conventions.md": "328c430434f1eeae05a759550dd9a87759aeb106f419f2bb7137ec5b218858e2",
+    "docs/design/db-migration.md": "881860af3e46caa903b927e99b950877bf882c6a176adaebb762344642cfd8f8",
+    "docs/testing/integration-inventory.md": "5d561793e26df2d2193731be8ec83cee8a98b023a76418be84ae048d0f1aed48"
+  },
+  "status": "focused regression passed; full gates not run; not merged",
+  "session": 84504,
+  "log": "/tmp/rssripple-v18-f.log",
+  "result": {
+    "total": 101,
+    "passed": 98,
+    "failures": [],
+    "errors": [],
+    "skipped": {
+      "tests.unit.test_database_migrations::test_create_tables_postgres_path": "PostgreSQL unavailable: ConnectionRefusedError(111, \"Connect call failed ('127.0.0.1', 5432)\")",
+      "tests.unit.test_database_migrations::test_light_migrations_postgres_legacy_shapes": "PostgreSQL unavailable: ConnectionRefusedError(111, \"Connect call failed ('127.0.0.1', 5432)\")",
+      "tests.unit.test_database_migrations::test_light_migrations_postgres_legacy_delivery_columns_nullable": "PostgreSQL unavailable: ConnectionRefusedError(111, \"Connect call failed ('127.0.0.1', 5432)\")"
+    },
+    "seconds": 103.53,
+    "exit_code": 0
+  }
+}

@@ -1,0 +1,565 @@
+--- /dev/null
++++ b/app/models/auth_rate_limit.py
+@@ -0,0 +1,19 @@
++"""Persistent OTP attempt budgets shared by all web processes."""
++
++import uuid
++from datetime import datetime
++
++from sqlalchemy import CheckConstraint, DateTime, Integer, String
++from sqlalchemy.orm import Mapped, mapped_column
++
++from app.database import Base
++
++
++class AuthRateLimitBucket(Base):
++    __tablename__ = "auth_rate_limit_buckets"
++    __table_args__ = (CheckConstraint("attempts >= 1", name="ck_auth_budget_positive"),)
++
++    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
++    bucket_key: Mapped[str] = mapped_column(String(72), unique=True, nullable=False)
++    attempts: Mapped[int] = mapped_column(Integer, nullable=False)
++    resets_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+--- a/app/models/__init__.py
++++ b/app/models/__init__.py
+@@ -11,4 +11,5 @@
+ from app.models.app_setting import AppSetting
+ from app.models.audio_work import AudioWork
++from app.models.auth_rate_limit import AuthRateLimitBucket
+ from app.models.channel import Channel
+ from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
+@@ -45,4 +46,5 @@
+ 
+ __all__ = [
++    "AuthRateLimitBucket",
+     "AgentPublicationProgress",
+     "ChannelPublicationCounter",
+--- /dev/null
++++ b/app/services/auth_rate_limit.py
+@@ -0,0 +1,71 @@
++"""Reserve an OTP attempt before any secret verification, in a short transaction."""
++
++import hashlib
++import math
++import uuid
++from datetime import datetime, timedelta
++
++from sqlalchemy import case, delete, or_, select
++from sqlalchemy.dialects.postgresql import insert as pg_insert
++from sqlalchemy.dialects.sqlite import insert as sqlite_insert
++from sqlalchemy.ext.asyncio import AsyncSession
++
++from app import database
++from app.models.auth_rate_limit import AuthRateLimitBucket
++from app.utils.time import utcnow
++
++PEER_LIMIT = 5
++GLOBAL_LIMIT = 30
++WINDOW_SECONDS = 60
++
++
++async def _reserve(db: AsyncSession, key: str, limit: int, now: datetime) -> int:
++    """Return zero for a reservation, or seconds until the current budget resets."""
++    bucket = AuthRateLimitBucket
++    insert = pg_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
++    expired = bucket.resets_at <= now
++    deadline = now + timedelta(seconds=WINDOW_SECONDS)
++    statement = insert(bucket).values(
++        id=str(uuid.uuid4()), bucket_key=key, attempts=1, resets_at=deadline,
++    ).on_conflict_do_update(
++        index_elements=[bucket.bucket_key],
++        set_={
++            "attempts": case((expired, 1), else_=bucket.attempts + 1),
++            "resets_at": case((expired, deadline), else_=bucket.resets_at),
++        },
++        where=or_(expired, bucket.attempts < limit),
++    ).returning(bucket.id)
++    if (await db.execute(statement)).scalar_one_or_none() is not None:
++        return 0
++    reset = (await db.execute(
++        select(bucket.resets_at).where(bucket.bucket_key == key)
++    )).scalar_one()
++    return max(1, math.ceil((reset - now).total_seconds()))
++
++
++async def reserve_otp_attempt(peer: str) -> int:
++    """Commit budgets even when the later OTP verification fails.
++
++    Every validated request consumes global budget, including peer denials.
++    Global denial creates no peer row; cleanup is bounded and never removes
++    active windows. Database errors propagate so verification fails closed.
++    """
++    key = "peer:" + hashlib.sha256(peer.encode()).hexdigest()
++
++    async def reserve_transaction() -> int:
++        now = utcnow()
++        async with database.async_session_factory() as db, db.begin():
++            retry_after = await _reserve(db, "global", GLOBAL_LIMIT, now)
++            if retry_after:
++                return retry_after
++            expired_ids = select(AuthRateLimitBucket.id).where(
++                AuthRateLimitBucket.resets_at <= now,
++                AuthRateLimitBucket.bucket_key != "global",
++            ).order_by(AuthRateLimitBucket.resets_at, AuthRateLimitBucket.id).limit(100)
++            await db.execute(delete(AuthRateLimitBucket).where(
++                AuthRateLimitBucket.id.in_(expired_ids),
++                AuthRateLimitBucket.resets_at <= now,
++            ))
++            return await _reserve(db, key, PEER_LIMIT, now)
++
++    return await database.retry_on_lock(reserve_transaction)
+--- a/app/api/v1/auth.py
++++ b/app/api/v1/auth.py
+@@ -14,4 +14,5 @@
+ from app.schemas.auth import AuthStatusResponse, OTPRequest
+ from app.schemas.common import success_response
++from app.services.auth_rate_limit import reserve_otp_attempt
+ from app.services.auth_service import (
+     AUTH_COOKIE_NAME,
+@@ -54,8 +55,17 @@
+ async def auth_otp(
+     body: OTPRequest,
++    request: Request,
+     response: Response,
+     db: AsyncSession = Depends(get_db),
+ ):
+     """Verify a TOTP code and issue a session cookie on success."""
++    peer = request.client.host if request.client else "unknown"
++    retry_after = await reserve_otp_attempt(peer)
++    if retry_after:
++        raise HTTPException(
++            status_code=429,
++            detail={"code": "RATE_LIMITED", "message": "too many OTP attempts"},
++            headers={"Retry-After": str(retry_after)},
++        )
+     totp_secret = await get_or_create_totp_secret(db)
+     if not verify_totp(totp_secret, body.code.strip()):
+--- a/app/main.py
++++ b/app/main.py
+@@ -188,4 +188,5 @@
+     return JSONResponse(
+         status_code=exc.status_code,
++        headers=exc.headers,
+         content={
+             "success": False,
+--- /dev/null
++++ b/tests/api/test_auth_throttling.py
+@@ -0,0 +1,96 @@
++"""Local ASGI necessity probe; no production secret or network requests."""
++from tests.api import test_auth
++
++auth_client = test_auth.auth_client
++
++
++async def test_repeated_invalid_otp_is_bounded(auth_client, monkeypatch):
++    calls = []
++
++    def reject(secret, code):
++        calls.append(code)
++        return False
++
++    monkeypatch.setattr("app.api.v1.auth.verify_totp", reject)
++    responses = [await auth_client.post("/api/v1/auth/otp", json={"code": "000000"})
++                 for _ in range(20)]
++    assert any(r.status_code == 429 for r in responses), {
++        "statuses": [r.status_code for r in responses], "verification_calls": len(calls),
++    }
++    assert len(calls) < 20
++
++
++async def test_budget_survives_401_and_returns_retry_after(auth_client, monkeypatch):
++    from datetime import datetime, timedelta
++
++    now = datetime(2026, 9, 23, 12)
++    monkeypatch.setattr("app.services.auth_rate_limit.utcnow", lambda: now)
++    monkeypatch.setattr("app.api.v1.auth.verify_totp", lambda *_: False)
++    for _ in range(5):
++        assert (await auth_client.post("/api/v1/auth/otp", json={"code": "000000"})).status_code == 401
++    now += timedelta(seconds=20)
++    denied = await auth_client.post("/api/v1/auth/otp", json={"code": "000000"})
++    assert denied.status_code == 429
++    assert denied.headers["Retry-After"] == "40"
++    assert denied.json()["error"]["code"] == "RATE_LIMITED"
++    now += timedelta(seconds=40)
++    assert (await auth_client.post("/api/v1/auth/otp", json={"code": "000000"})).status_code == 401
++
++
++async def test_forged_forwarded_header_does_not_reset_budget(auth_client, monkeypatch):
++    monkeypatch.setattr("app.api.v1.auth.verify_totp", lambda *_: False)
++    statuses = []
++    for i in range(6):
++        response = await auth_client.post(
++            "/api/v1/auth/otp", json={"code": "000000"},
++            headers={"X-Forwarded-For": f"192.0.2.{i + 1}"},
++        )
++        statuses.append(response.status_code)
++    assert statuses == [401] * 5 + [429]
++    assert (await auth_client.get("/api/v1/auth/status")).status_code == 200
++    assert (await auth_client.post("/api/v1/auth/logout")).status_code == 200
++
++
++async def test_successful_codes_also_consume_budget(auth_client, db_session):
++    import pyotp
++
++    from app.services.auth_service import AUTH_COOKIE_NAME, get_or_create_totp_secret
++
++    secret = await get_or_create_totp_secret(db_session)
++    await db_session.commit()
++    for _ in range(5):
++        response = await auth_client.post("/api/v1/auth/otp", json={"code": pyotp.TOTP(secret).now()})
++        assert response.status_code == 200
++        assert AUTH_COOKIE_NAME in response.cookies
++        assert "HttpOnly" in response.headers["set-cookie"]
++    denied = await auth_client.post("/api/v1/auth/otp", json={"code": pyotp.TOTP(secret).now()})
++    assert denied.status_code == 429
++    assert "set-cookie" not in denied.headers
++
++
++async def test_schema_rejections_do_not_consume_verification_budget(auth_client, monkeypatch):
++    monkeypatch.setattr("app.api.v1.auth.verify_totp", lambda *_: False)
++    for _ in range(6):
++        assert (await auth_client.post("/api/v1/auth/otp", json={"code": {}})).status_code == 422
++    assert (await auth_client.post("/api/v1/auth/otp", json={"code": "not-six-digits"})).status_code == 401
++
++
++async def test_database_failure_never_verifies_otp(auth_client, db_session_factory, monkeypatch):
++    from unittest.mock import Mock
++
++    from httpx import ASGITransport, AsyncClient
++
++    from tests.api.conftest import _build_test_app
++
++    verification = Mock(return_value=True)
++    monkeypatch.setattr("app.api.v1.auth.verify_totp", verification)
++    monkeypatch.setattr("app.database.async_session_factory", Mock(side_effect=RuntimeError("budget unavailable")))
++    app = _build_test_app(db_session_factory, with_auth=True)
++    async with AsyncClient(
++        transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://test",
++    ) as client:
++        response = await client.post("/api/v1/auth/otp", json={"code": "000000"})
++    assert response.status_code == 500
++    assert response.json()["error"]["code"] == "INTERNAL_SERVER_ERROR"
++    assert "set-cookie" not in response.headers
++    verification.assert_not_called()
+--- /dev/null
++++ b/tests/unit/test_auth_rate_limit.py
+@@ -0,0 +1,85 @@
++"""Real database reservations; peer addresses and clocks are synthetic."""
++
++import asyncio
++from datetime import datetime, timedelta
++from unittest.mock import Mock
++
++import pytest
++from sqlalchemy import select
++
++from app import database
++from app.models.auth_rate_limit import AuthRateLimitBucket
++from app.services import auth_rate_limit as limiter
++
++
++async def test_concurrent_sessions_cannot_exceed_peer_budget(db_engine):
++    results = await asyncio.gather(*(limiter.reserve_otp_attempt("192.0.2.1") for _ in range(12)))
++    assert results.count(0) == 5
++    assert all(result > 0 for result in results if result != 0)
++    async with database.async_session_factory() as db:
++        rows = (await db.execute(select(AuthRateLimitBucket))).scalars().all()
++        assert sorted(row.attempts for row in rows) == [5, 12]
++
++
++async def test_rotating_peers_hit_global_budget_and_expired_rows_are_removed(db_engine, monkeypatch):
++    now = datetime(2026, 9, 23, 12)
++    monkeypatch.setattr(limiter, "utcnow", lambda: now)
++    results = [await limiter.reserve_otp_attempt(f"192.0.2.{i}") for i in range(40)]
++    assert results == [0] * 30 + [60] * 10
++    async with database.async_session_factory() as db:
++        rows = (await db.execute(select(AuthRateLimitBucket))).scalars().all()
++        assert len(rows) == 31
++        assert all("192.0.2" not in row.bucket_key for row in rows)
++    now += timedelta(seconds=60)
++    assert await limiter.reserve_otp_attempt("192.0.2.100") == 0
++    async with database.async_session_factory() as db:
++        rows = (await db.execute(select(AuthRateLimitBucket))).scalars().all()
++        assert len(rows) == 2
++        assert all(row.attempts == 1 for row in rows)
++
++
++async def test_unavailable_database_cannot_allow_reservation(monkeypatch):
++    monkeypatch.setattr(database, "async_session_factory", Mock(side_effect=RuntimeError("test database down")))
++    with pytest.raises(RuntimeError, match="test database down"):
++        await limiter.reserve_otp_attempt("192.0.2.1")
++
++
++async def test_existing_database_addition_is_idempotent_and_preserves_settings(db_engine):
++    from app.models.app_setting import AppSetting
++
++    async with database.async_session_factory() as db, db.begin():
++        db.add(AppSetting(key="auth-limit-test", value="preserved"))
++    async with db_engine.begin() as connection:
++        await connection.run_sync(AuthRateLimitBucket.__table__.drop)
++        await connection.run_sync(database.Base.metadata.create_all)
++        await connection.run_sync(database.Base.metadata.create_all)
++    assert await limiter.reserve_otp_attempt("192.0.2.1") == 0
++    async with database.async_session_factory() as db:
++        assert (await db.get(AppSetting, "auth-limit-test")).value == "preserved"
++
++
++async def test_new_connections_preserve_exhausted_budget(db_engine, monkeypatch):
++    monkeypatch.setattr(limiter, "utcnow", lambda: datetime(2026, 9, 23, 12))
++    for _ in range(5):
++        assert await limiter.reserve_otp_attempt("192.0.2.1") == 0
++    await db_engine.dispose()
++    assert await limiter.reserve_otp_attempt("192.0.2.1") == 60
++
++
++async def test_cleanup_is_bounded_and_keeps_active_peer(db_engine, monkeypatch):
++    now = datetime(2026, 9, 23, 12)
++    monkeypatch.setattr(limiter, "utcnow", lambda: now)
++    async with database.async_session_factory() as db, db.begin():
++        db.add_all([
++            AuthRateLimitBucket(bucket_key=f"peer:expired-{index}", attempts=1,
++                                resets_at=now - timedelta(seconds=1))
++            for index in range(105)
++        ])
++        db.add(AuthRateLimitBucket(bucket_key="peer:active", attempts=5,
++                                  resets_at=now + timedelta(seconds=30)))
++    assert await limiter.reserve_otp_attempt("192.0.2.1") == 0
++    async with database.async_session_factory() as db:
++        rows = (await db.execute(select(AuthRateLimitBucket))).scalars().all()
++        assert len(rows) == 8
++        assert sum(row.resets_at <= now for row in rows) == 5
++        assert next(row.attempts for row in rows if row.bucket_key == "peer:active") == 5
+--- /dev/null
++++ b/tests/integration/auth/__init__.py
+@@ -0,0 +1 @@
++"""Authentication integration gates."""
+--- /dev/null
++++ b/tests/integration/auth/rate_limit_driver.py
+@@ -0,0 +1,127 @@
++"""Isolated PostgreSQL cross-process OTP budget probe; synthetic peers only."""
++
++import asyncio
++import json
++import os
++import sys
++import time
++from datetime import datetime, timedelta
++from pathlib import Path
++from urllib.parse import urlsplit
++
++from sqlalchemy import delete, select
++
++import app.models  # noqa: F401
++from app import database
++from app.models.app_setting import AppSetting
++from app.models.auth_rate_limit import AuthRateLimitBucket
++from app.services import auth_rate_limit as limiter
++
++FIXED_NOW = datetime(2026, 9, 23, 12)
++
++
++def validate_database():
++    url = os.environ["AUTH_LIMIT_DATABASE_URL"]
++    assert url == os.environ["DATABASE_URL"]
++    assert urlsplit(url).path.startswith("/auth_limit_")
++    limiter.utcnow = lambda: FIXED_NOW
++
++
++async def wait_file(path: Path):
++    deadline = time.monotonic() + 30
++    while not path.exists():
++        if time.monotonic() > deadline:
++            raise TimeoutError(f"Test barrier not released: {path.name}")
++        await asyncio.sleep(0.02)
++
++
++async def worker(mode: str, index: int, directory: Path):
++    (directory / f"ready-{index}").touch()
++    await wait_file(directory / "go")
++    count = 3 if mode == "peer" else 10
++    results = []
++    for attempt in range(count):
++        peer = "192.0.2.1" if mode == "peer" else f"192.0.{index}.{attempt}"
++        results.append(await limiter.reserve_otp_attempt(peer))
++    print(json.dumps(results))
++
++
++async def concurrent_round(mode: str, directory: Path):
++    directory.mkdir()
++    processes = []
++    try:
++        for index in range(4):
++            processes.append(await asyncio.create_subprocess_exec(
++                sys.executable, "-m", "tests.integration.auth.rate_limit_driver",
++                mode, str(index), str(directory),
++                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
++            ))
++        await asyncio.gather(*(wait_file(directory / f"ready-{index}") for index in range(4)))
++        (directory / "go").touch()
++        results = []
++        for process in processes:
++            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
++            assert process.returncode == 0, stderr.decode()
++            results.extend(json.loads(stdout))
++        return results
++    finally:
++        for process in processes:
++            if process.returncode is None:
++                process.kill()
++                await process.wait()
++
++
++async def coordinator():
++    output = Path(os.environ["AUTH_LIMIT_RESULT"])
++    # Simulate an existing database, then add the new table through create_all.
++    async with database.engine.begin() as connection:
++        await connection.run_sync(AppSetting.__table__.create)
++    async with database.async_session_factory() as db, db.begin():
++        db.add(AppSetting(key="test-preserved", value="not-a-secret"))
++    async with database.engine.begin() as connection:
++        await connection.run_sync(database.Base.metadata.create_all)
++        await connection.run_sync(database.Base.metadata.create_all)
++    async with database.async_session_factory() as db:
++        assert (await db.get(AppSetting, "test-preserved")).value == "not-a-secret"
++    peer = await concurrent_round("peer", output.parent / "peer")
++    assert peer.count(0) == 5, peer
++    assert len(peer) == 12
++    async with database.async_session_factory() as db, db.begin():
++        rows = (await db.execute(select(AuthRateLimitBucket))).scalars().all()
++        assert sorted(row.attempts for row in rows) == [5, 12]
++        await db.execute(delete(AuthRateLimitBucket))
++    global_budget = await concurrent_round("global", output.parent / "global")
++    assert global_budget.count(0) == 30, global_budget
++    assert len(global_budget) == 40
++    # All reserving processes have exited; a new session still sees the denial.
++    await database.engine.dispose()
++    assert await limiter.reserve_otp_attempt("192.0.2.250") == 60
++    async with database.async_session_factory() as db:
++        rows = (await db.execute(select(AuthRateLimitBucket))).scalars().all()
++        assert len(rows) == 31
++    limiter.utcnow = lambda: FIXED_NOW + timedelta(seconds=60)
++    assert await limiter.reserve_otp_attempt("192.0.2.250") == 0
++    async with database.async_session_factory() as db:
++        rows = (await db.execute(select(AuthRateLimitBucket))).scalars().all()
++        assert len(rows) == 2
++        assert all(row.attempts == 1 for row in rows)
++    output.write_text(json.dumps({"cases": [
++        "existing-schema-idempotent-addition", "four-process-peer-budget",
++        "four-process-global-budget", "budget-survives-process-exit",
++        "expired-budget-recovers-and-cleans-up",
++    ]}, indent=2))
++
++
++async def main():
++    validate_database()
++    try:
++        if len(sys.argv) == 4:
++            await worker(sys.argv[1], int(sys.argv[2]), Path(sys.argv[3]))
++        else:
++            await coordinator()
++    finally:
++        await database.engine.dispose()
++
++
++if __name__ == "__main__":
++    asyncio.run(main())
+--- /dev/null
++++ b/tests/integration/auth/test_rate_limit.py
+@@ -0,0 +1,43 @@
++"""Required PostgreSQL counterpart of Turso OTP budget tests."""
++
++import asyncio
++import json
++import os
++import subprocess
++import sys
++import uuid
++from pathlib import Path
++from urllib.parse import urlsplit, urlunsplit
++
++import asyncpg
++import pytest
++
++
++async def test_otp_rate_limit_postgres(tmp_path):
++    url = os.environ.get("QUEUE_RECOVERY_POSTGRES_URL")
++    if not url:
++        if os.environ.get("QUEUE_RECOVERY_REQUIRED") == "1":
++            pytest.fail("OTP budget gate requires dedicated PostgreSQL")
++        pytest.skip("Run the isolated integration gate for PostgreSQL")
++    parts = urlsplit(url)
++    assert parts.path == "/queue_recovery"
++    name = "auth_limit_" + uuid.uuid4().hex
++    admin = await asyncpg.connect(url)
++    try:
++        await admin.execute(f'CREATE DATABASE "{name}"')
++        output = tmp_path / "result.json"
++        db_url = urlunsplit(parts._replace(scheme="postgresql+asyncpg", path="/" + name))
++        env = dict(os.environ, DATABASE_URL=db_url, AUTH_LIMIT_DATABASE_URL=db_url,
++                   AUTH_LIMIT_RESULT=str(output))
++        result = await asyncio.to_thread(
++            subprocess.run,
++            [sys.executable, "-m", "tests.integration.auth.rate_limit_driver"],
++            cwd=Path(__file__).resolve().parents[3], env=env,
++            capture_output=True, text=True, timeout=120,
++        )
++        (tmp_path / "driver.log").write_text(result.stdout + result.stderr)
++        assert result.returncode == 0, result.stdout + result.stderr
++        assert len(json.loads(output.read_text())["cases"]) == 5
++    finally:
++        await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
++        await admin.close()
+--- a/docs/design/data-models.md
++++ b/docs/design/data-models.md
+@@ -858,2 +858,6 @@
+ 
+ `WebhookDelivery.attempt_token` 为 nullable String(36)，表示当前发送尝试/失效代次；旧行 NULL 可被首次条件领取。发送、人工重试及快照更新均更换 UUID，结果按 id/token/pending 条件写入。
++
++## OTP 请求额度（auth_rate_limit_buckets）
++
++AuthRateLimitBucket 使用 UUID v4 主键；bucket_key 为唯一 String(72)，global 为全局桶，peer: 后接服务器解析来源地址的 SHA-256。attempts 为正整数；resets_at 为 UTC DateTime 并建索引。表不保存验证码或密钥。全局及来源的条件 upsert 在同一短事务中完成，提交后才执行 OTP 验证；验证失败不得回滚额度。过期来源桶按 resets_at/id 排序每次最多删除 100 行。
+--- a/docs/design/api-endpoints.md
++++ b/docs/design/api-endpoints.md
+@@ -537,2 +537,6 @@
+ 
+ 指定时间运行按 `created_at > scan_since` 选择，null 表示全历史；处理前持久化可恢复范围，失败后普通增量可补偿，成功只确认开始时发布前缀。显式回填重置优先于旧扫描确认。显式资源修订请求继续使用独立 B9 持久请求，不受普通历史排除影响。
++
++### OTP 请求额度与 429
++
++POST /api/v1/auth/otp 在验证码验证前预留持久额度：每来源 5 次/60 秒，全局 30 次/60 秒。窗口从首次预留开始；到期重置，不因拒绝延长。成功登录和验证失败均计数，来源超限的请求也计入全局额度；全局拒绝不新增来源桶。超过任一额度返回 429，error.code=RATE_LIMITED，Retry-After 为至少 1 的剩余秒数，不签发 Cookie。通过 OTPRequest 校验的字符串都计数；schema 错误直接 422，不执行 OTP 验证或预留。GET /auth/status、POST /auth/logout 不受该额度限制。
+--- a/docs/design/error-handling.md
++++ b/docs/design/error-handling.md
+@@ -63,2 +63,6 @@
+ ---
+ 
++
++### RATE_LIMITED（429）
++
++OTP 尝试超出持久化来源或全局额度时返回统一错误结构，code 为 RATE_LIMITED，并携带 Retry-After（秒）。HTTP 异常处理器保留 exc.headers；401 仍表示验证码错误。额度数据库故障按既有 500 处理，不绕过额度继续认证。
+--- a/docs/design/conventions.md
++++ b/docs/design/conventions.md
+@@ -51,2 +51,6 @@
+ 
+ 运行配置刷新：load_runtime_config 在完整读取 app_settings 成功后才以无 await 的连续更新替换进程内配置，数据库等待或读取失败期间保留上一份有效值；禁止先清空覆盖项再等待数据库，否则并发请求会短暂退回环境默认模型/凭据。该约束不等同于跨进程实时同步，也不解决旧事务快照的顺序问题。
++
++### OTP 限流与代理来源
++
++OTP 额度由数据库共享并跨 web 进程持久化，适用于 PostgreSQL 分布式及 Turso 单进程部署。来源使用 ASGI request.client.host；应用不解析请求自带 X-Forwarded-For。反向代理部署必须把服务器 forwarded-allow-ips 限定为可信代理地址，禁止允许任意客户端；若服务器不接受代理来源，代理后的请求会共享来源额度。全局 30 次/60 秒是轮换来源的后盾，每来源 5 次/60 秒。全局上限可被主动请求耗尽，属于单管理员登录的可用性权衡；已登录会话和 API key 不消耗此额度。验证码、密钥不写入额度表。
+--- a/docs/design/db-migration.md
++++ b/docs/design/db-migration.md
+@@ -315,2 +315,6 @@
+ 
+ 升级新增 `webhook_deliveries.attempt_token VARCHAR(36) NULL`；老行无需回填。该安全字段的添加失败必须中止启动，不允许 best-effort 吞错。升级须停掉旧 worker，不能让不检查 token 的旧进程继续写投递结果。
++
++### OTP 额度表新增
++
++本版本增加 auth_rate_limit_buckets，应用启动的 Base.metadata.create_all 在已有 PostgreSQL/Turso 库上幂等创建该新表，无历史计数需要回填。上线前须让所有 web 实例升级；旧版本不预留额度，混跑期间不能声称全局限流已生效。不会修改已有 TOTP/Cookie 密钥或使已签发会话失效。回退旧版本会丢失限流保护；不要以删表清除额度作为登录流程。
+--- a/docs/testing/integration-inventory.md
++++ b/docs/testing/integration-inventory.md
+@@ -343,2 +343,6 @@
+ 
+ M1 正式 `metadata/test_manual_mapping_concurrency.py` 包含 PostgreSQL 九项和 Turso 六项。使用录制发布标题 `00e48de8-b5fd-4e99-8467-d384bd4a3183`、真实 associations/works-merge ASGI 路由和独立数据库会话；作品、候选响应与缓存/本地命中结果为合成，队列唤醒替换，不覆盖认证中间件或实时提供者。覆盖外部查询期间编辑（含改为 franchise 的形态编辑）、已有人工映射、缓存/本地快捷返回、查询期间合并及后续恢复；PostgreSQL 另验证资源锁等待、候选写入前合并及唯一约束错误不被吞。沿用隔离门禁 `QUEUE_RECOVERY_POSTGRES_URL` 和 `QUEUE_RECOVERY_REQUIRED=1`：缺 PostgreSQL 时必失败；每项独立建库，finally DROP DATABASE。Turso 使用 pytest 临时文件并启用 MVCC，简化建库未配置 FTS sidecar，FTS 正常路径仍由现有套件承担。
++
++### OTP 持久额度
++
++单元/API 使用真实 Turso 验证独立会话并发、失败计数持久、全局来源轮换、时钟边界、清理、伪造转发头、schema 错误及真实 TOTP/Cookie。tests/integration/auth/test_rate_limit.py 使用 QUEUE_RECOVERY_POSTGRES_URL 专用 admin 库，自建 auth_limit_* 数据库，四个独立 Python 进程竞争来源/全局额度，验证进程退出后计数、旧库幂等新增表与恢复清理。QUEUE_RECOVERY_REQUIRED=1 时缺环境必失败；父进程 finally 删除专用库。地址/时间为合成数据，TOTP 密钥仅在测试库生成。该专项验证共享预算服务，HTTP 边界由 API 测试验证，不声称启动四个 HTTP web worker。

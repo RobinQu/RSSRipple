@@ -1,0 +1,32 @@
+........F..FF.........F...                                               [100%]
+=================================== FAILURES ===================================
+_________ test_series_level_id_single_member_collection_defaults_to_it _________
+../rssripple-v16-rebased/tests/unit/test_per_season_upsert.py:285: in test_series_level_id_single_member_collection_defaults_to_it
+    assert w2 is not None
+E   assert None is not None
+___________ test_third_season_title_no_longer_collides_with_s1_work ____________
+../rssripple-v16-rebased/tests/unit/test_per_season_upsert.py:363: in test_third_season_title_no_longer_collides_with_s1_work
+    assert s1.season_number == 1
+           ^^^^^^^^^^^^^^^^
+E   AttributeError: 'NoneType' object has no attribute 'season_number'
+_________ test_title_fallback_unknown_season_multi_member_returns_none _________
+../rssripple-v16-rebased/tests/unit/test_per_season_upsert.py:389: in test_title_fallback_unknown_season_multi_member_returns_none
+    assert len(await _series_rows(db_session)) == 2
+E   assert 1 == 2
+E    +  where 1 = len([<app.models.series.TVSeries object at 0x7fd9c63b4910>])
+____________ test_legacy_series_row_keeps_absorbing_series_level_id ____________
+../rssripple-v16-rebased/tests/unit/test_per_season_upsert.py:614: in test_legacy_series_row_keeps_absorbing_series_level_id
+    assert result is not None
+E   assert None is not None
+=============================== warnings summary ===============================
+tests/unit/test_per_season_upsert.py::test_granularity_of_registry_sources
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_per_season_upsert.py::test_series_level_id_single_member_collection_defaults_to_it
+FAILED tests/unit/test_per_season_upsert.py::test_third_season_title_no_longer_collides_with_s1_work
+FAILED tests/unit/test_per_season_upsert.py::test_title_fallback_unknown_season_multi_member_returns_none
+FAILED tests/unit/test_per_season_upsert.py::test_legacy_series_row_keeps_absorbing_series_level_id
+4 failed, 22 passed, 1 warning in 24.46s

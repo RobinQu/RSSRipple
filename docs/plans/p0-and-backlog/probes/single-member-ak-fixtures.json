@@ -1,0 +1,8 @@
+{
+  "prototype": "/tmp/rssripple-v16-failure-review",
+  "file": "tests/unit/test_wikipedia_content_integration.py",
+  "sha256": "9652e8c61f01be399e7e771f8fae180a6231b1c70796b876b812628de239fb9a",
+  "passed": 12,
+  "seconds": 5.73,
+  "exit_code": 0
+}

@@ -1,0 +1,12 @@
+ Container rssripple-v16-review-al-transmission-1  Running
+ Container rssripple-v16-review-al-test-server-1  Running
+ Container rssripple-v16-review-al-queue-recovery-postgres-1  Running
+ Container rssripple-v16-review-al-queue-recovery-redis-1  Running
+ Container rssripple-v16-review-al-app-llm-1  Running
+ Container rssripple-v16-review-al-app-1  Running
+ Container rssripple-v16-review-al-test-server-1  Waiting
+ Container rssripple-v16-review-al-test-server-1  Waiting
+ Container rssripple-v16-review-al-test-server-1  Healthy
+ Container rssripple-v16-review-al-test-server-1  Healthy
+.........                                                                [100%]
+9 passed in 3.13s

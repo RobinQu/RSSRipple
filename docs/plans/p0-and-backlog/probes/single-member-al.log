@@ -1,0 +1,105 @@
+ Container rssripple-v16-review-al-test-server-1  Running
+ Container rssripple-v16-review-al-queue-recovery-redis-1  Running
+ Container rssripple-v16-review-al-transmission-1  Running
+ Container rssripple-v16-review-al-queue-recovery-postgres-1  Running
+ Container rssripple-v16-review-al-app-1  Running
+ Container rssripple-v16-review-al-app-llm-1  Running
+ Container rssripple-v16-review-al-test-server-1  Waiting
+ Container rssripple-v16-review-al-test-server-1  Waiting
+ Container rssripple-v16-review-al-test-server-1  Healthy
+ Container rssripple-v16-review-al-test-server-1  Healthy
+============================= test session starts ==============================
+platform linux -- Python 3.12.14, pytest-9.1.1, pluggy-1.6.0 -- /app/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /app
+configfile: pyproject.toml
+plugins: asyncio-1.4.0, anyio-4.14.0, langsmith-0.9.3, cov-7.1.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 56 items
+
+tests/integration/http/test_genre_unification.py::TestGenreEnumAPI::test_series_genre_enum_roundtrip PASSED [  1%]
+tests/integration/http/test_genre_unification.py::TestGenreEnumAPI::test_series_create_rejects_non_canonical_genre PASSED [  3%]
+tests/integration/http/test_genre_unification.py::TestGenreEnumAPI::test_movie_genre_enum PASSED [  5%]
+tests/integration/http/test_genre_unification.py::TestGenreEnumAPI::test_openapi_renders_genre_enum PASSED [  7%]
+tests/integration/http/test_genre_unification.py::TestGenreNormalizationOnLink::test_manual_link_normalizes_genre PASSED [  8%]
+tests/integration/http/test_genre_unification.py::TestGenreFilterDSL::test_series_genre_contains PASSED [ 10%]
+tests/integration/http/test_genre_unification.py::TestGenreFilterDSL::test_series_genre_in PASSED [ 12%]
+tests/integration/http/test_genre_unification.py::TestGenreFilterDSL::test_genre_empty_semantics PASSED [ 14%]
+tests/integration/http/test_genre_unification.py::TestGenreFilterDSL::test_genre_wrong_operator_422 PASSED [ 16%]
+tests/integration/http/test_genre_unification.py::TestGenreMockLLMClamping::test_canned_genre_clamped_to_closed_set PASSED [ 17%]
+tests/integration/http/test_metadata_local.py::TestLocalAutoLink::test_resources_auto_linked PASSED [ 19%]
+tests/integration/http/test_metadata_local.py::TestLocalAutoLink::test_get_resource_metadata_layer1 PASSED [ 21%]
+tests/integration/http/test_metadata_local.py::TestLocalAutoLink::test_get_resource_detail PASSED [ 23%]
+tests/integration/http/test_metadata_local.py::TestLocalAutoLink::test_resource_404 PASSED [ 25%]
+tests/integration/http/test_metadata_local.py::TestLocalAutoLink::test_resources_grouped PASSED [ 26%]
+tests/integration/http/test_metadata_local.py::TestLocalAutoLink::test_field_values PASSED [ 28%]
+tests/integration/http/test_metadata_local.py::TestLocalAutoLink::test_summarize_filters PASSED [ 30%]
+tests/integration/http/test_metadata_local.py::TestLocalAutoLink::test_cleanup_unresolved_nothing_stale PASSED [ 32%]
+tests/integration/http/test_metadata_local.py::TestLocalAutoLink::test_cleanup_unresolved_404 PASSED [ 33%]
+tests/integration/http/test_metadata_local.py::TestLocalAutoLink::test_metadata_sources_catalog PASSED [ 35%]
+tests/integration/http/test_metadata_local.py::TestLocalAutoLink::test_channel_update_and_detail PASSED [ 37%]
+tests/integration/http/test_metadata_local.py::TestManualSearchLink::test_manual_link_creates_series PASSED [ 39%]
+tests/integration/http/test_metadata_local.py::TestManualSearchLink::test_mapping_auto_links_sibling PASSED [ 41%]
+tests/integration/http/test_metadata_local.py::TestManualSearchLink::test_local_fts_search PASSED [ 42%]
+tests/integration/http/test_metadata_local.py::TestManualSearchLink::test_local_fts_search_movie PASSED [ 44%]
+tests/integration/http/test_metadata_local.py::TestManualSearchLink::test_local_fts_search_short_query PASSED [ 46%]
+tests/integration/http/test_metadata_local.py::TestManualSearchLink::test_manual_link_movie PASSED [ 48%]
+tests/integration/http/test_metadata_local.py::TestManualSearchLink::test_relink_same_external_id_updates PASSED [ 50%]
+tests/integration/http/test_metadata_local.py::TestManualSearchLink::test_title_fallback_dedup PASSED [ 51%]
+tests/integration/http/test_metadata_local.py::TestManualSearchLink::test_grouped_resources_all_group_types PASSED [ 53%]
+tests/integration/http/test_metadata_local.py::TestManualSearchLink::test_movie_dispatch_dedup PASSED [ 55%]
+tests/integration/http/test_metadata_local.py::TestSeriesMovieCRUD::test_series_crud PASSED [ 57%]
+tests/integration/http/test_metadata_local.py::TestSeriesMovieCRUD::test_series_404s PASSED [ 58%]
+tests/integration/http/test_metadata_local.py::TestSeriesMovieCRUD::test_movie_crud PASSED [ 60%]
+tests/integration/http/test_metadata_local.py::TestSeriesMovieCRUD::test_movie_404s PASSED [ 62%]
+tests/integration/http/test_metadata_local.py::TestWorksSettings::test_works_listing PASSED [ 64%]
+tests/integration/http/test_metadata_local.py::TestWorksSettings::test_audio_works_endpoints PASSED [ 66%]
+tests/integration/http/test_metadata_local.py::TestWorksSettings::test_system_settings_roundtrip PASSED [ 67%]
+tests/integration/http/test_metadata_local.py::TestWorksSettings::test_works_metadata_config PASSED [ 69%]
+tests/integration/http/test_metadata_local.py::TestWorksSettings::test_unified_local_work_search PASSED [ 71%]
+tests/integration/http/test_metadata_local.py::TestWorksSettings::test_batch_refresh_metadata PASSED [ 73%]
+tests/integration/organize/test_franchise_service.py::test_link_franchise_pack_creates_collection_and_members FAILED [ 75%]
+tests/integration/organize/test_franchise_service.py::test_link_franchise_pack_is_idempotent PASSED [ 76%]
+tests/integration/organize/test_franchise_service.py::test_member_in_other_collection_is_not_stolen PASSED [ 78%]
+tests/integration/organize/test_franchise_service.py::test_no_work_titles_still_links_parent_collection PASSED [ 80%]
+tests/integration/organize/test_franchise_service.py::test_all_members_failed_still_links_parent_collection PASSED [ 82%]
+tests/integration/organize/test_franchise_service.py::test_member_raise_and_untitled_and_non_tv_movie_skipped PASSED [ 83%]
+tests/integration/organize/test_franchise_service.py::test_agent_exception_on_process_title_is_absorbed PASSED [ 85%]
+tests/integration/organize/test_franchise_service.py::test_collection_get_or_create_matches_normalized_title PASSED [ 87%]
+tests/integration/organize/test_franchise_service.py::test_pack_title_fallback_chain PASSED [ 89%]
+tests/integration/organize/test_p0_season_persistence.py::test_model_season_cannot_pollute_persisted_work[1-2-1] PASSED [ 91%]
+tests/integration/organize/test_p0_season_persistence.py::test_model_season_cannot_pollute_persisted_work[99-2-None] PASSED [ 92%]
+tests/integration/organize/test_p0_season_persistence.py::test_model_season_cannot_pollute_persisted_work[99-None-None] PASSED [ 94%]
+tests/integration/organize/test_p0_season_persistence.py::test_model_season_cannot_pollute_persisted_work[99-1-1] PASSED [ 96%]
+tests/integration/organize/test_p0_season_persistence.py::test_model_season_cannot_pollute_persisted_work[None-None-None] PASSED [ 98%]
+tests/integration/organize/test_p0_season_persistence.py::test_model_season_cannot_pollute_persisted_work[None-1-1] PASSED [100%]
+
+=================================== FAILURES ===================================
+___________ test_link_franchise_pack_creates_collection_and_members ____________
+tests/integration/organize/test_franchise_service.py:142: in test_link_franchise_pack_creates_collection_and_members
+    assert len(attached) == 2
+E   assert 1 == 2
+E    +  where 1 = len([<app.models.series.TVSeries object at 0x7f6a211d8590>])
+=============================== warnings summary ===============================
+tests/integration/http/test_genre_unification.py::TestGenreFilterDSL::test_series_genre_contains
+  /app/.venv/lib/python3.12/site-packages/_pytest/fixtures.py:1313: PytestRemovedIn10Warning: Class-scoped fixture defined as instance method is deprecated.
+  Instance attributes set in this fixture will NOT be visible to test methods,
+  as each test gets a new instance while the fixture runs only once per class.
+  Use @classmethod decorator and set attributes on cls instead.
+  See https://docs.pytest.org/en/stable/deprecations.html#class-scoped-fixture-as-instance-method
+    fixturefunc = resolve_fixture_function(fixturedef, request)
+
+tests/integration/organize/test_p0_season_persistence.py::test_model_season_cannot_pollute_persisted_work[1-2-1]
+tests/integration/organize/test_p0_season_persistence.py::test_model_season_cannot_pollute_persisted_work[99-2-None]
+tests/integration/organize/test_p0_season_persistence.py::test_model_season_cannot_pollute_persisted_work[99-None-None]
+tests/integration/organize/test_p0_season_persistence.py::test_model_season_cannot_pollute_persisted_work[99-1-1]
+tests/integration/organize/test_p0_season_persistence.py::test_model_season_cannot_pollute_persisted_work[None-None-None]
+tests/integration/organize/test_p0_season_persistence.py::test_model_season_cannot_pollute_persisted_work[None-1-1]
+  /app/app/services/metadata_agent.py:445: LangGraphDeprecatedSinceV10: create_react_agent has been moved to `langchain.agents`. Please update your import to `from langchain.agents import create_agent`. Deprecated in LangGraph V1.0 to be removed in V2.0.
+    self._agents[source] = create_react_agent(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+--------- generated xml file: /app/data/metadata-corpus/focused-al.xml ---------
+=========================== short test summary info ============================
+FAILED tests/integration/organize/test_franchise_service.py::test_link_franchise_pack_creates_collection_and_members
+============= 1 failed, 55 passed, 7 warnings in 119.86s (0:01:59) =============

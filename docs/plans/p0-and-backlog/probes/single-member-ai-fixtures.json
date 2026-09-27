@@ -1,0 +1,10 @@
+{
+  "prototype": "/tmp/rssripple-v16-failure-review",
+  "file": "tests/unit/test_per_season_upsert.py",
+  "sha256": "ff1885e7fd39b1d5282f83337efaa3da222c92b6170b3e93a2da6727f0e07b1c",
+  "passed": 27,
+  "failures": 0,
+  "seconds": 24.53,
+  "exit_code": 0,
+  "full_gates": "ac/ad still running; candidate not accepted"
+}
