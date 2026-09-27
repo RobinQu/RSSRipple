@@ -1,0 +1,66 @@
+{
+  "accepted": false,
+  "effective_files": 14,
+  "full_gates_run": false,
+  "results": {
+    "l": {
+      "exit_code": 0,
+      "passed": 2,
+      "failed": []
+    },
+    "m": {
+      "exit_code": 0,
+      "passed": 49,
+      "failed": []
+    },
+    "n": {
+      "exit_code": 1,
+      "passed": 1,
+      "failed": [
+        "tests.integration.security.test_sdk_outbound::test_admin_sdk_origin_does_not_authorize_other_private_target[True-llm_stream]"
+      ]
+    },
+    "o": {
+      "exit_code": 0,
+      "passed": 4,
+      "failed": []
+    },
+    "p": {
+      "exit_code": 0,
+      "passed": 7,
+      "failed": []
+    },
+    "q": {
+      "exit_code": 1,
+      "passed": 144,
+      "failed": [
+        "tests.unit.test_feed_analyzer::test_analyze_feed_success",
+        "tests.unit.test_feed_analyzer::test_analyze_feed_old_flat_format",
+        "tests.unit.test_feed_analyzer::test_analyze_feed_partial_coverage",
+        "tests.unit.test_feed_analyzer::test_analyze_feed_medium_confidence",
+        "tests.unit.test_feed_analyzer::test_analyze_feed_openai_thinking_disabled_by_default",
+        "tests.unit.test_feed_analyzer::test_call_openai_sends_both_thinking_spellings",
+        "tests.unit.test_feed_analyzer::test_call_openai_thinking_enabled_propagates_to_both",
+        "tests.unit.test_feed_analyzer::test_call_openai_non_thinking_model",
+        "tests.unit.test_feed_analyzer::test_call_openai_thinking_model_content_empty",
+        "tests.unit.test_feed_analyzer::test_stream_openai_non_thinking_model",
+        "tests.unit.test_feed_analyzer::test_stream_openai_thinking_model_reasoning_content",
+        "tests.unit.test_feed_analyzer::test_analyze_feed_per_day_limit_returns_immediately",
+        "tests.unit.test_feed_analyzer::test_analyze_feed_per_minute_limit_retries_then_succeeds",
+        "tests.unit.test_feed_analyzer::test_analyze_feed_per_minute_limit_exhausts_all_attempts",
+        "tests.unit.test_feed_analyzer::test_analyze_feed_retries_on_empty_then_succeeds",
+        "tests.unit.test_feed_analyzer::test_analyze_feed_all_attempts_fail_generic",
+        "tests.unit.test_feed_analyzer::test_stream_openai_exhausts_transient_retries",
+        "tests.unit.test_feed_analyzer::test_stream_openai_skips_chunks_without_choices",
+        "tests.unit.test_feed_analyzer::test_stream_openai_invalid_json_exhausts_retries",
+        "tests.unit.test_feed_analyzer::test_stream_openai_empty_response_exhausts_retries"
+      ]
+    },
+    "r": {
+      "exit_code": 0,
+      "passed": 164,
+      "failed": []
+    }
+  },
+  "notes": "q exposed old mock context-manager mismatch; r preserves old assertions and uses SDK context contract. SDK paths outside feed_analyzer/Transmission remain pending."
+}

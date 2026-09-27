@@ -1,0 +1,15 @@
+.................................................                        [100%]
+=============================== warnings summary ===============================
+tests/integration/security/test_feed_outbound.py::test_admin_private_feed_preserves_captured_entries[/feed]
+tests/integration/security/test_feed_outbound.py::test_admin_private_feed_preserves_captured_entries[/feed]
+tests/integration/security/test_feed_outbound.py::test_admin_private_feed_preserves_captured_entries[/same]
+tests/integration/security/test_feed_outbound.py::test_admin_private_feed_preserves_captured_entries[/same]
+tests/integration/security/test_feed_outbound.py::test_admin_basic_auth_survives_same_origin_redirect
+tests/integration/security/test_feed_outbound.py::test_admin_basic_auth_survives_same_origin_redirect
+tests/integration/security/test_feed_outbound.py::test_admin_basic_auth_not_forwarded_to_other_public_origin
+tests/integration/security/test_feed_outbound.py::test_admin_basic_auth_not_forwarded_to_other_public_origin
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/feedparser/html.py:152: DeprecationWarning: 'count' is passed as positional argument
+    data = re.sub(r'<!((?!DOCTYPE|--|\[))', r'&lt;!\1', data, re.IGNORECASE)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+49 passed, 2 deselected, 8 warnings in 7.48s

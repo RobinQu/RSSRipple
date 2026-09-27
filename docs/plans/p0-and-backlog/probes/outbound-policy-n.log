@@ -1,0 +1,11 @@
+.F                                                                       [100%]
+=================================== FAILURES ===================================
+_ test_admin_sdk_origin_does_not_authorize_other_private_target[True-llm_stream] _
+tests/integration/security/test_sdk_outbound.py:96: in test_admin_sdk_origin_does_not_authorize_other_private_target
+    assert not any(port == target_port for port, _, _ in requests), requests
+E   AssertionError: [(33787, '/redirect/v1/chat/completions', 'Bearer synthetic-test-key'), (41573, '/v1/chat/completions', None)]
+E   assert not True
+E    +  where True = any(<generator object test_admin_sdk_origin_does_not_authorize_other_private_target.<locals>.<genexpr> at 0x7f95aff8eb20>)
+=========================== short test summary info ============================
+FAILED tests/integration/security/test_sdk_outbound.py::test_admin_sdk_origin_does_not_authorize_other_private_target[True-llm_stream]
+1 failed, 1 passed, 4 deselected in 0.58s

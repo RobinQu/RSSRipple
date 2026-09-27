@@ -1,0 +1,39 @@
+{
+  "prototype": "/tmp/rssripple-v20-rebased-rc0rjzc5",
+  "base_runtime_commit": "b0e2ce1",
+  "main_head": "00773b6",
+  "base_hashes": {
+    "app/clients/outbound_http.py": null,
+    "app/services/torrent_inspect.py": "b5b560a8c93dc8fff51c55bfd27dde19cf2852bf552af9af9a4614b2e20f6ee9",
+    "app/services/metadata_service.py": "89a4acac2b1dd57e967af01f2c73f66788773f1d0d9a0267eb7e92c83a1c6bfb",
+    "tests/integration/security/test_untrusted_outbound.py": null,
+    "app/clients/rss_parser.py": "86f3589ce2af26c9bcc27cae2b65ce268558af7d982d8a1d71acb33a4c861502",
+    "app/services/magnet_resolve.py": "663abbf654046e2b8d524b369bfa51077c2e5d9b481246ec269d9dbec15ae68d",
+    "tests/integration/security/test_feed_outbound.py": null,
+    "docs/design/business-logic.md": "c46b2b76d4125cede7b9d73957e3be5c0fa1c3704919877281cdfd1642d547aa",
+    "docs/design/conventions.md": "e2c0ccd58b9f70a785e380ffb5ee713704159da373b18ae378ebc53539b2c6b1",
+    "docs/testing/integration-inventory.md": "14d9b0d4d296f10b53c04f4e80767349a3c1c401d567dc1ba8583b6389d1f208",
+    "app/services/feed_analyzer.py": "9163cd41995ab922c032ce81dc69b44d6073e0a2ae5ac218bbdd017393bfc9c9",
+    "app/clients/transmission.py": "f8794ef0703b0dffbbaf3734db06fd299481de015be0b271f1036be69e3427cd",
+    "tests/integration/security/test_sdk_outbound.py": null,
+    "tests/unit/test_feed_analyzer.py": "f0ffe28b693c82b7ffdc9d82f524dc0e71518f3408a272b8e48f29823f0c9101"
+  },
+  "files": {
+    "app/clients/outbound_http.py": "42d0749ea985e8b9ccf97109c81bf157e0f3da875ae22288c9b153be168f7a95",
+    "app/services/torrent_inspect.py": "5f9d18c329bbd72f877219ae27b2050e99b8475b55e792041bf0a70d418c339a",
+    "app/services/metadata_service.py": "7deb38a816df6666d1c72ad026d467ce81f2f4aae9efb8c40e655b96ce7bb9ee",
+    "tests/integration/security/test_untrusted_outbound.py": "c249db267d1472185d2795cccc8c216e6983c95d29df92b8190a6a822d07cd8c",
+    "app/clients/rss_parser.py": "ceb6b628e6ce4e5de363abb8a5361cefd6a0fcfb2c1094603930d7ed3ea9fa8c",
+    "app/services/magnet_resolve.py": "f05756846917d419a4babbea88e15c4ada8fb7ef014ed3dfb0b23eaa45ae5354",
+    "tests/integration/security/test_feed_outbound.py": "a2ccbaba11caa1c544eeb998aa353086faa8fb19b9bf4913db5586b1a079bfd1",
+    "docs/design/business-logic.md": "4ea6db04a5b86a0a62955c5acc7192bd780fc9681fbf65574192a9cec6809040",
+    "docs/design/conventions.md": "da55710dd399e560e5046f1988851f374e4ad282200323553b5c1787b6fa0975",
+    "docs/testing/integration-inventory.md": "629584f9d1af40c060e054ccd28cd96365012e6ac618a06d4cdbea7a786f8bf1",
+    "app/services/feed_analyzer.py": "5d838f82ff913895290cbd948194db8a0eb1d667552d042c60815d43f7e7aae5",
+    "app/clients/transmission.py": "f6c31cd9ae918b05fa9b9a12ac27d3ca191c37ec8619b06114dd6d6cfbf3f123",
+    "tests/integration/security/test_sdk_outbound.py": "46cbb951615dddcdc2a6a75769995a259c71b04eea28672027522ea1541536c6",
+    "tests/unit/test_feed_analyzer.py": "449824d32a1f5ee8eeab79d51276471b4f842946379d40b54abf78c62d624d43"
+  },
+  "rebase_notes": "One integration-inventory header conflict; retained both S3 enrollment and S1 outbound sections. Runtime merged without conflicts.",
+  "status": "Rebased on accepted M3/S2/S3; s 164 passed, 10.64 seconds, full Ruff passed; not fully implemented or accepted"
+}

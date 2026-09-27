@@ -2,6 +2,8 @@
 
 状态：已复核必要性并建立本地复现；独立副本已实现部分连接策略原型，尚未合入 main。副本 `/tmp/rssripple-v20-outbound-policy` 的运行基线为 M2 `756bce6`；M3 合入 `2274768` 后，所测 torrent/poster 两个服务文件没有变化。
 
+最新续修目录：`/tmp/rssripple-v20-rebased-rc0rjzc5`，已叠加 main 上 M3/S2/S3（运行基线 `b0e2ce1`）。14 文件候选和基线哈希、归档分别为 `outbound-policy-s-source.json` / `outbound-policy-s-candidate.tar.gz`；s 组合 164 passed（10.64 秒），全仓 Ruff 通过。只是专项回归，S1 尚未完成或全量验收。下文 a–r 的旧副本与阶段性未修结论保留为历史。
+
 ## 已证实的范围
 
 a 正式候选测试文件 `tests/integration/security/test_untrusted_outbound.py` 四项均失败（0.56 秒）：torrent/poster 分别直接访问回环地址，以及从另一临时端口经 302 访问回环目标，均发生请求并缓存返回内容。两个服务器都由测试在 127.0.0.1 随机端口启动并 finally 停止，不访问公网、云 metadata 地址或真实内网服务。
@@ -66,3 +68,17 @@ i 镜像矩阵 2 passed / 2 failed（0.56 秒）：正确/错误 infohash 的私
 下一步复核发现：安装版本的 transmission-rpc 在构造器中即调用 `get_session()`，内部 Requests Session.post 未禁用重定向；OpenAI SDK `_base_client.py` 的默认 HTTPX 客户端显式 follow_redirects=True。两者必须验证真实 SDK 行为及凭证/目的地边界，不能只审核项目中的 HTTPX 构造器。Wiki REST summary 的异步重定向也未接入。notify/media-server/Wigolo 当前不自动跟随重定向，仍需实际兼容性证据。原有 magnet 集成使用本地文件路径回放的夹具必须迁移到 HTTP 服务；不为旧测试恢复生产文件读取。管理员私网资源例外、代理/CA 策略、直接 httpcore 依赖声明、DNS 阻塞上限与完整门禁仍待完成。S1 不关闭、不合入。
 
 k 真实 SDK 验证：通过生产 `TransmissionWrapper.test_connection` 与 `feed_analyzer._call_openai`，本地协议模拟器两项直连通过，两个 307 跨私网 origin 用例失败（2 passed / 2 failed，0.73 秒）。目标确实收到 SDK 发出的请求；LLM 的跨源 Authorization 已剥离，但合成请求体仍被发送，不能把没有凭证泄露误判成没有目的地问题。没有模拟或替换 SDK 的 HTTP 方法；账号、响应和请求内容均为合成。完整测试原文及日志见 `outbound-policy-k-*`。尚未修改 SDK 运行实现，后续需选择支持安全连接/重定向约束的注入点，禁止全局 monkeypatch SDK 或 Requests Session。
+
+## l–s：真实 SDK 接入与新 main 基线
+
+新增受控异步 backend/transport，共用 IP 判定，异步 DNS 等待计入连接预算；HTTPX 请求/流/异常适配继续复用。普通 OpenAI 调用通过 SDK 的 http_client 参数注入受控客户端，并使用 async context 关闭资源。l 两项真实 SDK 通过（2.08 秒）。同步/异步 DNS 拒绝矩阵和真实 TLS 六项一起验证；m 49 passed（7.48 秒），当时尚未修 Transmission 的两项明确 deselect，不能当全量验收。
+
+n 继续验证 SSE 路径，1 passed / 1 failed（0.58 秒）：普通调用修复没有覆盖流式调用，跨私网目标仍收到请求。流式调用改用同一策略、保留 delta/reasoning/解析/重试语义并关闭 SDK 后，o 四项普通/流式实际 SDK 测试通过（12.15 秒）。现有有界重试仍保留，策略拒绝不会导致目标被访问。
+
+Transmission 方案：其构造器立即发出 RPC，公开参数不提供自定义 session；本地 SDK 子类仅覆写 `_http_query`，在首次请求前为该实例安装 response hook，拒绝跨 origin 重定向并关闭被拒绝响应，不修改全局 Requests。RPC 与资源下载不同：它发送管理请求，重定向仅保留配置的 scheme/host/port，即便跳往公网也不能转交；HTTP→HTTPS 需直接配置最终端点。同源重定向和原生 409 session-id 协商必须保留。p 七项真实 SDK 通过（12.36 秒），后续增加 409 断言，SDK 专项共八项。
+
+q 组合 144 passed / 20 failed（12.06 秒）：真实网络专项通过，20 项旧 OpenAI mock 的 `__aenter__` 返回了另一个未配置 mock，导致原响应/重试断言失败。只更新夹具为真实 SDK async context 约定，保留全部原业务断言；r 164 passed（11.48 秒）。q 的完整失败日志、l–r 的所有报告及旧候选归档均保留。
+
+之后三方合并到已验收 main `b0e2ce1`。仅 integration-inventory 顶部发生文字冲突，保留 S3 绑定与 S1 出站两节；运行代码无冲突。新目录 s 再跑同一组合 164 passed，14 个源文件哈希不变。后续实现应使用新目录，不继续在旧 M2 副本开发。
+
+剩余项：batch_content_analysis 的普通/流式 OpenAI、metadata_agent 的 LangChain 模型、OpenRouter SDK 和 Wiki REST 异步跳转仍需逐路径论证/验证；配置私网资源例外、企业代理/CA 与同步 DNS 超时策略尚未定案；httpcore 直接依赖、HTTPX/Transmission 私有接点须明确约束与兼容测试；旧本地文件 feed 夹具和相关客户端 mock 须迁移。最后必须在完整新基线执行 ≥95%/≥85% 两道门禁、零失败与完整审计，才可关闭 S1。

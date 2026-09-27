@@ -38,7 +38,7 @@
       `wigolo_base_url`/`llm_base_url` 均无出站白名单与私网拦截，且多处 `follow_redirects=True`
       （`app/clients/rss_parser.py:32`、`app/services/torrent_inspect.py:143`、`app/services/metadata_service.py:311`、
       `app/services/notify_service.py:475` 等）。恶意 feed 可在正常抓取中触发。
-      **修复**：已复现 torrent/poster、RSS 与镜像的私网重定向，以及 RSS 本地文件读取。独立原型 j 组合 50 项通过，涵盖录制数据回放、DNS/逐跳/代理边界、真实 TLS、内网 RSS 与 Basic auth 跨源隔离；候选及反例已归档。SDK/异步重定向、私网资源配置例外、代理/CA 兼容性及旧离线夹具迁移仍待完成，尚未全量验收/合入。源码分类、剩余风险与严格标准见 [V20](V20-OUTBOUND-POLICY.md)。
+      **修复**：torrent/poster/RSS/镜像及 Transmission、RSS 分析 OpenAI 普通/流式路径已有真实 HTTP/TLS/SDK 修订证据。已叠加 M3/S2/S3 的新副本 s 组合 164 项通过，保留原录制数据及全部红测；14 文件候选未合入。其余 LLM/Wiki 调用、私网例外配置、代理/CA 与 DNS 超时、旧离线夹具迁移和完整门禁仍待完成。当前续修目录、源码分类与严格标准见 [V20](V20-OUTBOUND-POLICY.md)。
 
 ---
 

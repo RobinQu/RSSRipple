@@ -1,0 +1,20 @@
+{
+  "prototype": "/tmp/rssripple-v20-outbound-policy",
+  "base_runtime_commit": "756bce6",
+  "files": {
+    "app/clients/outbound_http.py": "42d0749ea985e8b9ccf97109c81bf157e0f3da875ae22288c9b153be168f7a95",
+    "app/services/torrent_inspect.py": "5f9d18c329bbd72f877219ae27b2050e99b8475b55e792041bf0a70d418c339a",
+    "app/services/metadata_service.py": "7deb38a816df6666d1c72ad026d467ce81f2f4aae9efb8c40e655b96ce7bb9ee",
+    "tests/integration/security/test_untrusted_outbound.py": "c249db267d1472185d2795cccc8c216e6983c95d29df92b8190a6a822d07cd8c",
+    "app/clients/rss_parser.py": "ceb6b628e6ce4e5de363abb8a5361cefd6a0fcfb2c1094603930d7ed3ea9fa8c",
+    "app/services/magnet_resolve.py": "f05756846917d419a4babbea88e15c4ada8fb7ef014ed3dfb0b23eaa45ae5354",
+    "tests/integration/security/test_feed_outbound.py": "a2ccbaba11caa1c544eeb998aa353086faa8fb19b9bf4913db5586b1a079bfd1",
+    "docs/design/business-logic.md": "49c422f917f5fa5e87991a3dc4f943c03e65cfaec1edad52ae1c3635f126034d",
+    "docs/design/conventions.md": "684f4f819b074771edc087ec07c6d53b8a69004d566b0ca0c3f91786c7ebe132",
+    "docs/testing/integration-inventory.md": "58521a3830e20a0bbefdc5e08a8b71649c8465c5bd22ff732aace5c51e5cee03",
+    "app/services/feed_analyzer.py": "5d838f82ff913895290cbd948194db8a0eb1d667552d042c60815d43f7e7aae5",
+    "app/clients/transmission.py": "f6c31cd9ae918b05fa9b9a12ac27d3ca191c37ec8619b06114dd6d6cfbf3f123",
+    "tests/integration/security/test_sdk_outbound.py": "46cbb951615dddcdc2a6a75769995a259c71b04eea28672027522ea1541536c6",
+    "tests/unit/test_feed_analyzer.py": "449824d32a1f5ee8eeab79d51276471b4f842946379d40b54abf78c62d624d43"
+  }
+}

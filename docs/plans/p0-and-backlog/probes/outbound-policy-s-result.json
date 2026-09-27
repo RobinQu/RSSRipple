@@ -1,0 +1,22 @@
+{
+  "accepted": false,
+  "prototype": "/tmp/rssripple-v20-rebased-rc0rjzc5",
+  "base_runtime_commit": "b0e2ce1",
+  "effective_files": 14,
+  "passed": 164,
+  "failed": 0,
+  "skipped": 0,
+  "seconds": 10.64,
+  "exit_code": 0,
+  "ruff_exit": 0,
+  "source_hashes_unchanged": true,
+  "full_gates_run": false,
+  "remaining": [
+    "Other LLM and Wiki async call sites",
+    "Administrator private-origin exceptions",
+    "Proxy/CA deployment compatibility and DNS timeout review",
+    "Explicit httpcore dependency and SDK hook compatibility",
+    "Migrate local-file feed and constructor-mock fixtures",
+    "Complete unit/API >=95 and isolated integration >=85"
+  ]
+}

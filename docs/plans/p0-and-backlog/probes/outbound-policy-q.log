@@ -1,0 +1,231 @@
+F.F.FF............................FFFFF.FF......FFFFF................... [ 43%]
+FFFF.................................................................... [ 87%]
+....................                                                     [100%]
+=================================== FAILURES ===================================
+__________________________ test_analyze_feed_success ___________________________
+tests/unit/test_feed_analyzer.py:113: in test_analyze_feed_success
+    assert result["confidence"] == "high"
+E   AssertionError: assert 'low' == 'high'
+E
+E     - high
+E     + low
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 1/3): the JSON object must be str, bytes or bytearray, not MagicMock
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 2/3): the JSON object must be str, bytes or bytearray, not MagicMock
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 3/3): the JSON object must be str, bytes or bytearray, not MagicMock
+ERROR    app.services.feed_analyzer:feed_analyzer.py:410 LLM feed analysis: all 3 attempts failed
+______________________ test_analyze_feed_old_flat_format _______________________
+tests/unit/test_feed_analyzer.py:154: in test_analyze_feed_old_flat_format
+    assert "field_mappings" in result["field_mapping"]
+E   AssertionError: assert 'field_mappings' in {}
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 1/3): the JSON object must be str, bytes or bytearray, not MagicMock
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 2/3): the JSON object must be str, bytes or bytearray, not MagicMock
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 3/3): the JSON object must be str, bytes or bytearray, not MagicMock
+ERROR    app.services.feed_analyzer:feed_analyzer.py:410 LLM feed analysis: all 3 attempts failed
+______________________ test_analyze_feed_partial_coverage ______________________
+tests/unit/test_feed_analyzer.py:200: in test_analyze_feed_partial_coverage
+    assert "field_mappings" in result["field_mapping"]
+E   AssertionError: assert 'field_mappings' in {}
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 1/3): the JSON object must be str, bytes or bytearray, not MagicMock
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 2/3): the JSON object must be str, bytes or bytearray, not MagicMock
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 3/3): the JSON object must be str, bytes or bytearray, not MagicMock
+ERROR    app.services.feed_analyzer:feed_analyzer.py:410 LLM feed analysis: all 3 attempts failed
+_____________________ test_analyze_feed_medium_confidence ______________________
+tests/unit/test_feed_analyzer.py:220: in test_analyze_feed_medium_confidence
+    assert result["confidence"] == "medium"
+E   AssertionError: assert 'low' == 'medium'
+E
+E     - medium
+E     + low
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 1/3): the JSON object must be str, bytes or bytearray, not MagicMock
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 2/3): the JSON object must be str, bytes or bytearray, not MagicMock
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 3/3): the JSON object must be str, bytes or bytearray, not MagicMock
+ERROR    app.services.feed_analyzer:feed_analyzer.py:410 LLM feed analysis: all 3 attempts failed
+____________ test_analyze_feed_openai_thinking_disabled_by_default _____________
+tests/unit/test_feed_analyzer.py:657: in test_analyze_feed_openai_thinking_disabled_by_default
+    call_kwargs = mock_openai_class.return_value.chat.completions.create.call_args.kwargs
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'NoneType' object has no attribute 'kwargs'
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 1/3): the JSON object must be str, bytes or bytearray, not MagicMock
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 2/3): the JSON object must be str, bytes or bytearray, not MagicMock
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 3/3): the JSON object must be str, bytes or bytearray, not MagicMock
+ERROR    app.services.feed_analyzer:feed_analyzer.py:410 LLM feed analysis: all 3 attempts failed
+________________ test_call_openai_sends_both_thinking_spellings ________________
+tests/unit/test_feed_analyzer.py:684: in test_call_openai_sends_both_thinking_spellings
+    extra_body = mock_client.chat.completions.create.call_args.kwargs["extra_body"]
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'NoneType' object has no attribute 'kwargs'
+_____________ test_call_openai_thinking_enabled_propagates_to_both _____________
+tests/unit/test_feed_analyzer.py:706: in test_call_openai_thinking_enabled_propagates_to_both
+    extra_body = mock_client.chat.completions.create.call_args.kwargs["extra_body"]
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'NoneType' object has no attribute 'kwargs'
+_____________________ test_call_openai_non_thinking_model ______________________
+tests/unit/test_feed_analyzer.py:746: in test_call_openai_non_thinking_model
+    assert result == '{"ok": true}'
+E   assert <MagicMock name='AsyncOpenAI().__aenter__().chat.completions.create().choices.__getitem__().message.content' id='140061010698864'> == '{"ok": true}'
+________________ test_call_openai_thinking_model_content_empty _________________
+tests/unit/test_feed_analyzer.py:770: in test_call_openai_thinking_model_content_empty
+    assert result == '{"answer": 42}'
+E   assert <MagicMock name='AsyncOpenAI().__aenter__().chat.completions.create().choices.__getitem__().message.content' id='140061010760704'> == '{"answer": 42}'
+____________________ test_stream_openai_non_thinking_model _____________________
+tests/unit/test_feed_analyzer.py:844: in test_stream_openai_non_thinking_model
+    assert len(deltas) == 2
+E   assert 0 == 2
+E    +  where 0 = len([])
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.feed_analyzer:feed_analyzer.py:711 OpenAI-compatible returned empty response (attempt 1/3)
+WARNING  app.services.feed_analyzer:feed_analyzer.py:711 OpenAI-compatible returned empty response (attempt 2/3)
+_____________ test_stream_openai_thinking_model_reasoning_content ______________
+tests/unit/test_feed_analyzer.py:883: in test_stream_openai_thinking_model_reasoning_content
+    assert len(deltas) == 2
+E   assert 0 == 2
+E    +  where 0 = len([])
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.feed_analyzer:feed_analyzer.py:711 OpenAI-compatible returned empty response (attempt 1/3)
+WARNING  app.services.feed_analyzer:feed_analyzer.py:711 OpenAI-compatible returned empty response (attempt 2/3)
+_____________ test_analyze_feed_per_day_limit_returns_immediately ______________
+tests/unit/test_feed_analyzer.py:1042: in test_analyze_feed_per_day_limit_returns_immediately
+    assert mock_client.chat.completions.create.await_count == 1
+E   AssertionError: assert 0 == 1
+E    +  where 0 = <AsyncMock name='AsyncOpenAI().chat.completions.create' id='140061013747968'>.await_count
+E    +    where <AsyncMock name='AsyncOpenAI().chat.completions.create' id='140061013747968'> = <AsyncMock name='AsyncOpenAI().chat.completions' id='140061013750656'>.create
+E    +      where <AsyncMock name='AsyncOpenAI().chat.completions' id='140061013750656'> = <AsyncMock name='AsyncOpenAI().chat' id='140061013750320'>.completions
+E    +        where <AsyncMock name='AsyncOpenAI().chat' id='140061013750320'> = <AsyncMock name='AsyncOpenAI()' id='140061013739904'>.chat
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 1/3): the JSON object must be str, bytes or bytearray, not MagicMock
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 2/3): the JSON object must be str, bytes or bytearray, not MagicMock
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 3/3): the JSON object must be str, bytes or bytearray, not MagicMock
+ERROR    app.services.feed_analyzer:feed_analyzer.py:410 LLM feed analysis: all 3 attempts failed
+___________ test_analyze_feed_per_minute_limit_retries_then_succeeds ___________
+tests/unit/test_feed_analyzer.py:1062: in test_analyze_feed_per_minute_limit_retries_then_succeeds
+    assert result["confidence"] == "high"
+E   AssertionError: assert 'low' == 'high'
+E
+E     - high
+E     + low
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 1/3): the JSON object must be str, bytes or bytearray, not MagicMock
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 2/3): the JSON object must be str, bytes or bytearray, not MagicMock
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 3/3): the JSON object must be str, bytes or bytearray, not MagicMock
+ERROR    app.services.feed_analyzer:feed_analyzer.py:410 LLM feed analysis: all 3 attempts failed
+___________ test_analyze_feed_per_minute_limit_exhausts_all_attempts ___________
+tests/unit/test_feed_analyzer.py:1082: in test_analyze_feed_per_minute_limit_exhausts_all_attempts
+    assert mock_client.chat.completions.create.await_count == 3
+E   AssertionError: assert 0 == 3
+E    +  where 0 = <AsyncMock name='AsyncOpenAI().chat.completions.create' id='140061013749312'>.await_count
+E    +    where <AsyncMock name='AsyncOpenAI().chat.completions.create' id='140061013749312'> = <AsyncMock name='AsyncOpenAI().chat.completions' id='140061013741584'>.create
+E    +      where <AsyncMock name='AsyncOpenAI().chat.completions' id='140061013741584'> = <AsyncMock name='AsyncOpenAI().chat' id='140061013748304'>.completions
+E    +        where <AsyncMock name='AsyncOpenAI().chat' id='140061013748304'> = <AsyncMock name='AsyncOpenAI()' id='140061013745280'>.chat
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 1/3): the JSON object must be str, bytes or bytearray, not MagicMock
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 2/3): the JSON object must be str, bytes or bytearray, not MagicMock
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 3/3): the JSON object must be str, bytes or bytearray, not MagicMock
+ERROR    app.services.feed_analyzer:feed_analyzer.py:410 LLM feed analysis: all 3 attempts failed
+_______________ test_analyze_feed_retries_on_empty_then_succeeds _______________
+tests/unit/test_feed_analyzer.py:1102: in test_analyze_feed_retries_on_empty_then_succeeds
+    assert result["confidence"] == "high"
+E   AssertionError: assert 'low' == 'high'
+E
+E     - high
+E     + low
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 1/3): the JSON object must be str, bytes or bytearray, not MagicMock
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 2/3): the JSON object must be str, bytes or bytearray, not MagicMock
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 3/3): the JSON object must be str, bytes or bytearray, not MagicMock
+ERROR    app.services.feed_analyzer:feed_analyzer.py:410 LLM feed analysis: all 3 attempts failed
+_________________ test_analyze_feed_all_attempts_fail_generic __________________
+tests/unit/test_feed_analyzer.py:1122: in test_analyze_feed_all_attempts_fail_generic
+    assert mock_client.chat.completions.create.await_count == 3
+E   AssertionError: assert 0 == 3
+E    +  where 0 = <AsyncMock name='AsyncOpenAI().chat.completions.create' id='140061016109616'>.await_count
+E    +    where <AsyncMock name='AsyncOpenAI().chat.completions.create' id='140061016109616'> = <AsyncMock name='AsyncOpenAI().chat.completions' id='140061016111632'>.create
+E    +      where <AsyncMock name='AsyncOpenAI().chat.completions' id='140061016111632'> = <AsyncMock name='AsyncOpenAI().chat' id='140061016105920'>.completions
+E    +        where <AsyncMock name='AsyncOpenAI().chat' id='140061016105920'> = <AsyncMock name='AsyncOpenAI()' id='140061016102224'>.chat
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 1/3): the JSON object must be str, bytes or bytearray, not MagicMock
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 2/3): the JSON object must be str, bytes or bytearray, not MagicMock
+WARNING  app.services.feed_analyzer:feed_analyzer.py:408 LLM call failed (attempt 3/3): the JSON object must be str, bytes or bytearray, not MagicMock
+ERROR    app.services.feed_analyzer:feed_analyzer.py:410 LLM feed analysis: all 3 attempts failed
+________________ test_stream_openai_exhausts_transient_retries _________________
+tests/unit/test_feed_analyzer.py:1489: in test_stream_openai_exhausts_transient_retries
+    assert mock_client.chat.completions.create.await_count == 3
+E   AssertionError: assert 0 == 3
+E    +  where 0 = <AsyncMock name='AsyncOpenAI().chat.completions.create' id='140061013530608'>.await_count
+E    +    where <AsyncMock name='AsyncOpenAI().chat.completions.create' id='140061013530608'> = <MagicMock name='AsyncOpenAI().chat.completions' id='140061013524560'>.create
+E    +      where <MagicMock name='AsyncOpenAI().chat.completions' id='140061013524560'> = <MagicMock name='AsyncOpenAI().chat' id='140061013530272'>.completions
+E    +        where <MagicMock name='AsyncOpenAI().chat' id='140061013530272'> = <MagicMock name='AsyncOpenAI()' id='140061013529600'>.chat
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.feed_analyzer:feed_analyzer.py:711 OpenAI-compatible returned empty response (attempt 1/3)
+WARNING  app.services.feed_analyzer:feed_analyzer.py:711 OpenAI-compatible returned empty response (attempt 2/3)
+_______________ test_stream_openai_skips_chunks_without_choices ________________
+tests/unit/test_feed_analyzer.py:1508: in test_stream_openai_skips_chunks_without_choices
+    assert events[-1]["type"] == "done"
+E   AssertionError: assert 'error' == 'done'
+E
+E     - done
+E     + error
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.feed_analyzer:feed_analyzer.py:711 OpenAI-compatible returned empty response (attempt 1/3)
+WARNING  app.services.feed_analyzer:feed_analyzer.py:711 OpenAI-compatible returned empty response (attempt 2/3)
+_______________ test_stream_openai_invalid_json_exhausts_retries _______________
+tests/unit/test_feed_analyzer.py:1527: in test_stream_openai_invalid_json_exhausts_retries
+    assert "invalid JSON" in events[-1]["message"]
+E   AssertionError: assert 'invalid JSON' in 'LLM returned empty response'
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.feed_analyzer:feed_analyzer.py:711 OpenAI-compatible returned empty response (attempt 1/3)
+WARNING  app.services.feed_analyzer:feed_analyzer.py:711 OpenAI-compatible returned empty response (attempt 2/3)
+______________ test_stream_openai_empty_response_exhausts_retries ______________
+tests/unit/test_feed_analyzer.py:1547: in test_stream_openai_empty_response_exhausts_retries
+    assert mock_client.chat.completions.create.await_count == 3
+E   AssertionError: assert 0 == 3
+E    +  where 0 = <AsyncMock name='AsyncOpenAI().chat.completions.create' id='140061015037936'>.await_count
+E    +    where <AsyncMock name='AsyncOpenAI().chat.completions.create' id='140061015037936'> = <MagicMock name='AsyncOpenAI().chat.completions' id='140061015036592'>.create
+E    +      where <MagicMock name='AsyncOpenAI().chat.completions' id='140061015036592'> = <MagicMock name='AsyncOpenAI().chat' id='140061015035584'>.completions
+E    +        where <MagicMock name='AsyncOpenAI().chat' id='140061015035584'> = <MagicMock name='AsyncOpenAI()' id='140061015031888'>.chat
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.feed_analyzer:feed_analyzer.py:711 OpenAI-compatible returned empty response (attempt 1/3)
+WARNING  app.services.feed_analyzer:feed_analyzer.py:711 OpenAI-compatible returned empty response (attempt 2/3)
+=============================== warnings summary ===============================
+tests/unit/test_feed_analyzer.py::test_analyze_feed_success
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+tests/integration/security/test_feed_outbound.py::test_admin_private_feed_preserves_captured_entries[/feed]
+tests/integration/security/test_feed_outbound.py::test_admin_private_feed_preserves_captured_entries[/feed]
+tests/integration/security/test_feed_outbound.py::test_admin_private_feed_preserves_captured_entries[/same]
+tests/integration/security/test_feed_outbound.py::test_admin_private_feed_preserves_captured_entries[/same]
+tests/integration/security/test_feed_outbound.py::test_admin_basic_auth_survives_same_origin_redirect
+tests/integration/security/test_feed_outbound.py::test_admin_basic_auth_survives_same_origin_redirect
+tests/integration/security/test_feed_outbound.py::test_admin_basic_auth_not_forwarded_to_other_public_origin
+tests/integration/security/test_feed_outbound.py::test_admin_basic_auth_not_forwarded_to_other_public_origin
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/feedparser/html.py:152: DeprecationWarning: 'count' is passed as positional argument
+    data = re.sub(r'<!((?!DOCTYPE|--|\[))', r'&lt;!\1', data, re.IGNORECASE)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_feed_analyzer.py::test_analyze_feed_success - Assertio...
+FAILED tests/unit/test_feed_analyzer.py::test_analyze_feed_old_flat_format - ...
+FAILED tests/unit/test_feed_analyzer.py::test_analyze_feed_partial_coverage
+FAILED tests/unit/test_feed_analyzer.py::test_analyze_feed_medium_confidence
+FAILED tests/unit/test_feed_analyzer.py::test_analyze_feed_openai_thinking_disabled_by_default
+FAILED tests/unit/test_feed_analyzer.py::test_call_openai_sends_both_thinking_spellings
+FAILED tests/unit/test_feed_analyzer.py::test_call_openai_thinking_enabled_propagates_to_both
+FAILED tests/unit/test_feed_analyzer.py::test_call_openai_non_thinking_model
+FAILED tests/unit/test_feed_analyzer.py::test_call_openai_thinking_model_content_empty
+FAILED tests/unit/test_feed_analyzer.py::test_stream_openai_non_thinking_model
+FAILED tests/unit/test_feed_analyzer.py::test_stream_openai_thinking_model_reasoning_content
+FAILED tests/unit/test_feed_analyzer.py::test_analyze_feed_per_day_limit_returns_immediately
+FAILED tests/unit/test_feed_analyzer.py::test_analyze_feed_per_minute_limit_retries_then_succeeds
+FAILED tests/unit/test_feed_analyzer.py::test_analyze_feed_per_minute_limit_exhausts_all_attempts
+FAILED tests/unit/test_feed_analyzer.py::test_analyze_feed_retries_on_empty_then_succeeds
+FAILED tests/unit/test_feed_analyzer.py::test_analyze_feed_all_attempts_fail_generic
+FAILED tests/unit/test_feed_analyzer.py::test_stream_openai_exhausts_transient_retries
+FAILED tests/unit/test_feed_analyzer.py::test_stream_openai_skips_chunks_without_choices
+FAILED tests/unit/test_feed_analyzer.py::test_stream_openai_invalid_json_exhausts_retries
+FAILED tests/unit/test_feed_analyzer.py::test_stream_openai_empty_response_exhausts_retries
+20 failed, 144 passed, 9 warnings in 12.06s
