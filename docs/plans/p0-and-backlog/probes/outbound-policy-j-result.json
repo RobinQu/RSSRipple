@@ -1,0 +1,42 @@
+{
+  "accepted": false,
+  "prototype": "/tmp/rssripple-v20-outbound-policy",
+  "effective_files": 10,
+  "full_gates_run": false,
+  "f": {
+    "passed": 2,
+    "failed": 3,
+    "seconds": 0.45,
+    "exit_code": 1,
+    "reason": "RSS followed another private origin and parsed local files"
+  },
+  "g": {
+    "passed": 46,
+    "seconds": 2.38,
+    "exit_code": 0
+  },
+  "h": {
+    "passed": 46,
+    "seconds": 2.27,
+    "exit_code": 0,
+    "change": "Preserve feedparser User-Agent"
+  },
+  "i": {
+    "passed": 2,
+    "failed": 2,
+    "deselected": 24,
+    "seconds": 0.56,
+    "exit_code": 1,
+    "reason": "Mirror fetch followed another private origin before infohash validation"
+  },
+  "j": {
+    "passed": 50,
+    "seconds": 2.65,
+    "exit_code": 0,
+    "post_run_change": "Import sorting only; documentation synced"
+  },
+  "fixture_sha256": {
+    "tests/fixtures/magnet_feed.xml": "feb5234c7761350ab42e50834602f4ce40240dc58f5c73248222b8b85cb7b032"
+  },
+  "remaining": "SDK/async redirects; configured private exceptions; proxy and CA policy; migrate old local-file fixtures; complete gates"
+}

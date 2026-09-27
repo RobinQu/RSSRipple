@@ -1,0 +1,35 @@
+..FFF                                                                    [100%]
+=================================== FAILURES ===================================
+__________ test_feed_redirect_cannot_authorize_another_private_origin __________
+tests/integration/security/test_feed_outbound.py:75: in test_feed_redirect_cannot_authorize_another_private_origin
+    assert not any(port == target_port for port, _, _ in requests), requests
+E   AssertionError: [(39729, '/cross', None), (39961, '/feed', None)]
+E   assert not True
+E    +  where True = any(<generator object test_feed_redirect_cannot_authorize_another_private_origin.<locals>.<genexpr> at 0x7f6ad09fb920>)
+_________________ test_feed_url_cannot_read_local_files[False] _________________
+tests/integration/security/test_feed_outbound.py:88: in test_feed_url_cannot_read_local_files
+    assert items == [], "A channel URL must not parse local files"
+E   AssertionError: A channel URL must not parse local files
+E   assert [RawRSSItem(g...9, 5, 8, 10))] == []
+E
+E     Left contains 3 more items, first extra item: RawRSSItem(guid='magnet:?xt=urn:btih:6D8205C10E4E907A80E6B1DA7754BCEEF2B769FC', title='Mufasa The Lion King 2024 2160p...WEB-DL+MULTi+Atmos+DV+HDR10%2B+H265-SomniWare', content_length=None, published_at=datetime.datetime(2026, 9, 5, 8, 12))
+E     Use -v to get more diff
+_________________ test_feed_url_cannot_read_local_files[True] __________________
+tests/integration/security/test_feed_outbound.py:88: in test_feed_url_cannot_read_local_files
+    assert items == [], "A channel URL must not parse local files"
+E   AssertionError: A channel URL must not parse local files
+E   assert [RawRSSItem(g...9, 5, 8, 10))] == []
+E
+E     Left contains 3 more items, first extra item: RawRSSItem(guid='magnet:?xt=urn:btih:6D8205C10E4E907A80E6B1DA7754BCEEF2B769FC', title='Mufasa The Lion King 2024 2160p...WEB-DL+MULTi+Atmos+DV+HDR10%2B+H265-SomniWare', content_length=None, published_at=datetime.datetime(2026, 9, 5, 8, 12))
+E     Use -v to get more diff
+=============================== warnings summary ===============================
+tests/integration/security/test_feed_outbound.py: 10 warnings
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/feedparser/html.py:152: DeprecationWarning: 'count' is passed as positional argument
+    data = re.sub(r'<!((?!DOCTYPE|--|\[))', r'&lt;!\1', data, re.IGNORECASE)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/integration/security/test_feed_outbound.py::test_feed_redirect_cannot_authorize_another_private_origin
+FAILED tests/integration/security/test_feed_outbound.py::test_feed_url_cannot_read_local_files[False]
+FAILED tests/integration/security/test_feed_outbound.py::test_feed_url_cannot_read_local_files[True]
+3 failed, 2 passed, 10 warnings in 0.45s

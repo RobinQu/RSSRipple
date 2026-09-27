@@ -1,0 +1,19 @@
+..................................................                       [100%]
+=============================== warnings summary ===============================
+tests/integration/security/test_feed_outbound.py::test_admin_private_feed_preserves_captured_entries[/feed]
+tests/integration/security/test_feed_outbound.py::test_admin_private_feed_preserves_captured_entries[/feed]
+tests/integration/security/test_feed_outbound.py::test_admin_private_feed_preserves_captured_entries[/same]
+tests/integration/security/test_feed_outbound.py::test_admin_private_feed_preserves_captured_entries[/same]
+tests/integration/security/test_feed_outbound.py::test_admin_basic_auth_survives_same_origin_redirect
+tests/integration/security/test_feed_outbound.py::test_admin_basic_auth_survives_same_origin_redirect
+tests/integration/security/test_feed_outbound.py::test_admin_basic_auth_not_forwarded_to_other_public_origin
+tests/integration/security/test_feed_outbound.py::test_admin_basic_auth_not_forwarded_to_other_public_origin
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/feedparser/html.py:152: DeprecationWarning: 'count' is passed as positional argument
+    data = re.sub(r'<!((?!DOCTYPE|--|\[))', r'&lt;!\1', data, re.IGNORECASE)
+
+tests/unit/test_rss_parser.py::test_extract_download_urls_torrent_enclosure
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+50 passed, 9 warnings in 2.65s

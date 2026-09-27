@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="4" time="0.554" timestamp="2026-09-27T14:01:02.995886+00:00" hostname="dl-workstation-albert"><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_admin_mirror_redirect_and_infohash_boundary[False-False]" time="0.099" /><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_admin_mirror_redirect_and_infohash_boundary[False-True]" time="0.115"><failure message="AssertionError: Mirror authorization must not extend to redirect origin&#10;assert ['/0000000000...0000/torrent'] == []&#10;  &#10;  Left contains one more item: '/0000000000000000000000000000000000000000/torrent'&#10;  Use -v to get more diff">tests/integration/security/test_untrusted_outbound.py:282: in test_admin_mirror_redirect_and_infohash_boundary
+    assert requests == [], "Mirror authorization must not extend to redirect origin"
+E   AssertionError: Mirror authorization must not extend to redirect origin
+E   assert ['/0000000000...0000/torrent'] == []
+E
+E     Left contains one more item: '/0000000000000000000000000000000000000000/torrent'
+E     Use -v to get more diff</failure></testcase><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_admin_mirror_redirect_and_infohash_boundary[True-False]" time="0.102" /><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_admin_mirror_redirect_and_infohash_boundary[True-True]" time="0.106"><failure message="assert True is ((True and not True))">tests/integration/security/test_untrusted_outbound.py:280: in test_admin_mirror_redirect_and_infohash_boundary
+    assert result is (matching_hash and not redirected)
+E   assert True is ((True and not True))</failure></testcase></testsuite></testsuites>

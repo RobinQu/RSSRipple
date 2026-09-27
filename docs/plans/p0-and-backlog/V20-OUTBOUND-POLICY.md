@@ -54,3 +54,15 @@ DNS 矩阵覆盖回环、RFC1918、链路本地、IPv6 回环/映射/NAT64/6to4�
 ## d/e 成功回放与数字地址扩展
 
 增加生产 `fetch_torrent_file` / `download_and_cache_poster` 完整调用：受控公网 DNS/拨号映射下通过真实 HTTP 拉取、校验并缓存，torrent 输出 sha256 等于原录制文件名。另加 `127.1`、十进制整型、十六进制与八进制写法，均断言底层未拨号。d 23 passed / 1 failed（3.62 秒）：八进制形式被 HTTPX URL 解析层提前以 InvalidURL 拒绝，测试错误地只允许策略异常；调整为接受两种拒绝类型，保留无拨号断言，e 24 passed（3.95 秒）。运行实现未修改，c/d/e 的差异仅在测试。最终原型/哈希及完整失败日志保存在 `outbound-policy-e-*` 与 d/e 日志，c 归档保留。其余调用路径和完整门禁仍未完成。
+
+## f–j：RSS 与缓存镜像必要性复核及原型
+
+f 2 passed / 3 failed（0.45 秒）：使用既有 `tests/fixtures/magnet_feed.xml`，现有 RSS 正常支持管理员内网直连和同源重定向，但也会经 302 访问另一个私网 origin，并接受本地路径及 file URI、读出三条资源。夹具 XML 未改写；标题/磁力链接来自已记录生产行，XML 包装本身是既有测试构造，不宣称完整线上 RSS 原始响应。HTTP 服务器、URL 和临时文件均为受控测试数据。
+
+修订 `_parse_feed_sync`：先受控 HTTP 抓取，再把响应字节交给 feedparser；保留最终 content-location 与内容类型供解析相对链接和编码。管理员明确输入的初始 origin 可访问内网，但授权不继承到其他 origin；URL 内嵌 Basic auth 拆成请求认证，传输/解析 URL 不再含凭证。同源跳转保留认证；用真实 HTTP 和受控公网 DNS/拨号证明跨源不转发。g 46 passed（2.38 秒）；保留原 feedparser User-Agent 后 h 46 passed（2.27 秒）。拒绝测试从初始复现的“结果不可用”加强为明确 DestinationDenied，且跨私网场景确认首跳发生、目标未收到请求。
+
+i 镜像矩阵 2 passed / 2 failed（0.56 秒）：正确/错误 infohash 的私网直连行为符合原契约，但两种情况都会先沿重定向触达另一私网目标；正确 hash 还会落盘。镜像 helper 改为同一受控客户端，仅授权管理员模板生成 URL 的初始 origin，保留字节上限与后续结构/infohash 校验。j 组合 50 passed（2.65 秒）；之后只修正 import 排序并同步文档，Ruff 通过。候选十个有效文件及哈希为 `outbound-policy-j-candidate.tar.gz` / `outbound-policy-j-source.json`；完整 f–j 失败/通过日志与结果均保留。
+
+下一步复核发现：安装版本的 transmission-rpc 在构造器中即调用 `get_session()`，内部 Requests Session.post 未禁用重定向；OpenAI SDK `_base_client.py` 的默认 HTTPX 客户端显式 follow_redirects=True。两者必须验证真实 SDK 行为及凭证/目的地边界，不能只审核项目中的 HTTPX 构造器。Wiki REST summary 的异步重定向也未接入。notify/media-server/Wigolo 当前不自动跟随重定向，仍需实际兼容性证据。原有 magnet 集成使用本地文件路径回放的夹具必须迁移到 HTTP 服务；不为旧测试恢复生产文件读取。管理员私网资源例外、代理/CA 策略、直接 httpcore 依赖声明、DNS 阻塞上限与完整门禁仍待完成。S1 不关闭、不合入。
+
+k 真实 SDK 验证：通过生产 `TransmissionWrapper.test_connection` 与 `feed_analyzer._call_openai`，本地协议模拟器两项直连通过，两个 307 跨私网 origin 用例失败（2 passed / 2 failed，0.73 秒）。目标确实收到 SDK 发出的请求；LLM 的跨源 Authorization 已剥离，但合成请求体仍被发送，不能把没有凭证泄露误判成没有目的地问题。没有模拟或替换 SDK 的 HTTP 方法；账号、响应和请求内容均为合成。完整测试原文及日志见 `outbound-policy-k-*`。尚未修改 SDK 运行实现，后续需选择支持安全连接/重定向约束的注入点，禁止全局 monkeypatch SDK 或 Requests Session。

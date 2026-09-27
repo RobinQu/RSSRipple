@@ -1,0 +1,11 @@
+{
+  "accepted": false,
+  "passed": 2,
+  "failed": 2,
+  "seconds": 0.73,
+  "exit_code": 1,
+  "runtime_changed": false,
+  "test_sha256": "7ff8b218df5dc76b7ab82bf24dc8a805c13e6b4ba1dbf408e5598886a5c51979",
+  "evidence": "Real Transmission/OpenAI SDK through production helpers followed 307 to another private origin. Credentials synthetic. Both direct endpoints succeed; LLM cross-origin Authorization is stripped, but request body still reaches target.",
+  "remaining": "Design and implement SDK destination policy without global monkeypatching; preserve supported endpoint behavior."
+}

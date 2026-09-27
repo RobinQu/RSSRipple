@@ -1,0 +1,12 @@
+{
+  "app/clients/outbound_http.py": "ec49ed6f897dcf1cd792acdc03f96b5f51bda4ab2fef3ced41c6f80e1b8d9036",
+  "app/services/torrent_inspect.py": "5f9d18c329bbd72f877219ae27b2050e99b8475b55e792041bf0a70d418c339a",
+  "app/services/metadata_service.py": "7deb38a816df6666d1c72ad026d467ce81f2f4aae9efb8c40e655b96ce7bb9ee",
+  "tests/integration/security/test_untrusted_outbound.py": "246d306ddbb4aca31ee2b9a919a94c2f64644ab7dd657724ad1e928ebc8656a5",
+  "app/clients/rss_parser.py": "ceb6b628e6ce4e5de363abb8a5361cefd6a0fcfb2c1094603930d7ed3ea9fa8c",
+  "app/services/magnet_resolve.py": "f05756846917d419a4babbea88e15c4ada8fb7ef014ed3dfb0b23eaa45ae5354",
+  "tests/integration/security/test_feed_outbound.py": "a2ccbaba11caa1c544eeb998aa353086faa8fb19b9bf4913db5586b1a079bfd1",
+  "docs/design/business-logic.md": "49c422f917f5fa5e87991a3dc4f943c03e65cfaec1edad52ae1c3635f126034d",
+  "docs/design/conventions.md": "e4abb5a9f6a4e482d9235e33c8e83c22bbb41db44e7794e117131f4f6181b209",
+  "docs/testing/integration-inventory.md": "86aef9ebfd52451d87b3d783517e537373b9aa4ffbd1269dc05c040ee14a4b9d"
+}

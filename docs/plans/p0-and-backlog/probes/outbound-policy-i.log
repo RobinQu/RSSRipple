@@ -1,0 +1,20 @@
+.F.F                                                                     [100%]
+=================================== FAILURES ===================================
+_________ test_admin_mirror_redirect_and_infohash_boundary[False-True] _________
+tests/integration/security/test_untrusted_outbound.py:282: in test_admin_mirror_redirect_and_infohash_boundary
+    assert requests == [], "Mirror authorization must not extend to redirect origin"
+E   AssertionError: Mirror authorization must not extend to redirect origin
+E   assert ['/0000000000...0000/torrent'] == []
+E
+E     Left contains one more item: '/0000000000000000000000000000000000000000/torrent'
+E     Use -v to get more diff
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.magnet_resolve:magnet_resolve.py:238 [magnet] mirror http://127.0.0.1:41257/0000000000000000000000000000000000000000/torrent returned a wrong/unusable torrent; discarding
+_________ test_admin_mirror_redirect_and_infohash_boundary[True-True] __________
+tests/integration/security/test_untrusted_outbound.py:280: in test_admin_mirror_redirect_and_infohash_boundary
+    assert result is (matching_hash and not redirected)
+E   assert True is ((True and not True))
+=========================== short test summary info ============================
+FAILED tests/integration/security/test_untrusted_outbound.py::test_admin_mirror_redirect_and_infohash_boundary[False-True]
+FAILED tests/integration/security/test_untrusted_outbound.py::test_admin_mirror_redirect_and_infohash_boundary[True-True]
+2 failed, 2 passed, 24 deselected in 0.56s
