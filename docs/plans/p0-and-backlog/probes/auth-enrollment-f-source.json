@@ -1,0 +1,49 @@
+{
+  "prototype": "/tmp/rssripple-v19-auth-enrollment",
+  "base_runtime_commit": "a8a09bd",
+  "files": {
+    "app/main.py": "be20f770ac2e39753503e2472c392cfcc7a5bc7a1270252835245d0975006c77",
+    "app/scripts/auth_enrollment.py": "faf63535f13080931105eebbdbb674fbc4bcdba221bab8a5e16be6df746e175f",
+    "tests/unit/test_auth_bootstrap_logging.py": "c78f798cc782a3f5adc31485e6a8804454d5be8110b27c1e6e6df01c9b608133",
+    "tests/unit/test_auth_enrollment.py": "51a64422af053ba3fdc067b7cec11acbd38a5f8444e896ec911d3b70b9a3cb4f",
+    "tests/integration/security/auth_enrollment_driver.py": "444cd2aeeac2696111efa2a81b9056f6c4d6de3e39b70f91ccba8604756a5b0d",
+    "tests/integration/security/test_auth_enrollment.py": "c9949e58355f1555b346f591d8cae402f7756dd44a4d337071210ece82e57e63",
+    "docs/design/api-endpoints.md": "fee4f5ec159f68ee83a4703c3283bc4218240286a05dcd3ca592f7be6320675b",
+    "docs/design/conventions.md": "b1f01b6667fccb0a412fea6f4a77674c2f42017690570ca1c0bb999ae690580f",
+    "docs/design/frontend.md": "21be73a75383e2bcd92adb9cd7adce8197126a8748e4437c6b09aa2325b9dd6f",
+    "docs/testing/integration-inventory.md": "36e6271c3d4ed2e116d76ba40a18bc3fcac1f79b969dc30f029e7ef48bfcebde",
+    "README.md": "8671876ccb9e6affbed323b7adf209def94c8d91bab94c337929834588c28efd",
+    "README_CN.md": "64eb115d4ca5fa4cbc90c3eabb735575ad8a128b96eee4af7470bf5f70a2b534",
+    "frontend/src/i18n/locales/en-US.json": "44eb30b4d3114b3fd0d947065fb71336d5a647f3a539f86a7abc7a224f87acbf",
+    "frontend/src/i18n/locales/zh-CN.json": "45372e23b7836ce4222a3c42bd894452c712e9dc7ca08c48c7a7158378e58221"
+  },
+  "base_hashes": {
+    "app/main.py": "4c64f26c1fd9515347fe113e1b1747292a17a67db4412d943e6c6fa668a565a8",
+    "app/scripts/auth_enrollment.py": null,
+    "tests/unit/test_auth_bootstrap_logging.py": null,
+    "tests/unit/test_auth_enrollment.py": null,
+    "tests/integration/security/auth_enrollment_driver.py": null,
+    "tests/integration/security/test_auth_enrollment.py": null,
+    "docs/design/api-endpoints.md": "cdd285795941f784226371cb1d1a5157972fefcfe451c696c2b2968f00d94a62",
+    "docs/design/conventions.md": "cf4ae87be13f18124bd33e3080508b358c765e28889bf7b9e6c10a49f0427833",
+    "docs/design/frontend.md": "3dda4435b79cb82cf6e10e07c1b819eef3327d61d429a913d950d75ae2a3ed0e",
+    "docs/testing/integration-inventory.md": "7c66801008681c113484446bfe1454d3f7558ee42614fc08da6567242b2a7ccf",
+    "README.md": "581bb72ac67d53052d42891effd3e10fbc08ee867690057ff57dc955dae69d12",
+    "README_CN.md": "c53c311a5a9d5dca942720f8c2beb1fb81c131373cc6b14215ab3ebee28353f4",
+    "frontend/src/i18n/locales/en-US.json": "f25730309b3b27d9799da8909875d730a3cbcba309f8e96bfee10aaa3a14ae6e",
+    "frontend/src/i18n/locales/zh-CN.json": "fadbf7457aa9b144266b234b3dee0f5bdcbed09586d3ba1248476bf77ff8a888"
+  },
+  "status": "c 22 passed; f dual database 2 passed; full gates and frontend build pending; not merged",
+  "result": {
+    "f_passed": 2,
+    "f_skipped": 0,
+    "f_seconds": 14.35,
+    "f_exit_code": 0,
+    "scenarios_per_database": 5
+  },
+  "cleanup": {
+    "container": "rssripple-v19-enrollment-f",
+    "stop_exit_code": 0,
+    "storage": "--rm and tmpfs"
+  }
+}

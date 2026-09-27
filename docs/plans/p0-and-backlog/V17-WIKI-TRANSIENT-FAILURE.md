@@ -1,5 +1,13 @@
 # V17 M3 整体来源故障分类与缓存
 
+## 当前门禁状态：y 失败后 z 修订与 aa 重验
+
+前序 M2 已验收并合入 `756bce6`，M3 基线哈希与 main 一致。y 完整集成已退出 1：**3183 passed、3 failed、17 skipped，1958.29 秒**；两应用退出 0，覆盖率汇总退出 0，**20735/23509（88.20%）**。3054 冻结文件未变，跳过项及理由与 M2 完全相同，导出和清理完成。三个失败均在 test_metadata_search_agent_coverage.py：旧测试要求 HTTP/响应解析/任务异常返回空列表，与本修复明确区分失败和未命中的契约冲突。覆盖率达标不能抵消失败。
+
+新独立副本 `/tmp/rssripple-v17-error-review` 只修改该集成文件：异常必须抛出，工具包装必须返回 success=false，失败不写负缓存，来源恢复为完整空结果后才允许缓存。保留原成功合并、字段归一化和完整空缓存断言。z 联合 Wiki/TMDB 单元与此集成文件 **55 passed，8.85 秒**，无运行实现改动。
+
+新有效清单九文件见 probes/wiki-failure-aa-source.json；完整 3054 输入冻结于 wiki-failure-aa-frozen.json，完整候选 tar 可恢复。与 x 输入唯一差异是上述集成测试文件，运行代码及全部单元/API 文件字节相同；x 原单元/API session 9731 继续运行，不中断或重复启动。aa 唯一项目 rssripple-v17-final-aa 已启动，完整集成 session 72098，日志 /tmp/rssripple-v17-integration-aa.log。本批仍未验收，须收取 x/aa 完整终态、审计并清理后才可合入。
+
 ## 必要性
 
 main 9b9a5fa 上的独立探针已失败：真实录制标题 011c6d44-68cf-43a8-bad3-f0398ce20a95，所有维基搜索返回合成 timeout，LLM 返回合成 not_found，网络回退禁用。judge 返回 source_errors 中保留 zh/en 超时，但 error=None，实际 _classify_failure 返回 not_found。原始记录见 probes/wiki-failure-necessity-a.log。该证据仅证明分类缺陷，尚未验证实际数据库缓存写入；不宣称公网故障重现。

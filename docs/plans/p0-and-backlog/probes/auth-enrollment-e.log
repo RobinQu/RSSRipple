@@ -1,0 +1,13 @@
+============================= test session starts ==============================
+platform linux -- Python 3.13.3, pytest-9.1.1, pluggy-1.6.0 -- /workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /tmp/rssripple-v19-auth-enrollment
+configfile: pyproject.toml
+plugins: langsmith-0.9.3, anyio-4.14.0, cov-7.1.0, asyncio-1.4.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 2 items / 1 deselected / 1 selected
+
+tests/integration/security/test_auth_enrollment.py::test_auth_enrollment_turso PASSED [100%]
+
+----------------- generated xml file: /tmp/rssripple-v19-e.xml -----------------
+======================= 1 passed, 1 deselected in 7.63s ========================

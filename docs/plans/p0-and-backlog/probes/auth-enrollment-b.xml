@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="2.748" timestamp="2026-09-27T12:36:23.361838+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_auth_bootstrap_logging" name="test_startup_does_not_publish_authenticator_secret" time="1.783"><failure message="AssertionError: assert 'otpauth://' not in 'INFO     ap...ting down.\n'&#10;  &#10;  'otpauth://' is contained here:&#10;    ticator): otpauth://totp/RSSRipple:admin?secret=DSEPBOCNU3CLY7XE4EUYF3MOCCVOCI46&amp;issuer=RSSRipple&#10;  ?           ++++++++++&#10;    INFO     app.services.task_queue:task_queue.py:261 MemoryQueue started (max_concurrent=4, consume=False)&#10;    INFO     app.services.task_queue:task_queue.py:273 MemoryQueue stopped&#10;    INFO     app.main:main.py:163 Shutting down....&#10;  &#10;  ...Full output truncated (6 lines hidden), use '-vv' to show">tests/unit/test_auth_bootstrap_logging.py:32: in test_startup_does_not_publish_authenticator_secret
+    assert "otpauth://" not in caplog.text
+E   AssertionError: assert 'otpauth://' not in 'INFO     ap...ting down.\n'
+E
+E     'otpauth://' is contained here:
+E       ticator): otpauth://totp/RSSRipple:admin?secret=DSEPBOCNU3CLY7XE4EUYF3MOCCVOCI46&amp;issuer=RSSRipple
+E     ?           ++++++++++
+E       INFO     app.services.task_queue:task_queue.py:261 MemoryQueue started (max_concurrent=4, consume=False)
+E       INFO     app.services.task_queue:task_queue.py:273 MemoryQueue stopped
+E       INFO     app.main:main.py:163 Shutting down....
+E
+E     ...Full output truncated (6 lines hidden), use '-vv' to show</failure></testcase></testsuite></testsuites>

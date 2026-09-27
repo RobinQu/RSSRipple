@@ -1,0 +1,20 @@
+{
+  "accepted": false,
+  "prototype": "/tmp/rssripple-v17-error-review",
+  "effective_files": "wiki-failure-aa-source.json",
+  "freeze": "wiki-failure-aa-frozen.json",
+  "unit": {
+    "session": 9731,
+    "prototype": "/tmp/rssripple-v17-web-review-eyo54230",
+    "log": "/tmp/rssripple-v17-unit-x.log",
+    "junit": "/tmp/rssripple-v17-unit-x.xml",
+    "coverage": "/tmp/rssripple-v17-unit-x-coverage.xml",
+    "reuse_basis": "Only integration/metadata/test_metadata_search_agent_coverage.py changed; runtime and all unit/API inputs byte-identical"
+  },
+  "integration": {
+    "project": "rssripple-v17-final-aa",
+    "session": 72098,
+    "startup_exit": 0,
+    "log": "/tmp/rssripple-v17-integration-aa.log"
+  }
+}

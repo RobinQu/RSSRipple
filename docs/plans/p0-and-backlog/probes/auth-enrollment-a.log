@@ -1,0 +1,40 @@
+E                                                                        [100%]
+==================================== ERRORS ====================================
+_____ ERROR at setup of test_startup_does_not_publish_authenticator_secret _____
+file /tmp/rssripple-v19-auth-enrollment/tests/unit/test_auth_bootstrap_logging.py, line 10
+  async def test_startup_does_not_publish_authenticator_secret(
+      db_engine, db_session_factory, tmp_path, monkeypatch, caplog,
+  ):
+      monkeypatch.setattr(main, "async_session_factory", db_session_factory)
+      monkeypatch.setattr(main.settings, "db_migrate_on_startup", False)
+      monkeypatch.setattr(main.settings, "poster_cache_dir", str(tmp_path / "posters"))
+      monkeypatch.setattr(main.settings, "app_role", "web")
+      monkeypatch.setattr(main.settings, "queue_backend", "memory")
+      monkeypatch.setattr(main.settings, "log_level", "INFO")
+      caplog.set_level(logging.INFO, logger="app")
+      secrets = []
+      for _ in range(2):
+          async with main.lifespan(main.app):
+              async with db_session_factory() as db:
+                  totp = (await db.get(AppSetting, SETTING_TOTP_SECRET)).value
+                  cookie = (await db.get(AppSetting, SETTING_COOKIE_SECRET)).value
+                  secrets.append((totp, cookie))
+      assert secrets[0] == secrets[1]
+      assert all(secrets[0])
+      assert "otpauth://" not in caplog.text
+      assert secrets[0][0] not in caplog.text
+      assert secrets[0][1] not in caplog.text
+E       fixture 'db_session_factory' not found
+>       available fixtures: _asyncio_loop_factory, _class_scoped_runner, _function_scoped_runner, _isolate_organize_lock_directory, _isolate_runtime_config_overrides, _module_scoped_runner, _package_scoped_runner, _session_scoped_runner, anyio_backend, anyio_backend_name, anyio_backend_options, cache, capfd, capfdbinary, caplog, capsys, capsysbinary, capteesys, cov, db_engine, db_session, doctest_namespace, event_loop_policy, free_tcp_port, free_tcp_port_factory, free_udp_port, free_udp_port_factory, make_resource, mock_transmission, monkeypatch, no_cover, pytestconfig, record_property, record_testsuite_property, record_xml_attribute, recwarn, sample_channel, sample_downloader, sample_movie, sample_series, subtests, tmp_path, tmp_path_factory, tmpdir, tmpdir_factory, unused_tcp_port, unused_tcp_port_factory, unused_udp_port, unused_udp_port_factory
+>       use 'pytest --fixtures [testpath]' for help on them.
+
+/tmp/rssripple-v19-auth-enrollment/tests/unit/test_auth_bootstrap_logging.py:10
+=============================== warnings summary ===============================
+tests/unit/test_auth_bootstrap_logging.py::test_startup_does_not_publish_authenticator_secret
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+ERROR tests/unit/test_auth_bootstrap_logging.py::test_startup_does_not_publish_authenticator_secret
+1 warning, 1 error in 2.53s

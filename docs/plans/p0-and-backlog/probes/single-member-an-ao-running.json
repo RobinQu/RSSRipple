@@ -16,5 +16,8 @@
     "log": "/tmp/rssripple-v16-integration-ao.log",
     "threshold": 85
   },
-  "accepted": false
+  "accepted": true,
+  "status": "both terminal and accepted",
+  "commit": "756bce6",
+  "terminal_record": "single-member-an-ao-terminal.json"
 }

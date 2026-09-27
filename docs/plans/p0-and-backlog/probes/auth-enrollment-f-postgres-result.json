@@ -1,0 +1,9 @@
+{
+  "cases": [
+    "fresh-and-repeated-startup-no-secret-log",
+    "real-terminal-existing-enrollment",
+    "redirected-output-refused",
+    "missing-show-refused",
+    "enrolled-otp-login-and-existing-cookie"
+  ]
+}

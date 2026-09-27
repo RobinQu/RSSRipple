@@ -1,0 +1,501 @@
+--- a/app/main.py
++++ b/app/main.py
+@@ -100,23 +100,18 @@
+         await load_runtime_config(sess)
+     logger.info("Runtime settings loaded.")
+ 
+-    # Auth bootstrap: ensure the TOTP + cookie secrets exist (generated on
+-    # first run and persisted in app_settings), and surface the provisioning
+-    # URI every startup so the operator can enroll an authenticator.
++    # Persist credentials without publishing them to application logs.
++    # Enrollment is an explicit operator action via the local CLI.
+     from app.services.auth_service import (
+         get_or_create_cookie_secret,
+         get_or_create_totp_secret,
+-        totp_provisioning_uri,
+     )
+ 
+     async with async_session_factory() as sess:
+-        totp_secret = await get_or_create_totp_secret(sess)
++        await get_or_create_totp_secret(sess)
+         await get_or_create_cookie_secret(sess)
+         await sess.commit()
+-    logger.warning(
+-        "OTP provisioning URI (add to your authenticator): %s",
+-        totp_provisioning_uri(totp_secret),
+-    )
++    logger.info("Authentication ready. To enroll, run python -m app.scripts.auth_enrollment --show in a terminal.")
+ 
+     # Web/worker separation: with APP_ROLE=web this process only serves HTTP
+     # and enqueues jobs — the scheduler and queue consumer live in the worker
+--- /dev/null
++++ b/app/scripts/auth_enrollment.py
+@@ -0,0 +1,51 @@
++"""Explicit, terminal-only display of the existing administrator enrollment URI."""
++
++import argparse
++import asyncio
++import sys
++
++from app import database
++from app.services.auth_service import SETTING_TOTP_SECRET, totp_provisioning_uri
++from app.services.settings_service import get_setting
++
++
++async def _read_uri() -> str | None:
++    """Read existing credentials; never initialize, rotate, or commit them."""
++    async with database.async_session_factory() as db:
++        secret = await get_setting(db, SETTING_TOTP_SECRET)
++    return totp_provisioning_uri(secret) if secret else None
++
++
++async def _run() -> int:
++    try:
++        uri = await _read_uri()
++        if uri is None:
++            print("Authentication is not initialized. Start the application once first.", file=sys.stderr)
++            return 1
++        print(uri, flush=True)
++        return 0
++    finally:
++        await database.engine.dispose()
++
++
++def main(argv: list[str] | None = None) -> int:
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--show", action="store_true", help="display the existing TOTP enrollment URI")
++    args = parser.parse_args(argv)
++    if not args.show:
++        parser.error("--show is required to reveal the enrollment URI")
++    if not sys.stdout.isatty():
++        print("Enrollment requires an interactive terminal; redirected output is refused.", file=sys.stderr)
++        return 2
++    try:
++        return asyncio.run(_run())
++    except Exception:
++        # Database exceptions can contain connection credentials. Keep operator
++        # diagnostics static, especially when the embedded DB is already open.
++        print("Cannot read authentication settings. Check database access; stop the app first for Turso.",
++              file=sys.stderr)
++        return 1
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+--- /dev/null
++++ b/tests/unit/test_auth_bootstrap_logging.py
+@@ -0,0 +1,34 @@
++"""Exercise production startup using an isolated real database and synthetic secrets."""
++
++import logging
++
++from app import database, main
++from app.models.app_setting import AppSetting
++from app.services import task_queue
++from app.services.auth_service import SETTING_COOKIE_SECRET, SETTING_TOTP_SECRET
++
++
++async def test_startup_does_not_publish_authenticator_secret(
++    db_engine, tmp_path, monkeypatch, caplog,
++):
++    db_session_factory = database.async_session_factory
++    monkeypatch.setattr(task_queue, "task_queue", task_queue.task_queue)
++    monkeypatch.setattr(main, "async_session_factory", db_session_factory)
++    monkeypatch.setattr(main.settings, "db_migrate_on_startup", False)
++    monkeypatch.setattr(main.settings, "poster_cache_dir", str(tmp_path / "posters"))
++    monkeypatch.setattr(main.settings, "app_role", "web")
++    monkeypatch.setattr(main.settings, "queue_backend", "memory")
++    monkeypatch.setattr(main.settings, "log_level", "INFO")
++    caplog.set_level(logging.INFO, logger="app")
++    secrets = []
++    for _ in range(2):
++        async with main.lifespan(main.app):
++            async with db_session_factory() as db:
++                totp = (await db.get(AppSetting, SETTING_TOTP_SECRET)).value
++                cookie = (await db.get(AppSetting, SETTING_COOKIE_SECRET)).value
++                secrets.append((totp, cookie))
++    assert secrets[0] == secrets[1]
++    assert all(secrets[0])
++    assert "otpauth://" not in caplog.text
++    assert secrets[0][0] not in caplog.text
++    assert secrets[0][1] not in caplog.text
+--- /dev/null
++++ b/tests/unit/test_auth_enrollment.py
+@@ -0,0 +1,68 @@
++"""Enrollment reads the existing test credentials without changing authentication."""
++
++from unittest.mock import AsyncMock
++
++import pyotp
++import pytest
++from sqlalchemy import select
++
++from app import database
++from app.models.app_setting import AppSetting
++from app.scripts import auth_enrollment as enrollment
++from app.services.auth_service import (
++    get_or_create_cookie_secret,
++    get_or_create_totp_secret,
++    make_cookie,
++    validate_cookie,
++    verify_totp,
++)
++
++
++async def test_enrollment_preserves_credentials_and_existing_cookie(db_engine):
++    async with database.async_session_factory() as db:
++        secret = await get_or_create_totp_secret(db)
++        cookie_secret = await get_or_create_cookie_secret(db)
++        await db.commit()
++        before = {row.key: row.value for row in (await db.execute(select(AppSetting))).scalars()}
++    cookie = make_cookie(cookie_secret)
++    for _ in range(2):
++        uri = await enrollment._read_uri()
++        authenticator = pyotp.parse_uri(uri)
++        assert authenticator.secret == secret
++        assert verify_totp(secret, authenticator.now())
++    async with database.async_session_factory() as db:
++        after = {row.key: row.value for row in (await db.execute(select(AppSetting))).scalars()}
++    assert before == after
++    assert validate_cookie(cookie, cookie_secret)
++
++
++async def test_uninitialized_enrollment_does_not_create_credentials(db_engine):
++    assert await enrollment._read_uri() is None
++    async with database.async_session_factory() as db:
++        assert (await db.execute(select(AppSetting))).scalars().all() == []
++
++
++def test_explicit_show_required(capsys):
++    with pytest.raises(SystemExit) as error:
++        enrollment.main([])
++    assert error.value.code == 2
++    assert "--show is required" in capsys.readouterr().err
++
++
++def test_redirected_output_refused_before_database_access(monkeypatch, capsys):
++    read = AsyncMock()
++    monkeypatch.setattr(enrollment, "_read_uri", read)
++    monkeypatch.setattr(enrollment.sys.stdout, "isatty", lambda: False)
++    assert enrollment.main(["--show"]) == 2
++    read.assert_not_called()
++    assert "redirected output is refused" in capsys.readouterr().err
++
++
++def test_connection_error_does_not_print_credentials(monkeypatch, capsys):
++    monkeypatch.setattr(enrollment.sys.stdout, "isatty", lambda: True)
++    monkeypatch.setattr(enrollment, "_run", AsyncMock(side_effect=RuntimeError("postgres://synthetic-secret")))
++    assert enrollment.main(["--show"]) == 1
++    output = capsys.readouterr()
++    assert output.out == ""
++    assert "synthetic-secret" not in output.err
++    assert "Cannot read authentication settings" in output.err
+--- /dev/null
++++ b/tests/integration/security/auth_enrollment_driver.py
+@@ -0,0 +1,138 @@
++"""Real startup, terminal enrollment, and login against a dedicated database."""
++
++import asyncio
++import errno
++import hashlib
++import io
++import json
++import logging
++import os
++import pty
++import subprocess
++import sys
++from pathlib import Path
++from urllib.parse import urlsplit
++
++import httpx
++import pyotp
++from sqlalchemy import select
++
++from app import database, main
++from app.models.app_setting import AppSetting
++from app.services.auth_service import (
++    AUTH_COOKIE_NAME,
++    SETTING_COOKIE_SECRET,
++    SETTING_TOTP_SECRET,
++    make_cookie,
++    validate_cookie,
++)
++
++
++def terminal_command(*args):
++    master, slave = pty.openpty()
++    try:
++        result = subprocess.run(
++            [sys.executable, "-m", "app.scripts.auth_enrollment", *args],
++            stdout=slave, stderr=subprocess.PIPE, timeout=20,
++        )
++    except BaseException:
++        os.close(master)
++        raise
++    finally:
++        os.close(slave)
++    try:
++        chunks = []
++        while True:
++            try:
++                chunk = os.read(master, 4096)
++            except OSError as error:
++                if error.errno != errno.EIO:
++                    raise
++                break
++            if not chunk:
++                break
++            chunks.append(chunk)
++        return result.returncode, b"".join(chunks).decode().strip(), result.stderr.decode()
++    finally:
++        os.close(master)
++
++
++async def settings_snapshot():
++    async with database.async_session_factory() as db:
++        return {row.key: row.value for row in (await db.execute(select(AppSetting))).scalars()}
++
++
++def snapshot_hash(values):
++    return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
++
++
++async def bootstrap():
++    stream = io.StringIO()
++    handler = logging.StreamHandler(stream)
++    logger = logging.getLogger("app")
++    logger.addHandler(handler)
++    try:
++        async with main.lifespan(main.app):
++            pass
++        before = await settings_snapshot()
++        secret, cookie_secret = before[SETTING_TOTP_SECRET], before[SETTING_COOKIE_SECRET]
++        cookie = make_cookie(cookie_secret)
++        logs = stream.getvalue()
++        assert "otpauth://" not in logs and secret not in logs and cookie_secret not in logs
++        # Only the dedicated test coordinator receives this synthetic cookie.
++        print(json.dumps({"settings_hash": snapshot_hash(before), "cookie": cookie}))
++    finally:
++        logger.removeHandler(handler)
++        await database.engine.dispose()
++
++
++async def run():
++    output = Path(os.environ["AUTH_ENROLLMENT_RESULT"])
++    starts = []
++    # Stop the actual owning process before opening Turso from another one;
++    # disposing SQLAlchemy alone need not release the embedded engine handle.
++    for _ in range(2):
++        result = await asyncio.to_thread(
++            subprocess.run,
++            [sys.executable, "-m", "tests.integration.security.auth_enrollment_driver", "bootstrap"],
++            capture_output=True, text=True, timeout=30,
++        )
++        assert result.returncode == 0, result.stderr
++        starts.append(json.loads(result.stdout))
++    assert starts[0]["settings_hash"] == starts[1]["settings_hash"]
++    try:
++        code, uri, stderr = await asyncio.to_thread(terminal_command, "--show")
++        assert code == 0, stderr
++        authenticator = pyotp.parse_uri(uri)
++        secret = authenticator.secret
++        assert secret not in stderr
++        refused = await asyncio.to_thread(
++            subprocess.run, [sys.executable, "-m", "app.scripts.auth_enrollment", "--show"],
++            capture_output=True, text=True, timeout=20,
++        )
++        assert refused.returncode == 2 and refused.stdout == ""
++        assert secret not in refused.stderr
++        missing_flag, displayed, error = await asyncio.to_thread(terminal_command)
++        assert missing_flag == 2 and displayed == "" and secret not in error
++        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app), base_url="http://test") as client:
++            response = await client.post("/api/v1/auth/otp", json={"code": authenticator.now()})
++            assert response.status_code == 200, response.status_code
++            assert AUTH_COOKIE_NAME in response.cookies
++            assert (await client.get("/api/v1/auth/status")).json()["data"]["authenticated"] is True
++        after = await settings_snapshot()
++        assert after[SETTING_TOTP_SECRET] == secret
++        assert snapshot_hash(after) == starts[0]["settings_hash"]
++        assert validate_cookie(starts[0]["cookie"], after[SETTING_COOKIE_SECRET])
++        output.write_text(json.dumps({"cases": [
++            "fresh-and-repeated-startup-no-secret-log", "real-terminal-existing-enrollment",
++            "redirected-output-refused", "missing-show-refused", "enrolled-otp-login-and-existing-cookie",
++        ]}, indent=2))
++    finally:
++        await database.engine.dispose()
++
++
++if __name__ == "__main__":
++    url = os.environ["AUTH_ENROLLMENT_DATABASE_URL"]
++    assert url == os.environ["DATABASE_URL"]
++    assert Path(urlsplit(url).path).name.startswith("auth_enrollment_")
++    asyncio.run(bootstrap() if sys.argv[1:] == ["bootstrap"] else run())
+--- /dev/null
++++ b/tests/integration/security/test_auth_enrollment.py
+@@ -0,0 +1,59 @@
++"""Dedicated real databases and CLI terminals; no production credentials."""
++
++import asyncio
++import json
++import os
++import signal
++import subprocess
++import sys
++import uuid
++from pathlib import Path
++from urllib.parse import urlsplit, urlunsplit
++
++import asyncpg
++import pytest
++
++
++def run_driver(tmp_path, db_url):
++    output = tmp_path / "result.json"
++    env = dict(os.environ, DATABASE_URL=db_url, AUTH_ENROLLMENT_DATABASE_URL=db_url,
++               AUTH_ENROLLMENT_RESULT=str(output), APP_ROLE="web", QUEUE_BACKEND="memory",
++               AUTH_ENABLED="true", API_KEY="", DB_MIGRATE_ON_STARTUP="true",
++               POSTER_CACHE_DIR=str(tmp_path / "posters"), LLM_API_KEY="", TMDB_API_KEY="",
++               BANGUMI_API_KEY="", WIGOLO_API_TOKEN="")
++    command = [sys.executable, "-m", "tests.integration.security.auth_enrollment_driver"]
++    with subprocess.Popen(command, cwd=Path(__file__).resolve().parents[3], env=env,
++                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
++                          start_new_session=True) as process:
++        try:
++            stdout, stderr = process.communicate(timeout=90)
++        except subprocess.TimeoutExpired:
++            os.killpg(process.pid, signal.SIGKILL)
++            process.communicate()
++            raise
++    (tmp_path / "driver.log").write_text(stdout + stderr)
++    assert process.returncode == 0, stdout + stderr
++    assert len(json.loads(output.read_text())["cases"]) == 5
++
++
++async def test_auth_enrollment_turso(tmp_path):
++    await asyncio.to_thread(run_driver, tmp_path, f"sqlite+aioturso:///{tmp_path}/auth_enrollment_test.db")
++
++
++async def test_auth_enrollment_postgres(tmp_path):
++    url = os.environ.get("QUEUE_RECOVERY_POSTGRES_URL")
++    if not url:
++        if os.environ.get("QUEUE_RECOVERY_REQUIRED") == "1":
++            pytest.fail("Enrollment gate requires dedicated PostgreSQL")
++        pytest.skip("Run isolated integration for PostgreSQL enrollment")
++    parts = urlsplit(url)
++    assert parts.path == "/queue_recovery"
++    name = "auth_enrollment_" + uuid.uuid4().hex
++    admin = await asyncpg.connect(url)
++    try:
++        await admin.execute(f'CREATE DATABASE "{name}"')
++        db_url = urlunsplit(parts._replace(scheme="postgresql+asyncpg", path="/" + name))
++        await asyncio.to_thread(run_driver, tmp_path, db_url)
++    finally:
++        await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
++        await admin.close()
+--- a/docs/design/api-endpoints.md
++++ b/docs/design/api-endpoints.md
+@@ -32,7 +32,7 @@
+ | POST | `/api-keys` | 创建 API key：body `{"name": "..."}` → 201，`data` 额外含 `key`（`rr_...` 明文，**仅本次响应返回一次**） |
+ | DELETE | `/api-keys/{id}` | 删除 API key；不存在 404 |
+ 
+-TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 `app_settings`（`auth_totp_secret` / `auth_cookie_secret`）；provisioning URI（`otpauth://totp/RSSRipple:admin?...`）每次启动以 WARNING 级别打印，由运维手动添加到认证器。
++TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 `app_settings`（`auth_totp_secret` / `auth_cookie_secret`）；首次启动和重启均不在日志输出秘钥或 provisioning URI。运维通过本地终端执行 `python -m app.scripts.auth_enrollment --show`，只读获取已有绑定 URI；命令拒绝重定向输出，不创建或轮换秘钥，不新增公开绑定 API。Turso 需先停止应用以释放独占文件锁，详见 conventions.md 的认证器绑定流程。
+ 
+ ### 健康检查（Health）
+ 
+--- a/docs/design/conventions.md
++++ b/docs/design/conventions.md
+@@ -38,7 +38,15 @@
+   - 内置文件整理子系统（organize）**无环境变量开关**：常开，存在 enabled 规则即激活。语义见 file-organization.md；逻辑卷/媒体服务器/库根/规则/模板全部入库（StorageVolume/MediaServerInstance/Library/OrganizeRule），不走环境变量。媒体服务器**无全局配置**：旧版 `PLEX_URL`/`PLEX_TOKEN` 已移除，存量环境变量由启动轻迁移转为一条 `MediaServerInstance`（type=plex）。
+   - `AUTH_ENABLED`：应用认证总开关（默认 `true`）。开启时 `/api/v1/*` 与 `/posters/*` 需携带凭证，`/api/v1/auth/*`、`/health`（容器健康检查探针）与 SPA/静态资源开放。
+   - `API_KEY`：可选静态引导 API key（运维恢复与集成测试用；与 `api_keys` 表中的 key 同等效力）。
+-- **认证凭证约定**：Web 端 TOTP 登录（秘钥 `auth_totp_secret` 首次启动自动生成并持久化于 `app_settings`，provisioning URI 每次启动以 WARNING 打印，运维手动加入认证器）；登录成功签发 HttpOnly Cookie `rssripple_auth`（值格式 `{expiry_ts}.{hmac_sha256}`，以 `app_settings` 的 `auth_cookie_secret` 签名，30 天有效，SameSite=Lax）。程序端用全局 API key（`Authorization: Bearer` 或 `X-API-Key` 头；`api_keys` 表仅存 SHA-256 摘要，`rr_` 明文仅创建时返回一次）。
++- **认证凭证约定**：Web 端 TOTP 登录（秘钥 `auth_totp_secret` 首次启动自动生成并持久化于 `app_settings`，启动日志不输出秘钥或 provisioning URI，运维通过下述终端命令主动绑定认证器）；登录成功签发 HttpOnly Cookie `rssripple_auth`（值格式 `{expiry_ts}.{hmac_sha256}`，以 `app_settings` 的 `auth_cookie_secret` 签名，30 天有效，SameSite=Lax）。程序端用全局 API key（`Authorization: Bearer` 或 `X-API-Key` 头；`api_keys` 表仅存 SHA-256 摘要，`rr_` 明文仅创建时返回一次）。
++
++### 认证器绑定
++
++应用至少成功启动一次后，在可信交互终端显式执行 `python -m app.scripts.auth_enrollment --show`。默认 PostgreSQL Compose 可执行 `docker compose exec app python -m app.scripts.auth_enrollment --show`。命令使用应用相同的 DATABASE_URL，只读取已有 TOTP 密钥；不执行 DDL、不创建/轮换密钥、不使现有 Cookie 失效。未初始化、数据库不可访问或输出不是终端时返回非零，标准输出为空；省略 `--show` 也拒绝显示。数据库异常只给固定提示，避免泄露连接凭证。
++
++Turso 文件由单一进程独占：先 `docker compose -f docker-compose.standalone.yml stop app`，再 `docker compose -f docker-compose.standalone.yml run --rm --no-deps app python -m app.scripts.auth_enrollment --show`，最后 `docker compose -f docker-compose.standalone.yml start app`。本地开发同样先停止 Uvicorn，再用相同环境执行 `uv run python -m app.scripts.auth_enrollment --show`，之后重启应用。不要用第二个进程打开运行中的 Turso 文件。
++
++URI 包含管理员长期密钥，只用于手动导入认证器，不转发到日志系统或共享终端录制。此改动停止今后的自动日志暴露，不自动轮换旧密钥或清除历史日志；已有泄露需由运维另行处理。
+   - `DEBUG` / `LOG_LEVEL`（默认 `INFO`）：调试开关与日志级别。
+   - Wikipedia Search 通过免费 `wikipedia` Python 库实现，无需额外 API key。
+ - **海报服务**：FastAPI 挂载 StaticFiles 到 `/posters`，物理目录为 `POSTER_CACHE_DIR`。缓存文件名 `{sha256(url)[:16]}.{ext}`，扩展名由下载内容的魔数嗅探决定（jpg/png/webp/gif/svg，`download_and_cache_poster` 内 `_sniff_image_ext`），**不取 URL 后缀**——URL 后缀不可靠（如 Wikimedia 在无扩展路径下返回 SVG），内容与扩展名不符会被浏览器按静态 MIME 拒绝渲染；无法识别的内容不缓存、返回 None。
+--- a/docs/design/frontend.md
++++ b/docs/design/frontend.md
+@@ -37,7 +37,7 @@
+ 
+ - **媒体库路径错误**：库响应的 `path_error` 非空时，解析根目录列显示本地化的“路径配置无效”，悬停展示具体原因；已有设置入口用于修复卷/root/recycle 配置。`bound` 仍表示卷绑定存在，不能把绑定存在解释为路径有效。
+ 
+-- **认证流程**：`/login` 位于 `AppLayout`（侧边栏布局）之外，认证前不渲染侧边栏；输入 6 位 TOTP 验证码自动提交 `POST /auth/otp`，成功签发 HttpOnly Cookie `rssripple_auth`（30 天）并整页重载 `/`。API client 统一处理 401（当前路径非 `/login` 时跳转 `/login`，登录页自身的失败 OTP 401 就地展示）。侧边栏底部提供"退出登录"按钮（`POST /auth/logout` 后跳转 `/login`）。
++- **认证流程**：`/login` 位于 `AppLayout`（侧边栏布局）之外，认证前不渲染侧边栏；输入 6 位 TOTP 验证码自动提交 `POST /auth/otp`，成功签发 HttpOnly Cookie `rssripple_auth`（30 天）并整页重载 `/`。API client 统一处理 401（当前路径非 `/login` 时跳转 `/login`，登录页自身的失败 OTP 401 就地展示）。侧边栏底部提供"退出登录"按钮（`POST /auth/logout` 后跳转 `/login`）。登录提示要求首次登录前按部署文档绑定认证器，不再引导读取启动日志；中英文同步。
+ 
+ - **Filter DSL 编辑器**：前端使用树形 UI，支持 AND/OR 节点嵌套、添加/删除/拖拽条件节点；每个字段条件提供字段名下拉（**语义分组**六类：发布信息 / 集数信息 / 标题信息 / 作品类型 / 剧集作品 / 电影作品，`useFieldOptions` 手维护分组）、operator 下拉（根据字段类型动态展示可用 operator）、value 输入。字段下拉可被频道 `required_metadata_fields` 门控（`allowedFields` prop，仅 AgentForm/AgentDetail/WorkSelector/FilterSummaryModal 的过滤 DSL 传入；偏好选择 PreferenceListEditor 与 OrganizeRuleFormModal 不传入=不限制）；现存条件引用了门控外字段时，该条件旁显示警告图标（提示依赖非必填字段、保存将被后端拒绝）。所有字段类型的 operator 列表都包含 `is_empty`/`is_not_empty`（"为空/不为空"），选中后不渲染 value 输入；取值操作符的 value 留空时输入框标红，且保存前（AgentForm 提交、Agent 详情全局过滤/作品订阅保存）统一用 `findInvalidConditions` 拦截并提示——空值条件禁止保存（后端创建/更新接口同样 422 校验全局 `filter_config` 与每个作品的 `filter_overrides`）。删光条件后的空树（`{combinator, conditions: []}`）在所有保存/预览 payload 中一律经 `nullIfEmptyFilter` 归一化为 `null`（即"无过滤"），后端不接受空 conditions 列表。字符串字段 + `eq/ne/contains/fuzzy` 会通过 `GET /channels/{id}/field-values?field=&q=` 提供服务端 top-10 频率排序 + 前缀搜索的候选值下拉（保留自由输入），列表字段（`subtitle_langs`）预填 BCP-47 语言代码，genre 字段（`series.genre`/`movie.genre`，与 `series.rating` 同组）从封闭 TMDB 27 类下拉选择（label 走 `genre.*` i18n 中文显示、值存英文 canonical 名，无自由输入），布尔字段（`is_batch`，及 work 字段组新增的三态 `series.is_anime`/`movie.is_anime`）用 `是/否` Select，枚举字段（`episode_confidence` 与 `content_type`）从固定值下拉选择（集号可信度 `raw/reconciled/ambiguous/manual`；作品类型 `tv/movie/audio`，`describeFilter` 摘要经 `filter.enumValue_*` 本地化）。提供"测试"按钮调用 `/agents/{id}/test-filters` 实时预览当前频道资源匹配情况。
+ - **Agent 详情过滤条件合并展示**：第一个 Tab（订阅作品管理）顶部以只读 Tag 形式展示全局 `filter_config`（经 `describeCondition` 渲染为人类可读文本）；每个作品的设置折叠面板内（`WorkSelector`，接收 `globalFilter` prop）在作品自身 `filter_overrides` 编辑器上方展示"与全局过滤合并后"的全局条件，让用户看到生效的完整过滤 = 全局 AND 作品覆盖。
+--- a/docs/testing/integration-inventory.md
++++ b/docs/testing/integration-inventory.md
+@@ -1,4 +1,10 @@
+ # 集成测试清单（重组后）
++
++## 认证器绑定安全回归
++
++`security/test_auth_enrollment.py` 正式包含 Turso 与 PostgreSQL 两个入口，每个以五项断言组覆盖实际进程首次启动/重启不记密钥、真实伪终端运行绑定 CLI、拒绝重定向、要求显式 `--show`、导入 URI 后经生产 ASGI 认证路由登录且旧 Cookie/持久凭证不变。应用使用 web 角色与内存队列，执行实际 lifespan/DDL，未访问外部来源；认证 HTTP 为 ASGI transport，不宣称网络服务器覆盖。密钥均在专用空库自动生成，不使用生产配置。
++
++Turso 的应用子进程完全退出后才由 CLI 打开文件；仅 dispose SQLAlchemy 不代表已释放底层独占句柄。PostgreSQL 沿用 `QUEUE_RECOVERY_POSTGRES_URL` 的专用管理库，每次建 `auth_enrollment_*` 子库并 finally 删除；完整隔离门禁设置 `QUEUE_RECOVERY_REQUIRED=1`，缺库必失败。父测试超时杀进程组，终端文件描述符 finally 关闭。
+ 
+ > 重组完成于 2026-07-24 ｜ 分支 `refactor/integration-tests`
+ > 范围：`tests/integration/` ｜ 最新验收（2026-09-09）：**82 个测试文件 / 单节点 2351 passed + 17 skipped**（历史计数：重组前 16 文件 / 166 用例，重组去重 17 个）
+--- a/README.md
++++ b/README.md
+@@ -56,6 +56,12 @@
+ ```
+ 
+ The frontend build requires Node.js 20.19+ or 22.12+ (Vite 8).
++
++### Enroll an authenticator
++
++After the first successful startup, run `docker compose exec app python -m app.scripts.auth_enrollment --show` in a trusted interactive terminal. Import the displayed URI into your authenticator and use its six-digit code to log in. Startup logs do not contain the enrollment secret. The command reads existing credentials without changing them and refuses redirected output.
++
++For standalone Turso, stop the app first, run `docker compose -f docker-compose.standalone.yml run --rm --no-deps app python -m app.scripts.auth_enrollment --show`, then start the app again. For a manual installation, stop Uvicorn and run `uv run python -m app.scripts.auth_enrollment --show` with the same database configuration before restarting. See [authentication conventions](docs/design/conventions.md#认证器绑定).
+ 
+ ## Obtaining API Credentials
+ 
+--- a/README_CN.md
++++ b/README_CN.md
+@@ -56,6 +56,12 @@
+ ```
+ 
+ 前端构建需要 Node.js 20.19+ 或 22.12+（Vite 8）。
++
++### 绑定认证器
++
++应用首次成功启动后，在可信交互终端运行 `docker compose exec app python -m app.scripts.auth_enrollment --show`，将显示的 URI 导入认证器，再用其六位验证码登录。启动日志不包含绑定密钥。命令只读已有凭证，不修改密钥，并拒绝重定向输出。
++
++独立 Turso 部署须先停止 app，再运行 `docker compose -f docker-compose.standalone.yml run --rm --no-deps app python -m app.scripts.auth_enrollment --show`，最后重启 app。本地手动部署须先停止 Uvicorn，使用同一数据库配置运行 `uv run python -m app.scripts.auth_enrollment --show`，然后重新启动。详见[认证器绑定约定](docs/design/conventions.md#认证器绑定)。
+ 
+ ## 获取 API 凭证
+ 
+--- a/frontend/src/i18n/locales/en-US.json
++++ b/frontend/src/i18n/locales/en-US.json
+@@ -1342,7 +1342,7 @@
+   },
+   "auth": {
+     "title": "Sign in to RSSRipple",
+-    "hint": "Enter the 6-digit one-time code. The OTP setup link is printed in the server startup logs.",
++    "hint": "Enter the 6-digit code from your authenticator. Before your first login, follow the deployment guide to enroll it.",
+     "submit": "Sign in",
+     "failed": "Sign-in failed",
+     "logout": "Log out"
+--- a/frontend/src/i18n/locales/zh-CN.json
++++ b/frontend/src/i18n/locales/zh-CN.json
+@@ -1341,7 +1341,7 @@
+   },
+   "auth": {
+     "title": "登录 RSSRipple",
+-    "hint": "请输入 6 位一次性验证码。OTP 设置链接打印在服务端启动日志中。",
++    "hint": "请输入认证器中的 6 位一次性验证码。首次登录前请按部署文档绑定认证器。",
+     "submit": "登录",
+     "failed": "登录失败",
+     "logout": "退出登录"

@@ -1,0 +1,68 @@
+============================= test session starts ==============================
+platform linux -- Python 3.13.3, pytest-9.1.1, pluggy-1.6.0 -- /workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /tmp/rssripple-v19-auth-enrollment
+configfile: pyproject.toml
+plugins: langsmith-0.9.3, anyio-4.14.0, cov-7.1.0, asyncio-1.4.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 2 items / 1 deselected / 1 selected
+
+tests/integration/security/test_auth_enrollment.py::test_auth_enrollment_turso FAILED [100%]
+
+=================================== FAILURES ===================================
+__________________________ test_auth_enrollment_turso __________________________
+tests/integration/security/test_auth_enrollment.py:40: in test_auth_enrollment_turso
+    await asyncio.to_thread(run_driver, tmp_path, f"sqlite+aioturso:///{tmp_path}/auth_enrollment_test.db")
+/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/threads.py:25: in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/concurrent/futures/thread.py:59: in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/integration/security/test_auth_enrollment.py:35: in run_driver
+    assert process.returncode == 0, stdout + stderr
+E   AssertionError: INFO:app.main:Creating database tables...
+E     INFO:app.database:[migrate] reset 0 non_work rows for AudioWork reprocessing
+E     INFO:app.database:[migrate] reset 0 not_found rows for query re-cleaning
+E     INFO:app.database:[migrate] reset 0 not_found rows for auto-link reprocessing
+E     INFO:app.database:[migrate] cleared stale ambiguous flags: 0 batch, 0 movie-linked, 0 non-tv-series-linked
+E     INFO:app.main:Database ready.
+E     INFO:app.main:Runtime settings loaded.
+E     INFO:app.main:Authentication ready. To enroll, run python -m app.scripts.auth_enrollment --show in a terminal.
+E     INFO:app.services.task_queue:MemoryQueue started (max_concurrent=4, consume=False)
+E     INFO:app.services.task_queue:MemoryQueue stopped
+E     INFO:app.main:Shutting down.
+E     INFO:app.main:Creating database tables...
+E     INFO:app.main:Database ready.
+E     INFO:app.main:Runtime settings loaded.
+E     INFO:app.main:Authentication ready. To enroll, run python -m app.scripts.auth_enrollment --show in a terminal.
+E     INFO:app.services.task_queue:MemoryQueue started (max_concurrent=4, consume=False)
+E     INFO:app.services.task_queue:MemoryQueue stopped
+E     INFO:app.main:Shutting down.
+E     Traceback (most recent call last):
+E       File "<frozen runpy>", line 198, in _run_module_as_main
+E       File "<frozen runpy>", line 88, in _run_code
+E       File "/tmp/rssripple-v19-auth-enrollment/tests/integration/security/auth_enrollment_driver.py", line 112, in <module>
+E         asyncio.run(run())
+E         ~~~~~~~~~~~^^^^^^^
+E       File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 195, in run
+E         return runner.run(main)
+E                ~~~~~~~~~~^^^^^^
+E       File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 118, in run
+E         return self._loop.run_until_complete(task)
+E                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+E       File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 719, in run_until_complete
+E         return future.result()
+E                ~~~~~~~~~~~~~^^
+E       File "/tmp/rssripple-v19-auth-enrollment/tests/integration/security/auth_enrollment_driver.py", line 83, in run
+E         assert code == 0, stderr
+E                ^^^^^^^^^
+E     AssertionError: Cannot read authentication settings. Check database access; stop the app first for Turso.
+E
+E
+E   assert 1 == 0
+E    +  where 1 = <Popen: returncode: 1 args: ['/workspace/dropbox/github/robinqu/RSSRipple/.v...>.returncode
+----------------- generated xml file: /tmp/rssripple-v19-d.xml -----------------
+=========================== short test summary info ============================
+FAILED tests/integration/security/test_auth_enrollment.py::test_auth_enrollment_turso
+======================= 1 failed, 1 deselected in 3.81s ========================

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="0" skipped="0" tests="1" time="2.530" timestamp="2026-09-27T12:35:08.059479+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_auth_bootstrap_logging" name="test_startup_does_not_publish_authenticator_secret" time="1.526"><error message="failed on setup with &quot;file /tmp/rssripple-v19-auth-enrollment/tests/unit/test_auth_bootstrap_logging.py, line 10&#10;  async def test_startup_does_not_publish_authenticator_secret(&#10;      db_engine, db_session_factory, tmp_path, monkeypatch, caplog,&#10;  ):&#10;      monkeypatch.setattr(main, &quot;async_session_factory&quot;, db_session_factory)&#10;      monkeypatch.setattr(main.settings, &quot;db_migrate_on_startup&quot;, False)&#10;      monkeypatch.setattr(main.settings, &quot;poster_cache_dir&quot;, str(tmp_path / &quot;posters&quot;))&#10;      monkeypatch.setattr(main.settings, &quot;app_role&quot;, &quot;web&quot;)&#10;      monkeypatch.setattr(main.settings, &quot;queue_backend&quot;, &quot;memory&quot;)&#10;      monkeypatch.setattr(main.settings, &quot;log_level&quot;, &quot;INFO&quot;)&#10;      caplog.set_level(logging.INFO, logger=&quot;app&quot;)&#10;      secrets = []&#10;      for _ in range(2):&#10;          async with main.lifespan(main.app):&#10;              async with db_session_factory() as db:&#10;                  totp = (await db.get(AppSetting, SETTING_TOTP_SECRET)).value&#10;                  cookie = (await db.get(AppSetting, SETTING_COOKIE_SECRET)).value&#10;                  secrets.append((totp, cookie))&#10;      assert secrets[0] == secrets[1]&#10;      assert all(secrets[0])&#10;      assert &quot;otpauth://&quot; not in caplog.text&#10;      assert secrets[0][0] not in caplog.text&#10;      assert secrets[0][1] not in caplog.text&#10;E       fixture 'db_session_factory' not found&#10;&gt;       available fixtures: _asyncio_loop_factory, _class_scoped_runner, _function_scoped_runner, _isolate_organize_lock_directory, _isolate_runtime_config_overrides, _module_scoped_runner, _package_scoped_runner, _session_scoped_runner, anyio_backend, anyio_backend_name, anyio_backend_options, cache, capfd, capfdbinary, caplog, capsys, capsysbinary, capteesys, cov, db_engine, db_session, doctest_namespace, event_loop_policy, free_tcp_port, free_tcp_port_factory, free_udp_port, free_udp_port_factory, make_resource, mock_transmission, monkeypatch, no_cover, pytestconfig, record_property, record_testsuite_property, record_xml_attribute, recwarn, sample_channel, sample_downloader, sample_movie, sample_series, subtests, tmp_path, tmp_path_factory, tmpdir, tmpdir_factory, unused_tcp_port, unused_tcp_port_factory, unused_udp_port, unused_udp_port_factory&#10;&gt;       use 'pytest --fixtures [testpath]' for help on them.&#10;&#10;/tmp/rssripple-v19-auth-enrollment/tests/unit/test_auth_bootstrap_logging.py:10&quot;">file /tmp/rssripple-v19-auth-enrollment/tests/unit/test_auth_bootstrap_logging.py, line 10
+  async def test_startup_does_not_publish_authenticator_secret(
+      db_engine, db_session_factory, tmp_path, monkeypatch, caplog,
+  ):
+      monkeypatch.setattr(main, "async_session_factory", db_session_factory)
+      monkeypatch.setattr(main.settings, "db_migrate_on_startup", False)
+      monkeypatch.setattr(main.settings, "poster_cache_dir", str(tmp_path / "posters"))
+      monkeypatch.setattr(main.settings, "app_role", "web")
+      monkeypatch.setattr(main.settings, "queue_backend", "memory")
+      monkeypatch.setattr(main.settings, "log_level", "INFO")
+      caplog.set_level(logging.INFO, logger="app")
+      secrets = []
+      for _ in range(2):
+          async with main.lifespan(main.app):
+              async with db_session_factory() as db:
+                  totp = (await db.get(AppSetting, SETTING_TOTP_SECRET)).value
+                  cookie = (await db.get(AppSetting, SETTING_COOKIE_SECRET)).value
+                  secrets.append((totp, cookie))
+      assert secrets[0] == secrets[1]
+      assert all(secrets[0])
+      assert "otpauth://" not in caplog.text
+      assert secrets[0][0] not in caplog.text
+      assert secrets[0][1] not in caplog.text
+E       fixture 'db_session_factory' not found
+&gt;       available fixtures: _asyncio_loop_factory, _class_scoped_runner, _function_scoped_runner, _isolate_organize_lock_directory, _isolate_runtime_config_overrides, _module_scoped_runner, _package_scoped_runner, _session_scoped_runner, anyio_backend, anyio_backend_name, anyio_backend_options, cache, capfd, capfdbinary, caplog, capsys, capsysbinary, capteesys, cov, db_engine, db_session, doctest_namespace, event_loop_policy, free_tcp_port, free_tcp_port_factory, free_udp_port, free_udp_port_factory, make_resource, mock_transmission, monkeypatch, no_cover, pytestconfig, record_property, record_testsuite_property, record_xml_attribute, recwarn, sample_channel, sample_downloader, sample_movie, sample_series, subtests, tmp_path, tmp_path_factory, tmpdir, tmpdir_factory, unused_tcp_port, unused_tcp_port_factory, unused_udp_port, unused_udp_port_factory
+&gt;       use 'pytest --fixtures [testpath]' for help on them.
+
+/tmp/rssripple-v19-auth-enrollment/tests/unit/test_auth_bootstrap_logging.py:10</error></testcase></testsuite></testsuites>

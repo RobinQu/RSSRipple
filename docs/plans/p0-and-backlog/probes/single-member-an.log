@@ -1,0 +1,296 @@
+........................................................................ [  1%]
+........................................................................ [  3%]
+........................................................................ [  5%]
+........................................................................ [  7%]
+........................................................................ [  8%]
+........................................................................ [ 10%]
+..................................................................sss... [ 12%]
+.........................s.............................................. [ 14%]
+........................................................................ [ 16%]
+........................................................................ [ 17%]
+........................................................................ [ 19%]
+........................................................................ [ 21%]
+........................................................................ [ 23%]
+........................................................................ [ 24%]
+........................................................................ [ 26%]
+........................................................................ [ 28%]
+........................................................................ [ 30%]
+........................................................................ [ 32%]
+........................................................................ [ 33%]
+........................................................................ [ 35%]
+........................................................................ [ 37%]
+........................................................................ [ 39%]
+........................................................................ [ 40%]
+........................................................................ [ 42%]
+........................................................................ [ 44%]
+........................................................................ [ 46%]
+........................................................................ [ 48%]
+........................................................................ [ 49%]
+........................................................................ [ 51%]
+........................................................................ [ 53%]
+........................................................................ [ 55%]
+........................................................................ [ 56%]
+........................................................................ [ 58%]
+........................................................................ [ 60%]
+........................................................................ [ 62%]
+........................................................................ [ 64%]
+........................................................................ [ 65%]
+........................................................................ [ 67%]
+........................................................................ [ 69%]
+........................................................................ [ 71%]
+........................................................................ [ 72%]
+........................................................................ [ 74%]
+........................................................................ [ 76%]
+........................................................................ [ 78%]
+........................................................................ [ 80%]
+........................................................................ [ 81%]
+..................................................................sss... [ 83%]
+........................................................................ [ 85%]
+........................................................................ [ 87%]
+........................................................................ [ 88%]
+........................................................................ [ 90%]
+........................................................................ [ 92%]
+.........................................................ssssssss....... [ 94%]
+........................................................................ [ 96%]
+........................................................................ [ 97%]
+........................................................................ [ 99%]
+.............                                                            [100%]
+=============================== warnings summary ===============================
+tests/unit/test_agent_publication_progress.py::test_late_metadata_retries_new_resource_but_preserves_history_exclusion
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+tests/unit/test_database_migrations.py::test_create_tables_turso_path
+  /home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/weakref.py:414: RuntimeWarning: coroutine 'test_best_effort_savepoint_unavailable.<locals>._Conn.begin_nested' was never awaited
+    def __getitem__(self, key):
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/unit/test_download_dispatch_cleanup.py::test_cleanup_preserves_recoverable_and_unknown_jobs
+  /home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/weakref.py:414: RuntimeWarning: coroutine '_run' was never awaited
+    def __getitem__(self, key):
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/api/test_channels.py::TestChannelsCRUD::test_create_channel_invalid_feed
+tests/api/test_channels.py::TestChannelsCRUD::test_create_channel_invalid_feed
+tests/api/test_channels.py::TestChannelsCRUD::test_create_channel_invalid_feed
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/feedparser/html.py:152: DeprecationWarning: 'count' is passed as positional argument
+    data = re.sub(r'<!((?!DOCTYPE|--|\[))', r'&lt;!\1', data, re.IGNORECASE)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.13.3-final-0 ________________
+
+Name                                         Stmts   Miss  Cover   Missing
+--------------------------------------------------------------------------
+app/__init__.py                                  0      0   100%
+app/api/__init__.py                              0      0   100%
+app/api/v1/__init__.py                           0      0   100%
+app/api/v1/agents.py                           410     14    97%   98-100, 124-125, 239, 281, 422, 431, 452, 588, 686, 769, 784
+app/api/v1/api_keys.py                          25      0   100%
+app/api/v1/audio_works.py                       65      0   100%
+app/api/v1/auth.py                              43      3    93%   35, 42-43
+app/api/v1/channels.py                         302      0   100%
+app/api/v1/collections.py                      164     10    94%   95-96, 193, 205, 229, 268, 271, 273, 342, 345
+app/api/v1/dashboard.py                        221      4    98%   72, 234, 290, 364
+app/api/v1/decisions.py                        208     19    91%   93, 111, 117, 129, 142, 144, 146, 150, 297, 332, 341, 350, 416-422, 437, 456
+app/api/v1/downloaders.py                      165     11    93%   96-97, 152-153, 215-216, 364-366, 376-377
+app/api/v1/media_servers.py                    124      6    95%   204, 206, 208, 210, 249-250
+app/api/v1/metadata.py                          22      0   100%
+app/api/v1/movies.py                           126      3    98%   209-211
+app/api/v1/notifications.py                    151      7    95%   112, 217, 268, 285, 309, 353-354
+app/api/v1/organize.py                         404     10    98%   137-139, 720-721, 807-810, 841
+app/api/v1/queue.py                             80      5    94%   23, 26-27, 34, 36
+app/api/v1/resources.py                        553      0   100%
+app/api/v1/series.py                           138      6    96%   203-205, 242-244
+app/api/v1/system_settings.py                   61      2    97%   53, 124
+app/api/v1/task_listing.py                      47      0   100%
+app/api/v1/tasks.py                            160      7    96%   40, 43, 58, 71, 313-315
+app/api/v1/volumes.py                          115      6    95%   115-118, 169, 193
+app/api/v1/works.py                            149      0   100%
+app/clients/__init__.py                          0      0   100%
+app/clients/downloader.py                        9      0   100%
+app/clients/mock_downloader.py                 168     10    94%   127, 142, 145, 152, 156, 164, 199, 241-242, 284
+app/clients/rss_parser.py                      107      9    92%   72, 134-151, 172, 227
+app/clients/transmission.py                    124      0   100%
+app/config.py                                   46      0   100%
+app/database.py                                534      3    99%   618, 679, 1401
+app/db_turso_dialect.py                         25      0   100%
+app/job_handlers.py                            265      0   100%
+app/main.py                                     91     12    87%   185, 316-326, 344-347
+app/middleware/__init__.py                       0      0   100%
+app/middleware/auth.py                          69      4    94%   50-51, 111-112
+app/migrate.py                                   8      8     0%   10-30
+app/models/__init__.py                          45      0   100%
+app/models/agent.py                             34      0   100%
+app/models/agent_publication_progress.py        15      0   100%
+app/models/agent_resource_request.py            16      0   100%
+app/models/agent_run.py                         24      0   100%
+app/models/agent_suggestion.py                  16      0   100%
+app/models/agent_webhook.py                     16      0   100%
+app/models/agent_work.py                        21      0   100%
+app/models/api_key.py                           12      0   100%
+app/models/app_setting.py                        9      0   100%
+app/models/audio_work.py                        29      0   100%
+app/models/channel.py                           35      0   100%
+app/models/channel_raw_title_mapping.py         21      0   100%
+app/models/decision_migration.py                12      0   100%
+app/models/download_dispatch.py                 15      0   100%
+app/models/download_notification.py             16      0   100%
+app/models/download_task.py                     30      0   100%
+app/models/downloader.py                        24      0   100%
+app/models/episode.py                           17      0   100%
+app/models/eval_job.py                          18      0   100%
+app/models/file_resource.py                     67      0   100%
+app/models/fts_outbox.py                        12      0   100%
+app/models/ground_truth.py                      18      0   100%
+app/models/library.py                           24      0   100%
+app/models/media_server.py                      28      0   100%
+app/models/metadata_cache.py                    17      0   100%
+app/models/movie.py                             36      0   100%
+app/models/notification_build_failure.py        13      0   100%
+app/models/organize_audit.py                    13      0   100%
+app/models/organize_configuration.py             9      0   100%
+app/models/organize_plan.py                     29      0   100%
+app/models/organize_plan_op.py                  19      0   100%
+app/models/organize_rule.py                     18      0   100%
+app/models/pending_decision.py                  29      0   100%
+app/models/resource_file_assignment.py          24      0   100%
+app/models/resource_publication.py              21      0   100%
+app/models/resource_work_link.py                17      0   100%
+app/models/series.py                            42      0   100%
+app/models/storage_volume.py                    13      0   100%
+app/models/subtitle_group_mapping.py            15      0   100%
+app/models/webhook_delivery.py                  21      0   100%
+app/models/work_collection.py                   25      0   100%
+app/models/work_external_id.py                  14      0   100%
+app/schemas/__init__.py                          0      0   100%
+app/schemas/agent.py                           189      1    99%   104
+app/schemas/api_key.py                          11      0   100%
+app/schemas/audio_work.py                       52      0   100%
+app/schemas/auth.py                              5      0   100%
+app/schemas/channel.py                         170      0   100%
+app/schemas/common.py                           24      1    96%   38
+app/schemas/dashboard.py                        31      0   100%
+app/schemas/download_task.py                    39      0   100%
+app/schemas/downloader.py                       84      7    92%   35-38, 40, 42, 63
+app/schemas/episode.py                          12      0   100%
+app/schemas/file_resource.py                   202      8    96%   15-17, 260, 262, 270, 272, 294
+app/schemas/filter_dsl.py                       22      0   100%
+app/schemas/genre.py                             2      0   100%
+app/schemas/media_server.py                     64      1    98%   31
+app/schemas/metadata_search.py                  88      8    91%   36, 61, 91, 94, 98, 113, 115, 117
+app/schemas/movie.py                            60      0   100%
+app/schemas/notification.py                    140      3    98%   43-44, 46
+app/schemas/organize.py                        142      1    99%   140
+app/schemas/pending_decision.py                 40      0   100%
+app/schemas/series.py                           74      0   100%
+app/schemas/storage_volume.py                   32      2    94%   18, 29
+app/schemas/work_collection.py                  31      0   100%
+app/scripts/__init__.py                          0      0   100%
+app/scripts/dedup_metadata.py                   33      1    97%   52
+app/services/__init__.py                         0      0   100%
+app/services/agent_publication_progress.py      85      6    93%   70, 115, 143-144, 211, 258
+app/services/agent_resource_requests.py         67     17    75%   76, 110, 123-135, 139-170
+app/services/agent_service.py                  461      7    98%   259, 261, 355-357, 538, 920-921
+app/services/anime_signals.py                   57      1    98%   137
+app/services/auth_service.py                    63      4    94%   50, 88, 92-93
+app/services/bangumi_client.py                  48      6    88%   82-86, 98-102
+app/services/bangumi_relations.py              390      0   100%
+app/services/batch_content_analysis.py         405      1    99%   88
+app/services/channel_schedule.py                51      3    94%   76-78
+app/services/cluster_work_binding.py           357      0   100%
+app/services/collection_lifecycle.py            92      1    99%   110
+app/services/collection_service.py             199      0   100%
+app/services/decision_identity_lock.py          11      5    55%   19-23
+app/services/decision_migration.py              56      1    98%   31
+app/services/decision_rekey.py                  96      4    96%   89-91, 114
+app/services/decision_review.py                155     12    92%   17, 52-53, 55, 68, 104, 108-109, 177, 180, 182, 212
+app/services/decision_schema.py                 67     12    82%   51-59, 64, 81-82, 87, 102-109
+app/services/decision_service.py                13      0   100%
+app/services/decision_store.py                  77     15    81%   18, 37-38, 53, 59, 92, 99, 126-140
+app/services/download_dispatch.py               46      2    96%   67, 85
+app/services/download_dispatch_cleanup.py       38      1    97%   24
+app/services/episode_history.py                134     13    90%   37, 40, 75, 89, 97, 147, 162, 171, 218, 300, 314, 373-374
+app/services/external_ids.py                   114      4    96%   117-118, 178, 261
+app/services/feed_analyzer.py                  317      0   100%
+app/services/fetch_service.py                  427      6    99%   204, 226-227, 371, 392, 412
+app/services/filter_engine.py                  317      0   100%
+app/services/franchise_service.py              262      2    99%   492-493
+app/services/fts.py                            349      1    99%   707
+app/services/genre_registry.py                  58      2    97%   91, 117
+app/services/magnet_resolve.py                 318      5    98%   298, 548, 584-585, 592
+app/services/media_server_client.py            101      4    96%   118, 149, 163-164
+app/services/media_server_service.py            98      7    93%   59, 70-71, 88, 128, 131-132
+app/services/metadata_agent.py                 575     19    97%   683, 704, 762, 771, 773, 882, 935-947, 1339, 1341-1342, 1368, 1370-1371
+app/services/metadata_audio.py                  14      0   100%
+app/services/metadata_audio_resolver.py         73      1    99%   38
+app/services/metadata_bangumi.py               218      0   100%
+app/services/metadata_dedup.py                 407      5    99%   123-126, 696
+app/services/metadata_episode_reconcile.py     218      8    96%   38, 53, 89, 255, 282, 386-388
+app/services/metadata_failure.py                20      0   100%
+app/services/metadata_identity_evidence.py     104      7    93%   15, 40, 49, 82, 93, 140-141
+app/services/metadata_prompts.py                 6      0   100%
+app/services/metadata_repository.py            185      2    99%   315-317
+app/services/metadata_resource_meta.py          45      0   100%
+app/services/metadata_search.py                248      5    98%   206, 228, 234-235, 247
+app/services/metadata_search_agent.py          178      0   100%
+app/services/metadata_service.py              1341     33    98%   454-455, 525, 527, 541, 556, 575, 578, 607, 661-662, 1480-1481, 1577, 1580, 1873-1903, 2461
+app/services/metadata_source_io.py              96      4    96%   142, 146, 149-150
+app/services/metadata_source_registry.py       212     10    95%   209, 215, 217, 355, 373, 426, 471, 476, 525, 544
+app/services/metadata_sources.py                35      3    91%   39, 71, 85
+app/services/metadata_title_index.py            72     10    86%   67, 74, 94, 112, 127-130, 158, 188
+app/services/metadata_web_fallback.py          142      2    99%   198, 215
+app/services/metadata_wiki_classify.py          51     13    75%   121, 123, 145-162
+app/services/metadata_wiki_judge.py            222      5    98%   67, 246, 274, 307, 512
+app/services/metadata_wiki_query.py             88      7    92%   104, 148, 150, 160, 164, 171, 202
+app/services/metadata_wikipedia_client.py      179      0   100%
+app/services/notification_build.py              63     27    57%   27, 32, 42-67, 82-90
+app/services/notify_service.py                 311      1    99%   396
+app/services/organize_config_events.py          33      0   100%
+app/services/organize_executor.py              203      1    99%   166
+app/services/organize_file_safety.py           120      7    94%   44, 69, 146, 162-163, 172, 174
+app/services/organize_ownership.py             128      7    95%   32, 35, 60-61, 96, 137, 155
+app/services/organize_parser.py                 67      0   100%
+app/services/organize_plan_state.py             21      1    95%   35
+app/services/organize_planner.py               434      1    99%   390
+app/services/organize_service.py               452     15    97%   138-140, 205, 515, 667, 707, 714, 720, 724, 739, 778, 800, 814, 989
+app/services/organize_source.py                116     13    89%   35, 43-44, 58, 64, 72, 134, 137, 144, 147, 152-154
+app/services/organize_template.py               97      6    94%   120, 132, 155, 199-200, 206
+app/services/publication_dispatch.py            17      0   100%
+app/services/publication_migration.py           42      1    98%   81
+app/services/publication_startup.py             24      1    96%   55
+app/services/required_fields.py                143     10    93%   300, 329, 333-335, 369, 376, 398, 400, 460
+app/services/resource_association.py           296      7    98%   116, 119, 200, 202, 238, 281, 410
+app/services/resource_cleanup.py                35      0   100%
+app/services/resource_confirmation.py           47      1    98%   73
+app/services/resource_coverage.py              103      7    93%   50, 60, 69, 92, 98, 105, 109
+app/services/resource_parser.py                430      4    99%   463-464, 524-525
+app/services/resource_publication.py            26      2    92%   18, 43
+app/services/runtime_config.py                  80      3    96%   197-199
+app/services/scheduler.py                      282      3    99%   410, 730-731
+app/services/schema_foreign_keys.py             64     18    72%   62, 98-129
+app/services/settings_service.py                35      0   100%
+app/services/submission_guard.py                26      0   100%
+app/services/subtitle_groups.py                 78      6    92%   38, 89-90, 108, 114, 125
+app/services/task_cleanup.py                    56      0   100%
+app/services/task_queue.py                     519     14    97%   161, 471, 548-549, 632-633, 721-722, 755, 765-766, 808-809, 816
+app/services/text_normalizer.py                 98      4    96%   163-165, 191
+app/services/torrent_inspect.py                366      2    99%   756-757
+app/services/volume_service.py                  50      6    88%   83, 86-87, 99, 102-103
+app/services/wigolo_client.py                   42      1    98%   74
+app/services/wikidata_collection.py            175      0   100%
+app/services/wikipedia_episode_parser.py       421      0   100%
+app/services/work_deletion.py                   40      5    88%   17, 80-83
+app/services/work_search_events.py              84      1    99%   141
+app/utils/__init__.py                            0      0   100%
+app/utils/download_paths.py                     55      4    93%   50, 77-78, 80
+app/utils/path_safety.py                        32      6    81%   21, 27, 33, 36-37, 39
+app/utils/time.py                                3      0   100%
+app/worker.py                                   40      0   100%
+--------------------------------------------------------------------------
+TOTAL                                        23487    653    97%
+Coverage XML written to file /tmp/rssripple-v16-unit-an-coverage.xml
+Required test coverage of 95% reached. Total coverage: 97.22%
+4030 passed, 15 skipped, 6 warnings in 2824.72s (0:47:04)

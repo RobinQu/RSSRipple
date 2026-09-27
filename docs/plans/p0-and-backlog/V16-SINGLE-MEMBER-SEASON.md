@@ -145,3 +145,9 @@ ad 已退出 1：3174 passed、4 failed、24 skipped，1907.90 秒；两个应�
 al 55 passed、1 failed、零 skipped，119.86 秒：所有 HTTP/genre/映射/FTS 用例及六项 P0 季号持久化通过；剩余 franchise 失败来自夹具同时给电影形态候选添加了 TV 季别名。仅对 TV 非电影成员补季标记后，am 同文件 **9 passed（3.13 秒）**。未降低成员数量或任何原关联断言，也未改运行实现。al/am JUnit 已归档，两个应用均退出 0，项目 rssripple-v16-review-al 已清理。
 
 修订后有效 22 文件与完整 3051 输入文件均冻结并保存哈希，包含完整候选归档 single-member-an-candidate.tar.gz（含派生录制 gzip），便于临时目录丢失后恢复。候选全仓 Ruff 通过。an 完整单元/API 原句柄 16605，ao 完整集成原句柄 75569，唯一项目 rssripple-v16-final-ao；运行中记录见 probes/single-member-an-ao-running.json。测试期间不得修改 /tmp/rssripple-v16-failure-review 冻结文件；终态前不关闭 M2。
+
+## an/ao 最终验收与 main 合入
+
+an 已退出 0：**4030 passed、15 skipped、6 warnings，2824.72 秒，22834/23487（97.22%）**。ao 已退出 0：**3185 passed、17 skipped、8 warnings，1959.99 秒，20720/23487（88.22%）**。两应用正常退出 0，四份覆盖率汇总、报告导出与项目清理均退出 0；3051 冻结文件不变。两套跳过项及理由均与已审计基线一致；此前七个新增前置失败跳过已由硬断言和本轮通过取代。
+
+最终 22 有效文件逐一核对主干基线后应用，内容哈希与冻结候选完全相同，全仓 Ruff 与差异检查通过；[最终审查](V16-FINAL-REVIEW.md) 批准，已提交本地 main `756bce6`。M2 从 TODO 移除，未推送远端。机器终态 single-member-an-ao-terminal.json；an/ao 日志、JUnit、覆盖率 XML 和原始 coverage gzip 均在 probes。前序失败记录保留，不能与本次通过混算。M3 候选所依赖的基线哈希与新 main 一致，仍等待其 x/y 完整门禁。

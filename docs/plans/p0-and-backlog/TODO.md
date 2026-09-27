@@ -8,7 +8,7 @@
 
 > 2026-09-27 主干复核：当前 P0（P0-1/2/3/7/8/9）及 B9 的提交 `4c804ed` 已包含在本地 `main`；原 P0-4、P0-6 降级后的修复 `7fd8121`、`e535e1f` 也已包含。原 P0-5 仍按 P2 保留。最新核验基线 `d6564f4`，本地领先本地记录的 `origin/main` 30 个提交（核验记录提交前），未推送远端；详情见 [PLAN.md](PLAN.md#p0-主干复核2026-09-27)。
 
-> B7 已完成 V13 全量验收，合入记录见 [V13](V13-CONSUMPTION-PROGRESS.md)。B4 已完成严格验收并合入本地 main（`7781a81`），见 [V14](V14-QUEUE-OWNERSHIP.md)；M1 已完成严格验收并合入本地 main（`a8a09bd`），见 [V15](V15-MANUAL-MAPPING.md)；下一批继续 [V16 M2](V16-SINGLE-MEMBER-SEASON.md)，M3 候选见 V17。
+> B7 已完成 V13 全量验收，合入记录见 [V13](V13-CONSUMPTION-PROGRESS.md)。B4 已完成严格验收并合入本地 main（`7781a81`），见 [V14](V14-QUEUE-OWNERSHIP.md)；M1 已合入 `a8a09bd`，见 [V15](V15-MANUAL-MAPPING.md)；M2 已完成 an/ao 全量验收并合入 `756bce6`，见 [V16](V16-SINGLE-MEMBER-SEASON.md)。下一批继续 V17 M3 的 x/aa 门禁（y 失败已归档），S2/S3 候选见 V18/V19。
 
 ## 优先级
 
@@ -31,11 +31,9 @@
 
 ### 后台执行 / 调度 / 队列
 
-- [ ] **P1-M2 单成员合集被当作可验证单季**：`app/services/metadata_service.py:1564-1575` 在
-      `len(members)==1` 时直接链接，未校验 `verified_season_count`。**修复**：单成员不等于单季证据。真实 Turso 红测已复现无季证据却返回唯一 S3；独立候选取消合集、同名作品和季粒度来源的默认季号，x/z 双库 38 项、ab 严格录制回放 3 项通过。ac 全量 4008 passed/21 failed，ad 集成 3174 passed/4 failed；覆盖率 97.23%/88.19%，失败均须处理。单元旧夹具已修订并通过 ag/ai/ak；集成补明确季号并把 7 项前置失败 skip 改为断言，al/am 的 HTTP、P0 与 franchise 专项均通过。修订后 an/ao 完整门禁运行中，尚未合入 main，见 [V16](V16-SINGLE-MEMBER-SEASON.md)。
 - [ ] **P1-M3 维基整体故障被缓存为 `not_found`**：judge 路径硬编码 `"error": None`
       （`app/services/metadata_wiki_judge.py:481/545`），`_classify_failure` 看不到瞬态信号。
-      **修复**：维基/TMDB 请求不完整时不缓存未命中，成功候选继续保留。s 组合回归 453 项通过后又发现 web 空回退会覆盖主源故障；t/u 红测证明分类与真实负缓存落库均错误。补修后 v 56 项、w PostgreSQL 12 项断言通过。基于修订后 M2 的 x/y 完整门禁运行中，两个批次均验收前不得合入，见 [V17](V17-WIKI-TRANSIENT-FAILURE.md)。
+      **修复**：维基/TMDB 请求不完整时不缓存未命中，成功候选继续保留。t/u 红测证明 web 空回退覆盖主源故障；补修后 v 56 项、w PG 12 场景通过。y 全量 3183 passed/3 failed，88.20%，三个旧测试错误要求来源异常返回空结果；修订为异常传播、无负缓存和恢复断言后 z 55 项通过。M2 已合入，九文件候选基线匹配；原 x 单元/API 与新 aa 完整集成运行中，尚未合入，见 [V17](V17-WIKI-TRANSIENT-FAILURE.md)。
 
 ### 安全
 
@@ -47,7 +45,7 @@
 - [ ] **P1-S2 TOTP 登录无速率限制/锁定**：`app/api/v1/auth.py:53-75`，6 位码可取窗口 3，在线暴力可行。
       **修复**：持久化来源/全局额度与窗口到期恢复。独立候选真实 Turso 并发/API 回归通过；h 正式 PG 入口 2 passed，覆盖四进程服务五场景及双 HTTP 进程四场景（并发、全局上限、进程替换、到期恢复）。f 扩大回归 98 passed、3 项既有 PG 迁移因未配置地址跳过。17 文件候选及审查已归档，完整门禁尚未执行，未合入 main，见 [V18](V18-AUTH-THROTTLING.md)。
 - [ ] **P1-S3 TOTP 密钥每次启动写日志**：`app/main.py:90-93` 打印完整 `otpauth://...secret=`。
-      **修复**：停止记录 secret，并提供首次绑定方式；现有设计依赖 provisioning URI 日志，需同步更新初始化契约。
+      **修复**：实际 lifespan 已复现首次启动/重启均泄露密钥。独立候选停止自动输出，并提供只读、显式 `--show`、拒绝重定向的本地终端绑定命令；中英文登录提示及初始化契约同步。c 认证回归 22 passed，f Turso/PG 两入口通过（各五场景），完整门禁未执行、未合入 main，见 [V19](V19-AUTH-ENROLLMENT.md)。
 
 ---
 

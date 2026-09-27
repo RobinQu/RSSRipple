@@ -1,0 +1,37 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______________ test_startup_does_not_publish_authenticator_secret ______________
+tests/unit/test_auth_bootstrap_logging.py:32: in test_startup_does_not_publish_authenticator_secret
+    assert "otpauth://" not in caplog.text
+E   AssertionError: assert 'otpauth://' not in 'INFO     ap...ting down.\n'
+E
+E     'otpauth://' is contained here:
+E       ticator): otpauth://totp/RSSRipple:admin?secret=DSEPBOCNU3CLY7XE4EUYF3MOCCVOCI46&issuer=RSSRipple
+E     ?           ++++++++++
+E       INFO     app.services.task_queue:task_queue.py:261 MemoryQueue started (max_concurrent=4, consume=False)
+E       INFO     app.services.task_queue:task_queue.py:273 MemoryQueue stopped
+E       INFO     app.main:main.py:163 Shutting down....
+E
+E     ...Full output truncated (6 lines hidden), use '-vv' to show
+------------------------------ Captured log call -------------------------------
+INFO     app.main:main.py:87 Skipping startup DDL (DB_MIGRATE_ON_STARTUP=false).
+INFO     app.main:main.py:101 Runtime settings loaded.
+WARNING  app.main:main.py:116 OTP provisioning URI (add to your authenticator): otpauth://totp/RSSRipple:admin?secret=DSEPBOCNU3CLY7XE4EUYF3MOCCVOCI46&issuer=RSSRipple
+INFO     app.services.task_queue:task_queue.py:261 MemoryQueue started (max_concurrent=4, consume=False)
+INFO     app.services.task_queue:task_queue.py:273 MemoryQueue stopped
+INFO     app.main:main.py:163 Shutting down.
+INFO     app.main:main.py:87 Skipping startup DDL (DB_MIGRATE_ON_STARTUP=false).
+INFO     app.main:main.py:101 Runtime settings loaded.
+WARNING  app.main:main.py:116 OTP provisioning URI (add to your authenticator): otpauth://totp/RSSRipple:admin?secret=DSEPBOCNU3CLY7XE4EUYF3MOCCVOCI46&issuer=RSSRipple
+INFO     app.services.task_queue:task_queue.py:261 MemoryQueue started (max_concurrent=4, consume=False)
+INFO     app.services.task_queue:task_queue.py:273 MemoryQueue stopped
+INFO     app.main:main.py:163 Shutting down.
+=============================== warnings summary ===============================
+tests/unit/test_auth_bootstrap_logging.py::test_startup_does_not_publish_authenticator_secret
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_auth_bootstrap_logging.py::test_startup_does_not_publish_authenticator_secret
+1 failed, 1 warning in 2.75s

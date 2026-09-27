@@ -1,6 +1,6 @@
 # M2 合入前审查
 
-当前结论：允许完整验收，尚不批准合入。有效清单为 single-member-v-rebase.json 的 13 文件，基于已验收 M1；新冻结 source manifest 见 single-member-ac-frozen.json。
+当前结论：an/ao 完整验收后批准并已合入本地 main `756bce6`。最终有效清单为 single-member-an-source.json 的 22 文件，3051 输入文件冻结哈希全部一致。下文 ac/ad 及此前的未批准结论作为历史过程保留。
 
 - 正确性：未知季号不再从单成员、同标题或季粒度身份猜测；已有身份、明确季号及人工目标继续受目标核验。x Turso 38 项、z PostgreSQL 38 项通过。扩大 y 306 项通过且唯一语料失败已按源证据重审，ab 严格语料 3 项通过；仍须完整套件证明无其他旧兜底依赖。
 - 可读性：外层未知季统一挂合集，减少来源类别特例；没有新增运行模块、配置或依赖。
@@ -15,3 +15,7 @@
 集成的 7 个新增 skip 均来自前置关联失败，已改为硬断言，并为需要明确季作品的合成候选补 Season 1 别名；所有 genre、映射、FTS、去重与身份断言保留。数据出处保持区分：HTTP feed 为既有离线录制，选择的 metadata 是显式合成夹具；不把补充的季标记称作真实来源证据。al 正在重跑受影响文件与 P0 季号持久化。完整验收须基于修订后新冻结清单重新执行，al 专项不能代替完整门禁。
 
 al/am 终态：HTTP 与 P0 全部通过；修正电影夹具不应含 TV 季别名后，franchise 9 项通过。最终候选更新为 single-member-an-source.json 的 22 文件，3051 输入冻结清单为 single-member-an-frozen.json。允许启动 an/ao 完整门禁，仍不批准合入。
+
+an/ao 最终复审：单元/API 4030 passed、15 skipped、97.22%；完整集成 3185 passed、17 skipped、88.22%，JUnit failure/error 均为零，测试及覆盖率命令退出 0。跳过项与前序已审计基线相同，七项前置失败 skip 没有重新出现。两应用退出 0，导出和隔离项目清理退出 0。审查维度仍如上：不根据库存猜季，保留明确季号与人工目标核验，录制源响应未改写，夹具只为有季号的成功路径补证据；没有回退业务约束。
+
+最终 22 个文件同步 main 后逐文件哈希与冻结候选一致；全仓 Ruff 和 git diff --check 通过。运行代码提交 `756bce6`；门禁机器摘要 single-member-an-ao-terminal.json，原始日志/JUnit/XML 覆盖率与压缩原始 coverage 已归档。M2 从 pending-only TODO 移除；M3/S2/S3 仍未验收。
