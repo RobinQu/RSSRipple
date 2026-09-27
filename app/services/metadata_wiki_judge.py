@@ -225,7 +225,22 @@ async def run_search_then_judge(
         *(_execute_search_wikipedia(q, lang) for (q, lang) in queries),
         return_exceptions=True,
     )
+    # A model no-match cannot turn a failed lookup into a definitive miss.
+    search_lookup_failed = not all(
+        isinstance(result, dict) and result.get("success") for result in raw_results
+    )
     source_errors: dict[str, str] = {}
+    page_lookup_failed = False
+
+    async def retry_with_react():
+        verdict, info = await react_runner(msg_builder(raw_title, source), source)
+        info = dict(info)
+        info["source_errors"] = {**source_errors, **(info.get("source_errors") or {})}
+        # A grounded successful retry supersedes earlier lookup errors. A
+        # negative verdict alone cannot establish absence after incomplete I/O.
+        if (search_lookup_failed or page_lookup_failed) and not verdict.get("found"):
+            info["error"] = info.get("error") or "Wikipedia request failed: incomplete lookup"
+        return verdict, info
     # Page IDs are unique only within a language edition.
     seen_pids: set[tuple[str, str]] = set()
     top: list[dict] = []
@@ -279,7 +294,13 @@ async def run_search_then_judge(
             if d.get("langlink_pageids"):
                 entry["langlink_pageids"] = d["langlink_pageids"]
         elif isinstance(pres, Exception):
+            page_lookup_failed = True
             source_errors[f"page:{cand.get('lang')}"] = f"{type(pres).__name__}: {pres}"[:200]
+        elif isinstance(pres, dict) and not pres.get("success"):
+            error = str(pres.get("error") or "page lookup failed")[:200]
+            source_errors[f"page:{cand.get('lang')}"] = error
+            if not error.startswith("Page not found:"):
+                page_lookup_failed = True
         evidence.append(entry)
 
     # Deterministic auto-link: when a search result's title clearly matches
@@ -410,9 +431,7 @@ async def run_search_then_judge(
             "[metadata_agent] judge call failed for %r: %s; falling back to ReAct",
             raw_title[:80], e,
         )
-        return await react_runner(
-            msg_builder(raw_title, source), source
-        )
+        return await retry_with_react()
     content = getattr(resp, "content", "") or ""
     if isinstance(content, list):  # some models return structured content
         content = "".join(getattr(c, "text", str(c)) for c in content)
@@ -422,9 +441,7 @@ async def run_search_then_judge(
             "[metadata_agent] judge returned unparseable JSON for %r; falling back to ReAct",
             raw_title[:80],
         )
-        return await react_runner(
-            msg_builder(raw_title, source), source
-        )
+        return await retry_with_react()
     # The single-call judge (especially on a mini model) can be conservative
     # and return found=False despite relevant evidence existing - a false
     # negative ReAct's multi-turn reasoning would catch. When that happens,
@@ -464,9 +481,9 @@ async def run_search_then_judge(
                         "error": web_info["error"],
                     },
                 )
-            # The fallback produced a definitive answer (found True or False).
-            # Return it directly; skip the ReAct second opinion since it
-            # searched the broader web and is the cheaper/broader fallback.
+            # A positive fallback can recover a failed primary lookup. An
+            # empty web result cannot establish absence while primary source
+            # requests are incomplete, so preserve the transient marker.
             logger.info(
                 "[metadata_agent] wikipedia found=False, web fallback %s for %r",
                 "found" if web_finalize.get("found") else "not_found",
@@ -478,7 +495,10 @@ async def run_search_then_judge(
                 "method": "search_then_web_fallback",
                 "data_sources_used": dsu,
                 "source_errors": source_errors,
-                "error": None,
+                "error": (
+                    "Wikipedia request failed: incomplete lookup"
+                    if (search_lookup_failed or page_lookup_failed) and not web_finalize.get("found") else None
+                ),
             }
         # Fallback not configured/disabled - fall through to the original ReAct logic.
 
@@ -487,9 +507,7 @@ async def run_search_then_judge(
             "[metadata_agent] judge found=False with %d candidates for %r; ReAct second opinion",
             len(evidence), raw_title[:80],
         )
-        return await react_runner(
-            msg_builder(raw_title, source), source
-        )
+        return await retry_with_react()
     # B3: carry the matched page's categories onto matched_entity so
     # process() can defense-check the entity kind. The judge returns
     # external_id "wikipedia:<lang>:<page_id>" (legacy "wikipedia:<page_id>");
@@ -527,5 +545,8 @@ async def run_search_then_judge(
         "method": "search_then_judge",
         "data_sources_used": ["wikipedia"],
         "source_errors": source_errors,
-        "error": None,
+        "error": (
+            "Wikipedia request failed: incomplete lookup"
+            if (search_lookup_failed or page_lookup_failed) and not finalize_dict.get("found") else None
+        ),
     }

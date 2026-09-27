@@ -297,11 +297,9 @@ async def test_search_tmdb_language_error_falls_back_to_empty():
         patch("httpx.AsyncClient", MagicMock(return_value=client)),
         patch.object(msa, "_cache_set") as cache_set,
     ):
-        candidates = await msa._search_tmdb("Boom")
-
-    assert candidates == []
-    # No results → empty result is cached.
-    cache_set.assert_called_once_with("tmdb", "Boom", [])
+        with pytest.raises(RuntimeError, match="TMDB request failed"):
+            await msa._search_tmdb("Boom")
+    cache_set.assert_not_called()
 
 
 async def test_search_tmdb_language_timeout_returns_empty():
@@ -316,9 +314,8 @@ async def test_search_tmdb_language_timeout_returns_empty():
         patch("httpx.AsyncClient", MagicMock(return_value=client)),
         patch.object(msa, "_cache_set"),
     ):
-        candidates = await msa._search_tmdb("Timeout")
-
-    assert candidates == []
+        with pytest.raises(RuntimeError, match="TMDB request failed"):
+            await msa._search_tmdb("Timeout")
 
 
 async def test_search_tmdb_language_http_status_error_returns_empty():
@@ -331,9 +328,8 @@ async def test_search_tmdb_language_http_status_error_returns_empty():
         patch("httpx.AsyncClient", MagicMock(return_value=client)),
         patch.object(msa, "_cache_set"),
     ):
-        candidates = await msa._search_tmdb("Http")
-
-    assert candidates == []
+        with pytest.raises(RuntimeError, match="TMDB request failed"):
+            await msa._search_tmdb("Http")
 
 
 async def test_search_tmdb_en_us_provides_original_title():
@@ -431,9 +427,9 @@ def _sync_async_client_for(json_results):
     resp = MagicMock()
     resp.raise_for_status.return_value = None
     resp.json.return_value = json_results
-    client.get.return_value = resp
-    client.__aenter__ = MagicMock(return_value=client)
-    client.__aexit__ = MagicMock(return_value=False)
+    client.get = AsyncMock(return_value=resp)
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=False)
     return client
 
 
@@ -451,10 +447,10 @@ async def test_search_tmdb_task_exception_become_empty():
         patch("httpx.AsyncClient", MagicMock(return_value=client)),
         patch.object(msa, "_cache_set") as cache_set,
     ):
-        candidates = await msa._search_tmdb("Explode")
+        with pytest.raises(asyncio.CancelledError):
+            await msa._search_tmdb("Explode")
 
-    assert candidates == []
-    cache_set.assert_called_once_with("tmdb", "Explode", [])
+    cache_set.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

@@ -345,3 +345,5 @@ M1 正式 `metadata/test_manual_mapping_concurrency.py` 包含 PostgreSQL 九项
 
 
 M2 正式 `metadata/test_collection_season_evidence.py` 在专用 PostgreSQL 子库执行 38 项真实断言：标题/合集身份袋的 16 种季证据组合、2 种显式人工目标、16 种录制标题经 repository/MetadataAgent/成功缓存/实际抓取元数据事务的资源写入，以及系列身份/季身份各两种无季号外层兜底反例。复用 Turso 单元矩阵的断言并独立 commit/观察，不把 mock upsert 当作持久化证据。原始标题取录制 case `011c6d44-68cf-43a8-bad3-f0398ce20a95`；合集成员、TMDB ID 和来源响应明确合成，语料中历史候选 season 不作为真值。未知季必须保持 resource 工作 FK 空、collection 关联与 ambiguous，且不新增季作品；显式季号正例须实际创建/关联。沿用 QUEUE_RECOVERY_REQUIRED=1 缺 PG 必失败，独立建库与 finally 删除，子进程超时 120 秒。
+
+M3 候选 `metadata/test_wiki_failure_cache.py`：专用 PostgreSQL scratch database、独立进程运行 12 项断言，其中 Agent→真实缓存数据库故障/恢复 4 项（全部/部分搜索失败 × web 禁用/成功空结果）；另有 web 成功/未命中两项编排，以及页面重试与 TMDB 源适配器编排。录制原始标题，来源响应和模型故障显式合成；缺专用数据库且 REQUIRED=1 时失败，最后删除测试库，不代表公网识别质量。

@@ -287,7 +287,7 @@ async def test_search_tmdb_merges_languages_and_builds_candidates(tmdb_key, monk
     assert await msa._search_tmdb("some title") == candidates
 
 
-async def test_search_tmdb_http_errors_yield_no_results(tmdb_key, monkeypatch):
+async def test_search_tmdb_http_errors_remain_retryable(tmdb_key, monkeypatch):
     def handler(url, params):
         if params["language"] == "zh-CN":
             req = httpx.Request("GET", "http://tmdb.invalid")
@@ -297,15 +297,26 @@ async def test_search_tmdb_http_errors_yield_no_results(tmdb_key, monkeypatch):
         raise httpx.TimeoutException("slow")
 
     _patch_async_client(monkeypatch, handler)
+    with pytest.raises(RuntimeError, match="TMDB request failed: incomplete search"):
+        await msa._search_tmdb("err title")
+    assert msa._cache_get("tmdb", "err title") is None
+    from app.services.metadata_source_io import _execute_search_tmdb
+    result = await _execute_search_tmdb("err title")
+    assert result["success"] is False
+    assert msa._cache_get("tmdb", "err title") is None
+    _patch_async_client(monkeypatch, lambda *_: _FakeResp({"results": []}))
     assert await msa._search_tmdb("err title") == []
+    assert msa._cache_get("tmdb", "err title") == []
 
 
-async def test_search_tmdb_unexpected_error_yield_no_results(tmdb_key, monkeypatch):
+async def test_search_tmdb_unexpected_error_is_not_a_negative_result(tmdb_key, monkeypatch):
     def handler(url, params):
         raise ValueError("weird payload")
 
     _patch_async_client(monkeypatch, handler)
-    assert await msa._search_tmdb("weird title") == []
+    with pytest.raises(RuntimeError, match="TMDB request failed: incomplete search"):
+        await msa._search_tmdb("weird title")
+    assert msa._cache_get("tmdb", "weird title") is None
 
 
 async def test_search_tmdb_empty_merge_is_cached(tmdb_key, monkeypatch):
@@ -322,8 +333,7 @@ async def test_search_tmdb_empty_merge_is_cached(tmdb_key, monkeypatch):
 
 
 async def test_search_tmdb_task_level_base_exception(tmdb_key, monkeypatch):
-    """If a search task itself blows up (BaseException escapes the per-lang
-    error handling), gather returns it and the side is treated as empty."""
+    """Task failures propagate; they are not authoritative empty results."""
     def failing_create_task(coro):
         coro.close()  # never scheduled — avoid "never awaited" warnings
         fut = asyncio.get_running_loop().create_future()
@@ -331,4 +341,6 @@ async def test_search_tmdb_task_level_base_exception(tmdb_key, monkeypatch):
         return fut
 
     monkeypatch.setattr(msa.asyncio, "create_task", failing_create_task)
-    assert await msa._search_tmdb("task failure") == []
+    with pytest.raises(RuntimeError, match="task exploded"):
+        await msa._search_tmdb("task failure")
+    assert msa._cache_get("tmdb", "task failure") is None

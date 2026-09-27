@@ -179,7 +179,7 @@ async def _search_tmdb(title: str) -> list[dict[str, Any]]:
     if cached is not None:
         return cached
 
-    async def _search_lang(lang: str) -> list[dict]:
+    async def _search_lang(lang: str) -> list[dict] | None:
         """Run a single-language search_multi call."""
         try:
             async with httpx.AsyncClient(timeout=15) as client:
@@ -200,22 +200,24 @@ async def _search_tmdb(title: str) -> list[dict[str, Any]]:
                 "[metadata_agent] TMDB search failed for lang=%s title=%r: %s",
                 lang, title[:60], e,
             )
-            return []
+            return None
         except Exception as e:
             logger.warning(
                 "[metadata_agent] TMDB search unexpected error lang=%s title=%r: %s",
                 lang, title[:60], e,
             )
-            return []
+            return None
 
     zh_task = asyncio.create_task(_search_lang("zh-CN"))
     en_task = asyncio.create_task(_search_lang("en-US"))
     zh_results, en_results = await asyncio.gather(zh_task, en_task, return_exceptions=True)
 
-    if isinstance(zh_results, BaseException):
-        zh_results = []
-    if isinstance(en_results, BaseException):
-        en_results = []
+    for result in (zh_results, en_results):
+        if isinstance(result, BaseException):
+            raise result
+    complete = zh_results is not None and en_results is not None
+    zh_results = zh_results or []
+    en_results = en_results or []
 
     # Merge by TMDB ID: prefer zh-CN for title_cn, en-US for title_en
     merged: dict[int, dict] = {}
@@ -281,6 +283,8 @@ async def _search_tmdb(title: str) -> list[dict[str, Any]]:
     _ingest(en_results, "en-US")
 
     if not merged:
+        if not complete:
+            raise RuntimeError("TMDB request failed: incomplete search")
         _cache_set("tmdb", title, [])
         return []
 
@@ -330,7 +334,10 @@ async def _search_tmdb(title: str) -> list[dict[str, Any]]:
         if _validate_candidate(candidate):
             candidates.append(candidate)
 
-    _cache_set("tmdb", title, candidates)
+    if complete:
+        _cache_set("tmdb", title, candidates)
+    elif not candidates:
+        raise RuntimeError("TMDB request failed: incomplete search")
     return candidates
 
 
