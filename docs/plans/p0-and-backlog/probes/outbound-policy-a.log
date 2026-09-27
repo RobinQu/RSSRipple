@@ -1,0 +1,74 @@
+============================= test session starts ==============================
+platform linux -- Python 3.13.3, pytest-9.1.1, pluggy-1.6.0 -- /workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /tmp/rssripple-v20-outbound-policy
+configfile: pyproject.toml
+plugins: langsmith-0.9.3, anyio-4.14.0, cov-7.1.0, asyncio-1.4.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 4 items
+
+tests/integration/security/test_untrusted_outbound.py::test_untrusted_resource_never_contacts_private_target[False-torrent] FAILED [ 25%]
+tests/integration/security/test_untrusted_outbound.py::test_untrusted_resource_never_contacts_private_target[False-poster] FAILED [ 50%]
+tests/integration/security/test_untrusted_outbound.py::test_untrusted_resource_never_contacts_private_target[True-torrent] FAILED [ 75%]
+tests/integration/security/test_untrusted_outbound.py::test_untrusted_resource_never_contacts_private_target[True-poster] FAILED [100%]
+
+=================================== FAILURES ===================================
+_____ test_untrusted_resource_never_contacts_private_target[False-torrent] _____
+tests/integration/security/test_untrusted_outbound.py:80: in test_untrusted_resource_never_contacts_private_target
+    assert requests == [], {"requests": requests, "cached_result": result, "redirected": redirected}
+E   AssertionError: {'requests': ['/private/torrent'], 'cached_result': '/tmp/pytest-of-robinqu/pytest-1626/test_untrusted_resource_never_0/torrents/synthetic-private-target-987a72c09d5b0c2e934fa5016cc4dda6427a80dc5a4594e284a06ccf966acdb2.torrent', 'redirected': False}
+E   assert ['/private/torrent'] == []
+E
+E     Left contains one more item: '/private/torrent'
+E
+E     Full diff:
+E     - []
+E     + [
+E     +     '/private/torrent',
+E     + ]
+_____ test_untrusted_resource_never_contacts_private_target[False-poster] ______
+tests/integration/security/test_untrusted_outbound.py:80: in test_untrusted_resource_never_contacts_private_target
+    assert requests == [], {"requests": requests, "cached_result": result, "redirected": redirected}
+E   AssertionError: {'requests': ['/private/poster'], 'cached_result': '/posters/b6af60c4d1286e4e.png', 'redirected': False}
+E   assert ['/private/poster'] == []
+E
+E     Left contains one more item: '/private/poster'
+E
+E     Full diff:
+E     - []
+E     + [
+E     +     '/private/poster',
+E     + ]
+_____ test_untrusted_resource_never_contacts_private_target[True-torrent] ______
+tests/integration/security/test_untrusted_outbound.py:80: in test_untrusted_resource_never_contacts_private_target
+    assert requests == [], {"requests": requests, "cached_result": result, "redirected": redirected}
+E   AssertionError: {'requests': ['/private/torrent'], 'cached_result': '/tmp/pytest-of-robinqu/pytest-1626/test_untrusted_resource_never_2/torrents/synthetic-private-target-987a72c09d5b0c2e934fa5016cc4dda6427a80dc5a4594e284a06ccf966acdb2.torrent', 'redirected': True}
+E   assert ['/private/torrent'] == []
+E
+E     Left contains one more item: '/private/torrent'
+E
+E     Full diff:
+E     - []
+E     + [
+E     +     '/private/torrent',
+E     + ]
+______ test_untrusted_resource_never_contacts_private_target[True-poster] ______
+tests/integration/security/test_untrusted_outbound.py:80: in test_untrusted_resource_never_contacts_private_target
+    assert requests == [], {"requests": requests, "cached_result": result, "redirected": redirected}
+E   AssertionError: {'requests': ['/private/poster'], 'cached_result': '/posters/9f55b4776a3cdaa2.png', 'redirected': True}
+E   assert ['/private/poster'] == []
+E
+E     Left contains one more item: '/private/poster'
+E
+E     Full diff:
+E     - []
+E     + [
+E     +     '/private/poster',
+E     + ]
+----------------- generated xml file: /tmp/rssripple-v20-a.xml -----------------
+=========================== short test summary info ============================
+FAILED tests/integration/security/test_untrusted_outbound.py::test_untrusted_resource_never_contacts_private_target[False-torrent]
+FAILED tests/integration/security/test_untrusted_outbound.py::test_untrusted_resource_never_contacts_private_target[False-poster]
+FAILED tests/integration/security/test_untrusted_outbound.py::test_untrusted_resource_never_contacts_private_target[True-torrent]
+FAILED tests/integration/security/test_untrusted_outbound.py::test_untrusted_resource_never_contacts_private_target[True-poster]
+============================== 4 failed in 0.56s ===============================

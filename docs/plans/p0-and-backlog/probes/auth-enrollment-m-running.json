@@ -13,7 +13,11 @@
     "threshold": 95
   },
   "integration": {
-    "status": "not started; start unique project from same frozen candidate after existing integration capacity frees",
+    "status": "running",
+    "session": 58903,
+    "project": "rssripple-v19-final-n",
+    "startup_exit": 0,
+    "log": "/tmp/rssripple-v19-integration-n.log",
     "threshold": 85
   }
 }

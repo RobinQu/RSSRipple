@@ -1,0 +1,20 @@
+{
+  "accepted": false,
+  "reason": "Partial prototype only; remaining call sites, compatibility and full gates pending",
+  "prototype": "/tmp/rssripple-v20-outbound-policy",
+  "baseline": "756bce6",
+  "main_helpers_verified_at": "2274768",
+  "b": {
+    "passed": 15,
+    "seconds": 2.74,
+    "exit_code": 0
+  },
+  "c": {
+    "passed": 18,
+    "seconds": 3.46,
+    "exit_code": 0
+  },
+  "source_manifest": "outbound-policy-c-source.json",
+  "data": "Unmodified recorded torrent; local HTTP/TLS servers; controlled public DNS/dial mapping; synthetic certificates",
+  "full_gates_run": false
+}

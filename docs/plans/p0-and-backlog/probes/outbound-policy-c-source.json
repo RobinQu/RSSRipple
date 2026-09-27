@@ -1,0 +1,6 @@
+{
+  "app/clients/outbound_http.py": "ec49ed6f897dcf1cd792acdc03f96b5f51bda4ab2fef3ced41c6f80e1b8d9036",
+  "app/services/torrent_inspect.py": "5f9d18c329bbd72f877219ae27b2050e99b8475b55e792041bf0a70d418c339a",
+  "app/services/metadata_service.py": "7deb38a816df6666d1c72ad026d467ce81f2f4aae9efb8c40e655b96ce7bb9ee",
+  "tests/integration/security/test_untrusted_outbound.py": "3d7951820367e6be36f003453d14b5e0b1a04e4a712b4238949258d3f3f38a26"
+}

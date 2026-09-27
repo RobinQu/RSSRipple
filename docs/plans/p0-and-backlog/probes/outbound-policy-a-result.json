@@ -1,0 +1,15 @@
+{
+  "prototype": "/tmp/rssripple-v20-outbound-policy",
+  "base_runtime_commit": "756bce6",
+  "tested_helpers_unchanged_on": "2274768",
+  "status": "four negative tests fail; production implementation not changed",
+  "probe": "tests/integration/security/test_untrusted_outbound.py",
+  "probe_sha256": "f61b8d031fcc5ffcaf6f5a8887a04b8ff25c54a2064546cb0ecc383d9c290fdb",
+  "recorded_fixture": "tests/fixtures/metadata_corpus_v1/torrents/987a72c09d5b0c2e934fa5016cc4dda6427a80dc5a4594e284a06ccf966acdb2.torrent",
+  "fixture_sha256": "987a72c09d5b0c2e934fa5016cc4dda6427a80dc5a4594e284a06ccf966acdb2",
+  "passed": 0,
+  "failed": 4,
+  "seconds": 0.56,
+  "exit_code": 1,
+  "network": "only test-owned loopback servers; threads/servers stopped in fixture finally"
+}

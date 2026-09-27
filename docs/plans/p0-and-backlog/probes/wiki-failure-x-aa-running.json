@@ -1,5 +1,5 @@
 {
-  "accepted": false,
+  "accepted": true,
   "prototype": "/tmp/rssripple-v17-error-review",
   "effective_files": "wiki-failure-aa-source.json",
   "freeze": "wiki-failure-aa-frozen.json",
@@ -19,5 +19,8 @@
     "session": 72098,
     "startup_exit": 0,
     "log": "/tmp/rssripple-v17-integration-aa.log"
-  }
+  },
+  "status": "both gates complete; merged locally",
+  "commit": "2274768",
+  "terminal_record": "wiki-failure-x-aa-terminal.json"
 }

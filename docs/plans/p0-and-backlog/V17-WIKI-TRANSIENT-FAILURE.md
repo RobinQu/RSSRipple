@@ -1,5 +1,11 @@
 # V17 M3 整体来源故障分类与缓存
 
+## 最终验收与 main 合入
+
+M3 已合入本地 main `2274768`，有效九文件与冻结候选逐文件哈希一致。x 单元/API **4042 passed、15 skipped、97.22%**；aa 完整集成 **3186 passed、17 skipped、8 warnings，1988.27 秒，20732/23509（88.19%）**。无新增跳过或理由变化，应用正常退出、覆盖率汇总、报告导出及唯一项目清理均退出 0；3054 输入冻结核对通过。x 与 aa 仅一个集成测试文件不同，运行代码和单元/API 输入完全一致。
+
+最终五维审查见 V17-FINAL-REVIEW.md，机器摘要 probes/wiki-failure-x-aa-terminal.json；aa JUnit、日志、覆盖率 XML 和原始 coverage gzip 已归档。此前 y 的三项失败与 z 修订证据保留。M3 从 TODO 移除，未推送远端；S2 p 候选的基线哈希已与新 main 核对一致，仍须其自身完整门禁。
+
 ## 当前门禁状态：y 失败后 z 修订与 aa 重验
 
 x 单元/API 已退出 0：**4042 passed、15 skipped、6 warnings，3047.53 秒，22856/23509（97.22%）**。3054 原冻结输入未变，跳过项及理由与 M2 相同；完整报告和原始 coverage 归档于 probes/wiki-failure-x.*，机器摘要 wiki-failure-x-terminal.json。aa 完整集成仍在运行，不能关闭 M3。

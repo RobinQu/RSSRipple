@@ -1,0 +1,79 @@
+{
+  "accepted": true,
+  "prototype": "/tmp/rssripple-v17-error-review",
+  "frozen_files_unchanged": 3054,
+  "unit": {
+    "accepted": true,
+    "reason": "Unit gate passed; combined x/aa audit now complete",
+    "passed": 4042,
+    "failures": [],
+    "skipped": {
+      "tests.unit.test_database_migrations::test_create_tables_postgres_path": "PostgreSQL unavailable: ConnectionRefusedError(111, \"Connect call failed ('127.0.0.1', 5432)\")",
+      "tests.unit.test_database_migrations::test_light_migrations_postgres_legacy_shapes": "PostgreSQL unavailable: ConnectionRefusedError(111, \"Connect call failed ('127.0.0.1', 5432)\")",
+      "tests.unit.test_database_migrations::test_light_migrations_postgres_legacy_delivery_columns_nullable": "PostgreSQL unavailable: ConnectionRefusedError(111, \"Connect call failed ('127.0.0.1', 5432)\")",
+      "tests.unit.test_decision_migration::test_postgres_startup_rejects_unreviewed_then_accepts_review": "PostgreSQL startup DDL branch; embedded startup tested through CLI subprocess",
+      "tests.api.test_api_coverage3.TestResourcesMore::test_search_metadata_via_manual": "resource-scoped metadata search replaced by /api/v1/metadata/search",
+      "tests.api.test_api_coverage3.TestResourcesMore::test_link_metadata_error_path": "resource-scoped metadata link replaced by work metadata apply/associations",
+      "tests.api.test_api_coverage3.TestResourcesMore::test_link_metadata_movie": "resource-scoped metadata link replaced by work metadata apply/associations",
+      "tests.api.test_resources.TestResourceSearchLink::test_search_404": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "tests.api.test_resources.TestResourceSearchLink::test_search_returns_results": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "tests.api.test_resources.TestResourceSearchLink::test_search_result_none_genre_coerced": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "tests.api.test_resources.TestResourceSearchLink::test_search_forwards_source_and_fallback_sites": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "tests.api.test_resources.TestResourceSearchLink::test_search_llm_error_returns_502": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "tests.api.test_resources.TestResourceSearchLink::test_link_creates_series": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "tests.api.test_resources.TestResourceSearchLink::test_link_404": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "tests.api.test_resources.TestResourceSearchLink::test_link_movie_clears_ambiguous": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    },
+    "new_skips": [],
+    "changed_skip_reasons": {},
+    "seconds": 3047.53,
+    "exit_code": 0,
+    "coverage": {
+      "lines-covered": "22856",
+      "lines-valid": "23509",
+      "line-rate": "0.9722"
+    },
+    "frozen_files_unchanged": 3054
+  },
+  "integration": {
+    "passed": 3186,
+    "failures": [],
+    "skipped": {
+      "tests.integration.http.test_api_coverage2.TestMagnetResolve::test_terminal_retry_flow": "no magnet resolution reached a terminal state in time",
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream::test_mapping_structure": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream::test_mapping_has_torrent_url": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream::test_mapping_has_title_field": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream::test_all_rules_have_source_key": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream::test_confidence_not_low": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping::test_fetch_succeeded": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping::test_fetch_created_resources": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping::test_resources_have_torrent_url": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping::test_resources_have_title_raw": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping::test_channel_stream_analyze_also_works": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping::test_no_duplicates_on_refetch": "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "tests.integration.http.test_metadata_api.TestMetadataLink::test_link_metadata_creates_series": "No metadata API keys configured \u2014 cannot perform search+link",
+      "tests.integration.http.test_task_queue.TestRedisDistributedDedup::test_status_key_shared_after_enqueue": "No distinct Redis-backed app instance configured",
+      "tests.integration.http.test_task_queue.TestRedisDistributedDedup::test_redis_job_state_persists_after_done": "No distinct Redis-backed app instance configured",
+      "tests.integration.magnet.test_magnet_resolve_e2e::test_live_magnet_resolution": "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)",
+      "tests.integration.magnet.test_magnet_resolve_e2e::test_live_fetch_to_resolve_end_to_end": "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)"
+    },
+    "new_skips": [],
+    "changed_skip_reasons": {},
+    "seconds": 1988.27,
+    "exit_code": 0,
+    "coverage": {
+      "lines-covered": "20732",
+      "lines-valid": "23509",
+      "line-rate": "0.8819"
+    },
+    "application_exit_codes": [
+      0,
+      0
+    ],
+    "coverage_report_exit": 0,
+    "export_exit": 0,
+    "project": "rssripple-v17-final-aa",
+    "cleanup_exit": 0
+  },
+  "commit": "2274768"
+}

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="4" skipped="0" tests="4" time="0.549" timestamp="2026-09-27T13:30:12.005408+00:00" hostname="dl-workstation-albert"><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_untrusted_resource_never_contacts_private_target[False-torrent]" time="0.101"><failure message="AssertionError: {'requests': ['/private/torrent'], 'cached_result': '/tmp/pytest-of-robinqu/pytest-1626/test_untrusted_resource_never_0/torrents/synthetic-private-target-987a72c09d5b0c2e934fa5016cc4dda6427a80dc5a4594e284a06ccf966acdb2.torrent', 'redirected': False}&#10;assert ['/private/torrent'] == []&#10;  &#10;  Left contains one more item: '/private/torrent'&#10;  &#10;  Full diff:&#10;  - []&#10;  + [&#10;  +     '/private/torrent',&#10;  + ]">tests/integration/security/test_untrusted_outbound.py:80: in test_untrusted_resource_never_contacts_private_target
+    assert requests == [], {"requests": requests, "cached_result": result, "redirected": redirected}
+E   AssertionError: {'requests': ['/private/torrent'], 'cached_result': '/tmp/pytest-of-robinqu/pytest-1626/test_untrusted_resource_never_0/torrents/synthetic-private-target-987a72c09d5b0c2e934fa5016cc4dda6427a80dc5a4594e284a06ccf966acdb2.torrent', 'redirected': False}
+E   assert ['/private/torrent'] == []
+E
+E     Left contains one more item: '/private/torrent'
+E
+E     Full diff:
+E     - []
+E     + [
+E     +     '/private/torrent',
+E     + ]</failure></testcase><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_untrusted_resource_never_contacts_private_target[False-poster]" time="0.100"><failure message="AssertionError: {'requests': ['/private/poster'], 'cached_result': '/posters/b6af60c4d1286e4e.png', 'redirected': False}&#10;assert ['/private/poster'] == []&#10;  &#10;  Left contains one more item: '/private/poster'&#10;  &#10;  Full diff:&#10;  - []&#10;  + [&#10;  +     '/private/poster',&#10;  + ]">tests/integration/security/test_untrusted_outbound.py:80: in test_untrusted_resource_never_contacts_private_target
+    assert requests == [], {"requests": requests, "cached_result": result, "redirected": redirected}
+E   AssertionError: {'requests': ['/private/poster'], 'cached_result': '/posters/b6af60c4d1286e4e.png', 'redirected': False}
+E   assert ['/private/poster'] == []
+E
+E     Left contains one more item: '/private/poster'
+E
+E     Full diff:
+E     - []
+E     + [
+E     +     '/private/poster',
+E     + ]</failure></testcase><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_untrusted_resource_never_contacts_private_target[True-torrent]" time="0.114"><failure message="AssertionError: {'requests': ['/private/torrent'], 'cached_result': '/tmp/pytest-of-robinqu/pytest-1626/test_untrusted_resource_never_2/torrents/synthetic-private-target-987a72c09d5b0c2e934fa5016cc4dda6427a80dc5a4594e284a06ccf966acdb2.torrent', 'redirected': True}&#10;assert ['/private/torrent'] == []&#10;  &#10;  Left contains one more item: '/private/torrent'&#10;  &#10;  Full diff:&#10;  - []&#10;  + [&#10;  +     '/private/torrent',&#10;  + ]">tests/integration/security/test_untrusted_outbound.py:80: in test_untrusted_resource_never_contacts_private_target
+    assert requests == [], {"requests": requests, "cached_result": result, "redirected": redirected}
+E   AssertionError: {'requests': ['/private/torrent'], 'cached_result': '/tmp/pytest-of-robinqu/pytest-1626/test_untrusted_resource_never_2/torrents/synthetic-private-target-987a72c09d5b0c2e934fa5016cc4dda6427a80dc5a4594e284a06ccf966acdb2.torrent', 'redirected': True}
+E   assert ['/private/torrent'] == []
+E
+E     Left contains one more item: '/private/torrent'
+E
+E     Full diff:
+E     - []
+E     + [
+E     +     '/private/torrent',
+E     + ]</failure></testcase><testcase classname="tests.integration.security.test_untrusted_outbound" name="test_untrusted_resource_never_contacts_private_target[True-poster]" time="0.115"><failure message="AssertionError: {'requests': ['/private/poster'], 'cached_result': '/posters/9f55b4776a3cdaa2.png', 'redirected': True}&#10;assert ['/private/poster'] == []&#10;  &#10;  Left contains one more item: '/private/poster'&#10;  &#10;  Full diff:&#10;  - []&#10;  + [&#10;  +     '/private/poster',&#10;  + ]">tests/integration/security/test_untrusted_outbound.py:80: in test_untrusted_resource_never_contacts_private_target
+    assert requests == [], {"requests": requests, "cached_result": result, "redirected": redirected}
+E   AssertionError: {'requests': ['/private/poster'], 'cached_result': '/posters/9f55b4776a3cdaa2.png', 'redirected': True}
+E   assert ['/private/poster'] == []
+E
+E     Left contains one more item: '/private/poster'
+E
+E     Full diff:
+E     - []
+E     + [
+E     +     '/private/poster',
+E     + ]</failure></testcase></testsuite></testsuites>

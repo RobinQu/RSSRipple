@@ -4,6 +4,8 @@
 
 ## 最新验收准备（j/k/l → m）
 
+n 完整隔离集成现已启动：唯一项目 rssripple-v19-final-n，session 58903，日志 /tmp/rssripple-v19-integration-n.log；沿用 m 同一冻结源，尚未终态。m/n 句柄与清理所需项目名记录在 probes/auth-enrollment-m-running.json。
+
 j **42 passed，58.93 秒**，覆盖先前失败的认证组合及 12/40 并发。k **5 passed，28.33 秒**，涵盖绑定 Turso/PG、Turso 十轮真实突发、PG 服务和双 HTTP 进程；未复现旧 h 的写冲突。最终核对 Dockerfile 发现依赖安装在 .venv，容器绑定文档须沿用服务的 `uv run --no-project` 解释器选择，已修正中英文 README/约定；启动提示只指向部署文档。实际核验 uv 选择候选 .venv 解释器，最后 l **6 passed，5.25 秒**。前端源码相对 g 未变，继承已通过的生产构建。
 
 [五维审查](V19-REVIEW.md) 允许完整门禁，14 有效文件与 3072 输入已冻结，source/tar/frozen 见 probes/auth-enrollment-m-*。m session 34744，日志 /tmp/rssripple-v19-unit-m.log，要求 ≥95%；显式使用独立 PG 容器 rssripple-v19-unit-pg-m（回环 32849、tmpfs）。避免与 S2 并发迁移争用固定 scratch 库名。完整集成尚未启动，待现有集成门禁释放资源后基于同一冻结源启动唯一项目；不能用 k 五项替代全量 ≥85% 门禁。测试期间不得修改该目录的冻结输入，前序 M3/S2 验收与基线匹配仍是合入条件。

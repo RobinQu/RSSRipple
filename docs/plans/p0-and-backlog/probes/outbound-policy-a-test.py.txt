@@ -1,0 +1,81 @@
+"""Local trap servers only; torrent payload is an unchanged recorded fixture."""
+
+import base64
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+import pytest
+
+from app.config import settings
+from app.services.metadata_service import download_and_cache_poster
+from app.services.torrent_inspect import fetch_torrent_file
+
+
+@pytest.fixture
+def private_servers(monkeypatch):
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
+    monkeypatch.setenv("no_proxy", "127.0.0.1,localhost")
+    captured = Path(__file__).resolve().parents[2] / "fixtures/metadata_corpus_v1/torrents/987a72c09d5b0c2e934fa5016cc4dda6427a80dc5a4594e284a06ccf966acdb2.torrent"
+    payloads = {
+        "torrent": captured.read_bytes(),
+        "poster": base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3ioAAAAASUVORK5CYII="),
+    }
+    requests = []
+
+    class Target(BaseHTTPRequestHandler):
+        def do_GET(self):
+            requests.append(self.path)
+            body = payloads[self.path.rsplit("/", 1)[-1]]
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    target = ThreadingHTTPServer(("127.0.0.1", 0), Target)
+    target_origin = f"http://127.0.0.1:{target.server_port}"
+
+    class Redirect(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(302)
+            self.send_header("Location", target_origin + self.path)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    redirect = ThreadingHTTPServer(("127.0.0.1", 0), Redirect)
+    servers = [target, redirect]
+    threads = [threading.Thread(target=s.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+               for s in servers]
+    for thread in threads:
+        thread.start()
+    try:
+        yield target_origin, f"http://127.0.0.1:{redirect.server_port}", requests
+    finally:
+        for server in servers:
+            server.shutdown()
+            server.server_close()
+        for thread in threads:
+            thread.join(timeout=2)
+            assert not thread.is_alive()
+
+
+@pytest.mark.parametrize("kind", ["torrent", "poster"])
+@pytest.mark.parametrize("redirected", [False, True])
+async def test_untrusted_resource_never_contacts_private_target(private_servers, tmp_path, monkeypatch, kind, redirected):
+    target, redirect, requests = private_servers
+    monkeypatch.setattr(settings, "torrent_cache_dir", str(tmp_path / "torrents"))
+    monkeypatch.setattr(settings, "poster_cache_dir", str(tmp_path / "posters"))
+    origin = redirect if redirected else target
+    url = origin + "/private/" + kind
+    if kind == "torrent":
+        result = await fetch_torrent_file(url, "synthetic-private-target")
+    else:
+        result = await download_and_cache_poster(url)
+    assert requests == [], {"requests": requests, "cached_result": result, "redirected": redirected}
+    assert result is None

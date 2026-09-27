@@ -8,7 +8,7 @@
 
 > 2026-09-27 主干复核：当前 P0（P0-1/2/3/7/8/9）及 B9 的提交 `4c804ed` 已包含在本地 `main`；原 P0-4、P0-6 降级后的修复 `7fd8121`、`e535e1f` 也已包含。原 P0-5 仍按 P2 保留。最新核验基线 `2274768`，本地领先本地记录的 `origin/main` 36 个提交（核验记录提交前），未推送远端；详情见 [PLAN.md](PLAN.md#p0-主干复核2026-09-27)。
 
-> B7 已完成 V13 全量验收，合入记录见 [V13](V13-CONSUMPTION-PROGRESS.md)。B4 已完成严格验收并合入本地 main（`7781a81`），见 [V14](V14-QUEUE-OWNERSHIP.md)；M1 已合入 `a8a09bd`，见 [V15](V15-MANUAL-MAPPING.md)；M2 已完成 an/ao 全量验收并合入 `756bce6`，见 [V16](V16-SINGLE-MEMBER-SEASON.md)。下一批继续 V17 M3 的 x/aa 门禁（y 失败已归档），S2/S3 候选见 V18/V19。
+> B7/B4/M1/M2 已验收合入，详见 V13–V16；M3 也已通过 x/aa 完整门禁并合入 `2274768`，见 [V17](V17-WIKI-TRANSIENT-FAILURE.md)。下一批继续 V18 S2 的 p/q 与 V19 S3 的 m/n 门禁；S1 的必要性与严格出站验证方案见 [V20](V20-OUTBOUND-POLICY.md)。
 
 ## 优先级
 
@@ -31,9 +31,6 @@
 
 ### 后台执行 / 调度 / 队列
 
-- [ ] **P1-M3 维基整体故障被缓存为 `not_found`**：judge 路径硬编码 `"error": None`
-      （`app/services/metadata_wiki_judge.py:481/545`），`_classify_failure` 看不到瞬态信号。
-      **修复**：维基/TMDB 请求不完整时不缓存未命中，成功候选继续保留。t/u 红测证明 web 空回退覆盖主源故障；补修后 v 56 项、w PG 12 场景通过。y 全量三个旧错误语义断言失败；修订并补恢复断言后 z 55 项通过。x 完整单元/API 已通过 4042 项、97.22%，无新增跳过；九文件候选的新 aa 完整集成仍运行，尚未合入，见 [V17](V17-WIKI-TRANSIENT-FAILURE.md)。
 
 ### 安全
 
@@ -41,11 +38,11 @@
       `wigolo_base_url`/`llm_base_url` 均无出站白名单与私网拦截，且多处 `follow_redirects=True`
       （`app/clients/rss_parser.py:32`、`app/services/torrent_inspect.py:143`、`app/services/metadata_service.py:311`、
       `app/services/notify_service.py:475` 等）。恶意 feed 可在正常抓取中触发。
-      **修复**：外部 feed 派生 torrent/poster URL 按不可信输入校验地址、DNS 与重定向；管理员配置的下载器/媒体服务器/webhook 必须允许明确配置的内网服务，不能一刀切禁私网。
+      **修复**：四项真实回环 HTTP 红测已复现 torrent/poster 私网访问。独立连接原型 c 18 项通过，覆盖数字地址固定、私网逐跳拒绝、显式授权、公私混合 DNS 及真实 TLS 的 SNI/证书校验；torrent 保持原录制字节，公网 DNS/拨号及证书为受控合成。其余调用路径、配置与兼容性仍未完成，尚未全量验收/合入。源码分类、剩余风险与严格标准见 [V20](V20-OUTBOUND-POLICY.md)。
 - [ ] **P1-S2 TOTP 登录无速率限制/锁定**：`app/api/v1/auth.py:53-75`，6 位码可取窗口 3，在线暴力可行。
       **修复**：持久化来源/全局额度，PG 服务/HTTP、真实旧库迁移及组合回归通过。后续独立生产退避探针发现 Turso 40 并发耗尽重试；新增同引擎额度短事务串行后 o 16 项通过（含十轮真实突发）。旧 k/l 已中断归档，18 文件/3063 输入修订候选的 p 完整单元/API（显式 PG）与 q 完整集成运行中，未合入 main，见 [V18](V18-AUTH-THROTTLING.md)。
 - [ ] **P1-S3 TOTP 密钥每次启动写日志**：`app/main.py:90-93` 打印完整 `otpauth://...secret=`。
-      **修复**：候选停止自动输出密钥，提供只读终端绑定，同步中英文提示/契约并通过构建。h 暴露的 S2 Turso 突发问题已修订，j 组合 42 项、k 正式双库/多进程五入口、l 最终指引六项均通过。14 文件/3072 输入冻结，m 完整单元/API（独立 PG）运行中，完整集成待启动，未合入 main，见 [V19](V19-AUTH-ENROLLMENT.md)。
+      **修复**：候选停止自动输出密钥，提供只读终端绑定，同步中英文提示/契约并通过构建。h 暴露的 S2 Turso 突发问题已修订，j 组合 42 项、k 正式双库/多进程五入口、l 最终指引六项均通过。14 文件/3072 输入冻结，m 完整单元/API（独立 PG）与 n 完整集成运行中，未合入 main，见 [V19](V19-AUTH-ENROLLMENT.md)。
 
 ---
 
