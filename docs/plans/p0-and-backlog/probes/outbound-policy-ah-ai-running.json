@@ -1,0 +1,35 @@
+{
+  "accepted": false,
+  "prototype": "/tmp/rssripple-v20-rebased-rc0rjzc5",
+  "source": "outbound-policy-ah-source.json",
+  "freeze": "outbound-policy-ah-frozen.json",
+  "frozen_count": 3099,
+  "effective_files": 34,
+  "image": "rssripple-v20-tests:local",
+  "image_id": "sha256:82b848a7ced66ed29f4556606eb97da654fa9332edb34c9d01cffcbb2e5c1a12",
+  "build_exit": 0,
+  "unit": {
+    "status": "running",
+    "session": 8726,
+    "postgres_container": "rssripple-v20-unit-pg-ah",
+    "postgres_port": 32850,
+    "threshold": 95,
+    "log": "/tmp/rssripple-v20-unit-ah.log",
+    "junit": "/tmp/rssripple-v20-unit-ah.xml",
+    "coverage": "/tmp/rssripple-v20-unit-ah-coverage.xml",
+    "coverage_data": "/tmp/rssripple-v20-unit-ah.coverage"
+  },
+  "integration": {
+    "status": "running",
+    "session": 38311,
+    "project": "rssripple-v20-final-ai",
+    "startup_exit": 0,
+    "threshold": 85,
+    "log": "/tmp/rssripple-v20-integration-ai.log",
+    "compose_env": {
+      "RSSRIPPLE_TEST_IMAGE": "rssripple-v20-tests:local"
+    },
+    "cleanup": "pending"
+  },
+  "warning": "Do not edit frozen candidate while either gate runs. After tests, SIGINT both app services, inspect exit, combine/export four coverage files, remove only the unique project and unit PG."
+}

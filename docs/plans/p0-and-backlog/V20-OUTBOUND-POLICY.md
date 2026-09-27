@@ -2,7 +2,7 @@
 
 状态：已复核必要性并建立本地复现；独立副本已实现部分连接策略原型，尚未合入 main。副本 `/tmp/rssripple-v20-outbound-policy` 的运行基线为 M2 `756bce6`；M3 合入 `2274768` 后，所测 torrent/poster 两个服务文件没有变化。
 
-最新续修目录：`/tmp/rssripple-v20-rebased-rc0rjzc5`，已叠加 main 上 M3/S2/S3（运行基线 `b0e2ce1`）。14 文件候选和基线哈希、归档分别为 `outbound-policy-s-source.json` / `outbound-policy-s-candidate.tar.gz`；s 组合 164 passed（10.64 秒），全仓 Ruff 通过。只是专项回归，S1 尚未完成或全量验收。下文 a–r 的旧副本与阶段性未修结论保留为历史。
+最新续修目录：`/tmp/rssripple-v20-rebased-rc0rjzc5`，基于已验收 main 运行代码 `b0e2ce1`。候选已完成路径接入与专项回归，34 有效文件、3099 测试输入在 ah 冻结；源码/基线哈希和归档见 `outbound-policy-ah-source.json` / `outbound-policy-ah-candidate.tar.gz`，冻结清单见 `outbound-policy-ah-frozen.json`。完整单元/API ah 与隔离集成 ai 正在运行，未验收、未合入；实时句柄及清理入口见 `probes/outbound-policy-ah-ai-running.json`。下文各轮旧副本及阶段性未修结论为历史记录。
 
 ## 已证实的范围
 
@@ -92,3 +92,12 @@ q 组合 144 passed / 20 failed（12.06 秒）：真实网络专项通过，20 �
 ad 在 Transmission hook 消除 self 引用环后再次验证实际 SDK，并适配旧 batch/feed mock 的 async context 生命周期，136 passed、1 warning、47.13 秒。ae 扩大到 torrent、magnet、MetadataAgent、RSS 和集成覆盖，443 passed / 5 failed / 2 skipped、84.65 秒：四项是测试迁移漏加 HTTPX 导入，一项是镜像 mock 不接受新增 auth 参数；均保留失败日志。magnet E2E 现以本地 HTTP 回放未改写的既有 XML，首轮两个离线端到端用例通过；两项 live swarm 用例保持原 opt-in 条件。修正 mock 后 af 重跑相同范围：448 passed、2 skipped、7 warnings、77.71 秒，退出 0；两项仍为原 live swarm opt-in 跳过。全仓 Ruff 通过。隔离 Compose 已为测试资源明确配置 `http://test-server:8080`，没有放宽生产默认策略。
 
 当前 31 文件候选及主干基础哈希见 `probes/outbound-policy-ae-source.json`，可从同名前缀 candidate.tar.gz 恢复；t–ae 原始日志/JUnit 均以 gzip 留存，结果见 `outbound-policy-t-ae-results.json`。main 运行代码未变，S1 未验收、未合入。af 结束后 31 文件候选哈希与归档一致，终态见 `probes/outbound-policy-af-result.json`。下一步补非重定向 webhook/media-server/Wigolo 的真实请求兼容性证据，检查完整集成环境与剩余旧 mock，然后执行完整单元/API ≥95%、隔离集成 ≥85%（零失败、跳过审计、冻结哈希、应用退出、覆盖率导出、唯一项目清理）。局部通过不能替代这两道完整门禁。
+
+
+## ag–ai：管理员端点复核与完整门禁
+
+ag 的 10 项真实 HTTP/Turso 用例全部通过（1.51 秒）：Plex/Emby/Jellyfin/Wigolo 的内网直连和认证保持正常，307 不触达第二端点；持久 webhook 使用已录制 torrent 的解析文件列表与合成通知外壳，正常投递 done，重定向拒绝后 pending 且计数/退避持久化。未改动这些已正常的生产路径。Wigolo 的空 307 响应当前在 JSON 解析时报错，仅证明目的地边界，不声称其错误分类统一。
+
+[门禁前五维审查](V20-REVIEW.md) 已完成，全仓 Ruff 和隔离 Compose 配置校验通过。依赖镜像按候选锁文件重新构建为独立 `rssripple-v20-tests:local`，退出 0；Compose 新增可选 RSSRIPPLE_TEST_IMAGE，保留原默认值，避免本轮构建覆盖其他测试镜像。沿用 S3 构建的静态文件，39 项哈希与原冻结清单一致。代码与集成标准同步写入候选权威文档。
+
+ah 完整单元/API 已启动（session 8726，日志 `/tmp/rssripple-v20-unit-ah.log`），门槛 ≥95%。专用 PostgreSQL `rssripple-v20-unit-pg-ah` 使用回环随机端口 32850、tmpfs、--rm；真实迁移测试不依赖生产数据库。ai 完整隔离集成已启动（session 38311，日志 `/tmp/rssripple-v20-integration-ai.log`），唯一项目 `rssripple-v20-final-ai` 启动退出 0，门槛 ≥85%。当前两会话均确认存活，未出现终态；不得修改被冻结的候选或提前清理服务。后续必须记录完整终态、跳过差异、哈希、应用退出、覆盖率汇总/导出和项目清理，才可判断合入。

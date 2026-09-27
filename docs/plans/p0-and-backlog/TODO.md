@@ -34,11 +34,8 @@
 
 ### 安全
 
-- [ ] **P1-S1 普遍 SSRF**：RSS feed / `torrent_url` / poster / webhook / media-server / downloader /
-      `wigolo_base_url`/`llm_base_url` 均无出站白名单与私网拦截，且多处 `follow_redirects=True`
-      （`app/clients/rss_parser.py:32`、`app/services/torrent_inspect.py:143`、`app/services/metadata_service.py:311`、
-      `app/services/notify_service.py:475` 等）。恶意 feed 可在正常抓取中触发。
-      **修复**：torrent/poster/RSS/镜像及 Transmission、RSS 分析 OpenAI 普通/流式路径已有真实 HTTP/TLS/SDK 修订证据。已叠加 M3/S2/S3 的新副本 s 组合 164 项通过，保留原录制数据及全部红测；14 文件候选未合入。其余 LLM/Wiki 调用、私网例外配置、代理/CA 与 DNS 超时、旧离线夹具迁移和完整门禁仍待完成。当前续修目录、源码分类与严格标准见 [V20](V20-OUTBOUND-POLICY.md)。
+- [ ] **P1-S1 外部派生 URL 与 SDK 重定向缺少目的地约束**：已复现 torrent/poster、RSS/镜像及部分 LLM/RPC 调用可触达未授权私网目标。管理员明确配置的内网 webhook/media-server/Wigolo 直连属于正常功能，ag 真实 HTTP 验证其默认不跟随重定向，不再笼统归为缺陷。
+      **修复**：独立候选已接入连接时 DNS/IP 校验、逐跳策略、精确私网例外、CA 兼容及有界 DNS；覆盖 batch/LangChain/OpenRouter/Wiki，magnet 夹具改为 HTTP 回放。ad 136 项、af 448 项、ag 10 项通过，仍须完整 ≥95%/≥85% 门禁与审计。方案、原始红测和续接目录见 [V20](V20-OUTBOUND-POLICY.md)，门禁前五维审查见 [V20-REVIEW](V20-REVIEW.md)。
 
 ---
 
