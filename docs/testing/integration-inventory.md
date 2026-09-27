@@ -342,3 +342,6 @@ B4 nk/nl 覆盖快照停种前、停种后、文件返回后失权，要求停�
 
 
 M1 正式 `metadata/test_manual_mapping_concurrency.py` 包含 PostgreSQL 九项和 Turso 六项。使用录制发布标题 `00e48de8-b5fd-4e99-8467-d384bd4a3183`、真实 associations/works-merge ASGI 路由和独立数据库会话；作品、候选响应与缓存/本地命中结果为合成，队列唤醒替换，不覆盖认证中间件或实时提供者。覆盖外部查询期间编辑（含改为 franchise 的形态编辑）、已有人工映射、缓存/本地快捷返回、查询期间合并及后续恢复；PostgreSQL 另验证资源锁等待、候选写入前合并及唯一约束错误不被吞。沿用隔离门禁 `QUEUE_RECOVERY_POSTGRES_URL` 和 `QUEUE_RECOVERY_REQUIRED=1`：缺 PostgreSQL 时必失败；每项独立建库，finally DROP DATABASE。Turso 使用 pytest 临时文件并启用 MVCC，简化建库未配置 FTS sidecar，FTS 正常路径仍由现有套件承担。
+
+
+M2 正式 `metadata/test_collection_season_evidence.py` 在专用 PostgreSQL 子库执行 38 项真实断言：标题/合集身份袋的 16 种季证据组合、2 种显式人工目标、16 种录制标题经 repository/MetadataAgent/成功缓存/实际抓取元数据事务的资源写入，以及系列身份/季身份各两种无季号外层兜底反例。复用 Turso 单元矩阵的断言并独立 commit/观察，不把 mock upsert 当作持久化证据。原始标题取录制 case `011c6d44-68cf-43a8-bad3-f0398ce20a95`；合集成员、TMDB ID 和来源响应明确合成，语料中历史候选 season 不作为真值。未知季必须保持 resource 工作 FK 空、collection 关联与 ambiguous，且不新增季作品；显式季号正例须实际创建/关联。沿用 QUEUE_RECOVERY_REQUIRED=1 缺 PG 必失败，独立建库与 finally 删除，子进程超时 120 秒。

@@ -142,7 +142,7 @@ async def test_upsert_converges_cross_source_via_bag(db_session):
         s1 = await ms.create_or_update_series_from_external(db_session, {
             "external_id": "wikipedia:7727654", "external_source": "wikipedia",
             "title_cn": "黃泉使者", "content_type": "tv",
-        })
+        }, season_hint=1)
         assert s1.collection_id is not None
         assert await _bag_pairs(db_session, "series", s1.id) == {
             ("wikipedia", "wikipedia:7727654#s1")
@@ -155,7 +155,7 @@ async def test_upsert_converges_cross_source_via_bag(db_session):
         s2 = await ms.create_or_update_series_from_external(db_session, {
             "external_id": "tmdb:82684", "external_source": "tmdb",
             "title_cn": "黃泉使者", "content_type": "tv",
-        })
+        }, season_hint=1)
         assert s2.id == s1.id
         assert await _bag_pairs(db_session, "collection", s1.collection_id) == {
             ("wikipedia", "wikipedia:7727654"), ("tmdb", "tmdb:82684"),
@@ -166,11 +166,12 @@ async def test_upsert_converges_cross_source_via_bag(db_session):
         s3 = await ms.create_or_update_series_from_external(db_session, {
             "external_id": "tmdb:82684", "external_source": "tmdb",
             "title_cn": "完全不同的标题", "content_type": "tv",
-        })
+        }, season_hint=1)
         assert s3.id == s1.id
 
     all_series = (await db_session.execute(select(TVSeries))).scalars().all()
     assert len(all_series) == 1
+
 
 
 async def test_upsert_bags_alt_external_ids(db_session):
@@ -193,7 +194,7 @@ async def test_upsert_bags_alt_external_ids(db_session):
                 {"source": "wikipedia", "id": "wikipedia:300"},  # ja page
                 {"source": "not_a_registry", "id": "x"},          # skipped
             ],
-        })
+        }, season_hint=1)
         assert await _bag_pairs(db_session, "series", s1.id) == {
             ("wikipedia", "wikipedia:100#s1"),
         }
@@ -207,11 +208,12 @@ async def test_upsert_bags_alt_external_ids(db_session):
         s2 = await ms.create_or_update_series_from_external(db_session, {
             "external_id": "wikipedia:200", "external_source": "wikipedia",
             "title_en": "Some Work EN", "content_type": "tv",
-        })
+        }, season_hint=1)
         assert s2.id == s1.id
 
     all_series = (await db_session.execute(select(TVSeries))).scalars().all()
     assert len(all_series) == 1
+
 
 
 async def test_movie_upsert_converges_via_bag(db_session):
@@ -317,7 +319,7 @@ async def test_seed_migration_does_not_duplicate_upsert_bagged_ids(db_engine, db
         s = await ms.create_or_update_series_from_external(db_session, {
             "external_id": "wikipedia:1", "external_source": "wikipedia",
             "title_cn": "剧集丙", "content_type": "tv",
-        })
+        }, season_hint=1)
     await db_session.commit()
 
     async with db_engine.begin() as conn:
@@ -331,6 +333,7 @@ async def test_seed_migration_does_not_duplicate_upsert_bagged_ids(db_engine, db
         ("collection", s.collection_id, "wikipedia:1"),
         ("series", s.id, "wikipedia:1#s1"),
     }
+
 
 
 # ---------------------------------------------------------------------------

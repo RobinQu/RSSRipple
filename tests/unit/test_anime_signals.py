@@ -155,25 +155,23 @@ async def test_upsert_series_is_anime_lifecycle(db_session):
     }
     with _poster_patch():
         s = await ms.create_or_update_series_from_external(
-            db_session, {**base, "is_anime": False}
-        )
+            db_session, {**base, "is_anime": False}, season_hint=1)
     assert s.is_anime is False
 
     with _poster_patch():
-        s = await ms.create_or_update_series_from_external(db_session, dict(base))
+        s = await ms.create_or_update_series_from_external(db_session, dict(base), season_hint=1)
     assert s.is_anime is False  # absent key keeps the value
 
     with _poster_patch():
         s = await ms.create_or_update_series_from_external(
-            db_session, {**base, "is_anime": True}
-        )
+            db_session, {**base, "is_anime": True}, season_hint=1)
     assert s.is_anime is True  # NULL/False can be upgraded
 
     with _poster_patch():
         s = await ms.create_or_update_series_from_external(
-            db_session, {**base, "is_anime": False}
-        )
+            db_session, {**base, "is_anime": False}, season_hint=1)
     assert s.is_anime is True  # True is never downgraded
+
 
 
 async def test_upsert_series_identity_marks_anime(db_session):
@@ -185,8 +183,9 @@ async def test_upsert_series_identity_marks_anime(db_session):
         # no is_anime key — bangumi/mal/anilist identity is evidence enough
     }
     with _poster_patch():
-        s = await ms.create_or_update_series_from_external(db_session, data)
+        s = await ms.create_or_update_series_from_external(db_session, data, season_hint=1)
     assert s.is_anime is True
+
 
 
 async def test_upsert_movie_identity_marks_anime(db_session):
@@ -209,8 +208,9 @@ async def test_upsert_series_no_evidence_stays_null(db_session):
         "external_source": "tmdb",
     }
     with _poster_patch():
-        s = await ms.create_or_update_series_from_external(db_session, data)
+        s = await ms.create_or_update_series_from_external(db_session, data, season_hint=1)
     assert s.is_anime is None
+
 
 
 # ---------------------------------------------------------------------------

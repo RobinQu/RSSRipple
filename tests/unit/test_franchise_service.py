@@ -84,6 +84,7 @@ def _tv_hit(external_id: str, title_cn: str) -> ResourceMetadata:
             "external_id": external_id,
             "external_source": "tmdb",
             "title_cn": title_cn,
+            "alt_titles": [f"{title_cn} Season 1"],
         },
     )
 
@@ -445,6 +446,7 @@ async def test_ova_member_upserted_as_season_zero(db_session):
                 "external_id": external_id,
                 "external_source": "bangumi",
                 "title_cn": title_cn,
+                "alt_titles": [f"{title_cn} Season 1"],
             },
         )
 
@@ -714,10 +716,8 @@ def _tv_entity(external_id: str, source: str, title_cn: str, title_en: str | Non
     )
 
 
-async def test_unmarked_tv_member_goes_to_shell_not_pack_s1(db_session):
-    """D1: a no-season-evidence TV member ("Initial D Battle Stage" via web
-    fallback) keeps its own named shell + link; the true First Stage takes
-    the pack's season-1 slot regardless of resolution order."""
+async def test_unmarked_tv_member_does_not_create_guessed_season(db_session):
+    """Unknown-season members cannot create S1; explicit First Stage still resolves."""
     ch = await _channel(db_session, metadata_source="bangumi")
     resource = _resource(ch.id, search_title="头文字D Initial D")
     db_session.add(resource)
@@ -746,26 +746,21 @@ async def test_unmarked_tv_member_goes_to_shell_not_pack_s1(db_session):
         w.external_id: w
         for w in (await db_session.execute(select(TVSeries))).scalars().all()
     }
-    battle, first = works["mal:821"], works["bangumi:8290"]
-    # The squatter candidate never enters the pack…
-    assert battle.collection_id != pack.id
-    shell = await db_session.get(WorkCollection, battle.collection_id)
-    assert shell is not None and shell.external_source == "series_group"
-    assert battle.season_number == 1  # its own shell's s1 work
-    # …the true First Stage occupies (pack, s1) instead.
+    assert "mal:821" not in works
+    first = works["bangumi:8290"]
     assert first.collection_id == pack.id
     assert first.season_number == 1
-    # The shell work is still linked to the resource.
+    # Identity-only evidence must not create a work or a dispatchable work link.
+    assert len(works) == 1
     links = (await db_session.execute(
         select(ResourceWorkLink).where(ResourceWorkLink.resource_id == resource.id)
     )).scalars().all()
-    assert battle.id in {link.series_id for link in links}
+    assert all(link.series_id in {None, first.id} for link in links)
     assert resource.collection_id == pack.id
 
 
-async def test_unmarked_base_name_member_takes_pack_s1(db_session):
-    """D1: an unmarked title that IS the pack's base name ("头文字D" in the
-    bilingual "头文字D Initial D") may still take the season-1 slot."""
+async def test_unmarked_base_name_member_does_not_imply_season_one(db_session):
+    """Matching the pack base name establishes identity, not a season number."""
     ch = await _channel(db_session, metadata_source="bangumi")
     resource = _resource(ch.id, search_title="头文字D Initial D")
     db_session.add(resource)
@@ -782,9 +777,10 @@ async def test_unmarked_base_name_member_takes_pack_s1(db_session):
         c for c in await _collections(db_session)
         if c.external_source == FRANCHISE_PACK_SOURCE
     )
-    work = (await db_session.execute(select(TVSeries))).scalars().one()
-    assert work.collection_id == pack.id
-    assert work.season_number == 1
+    assert (await db_session.execute(select(TVSeries))).scalars().all() == []
+    assert (await db_session.execute(select(ResourceWorkLink))).scalars().all() == []
+    assert resource.collection_id == pack.id
+    assert resource.series_id is None
 
 
 # ---------------------------------------------------------------------------

@@ -243,7 +243,7 @@ async def test_series_upsert_populates_and_updates_episodes(db_session):
             ],
             number_of_seasons=2,
             episode_list=ep_list_v2,
-        )
+        ), season_hint=s.season_number,
     )
     assert s2.id == s.id
     assert s2.number_of_seasons is None
@@ -256,7 +256,7 @@ async def test_series_upsert_populates_and_updates_episodes(db_session):
 
 
 async def test_upsert_episodes_idempotent(db_session):
-    s = await ms.create_or_update_series_from_external(db_session, _wiki_entity())
+    s = await ms.create_or_update_series_from_external(db_session, _wiki_entity(), season_hint=1)
     ep_list = [{"season": 1, "episode": 1, "title": "甲", "air_date": "2024-01-01"}]
     n1 = await ms.upsert_episodes(db_session, s, ep_list)
     n2 = await ms.upsert_episodes(db_session, s, ep_list)
@@ -265,7 +265,7 @@ async def test_upsert_episodes_idempotent(db_session):
 
 
 async def test_upsert_episodes_skips_incomplete_entries(db_session):
-    s = await ms.create_or_update_series_from_external(db_session, _wiki_entity())
+    s = await ms.create_or_update_series_from_external(db_session, _wiki_entity(), season_hint=1)
     n = await ms.upsert_episodes(db_session, s, [
         {"season": None, "episode": 1},
         {"season": 1, "episode": None},

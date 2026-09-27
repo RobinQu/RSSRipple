@@ -316,6 +316,7 @@ class TestManualSearchLink:
                     "title_en": "Honzuki no Gekokujou",
                     "original_title": "本好きの下剋上",
                     "description": "Ascendance of a Bookworm test entry",
+                    "alt_titles": ["Honzuki no Gekokujou Season 1"],
                     "external_id": "manual-honzuki-1",
                     "external_source": "tmdb",
                     "genre": ["Anime", "Fantasy"],
@@ -331,8 +332,7 @@ class TestManualSearchLink:
 
     def test_mapping_auto_links_sibling(self, _unlinked_channel):
         """GET metadata on a sibling resource hits the Layer-2 mapping."""
-        if not TestManualSearchLink.series_id:
-            pytest.skip("no series — prerequisite failed")
+        assert TestManualSearchLink.series_id, "series creation prerequisite failed"
         sibling = _unlinked_channel["resources"][1]
         r = _api(f"/api/v1/resources/{sibling['id']}/metadata")
         assert r.status_code == 200
@@ -415,8 +415,7 @@ class TestManualSearchLink:
 
     def test_relink_same_external_id_updates(self, _unlinked_channel):
         """Re-linking with the same external_id updates, not duplicates."""
-        if not TestManualSearchLink.series_id:
-            pytest.skip("no series — prerequisite failed")
+        assert TestManualSearchLink.series_id, "series creation prerequisite failed"
         res = _unlinked_channel["resources"][4]
         r = associate_metadata_request(
             f"/api/v1/resources/{res['id']}/metadata/link",
@@ -428,10 +427,9 @@ class TestManualSearchLink:
                     "title_en": "Honzuki no Gekokujou",
                     "external_id": "manual-honzuki-1",
                     "external_source": "tmdb",
-                    # No season marker here: entity title season markers
-                    # (作品单季化) would legitimately resolve a different
-                    # season work instead of updating the existing one.
-                    "alt_titles": ["Honzuki Alias"],
+                    # Re-link the explicitly selected season; the collection
+                    # having one local member cannot identify that season.
+                    "alt_titles": ["Honzuki Alias", "Honzuki no Gekokujou Season 1"],
                 }
             },
         )
@@ -446,8 +444,7 @@ class TestManualSearchLink:
 
     def test_title_fallback_dedup(self, _unlinked_channel):
         """Link with a new external_id but same title → title fallback hits."""
-        if not TestManualSearchLink.series_id:
-            pytest.skip("no series — prerequisite failed")
+        assert TestManualSearchLink.series_id, "series creation prerequisite failed"
         res = _unlinked_channel["resources"][5]
         r = associate_metadata_request(
             f"/api/v1/resources/{res['id']}/metadata/link",
@@ -457,6 +454,7 @@ class TestManualSearchLink:
                     "content_type": "tv",
                     "title_cn": HONZUKI_TITLE_CN,
                     "external_id": "manual-honzuki-other-source",
+                    "alt_titles": ["Honzuki no Gekokujou Season 1"],
                     "external_source": "wikipedia",
                 }
             },

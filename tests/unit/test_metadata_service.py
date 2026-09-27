@@ -378,7 +378,7 @@ async def test_already_linked_resource_skips(db_session, channel):
 
 async def test_manual_link_updates_existing_mapping(db_session, channel):
     """Calling manual_link a second time updates the existing mapping row."""
-    res = _resource(channel.id, title_raw="[G] Show 01")
+    res = _resource(channel.id, season=1, title_raw="[G] Show 01")
     db_session.add(res)
     await db_session.flush()
     sel = {
@@ -426,7 +426,7 @@ async def test_llm_fallback_when_metadata_agent_enabled(db_session, channel):
         "external_id": "llm_1",
         "external_source": "llm_search",
     }]
-    res = _resource(channel.id, search_title="some new show")
+    res = _resource(channel.id, season=1, search_title="some new show")
     db_session.add(res)
     await db_session.flush()
     with patch(
@@ -577,7 +577,7 @@ async def test_create_or_update_series_merges_aliases(db_session):
         "app.services.metadata_service.download_and_cache_poster",
         new_callable=AsyncMock, return_value=None,
     ):
-        s1 = await ms.create_or_update_series_from_external(db_session, data)
+        s1 = await ms.create_or_update_series_from_external(db_session, data, season_hint=1)
     await db_session.flush()
     # Update with new alias
     data2 = dict(data)
@@ -586,7 +586,7 @@ async def test_create_or_update_series_merges_aliases(db_session):
         "app.services.metadata_service.download_and_cache_poster",
         new_callable=AsyncMock, return_value=None,
     ):
-        s2 = await ms.create_or_update_series_from_external(db_session, data2)
+        s2 = await ms.create_or_update_series_from_external(db_session, data2, season_hint=1)
     await db_session.flush()
     assert s1.id == s2.id
     assert "剧A别名" in (s2.aliases or [])
@@ -770,7 +770,7 @@ async def test_create_or_update_series_converges_cross_language_wiki_pages(db_se
             "title_en": None,
             "external_id": "wikipedia:7727654",
             "external_source": "wikipedia",
-        })
+        }, season_hint=1)
         await db_session.flush()
 
         s2 = await ms.create_or_update_series_from_external(db_session, {
@@ -780,7 +780,7 @@ async def test_create_or_update_series_converges_cross_language_wiki_pages(db_se
             "alt_titles": ["黃泉使者"],
             "external_id": "wikipedia:70545449",
             "external_source": "wikipedia",
-        })
+        }, season_hint=1)
         await db_session.flush()
 
     assert s1.id == s2.id
@@ -800,7 +800,7 @@ async def test_create_or_update_series_alt_titles_alone_can_bridge(db_session):
             "title_cn": "黃泉使者",
             "external_id": "wikipedia:7727654",
             "external_source": "wikipedia",
-        })
+        }, season_hint=1)
         await db_session.flush()
 
         s2 = await ms.create_or_update_series_from_external(db_session, {
@@ -809,7 +809,7 @@ async def test_create_or_update_series_alt_titles_alone_can_bridge(db_session):
             "alt_titles": ["黃泉使者"],
             "external_id": "wikipedia:70545449",
             "external_source": "wikipedia",
-        })
+        }, season_hint=1)
         await db_session.flush()
 
     assert s1.id == s2.id
@@ -1388,7 +1388,7 @@ async def test_upsert_preserves_manually_edited_identity_series(db_session):
         "app.services.metadata_service.download_and_cache_poster",
         new_callable=AsyncMock, return_value=None,
     ):
-        updated = await ms.create_or_update_series_from_external(db_session, data)
+        updated = await ms.create_or_update_series_from_external(db_session, data, season_hint=1)
     assert updated.id == work.id
     assert updated.external_id == "tmdb:900"  # manual edit preserved
     assert updated.external_source == "tmdb"
@@ -2190,11 +2190,23 @@ async def test_series_upsert_multi_candidate_no_shared_collection(db_session):
     ):
         work = await ms.create_or_update_series_from_external(db_session, {
             "content_type": "tv", "title_cn": "剧集",
-            "external_source": "llm_search", "external_id": "wikipedia:999",
+            "external_source": "tmdb", "external_id": "tmdb:90006486",
             "number_of_seasons": 2,
         })
-    assert work is not None
-    assert work.season_number == 1
+    # Neither candidate cardinality nor a multi-season count supplies a season.
+    assert work is None
+    await db_session.commit()
+    from sqlalchemy import select
+
+    from app.models.work_external_id import WorkExternalId
+
+    works = (await db_session.execute(select(TVSeries))).scalars().all()
+    assert sorted(row.season_number for row in works) == [1, 2]
+    identity = (await db_session.execute(select(WorkExternalId).where(
+        WorkExternalId.external_id == "tmdb:90006486",
+    ))).scalar_one()
+    assert identity.work_type == "collection"
+    assert await db_session.get(WorkCollection, identity.work_id) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -2896,7 +2908,9 @@ async def test_series_upsert_bags_alt_ids_and_synthetic(db_session):
     assert ("collection", "imdb", "imdb:tt999") in by
 
 
-async def test_series_upsert_creates_season_1_unverified_empty_collection(db_session):
+async def test_series_upsert_parks_unverified_empty_collection(db_session):
+    from sqlalchemy import select
+
     from app.services.external_ids import add_external_id
 
     coll = WorkCollection(id=_uuid(), title_cn="空合集", external_source="series_group")
@@ -2911,9 +2925,16 @@ async def test_series_upsert_creates_season_1_unverified_empty_collection(db_ses
             "content_type": "tv", "title_cn": "剧", "title_en": "Show",
             "external_id": "tmdb:778", "external_source": "tmdb",
         })
-    assert work is not None
-    assert work.season_number == 1
-    assert work.collection_id == coll.id
+    assert work is None
+    await db_session.commit()
+    from app.database import async_session_factory
+    from app.models.work_external_id import WorkExternalId
+    async with async_session_factory() as observer:
+        assert not (await observer.scalars(select(TVSeries).where(TVSeries.collection_id == coll.id))).all()
+        identity = (await observer.scalars(select(WorkExternalId).where(
+            WorkExternalId.source == "tmdb", WorkExternalId.external_id == "tmdb:778"
+        ))).one()
+        assert identity.work_type == "collection" and identity.work_id == coll.id
 
 
 async def test_verify_is_anime_via_bangumi_skips_determined_work(db_session, channel, monkeypatch):

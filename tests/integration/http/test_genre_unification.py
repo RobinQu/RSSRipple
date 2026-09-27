@@ -184,6 +184,7 @@ class TestGenreNormalizationOnLink:
                     "title_cn": "咒术回战",
                     "title_en": "Jujutsu Kaisen",
                     "external_id": "genre-test-jjk",
+                    "alt_titles": ["Jujutsu Kaisen Season 1"],
                     "external_source": "tmdb",
                     "genre": ["Anime", "Isekai", "action", 16],
                     "rating": 8.6,
@@ -223,13 +224,13 @@ class TestGenreFilterDSL:
                     "title_cn": "咒术回战",
                     "title_en": "Jujutsu Kaisen",
                     "external_id": "genre-dsl-jjk",
+                    "alt_titles": ["Jujutsu Kaisen Season 1"],
                     "external_source": "tmdb",
                     "genre": ["Animation", "Action"],
                 }
             },
         )
-        if r.status_code != 200:
-            pytest.skip(f"link failed: {r.text}")
+        assert r.status_code == 200, f"link prerequisite failed: {r.text}"
         series_id = r.json()["data"]["series_id"]
 
         r = _api("/api/v1/downloaders", params={"page_size": 100})

@@ -134,9 +134,10 @@ async def test_write_back_normalizes_genre_on_create(db_session):
         new_callable=AsyncMock,
         return_value=None,
     ):
-        s = await ms.create_or_update_series_from_external(db_session, data)
+        s = await ms.create_or_update_series_from_external(db_session, data, season_hint=1)
     await db_session.flush()
     assert s.genre == ["Animation", "Drama"]
+
 
 
 async def test_write_back_empty_genre_does_not_wipe_existing(db_session):

@@ -1560,13 +1560,10 @@ async def _resolve_collection_member(
     series_level_id: str | None,
     expected_series_id: str | None = None,
 ) -> TVSeries | None:
-    """Select (or lazily create) the collection member for the target season.
+    """Resolve an evidenced season; collection size never determines a season.
 
-    Season unknown: a single-member collection is verifiably single-season →
-    its member; a multi-member collection (or a multi-season entity over an
-    empty collection) cannot be pinned — the series-level ids are bagged on
-    the collection and None is returned so the caller parks the resource on
-    the collection for Channel confirmation (挂合集待确认).
+    An explicit manual target can supply its own season identity. Otherwise
+    unknown-season candidates keep their identity on the collection.
     """
     # Serialize member discovery and lazy creation on the existing parent.
     # Refresh after waiting so a second matcher sees the first transaction's
@@ -1574,26 +1571,22 @@ async def _resolve_collection_member(
     await db.refresh(collection, with_for_update=True)
     members = await _collection_members(db, collection.id)
     if expected_series_id is not None:
-        selected = next((m for m in members if m.season_number == season), None)
-        if season is None and len(members) == 1 and not _has_unresolved_title_qualifier(data):
-            selected = members[0]
+        selected = next((m for m in members if m.id == expected_series_id
+                         and (season is None or m.season_number == season)), None)
+        if season is None and _has_unresolved_title_qualifier(data):
+            selected = None
         _require_series_target(expected_series_id, selected)
         if await _has_conflicting_identity(db, "series", selected, raw_source, data.get("external_id")):
             raise MetadataTargetMismatchError("Metadata identity conflicts with selected season work")
+        season = selected.season_number
     _merge_collection_aliases(collection, data)
     work: TVSeries | None = None
     if season is None:
-        qualified = _has_unresolved_title_qualifier(data)
-        if len(members) == 1 and not qualified:
-            work = members[0]
-        elif len(members) >= 1 or (verified_season_count(data) or 0) > 1:
-            await _bag_entity_ids_by_granularity(
-                db, work=None, collection=collection, data=data,
-                series_level_id=series_level_id,
-            )
-            return None
-        else:
-            season = 1
+        await _bag_entity_ids_by_granularity(
+            db, work=None, collection=collection, data=data,
+            series_level_id=series_level_id,
+        )
+        return None
     if work is None:
         work = next((m for m in members if m.season_number == season), None)
     if work is not None and await _has_conflicting_identity(
@@ -1825,6 +1818,18 @@ async def create_or_update_series_from_external(
                 continue
             kept.append(candidate)
         candidates = kept
+    if candidates and season is None and expected_series_id is None:
+        # Title similarity and source identity granularity supply no ordinal.
+        coll_ids = {candidate.collection_id for candidate in candidates if candidate.collection_id}
+        collection = await db.get(WorkCollection, next(iter(coll_ids))) if len(coll_ids) == 1 else None
+        if collection is None:
+            collection = await _create_series_collection(db, data)
+        _merge_collection_aliases(collection, data)
+        await _bag_entity_ids_by_granularity(
+            db, work=None, collection=collection, data=data,
+            series_level_id=series_level_id,
+        )
+        return None
     if candidates:
         if season is not None:
             exact = [c for c in candidates if (c.season_number or 1) == season]
@@ -1908,13 +1913,11 @@ async def create_or_update_series_from_external(
         db, data, preserve_full_title=qualified
     )
     if season is None:
-        if (verified_season_count(data) or 0) > 1:
-            await _bag_entity_ids_by_granularity(
-                db, work=None, collection=collection, data=data,
-                series_level_id=series_level_id,
-            )
-            return None
-        season = 1
+        await _bag_entity_ids_by_granularity(
+            db, work=None, collection=collection, data=data,
+            series_level_id=series_level_id,
+        )
+        return None
     return await _create_season_work(
         db, data, collection, season,
         raw_source=raw_source, raw_external_id=raw_external_id,

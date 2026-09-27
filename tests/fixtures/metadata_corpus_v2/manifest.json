@@ -18,7 +18,7 @@
   "file_list_file": "file_lists.json.gz",
   "file_list_sha256": "ddd232d1b6fea0ebb79dd902d9ea191e8e693ed0f325a81fc1dc480d9801dfb6",
   "input_limitation": "Historical RSS bodies were not persisted; title/torrent inputs do not claim RSS mapping coverage.",
-  "review_file": "reviews.json",
+  "review_file": "reviews-season-evidence.json",
   "scenarios": [
     {
       "case_ids": [
@@ -46,7 +46,7 @@
       "case_ids": [
         "995c8c1d-5c69-400d-99f3-f197c7ee953b"
       ],
-      "cassette": "http/initial_d_franchise_collection_guard.json.gz",
+      "cassette": "http/initial_d_franchise_season_evidence.json.gz",
       "id": "initial_d_franchise",
       "llm_base_url": "http://127.0.0.1:18000/v1",
       "llm_host": "127.0.0.1",

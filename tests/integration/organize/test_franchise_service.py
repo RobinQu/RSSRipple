@@ -86,6 +86,10 @@ def _agent_returning(found=True, content_type="tv", title="作品A",
                           original_title=raw_title)
             if found:
                 entity["external_id"] = f"{external_id}-{raw_title}"
+                # The movie-form member must not receive a synthetic TV
+                # season alias; its title exercises the movie-shape path.
+                if content_type == "tv" and "剧场版" not in raw_title:
+                    entity["alt_titles"] = [f"{raw_title} Season 1"]
             return SimpleNamespace(found=found, content_type=content_type,
                                    matched_entity=entity)
 

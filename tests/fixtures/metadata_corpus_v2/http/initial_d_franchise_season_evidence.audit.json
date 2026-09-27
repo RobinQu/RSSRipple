@@ -1,0 +1,90 @@
+{
+  "source_cassette": "http/initial_d_franchise_collection_guard.json.gz",
+  "source_sha256": "b1533646c9a0ecc7cf10833a149f0e4e317147b08bbd53c933295245b87fe774",
+  "source_review": "reviews.json",
+  "source_review_sha256": "faa7c6cda84fea227c603c6ea13ff11e97cbfb63cb7b199345354fa615996d23",
+  "changed_assignments_before": [
+    {
+      "episode_end": 1,
+      "episode_start": 1,
+      "file_path": "[2002] [OVA] Initial D Battle Stage/[2002] [OVA] Initial D Battle Stage.mkv",
+      "season": 1,
+      "work": "series:mal:mal:821:s1"
+    },
+    {
+      "episode_end": 1,
+      "episode_start": 1,
+      "file_path": "[2007] [OVA] Initial D Battle Stage 2/[2007] [OVA] Initial D Battle Stage 2.mkv",
+      "season": 1,
+      "work": "series:mal:mal:3931:s1"
+    },
+    {
+      "episode_end": 1,
+      "episode_start": 1,
+      "file_path": "[2008] [OVA] Initial D Extra Stage 2/[2008] [OVA] Initial D Extra Stage 2 Green Departure.mkv",
+      "season": 1,
+      "work": "series:mal:mal:5228:s1"
+    }
+  ],
+  "removed_unsupported_season_work_keys": [
+    "series:mal:mal:3931:s1",
+    "series:mal:mal:5228:s1",
+    "series:mal:mal:821:s1"
+  ],
+  "request_count_changes": {
+    "112c04f0738a48c223a2e30bda506685627ead232a188dbe22abb398f5ff6d8d": {
+      "before": 1,
+      "after": 3
+    },
+    "2eb25f30bc74485701713c447cf98642f1f5156ea6493afd924f91918dada8ee": {
+      "before": 1,
+      "after": 3
+    },
+    "439a5c717c358facce09b8e3441a68867d01bcdeedb11556935e071047994846": {
+      "before": 1,
+      "after": 3
+    },
+    "4aca9aad35b0ea75384ddd25e4f3f290eb85e43c28c7b7406527fad2d0eeb6f6": {
+      "before": 1,
+      "after": 3
+    },
+    "6b3d0af928a5ad6bccf55b3d283bb64756512566ad09aac4b56c1a3bb51ba278": {
+      "before": 1,
+      "after": 3
+    },
+    "7fc9dbcfd73a27ff111cff46d77474ad5b60711b1e881a430a75c441b36cde86": {
+      "before": 1,
+      "after": 3
+    },
+    "852e3c933732cad437eee41674f6ddccb700842e93ee07c684e7085b46b1c248": {
+      "before": 1,
+      "after": 3
+    },
+    "90c5f3b3286860f9391e86ce5186e087d26487c9301d9152d1092689eb29b15a": {
+      "before": 1,
+      "after": 3
+    },
+    "a876e57317b58c878ac349c6d2f6677b38d6c26dce240665e787d414032ecca9": {
+      "before": 1,
+      "after": 3
+    },
+    "b8d3215c279ceabe53ad4e6c314aca8a93c40b4717301715567e82a6335ace34": {
+      "before": 3,
+      "after": 2
+    },
+    "ed1b24d00caccecffda9a0f5b2f66747a387088c55ba9687f79d61b9ae64ebed": {
+      "before": 1,
+      "after": 3
+    },
+    "f49ccef4e5f15d88f7f350af35da5e651eb6d0e93ef0113209cd78b7aaab8ae9": {
+      "before": 1,
+      "after": 3
+    },
+    "fb338b176f581de95bb5848cc72e4ce085819e6ace458dc627d90e158332b25c": {
+      "before": 1,
+      "after": 3
+    }
+  },
+  "retained_response_content": "unchanged; repeated only exact previously recorded responses",
+  "reason": "Identity-only MAL evidence lacks season ordinal; legacy S1 defaults violate no-guess invariant. Formal replay must validate revised counts and narrowly revised expectations."
+}

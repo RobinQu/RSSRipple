@@ -85,3 +85,5 @@ HTTP 在 httpx 同步/异步传输层回放，未录制请求、录制次数变�
 `record-llm` 用于在已有源证据上另录模型响应，需要场景 manifest 的 `seed` 指向原始 cassette、`cassette` 指向不存在的新文件。v1 的 `bangumi_single.json.gz` 是源证据种子，`bangumi_complete.json.gz` 是完整回放；无需重新请求外部源。
 
 M1 合集保护回放使用 `initial_d_franchise_collection_guard.json.gz`：由原真实录制派生，保留原文件和逐请求审计，仅删除针对整包标题、BD、AV1 的 7 个已不再执行的单作品查询。所有保留响应及审核图不变，仍要求请求完整消费，不能用诊断模式作为验收。来源哈希与移除键见同目录 `.audit.json`。
+
+M2 季证据重审使用 reviews-season-evidence.json 与 initial_d_franchise_season_evidence.json.gz，保留原审核和录制。仅三个 identity-only MAL OVA（821/3931/5228）缺少季号，旧 S1 壳作品不能作为真值；三文件保持未绑定/season=null，其余关联、集数和禁止派发断言保持不变。派生录制只调整完全相同请求的计数、移除不再请求的响应，保留响应字节。来源哈希与字段变化见同目录 audit.json；严格完整消费仍是门禁。
