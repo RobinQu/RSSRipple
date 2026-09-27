@@ -1,5 +1,9 @@
 # S3：认证器密钥不进入启动日志
 
+最新 n 终态：3191 passed、17 skipped、8 warnings，2030.10 秒，退出 0；覆盖率 20793/23608 = 88.08%，汇总退出 0。3072 冻结输入不变，跳过及理由与 S2 q 一致，两应用退出、导出和 `rssripple-v19-final-n` 清理均退出 0。m 单元/API 仍运行，S3 未验收/合入。
+
+S2 已合入 `f343b7b`。基线核对发现 m 清单把两个 README 和两个前端语言文件记作不存在，因为 S2 副本未携带这四个非运行输入；使用原始 f 清单和 `a8a09bd` 的 Git blob 复核，这四项与 main 始终一致。补核记录 `auth-enrollment-m-base-audit.json`，共 14 文件匹配，未更改冻结候选或重跑/中止现有门禁。
+
 状态：尚未全量验收或合入。最新目录 `/tmp/rssripple-v19-turso-review-2m88z4f9` 已叠加 M2/M3 及 S2 p 的 Turso 突发修订，j 组合回归、k 正式组合入口、l 最终指引回归均通过；已冻结并启动 m 完整单元/API。原 `/tmp/rssripple-v19-auth-enrollment` 是基于 M1 a8a09bd 的历史候选。
 
 ## 最新验收准备（j/k/l → m）

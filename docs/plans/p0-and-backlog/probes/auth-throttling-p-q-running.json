@@ -1,5 +1,5 @@
 {
-  "accepted": false,
+  "accepted": true,
   "prototype": "/tmp/rssripple-v18-turso-review",
   "freeze": "auth-throttling-p-frozen.json",
   "effective_files": "auth-throttling-p-source.json",
@@ -10,7 +10,9 @@
     "coverage": "/tmp/rssripple-v18-unit-p-coverage.xml",
     "postgres_container": "rssripple-v18-unit-pg-j",
     "postgres_port": 32848,
-    "threshold": 95
+    "threshold": 95,
+    "status": "complete",
+    "exit_code": 0
   },
   "integration": {
     "session": 90642,
@@ -22,5 +24,9 @@
     "exit_code": 0,
     "cleanup_exit": 0,
     "terminal_record": "auth-throttling-q-terminal.json"
-  }
+  },
+  "commit": "f343b7b",
+  "status": "Both complete gates accepted; merged on local main",
+  "unit_postgres_cleanup_exit": 0,
+  "reason": "Both complete gates accepted and merged"
 }

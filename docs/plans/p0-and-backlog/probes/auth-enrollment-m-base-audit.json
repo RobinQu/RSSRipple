@@ -1,0 +1,27 @@
+{
+  "main": "f343b7b",
+  "matched_files": 14,
+  "reason": "S2 prototype intentionally omitted README/frontend files; m manifest incorrectly recorded their base as null. Original f manifest and a8a09bd Git blobs prove unchanged bases. Frozen candidate unchanged.",
+  "supplemental_hashes": {
+    "README.md": "581bb72ac67d53052d42891effd3e10fbc08ee867690057ff57dc955dae69d12",
+    "README_CN.md": "c53c311a5a9d5dca942720f8c2beb1fb81c131373cc6b14215ab3ebee28353f4",
+    "frontend/src/i18n/locales/en-US.json": "f25730309b3b27d9799da8909875d730a3cbcba309f8e96bfee10aaa3a14ae6e",
+    "frontend/src/i18n/locales/zh-CN.json": "fadbf7457aa9b144266b234b3dee0f5bdcbed09586d3ba1248476bf77ff8a888"
+  },
+  "base_hashes": {
+    "app/main.py": "9cc9da3db2bcd0d145c7a9123d4f9a5f68acd774dbe7e6b6e925d7f1c55458a2",
+    "app/scripts/auth_enrollment.py": null,
+    "tests/unit/test_auth_bootstrap_logging.py": null,
+    "tests/unit/test_auth_enrollment.py": null,
+    "tests/integration/security/auth_enrollment_driver.py": null,
+    "tests/integration/security/test_auth_enrollment.py": null,
+    "docs/design/api-endpoints.md": "c22ec13fb2626f9c414fbd0c942cb63768197c7f3686588654bb81fae6899f09",
+    "docs/design/conventions.md": "6b4748f7118e260731a45019ff510215e2bdc73c539d820e32351962ee3abcd7",
+    "docs/design/frontend.md": "3dda4435b79cb82cf6e10e07c1b819eef3327d61d429a913d950d75ae2a3ed0e",
+    "docs/testing/integration-inventory.md": "5536ec9800e4b838c95ac2c179927b821857ebe5656f25e2bc49b4a6c589ed25",
+    "README.md": "581bb72ac67d53052d42891effd3e10fbc08ee867690057ff57dc955dae69d12",
+    "README_CN.md": "c53c311a5a9d5dca942720f8c2beb1fb81c131373cc6b14215ab3ebee28353f4",
+    "frontend/src/i18n/locales/en-US.json": "f25730309b3b27d9799da8909875d730a3cbcba309f8e96bfee10aaa3a14ae6e",
+    "frontend/src/i18n/locales/zh-CN.json": "fadbf7457aa9b144266b234b3dee0f5bdcbed09586d3ba1248476bf77ff8a888"
+  }
+}
