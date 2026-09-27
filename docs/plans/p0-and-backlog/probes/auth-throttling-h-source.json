@@ -1,0 +1,64 @@
+{
+  "prototype": "/tmp/rssripple-v18-auth-limit",
+  "base_runtime_commit": "a8a09bd",
+  "status": "h service and real HTTP PostgreSQL passed; full gates not run; not merged",
+  "files": {
+    "app/models/auth_rate_limit.py": "0719afcc55b135c7fe42854c7c72b879eb9370dce8297e24f3c0116f89d6f06d",
+    "app/models/__init__.py": "34467b58212f9dcf1edf911cdba3494b3cac63cab04393c211bab49a0954ee43",
+    "app/services/auth_rate_limit.py": "23fb9e2f986bddb7a7f8cdc64f04519054e5d3178453464f84b94baddc0e1da7",
+    "app/api/v1/auth.py": "6063b7a6d7fc28e0333fea6a1745229c9a7177cf97675660757bbe5175211ce8",
+    "app/main.py": "9cc9da3db2bcd0d145c7a9123d4f9a5f68acd774dbe7e6b6e925d7f1c55458a2",
+    "tests/api/test_auth_throttling.py": "7c42f8c7b4522a198579811b9f21318ffe580df2dbc83b73ee815a3aa7522b19",
+    "tests/unit/test_auth_rate_limit.py": "50cdbc45b608a87ea6fba5db5a4b21c0993b641c3080e464bd2b86a3c94a6a7b",
+    "tests/integration/auth/__init__.py": "e7f1824e88e4370a8d0ae1206c3556de33b56c96daf9da696cf3e1da3f6f9ccb",
+    "tests/integration/auth/rate_limit_driver.py": "3b5b9a924ee723e7856cfee1c7ecb8ef94f5a49d846e99cb6d9183dfe6fea488",
+    "tests/integration/auth/test_rate_limit.py": "47d2320cb1323f673bbc783a85795360e4b7db739de3f90577435ae49deebb70",
+    "docs/design/data-models.md": "b055584eaa3927fb2753f4ba1aacf216db2d6204c75fcb5704e9f1b9761a95af",
+    "docs/design/api-endpoints.md": "c22ec13fb2626f9c414fbd0c942cb63768197c7f3686588654bb81fae6899f09",
+    "docs/design/error-handling.md": "f49395ac467af2d0168f84d2846a5196be70a1410477dbfa250a6b8357b53f2b",
+    "docs/design/conventions.md": "328c430434f1eeae05a759550dd9a87759aeb106f419f2bb7137ec5b218858e2",
+    "docs/design/db-migration.md": "881860af3e46caa903b927e99b950877bf882c6a176adaebb762344642cfd8f8",
+    "docs/testing/integration-inventory.md": "f852a46c9dd6992f64ac41ee2c4f2399d1c9c0a316e8e398b43820718914d0e7",
+    "tests/integration/auth/rate_limit_http_driver.py": "d80e8b67a529b88c90e34e89201916976897ba8fb9beb3dfc24f5e0b663728be"
+  },
+  "base_hashes": {
+    "app/models/auth_rate_limit.py": null,
+    "app/models/__init__.py": "f66f655203a3f5fdfb65909a1be5f40e803aa901a0899a08b1d761bfe313c05e",
+    "app/services/auth_rate_limit.py": null,
+    "app/api/v1/auth.py": "08de1715fecac734d08d4c5376b59a27a525031cefc21c0fed12cbfb2b540450",
+    "app/main.py": "4c64f26c1fd9515347fe113e1b1747292a17a67db4412d943e6c6fa668a565a8",
+    "tests/api/test_auth_throttling.py": null,
+    "tests/unit/test_auth_rate_limit.py": null,
+    "tests/integration/auth/__init__.py": null,
+    "tests/integration/auth/rate_limit_driver.py": null,
+    "tests/integration/auth/test_rate_limit.py": null,
+    "docs/design/data-models.md": "0cd483b87dc40c35eda7bb028c478a357b1db4ca6b9ea3e7a71cabfe41c21a51",
+    "docs/design/api-endpoints.md": "cdd285795941f784226371cb1d1a5157972fefcfe451c696c2b2968f00d94a62",
+    "docs/design/error-handling.md": "9188c6af4f6218e35ad9311f40f1a731c6c7b66c162a7c8f8fd16e056994660c",
+    "docs/design/conventions.md": "cf4ae87be13f18124bd33e3080508b358c765e28889bf7b9e6c10a49f0427833",
+    "docs/design/db-migration.md": "3ee934459fd1832f434119bb1e8815dd79c0971e54f85ddfca2136b825dc4af9",
+    "docs/testing/integration-inventory.md": "7c66801008681c113484446bfe1454d3f7558ee42614fc08da6567242b2a7ccf",
+    "tests/integration/auth/rate_limit_http_driver.py": null
+  },
+  "result": {
+    "passed": 2,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 8.18,
+    "exit_code": 0,
+    "service_scenarios": 5,
+    "http_scenarios": 4
+  },
+  "cleanup": {
+    "postgres_container": "rssripple-v18-auth-g",
+    "stop_exit_code": 0,
+    "storage": "--rm and tmpfs",
+    "auth_child_processes_found": false
+  },
+  "prior_g_result": {
+    "passed": 1,
+    "failed": 1,
+    "seconds": 6.12,
+    "cause": "test expected exit 0 after Uvicorn SIGTERM replay; first HTTP budget check passed, later scenarios not reached"
+  }
+}

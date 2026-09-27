@@ -1,0 +1,8 @@
+{
+  "cases": [
+    "http-concurrent-peer-budget",
+    "http-cookie-and-budget-survive-process-replacement",
+    "http-global-budget-across-eight-peers",
+    "http-invalid-attempts-and-expiry-recovery"
+  ]
+}

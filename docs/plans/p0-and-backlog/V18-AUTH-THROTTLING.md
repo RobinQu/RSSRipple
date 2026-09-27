@@ -30,3 +30,17 @@ d **1 passed，2.31 秒**，内部五个必要场景全部通过：旧库幂等�
 e **28 passed，41.77 秒**，补齐 Turso 旧库新增表幂等、连接重建持久性、105 条过期桶一次仅清理 100 条且保留有效桶、数据库失败不调用验证码验证。f 正在扩大到 API key、异常处理、迁移和应用静态资源，并加强 DB 故障实际 HTTP 500/no-cookie 断言。候选 16 文件、哈希与补丁见 probes/auth-throttling-f-source.json / auth-throttling-f-prototype.patch。已同步候选权威模型/API/错误码/迁移/代理约定/测试清单；运行代码仍不在 main，完整门禁尚未执行。
 
 f 已退出 0：98 passed、3 skipped、2 warnings，103.53 秒，16 文件哈希一致。三项跳过为既有 PostgreSQL 迁移测试未配置其专用地址（默认 127.0.0.1:5432 不可用）；d 的独立 PostgreSQL 限流专项不能替代这三条旧迁移路径。完整门禁须提供所需环境并继续审计。日志与 JUnit 已归档 probes/auth-throttling-f.*；候选仍未验收或合入。
+
+## 多 HTTP 进程验证的必要性（g）
+
+既有四进程预算测试直接调用服务，不能单独证明真实 HTTP 路由在不同 web 进程间遵守预算、共享 Cookie、进程重启后继续限流。本轮保持运行实现不变，将正式 PG 入口参数化为 service/http 两套独立子库测试，新增两个 Uvicorn 进程的真实网络验证：12 个合法 TOTP 请求只能成功 5 次；Cookie 在另一进程和替换后的进程仍有效且 OTP 仍受限；八个实际回环源地址各五次请求受全局 30 次限制；401 累计到限额后正确验证码也被拒，直接推进专用测试表的过期时间后恢复。
+
+边界明确：生产 app 路由/认证/异常处理器，lifespan 关闭，专用测试表和非生产密钥由驱动准备；服务不解析代理头，测试无外部网络。所有子进程与专用库 finally 清理，父驱动超时杀进程组，避免遗留 HTTP 服务。g 在 rssripple-v18-auth-g 临时 PostgreSQL 上执行，结果未出前不计入验收。
+
+## 多 HTTP 进程验证结果（g/h）
+
+g 为 **1 passed、1 failed，6.12 秒**。HTTP 的第一组 12 并发请求已满足 5 次成功/7 次拒绝，但替换进程时驱动错误地要求主动 SIGTERM 后退出码为 0。检查本地 Uvicorn `Server.capture_signals`，它在正常关闭后恢复并重新发送收到的信号，因此预期退出码为 -15。修订仅允许本 helper 主动终止的进程返回 0 或 -SIGTERM；意外提前退出和超时仍失败，业务断言未改。
+
+h 两个正式入口 **2 passed、0 skipped，8.18 秒，退出 0**，包含五个跨进程服务场景和四个真实 HTTP 场景。HTTP 确认来源并发上限、跨进程 Cookie 与进程替换后额度持久、八个真实回环源地址共享全局上限，以及错误验证码耗额和到期恢复。全部数据为专用测试库的合成配置；真实部分是 PostgreSQL、多进程、HTTP、生产认证处理与 pyotp 校验，不使用生产密钥。
+
+专用数据库由父测试 finally 删除，`rssripple-v18-auth-g` 以 `--rm` 和 tmpfs 运行并已停止清理，未发现认证测试子进程。日志原件 gzip、可读副本、JUnit 和九场景结果见 probes/auth-throttling-g.* / auth-throttling-h.*。候选现为 17 文件，完整 tar、文本补丁、候选/基线哈希见 probes/auth-throttling-h-source.json 等。Ruff 通过；[审查](V18-REVIEW.md) 仅允许进入全量门禁，S2 尚未验收或合入。

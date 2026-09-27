@@ -45,7 +45,7 @@
       `app/services/notify_service.py:475` 等）。恶意 feed 可在正常抓取中触发。
       **修复**：外部 feed 派生 torrent/poster URL 按不可信输入校验地址、DNS 与重定向；管理员配置的下载器/媒体服务器/webhook 必须允许明确配置的内网服务，不能一刀切禁私网。
 - [ ] **P1-S2 TOTP 登录无速率限制/锁定**：`app/api/v1/auth.py:53-75`，6 位码可取窗口 3，在线暴力可行。
-      **修复**：持久化来源/全局额度与窗口到期恢复。独立候选真实 Turso 并发/API 回归与 PostgreSQL 四进程五场景通过；f 扩大回归 98 passed、3 项既有 PG 迁移因未配置地址跳过。完整门禁尚未执行，未合入 main，见 [V18](V18-AUTH-THROTTLING.md)。
+      **修复**：持久化来源/全局额度与窗口到期恢复。独立候选真实 Turso 并发/API 回归通过；h 正式 PG 入口 2 passed，覆盖四进程服务五场景及双 HTTP 进程四场景（并发、全局上限、进程替换、到期恢复）。f 扩大回归 98 passed、3 项既有 PG 迁移因未配置地址跳过。17 文件候选及审查已归档，完整门禁尚未执行，未合入 main，见 [V18](V18-AUTH-THROTTLING.md)。
 - [ ] **P1-S3 TOTP 密钥每次启动写日志**：`app/main.py:90-93` 打印完整 `otpauth://...secret=`。
       **修复**：停止记录 secret，并提供首次绑定方式；现有设计依赖 provisioning URI 日志，需同步更新初始化契约。
 
