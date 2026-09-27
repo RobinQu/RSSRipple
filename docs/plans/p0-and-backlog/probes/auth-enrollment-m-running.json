@@ -1,5 +1,5 @@
 {
-  "accepted": false,
+  "accepted": true,
   "prototype": "/tmp/rssripple-v19-turso-review-2m88z4f9",
   "freeze": "auth-enrollment-m-frozen.json",
   "effective_files": "auth-enrollment-m-source.json",
@@ -10,7 +10,9 @@
     "coverage": "/tmp/rssripple-v19-unit-m-coverage.xml",
     "postgres_container": "rssripple-v19-unit-pg-m",
     "postgres_port": 32849,
-    "threshold": 95
+    "threshold": 95,
+    "status": "complete",
+    "exit_code": 0
   },
   "integration": {
     "status": "complete",
@@ -22,5 +24,8 @@
     "exit_code": 0,
     "cleanup_exit": 0,
     "terminal_record": "auth-enrollment-n-terminal.json"
-  }
+  },
+  "commit": "b0e2ce1",
+  "reason": "Both complete gates passed and merged on main",
+  "unit_postgres_cleanup_exit": 0
 }
