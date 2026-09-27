@@ -1,0 +1,22 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_____ test_total_wiki_failure_does_not_poison_cache[all_failed_empty_web] ______
+tests/unit/test_wiki_failure_cache.py:54: in test_total_wiki_failure_does_not_poison_cache
+    assert not cached, "all source requests timed out but negative cache was persisted"
+E   AssertionError: all source requests timed out but negative cache was persisted
+E   assert not [<app.models.metadata_cache.MetadataCache object at 0x7f8c20cdd090>]
+___ test_total_wiki_failure_does_not_poison_cache[partial_failed_empty_web] ____
+tests/unit/test_wiki_failure_cache.py:54: in test_total_wiki_failure_does_not_poison_cache
+    assert not cached, "all source requests timed out but negative cache was persisted"
+E   AssertionError: all source requests timed out but negative cache was persisted
+E   assert not [<app.models.metadata_cache.MetadataCache object at 0x7f8c20a44510>]
+=============================== warnings summary ===============================
+tests/unit/test_wiki_failure_cache.py::test_total_wiki_failure_does_not_poison_cache[all_failed_empty_web]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_wiki_failure_cache.py::test_total_wiki_failure_does_not_poison_cache[all_failed_empty_web]
+FAILED tests/unit/test_wiki_failure_cache.py::test_total_wiki_failure_does_not_poison_cache[partial_failed_empty_web]
+2 failed, 8 deselected, 1 warning in 5.02s

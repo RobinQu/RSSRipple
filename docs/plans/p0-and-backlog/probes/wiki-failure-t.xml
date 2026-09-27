@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="7.749" timestamp="2026-09-27T12:06:42.179438+00:00" hostname="dl-workstation-albert"><testcase classname="test_rssripple_wiki_fallback_failure" name="test_empty_web_fallback_does_not_erase_primary_outage" time="0.097"><failure message="AssertionError: {'method': 'search_then_web_fallback', 'data_sources_used': ['wikipedia', 'wigolo'], 'source_errors': {'wikipedia:zh': 'Wikipedia request failed: timeout', 'wikipedia:en': 'Wikipedia request failed: timeout'}, 'error': None}&#10;assert 'not_found' == 'transient'&#10;  &#10;  - transient&#10;  + not_found">../test_rssripple_wiki_fallback_failure.py:33: in test_empty_web_fallback_does_not_erase_primary_outage
+    assert _classify_failure(ResourceMetadata(**verdict, search_error=info['error'])) == 'transient', info
+E   AssertionError: {'method': 'search_then_web_fallback', 'data_sources_used': ['wikipedia', 'wigolo'], 'source_errors': {'wikipedia:zh': 'Wikipedia request failed: timeout', 'wikipedia:en': 'Wikipedia request failed: timeout'}, 'error': None}
+E   assert 'not_found' == 'transient'
+E
+E     - transient
+E     + not_found</failure></testcase></testsuite></testsuites>

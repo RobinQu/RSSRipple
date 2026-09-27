@@ -1,0 +1,26 @@
+{
+  "prototype": "/tmp/rssripple-v17-reviewed-_lbgg9y1",
+  "base_prototype": "/tmp/rssripple-v16-failure-review",
+  "base_hashes": {
+    "app/services/metadata_wiki_judge.py": "a014ca12d5a97453b112d05366c7b321f3c3cbf9ffdedddd1f41a90a32b68357",
+    "app/services/metadata_search_agent.py": "adc2bb7d2128fb26c38b39a6ec9889dcb042b3ca3c7a3743cbd73b1a6e377a2b",
+    "tests/unit/test_wiki_failure_cache.py": null,
+    "tests/unit/test_metadata_search_agent.py": "6ecad32b0818d8d8fefa4ae3401fb00b9a25efc0c0c7e9fdfa983ff18f5af516",
+    "tests/integration/metadata/wiki_failure_driver.py": null,
+    "tests/integration/metadata/test_wiki_failure_cache.py": null,
+    "docs/design/business-logic.md": "9b0002d6bbe89f46ad25ce3ca278d8f1fb5e8c94caafba60fa931b88674ccb03",
+    "docs/testing/integration-inventory.md": "436dfc1256730d2343fd54d10525111aa44c20456b7c1d50b9d3be4fa58e633a"
+  },
+  "files": {
+    "app/services/metadata_wiki_judge.py": "a90061401099b073d7b2f507749402c305355e5440516cc15ea493296d562f73",
+    "app/services/metadata_search_agent.py": "b82aa3899b2b112b960cce7b100b72c3b2d8623a6c2d455c7f84835134712889",
+    "tests/unit/test_wiki_failure_cache.py": "9f98815f9eae725a0d667661ab762e17463a1850fa5c1b122067529b07afc021",
+    "tests/unit/test_metadata_search_agent.py": "269d1a51565ecee0888bfd35c966537b9677255736459578872e2164b9ea1238",
+    "tests/integration/metadata/wiki_failure_driver.py": "113b882b865ef9b1ea4371a93332677070564252823f4f8e179d8b8713221d78",
+    "tests/integration/metadata/test_wiki_failure_cache.py": "a394dbec6a9218c6cdff7086d4e302fd2d00135e6f0a94ee40bb1c5cecbfce5b",
+    "docs/design/business-logic.md": "d15fe7df0c228668117ea436327b23d42bcdf675b1ab3fae7116b16c671acf23",
+    "docs/testing/integration-inventory.md": "f2b3f4bd707c0feff7c82a92cf773bb2fc4990cf9f5c7db3c0af54731d73263a"
+  },
+  "status": "453 passed, zero failures; later t/u review found a missing web-empty fallback branch; superseded by x candidate",
+  "result": {"passed": 453, "failures": 0, "seconds": 240.01, "exit_code": 0}
+}

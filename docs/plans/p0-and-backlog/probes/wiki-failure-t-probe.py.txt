@@ -1,0 +1,33 @@
+"""Captured title with synthetic primary outage and successful empty fallback."""
+import json
+import sys
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+
+sys.path.insert(0, '/tmp/rssripple-v17-reviewed-_lbgg9y1')
+from app.services.metadata_agent import ResourceMetadata, _classify_failure
+from app.services.metadata_wiki_judge import run_search_then_judge
+from tests.metadata_corpus.dataset import load_corpus
+
+
+@pytest.mark.asyncio
+async def test_empty_web_fallback_does_not_erase_primary_outage(monkeypatch):
+    case = next(c for c in load_corpus()[1]['cases']
+                if c['id'] == '011c6d44-68cf-43a8-bad3-f0398ce20a95')
+    title = case['input']['title_raw']
+    monkeypatch.setattr('app.services.metadata_wiki_judge._execute_search_wikipedia',
+                        AsyncMock(return_value={'success': False, 'error': 'Wikipedia request failed: timeout'}))
+    fallback = AsyncMock(return_value=(
+        {'found': False, 'reason': 'No results from synthetic web search'},
+        {'error': None, 'source_errors': {}},
+    ))
+    monkeypatch.setattr('app.services.metadata_wiki_judge.web_fallback_judge', fallback)
+    model = AsyncMock()
+    model.ainvoke.return_value = SimpleNamespace(content=json.dumps({'found': False, 'reason': 'No match'}))
+    verdict, info = await run_search_then_judge(model, title, react_runner=AsyncMock(),
+                                               msg_builder=lambda *_: 'synthetic request')
+    fallback.assert_awaited_once()
+    assert info['source_errors']
+    assert _classify_failure(ResourceMetadata(**verdict, search_error=info['error'])) == 'transient', info

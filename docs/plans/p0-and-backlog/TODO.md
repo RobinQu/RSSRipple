@@ -32,10 +32,10 @@
 ### 后台执行 / 调度 / 队列
 
 - [ ] **P1-M2 单成员合集被当作可验证单季**：`app/services/metadata_service.py:1564-1575` 在
-      `len(members)==1` 时直接链接，未校验 `verified_season_count`。**修复**：单成员不等于单季证据。真实 Turso 红测已复现无季证据却返回唯一 S3；独立候选取消合集、同名作品和季粒度来源的默认季号，x/z 双库 38 项、ab 严格录制回放 3 项通过。ac 全量 4008 passed/21 failed，ad 集成 3174 passed/4 failed；覆盖率 97.23%/88.19%，失败均须处理。单元旧夹具已修订并通过 ag/ai/ak；集成补明确季号并把 7 项前置失败 skip 改为断言，al 正在复验。仍须修订后完整门禁，尚未合入 main，见 [V16](V16-SINGLE-MEMBER-SEASON.md)。
+      `len(members)==1` 时直接链接，未校验 `verified_season_count`。**修复**：单成员不等于单季证据。真实 Turso 红测已复现无季证据却返回唯一 S3；独立候选取消合集、同名作品和季粒度来源的默认季号，x/z 双库 38 项、ab 严格录制回放 3 项通过。ac 全量 4008 passed/21 failed，ad 集成 3174 passed/4 failed；覆盖率 97.23%/88.19%，失败均须处理。单元旧夹具已修订并通过 ag/ai/ak；集成补明确季号并把 7 项前置失败 skip 改为断言，al/am 的 HTTP、P0 与 franchise 专项均通过。修订后 an/ao 完整门禁运行中，尚未合入 main，见 [V16](V16-SINGLE-MEMBER-SEASON.md)。
 - [ ] **P1-M3 维基整体故障被缓存为 `not_found`**：judge 路径硬编码 `"error": None`
       （`app/services/metadata_wiki_judge.py:481/545`），`_classify_failure` 看不到瞬态信号。
-      **修复**：区分部分语言失败与所有可信路径失败，只有瞬态整体失败不缓存；成功证据不因其他源错误被丢弃。同步检查 TMDB 搜索吞异常后缓存空列表的路径。V17 已复现并补修维基/TMDB 全部及部分失败的负缓存污染，真实双库恢复与候选保留专项通过，q 扩大回归 332 passed，M2 候选上的 r 组合回归 370 passed；完整门禁未执行，见 [V17](V17-WIKI-TRANSIENT-FAILURE.md)。
+      **修复**：维基/TMDB 请求不完整时不缓存未命中，成功候选继续保留。s 组合回归 453 项通过后又发现 web 空回退会覆盖主源故障；t/u 红测证明分类与真实负缓存落库均错误。补修后 v 56 项、w PostgreSQL 12 项断言通过。基于修订后 M2 的 x/y 完整门禁运行中，两个批次均验收前不得合入，见 [V17](V17-WIKI-TRANSIENT-FAILURE.md)。
 
 ### 安全
 

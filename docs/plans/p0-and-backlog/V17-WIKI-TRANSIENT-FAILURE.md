@@ -49,3 +49,17 @@ q 最新扩大回归 332 passed，114.44 秒，含混合失败补修后的 Agent
 ## M2 候选基线上的组合回归（r）
 
 `/tmp/rssripple-v17-rebased` 的原句柄 51621 已退出 0：370 passed、1 warning，153.88 秒。包含 M2 的 38 项季号证据矩阵和既有 Wiki/TMDB/Agent/语料回归；日志与 JUnit 已归档为 probes/wiki-failure-r.*。M2 完整门禁尚未结束且单元输出已有失败，因此该组合结果不能证明 M2 或 M3 可合入；先定位 M2 门禁失败，再审查对 M3 基线的影响。
+
+## 修订后 M2 基线与 web 空回退遗漏（s–w）
+
+s 将 M3 八份文件移到 M2 an 的冻结基线，权威文档三方合并保留 franchise 不猜季修订；组合回归 **453 passed，240.01 秒**。该通过结果不能证明尚未覆盖的分支正确。
+
+后续源码复审发现：主源请求失败后，web 回退若成功返回空结果，会直接 error=None，绕过 M3 的最终错误标记。t 使用既有录制标题和合成超时/空答复，在实际 judge→失败分类路径复现 not_found（1 failed，7.75 秒）；u 在独立 /tmp/rssripple-v17-web-review-eyo54230 用真实 Turso、实际 Agent.process、commit 与独立观察会话确认负缓存确实落库（全部/部分主源失败两项，2 failed，5.02 秒）。Web 搜索空结果不能证明故障主源上不存在作品，应保留瞬态状态；成功候选仍可以恢复匹配。
+
+补修 web 分支后，v **56 passed，10.58 秒**。四项真实数据库用例覆盖全部/部分主源失败 × web 禁用/成功空结果；故障期不缓存、恢复后重新调用来源并缓存真正空结果。另补 web 成功结果保留的正例。正式 PG 驱动扩展为 12 项（4 项实际数据库故障恢复、8 项编排/来源适配器），w 专项运行中。完整门禁尚未执行，新候选不得合入；审查见 V17-FINAL-REVIEW.md。
+
+w 已退出 0：父测试 1 passed（2.90 秒），内部 12 项均通过；专用子库 finally 删除，使用 tmpfs/自动删除的 rssripple-v17-web-w 容器已停止清理。实际结果清单、日志与 JUnit 归档为 probes/wiki-failure-w.*。
+
+最新八文件候选及 3054 文件完整冻结清单为 wiki-failure-x-source.json / wiki-failure-x-frozen.json，完整有效文件归档为 wiki-failure-x-candidate.tar.gz。候选全仓 Ruff 通过。x 完整单元/API 已启动（原句柄 9731），y 完整集成使用新项目 rssripple-v17-final-y；待完整门禁终态及基线 M2 验收后，才可按逐文件哈希审查合入。
+
+t 的原始日志/JUnit 以 wiki-failure-t-raw.*.gz 完整保留；便于 Git 检查的文本副本仅移除行末空白，不改变失败内容。

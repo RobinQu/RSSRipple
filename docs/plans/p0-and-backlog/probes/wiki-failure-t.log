@@ -1,0 +1,13 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________ test_empty_web_fallback_does_not_erase_primary_outage _____________
+../test_rssripple_wiki_fallback_failure.py:33: in test_empty_web_fallback_does_not_erase_primary_outage
+    assert _classify_failure(ResourceMetadata(**verdict, search_error=info['error'])) == 'transient', info
+E   AssertionError: {'method': 'search_then_web_fallback', 'data_sources_used': ['wikipedia', 'wigolo'], 'source_errors': {'wikipedia:zh': 'Wikipedia request failed: timeout', 'wikipedia:en': 'Wikipedia request failed: timeout'}, 'error': None}
+E   assert 'not_found' == 'transient'
+E
+E     - transient
+E     + not_found
+=========================== short test summary info ============================
+FAILED ../test_rssripple_wiki_fallback_failure.py::test_empty_web_fallback_does_not_erase_primary_outage
+1 failed in 7.75s

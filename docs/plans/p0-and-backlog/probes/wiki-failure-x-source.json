@@ -1,0 +1,25 @@
+{
+  "prototype": "/tmp/rssripple-v17-web-review-eyo54230",
+  "base_prototype": "/tmp/rssripple-v16-failure-review",
+  "base_hashes": {
+    "app/services/metadata_wiki_judge.py": "a014ca12d5a97453b112d05366c7b321f3c3cbf9ffdedddd1f41a90a32b68357",
+    "app/services/metadata_search_agent.py": "adc2bb7d2128fb26c38b39a6ec9889dcb042b3ca3c7a3743cbd73b1a6e377a2b",
+    "tests/unit/test_wiki_failure_cache.py": null,
+    "tests/unit/test_metadata_search_agent.py": "6ecad32b0818d8d8fefa4ae3401fb00b9a25efc0c0c7e9fdfa983ff18f5af516",
+    "tests/integration/metadata/wiki_failure_driver.py": null,
+    "tests/integration/metadata/test_wiki_failure_cache.py": null,
+    "docs/design/business-logic.md": "9b0002d6bbe89f46ad25ce3ca278d8f1fb5e8c94caafba60fa931b88674ccb03",
+    "docs/testing/integration-inventory.md": "436dfc1256730d2343fd54d10525111aa44c20456b7c1d50b9d3be4fa58e633a"
+  },
+  "files": {
+    "app/services/metadata_wiki_judge.py": "e71beabb24f1c75a4c20c72a09a39c2b7dab2f047e5b084897ebd18a428434e3",
+    "app/services/metadata_search_agent.py": "b82aa3899b2b112b960cce7b100b72c3b2d8623a6c2d455c7f84835134712889",
+    "tests/unit/test_wiki_failure_cache.py": "661c2fa23bb93c5a989feb70bf6e3280ec590ecedbc4d05cd53f97370bb22ab9",
+    "tests/unit/test_metadata_search_agent.py": "269d1a51565ecee0888bfd35c966537b9677255736459578872e2164b9ea1238",
+    "tests/integration/metadata/wiki_failure_driver.py": "e0b3467c107ba764bb01d55bba16006136b85cbb2550d9cb60da1721bbfc08dc",
+    "tests/integration/metadata/test_wiki_failure_cache.py": "687261c65675ed19a7efa6f690144c1107675299be22cd72148e4abbdd010eec",
+    "docs/design/business-logic.md": "c46b2b76d4125cede7b9d73957e3be5c0fa1c3704919877281cdfd1642d547aa",
+    "docs/testing/integration-inventory.md": "99c1a2485cf4fc41976701c0b159863d45b22d597468d94d26b796de298dc328"
+  },
+  "status": "v focused and w PostgreSQL passed; full gates pending"
+}

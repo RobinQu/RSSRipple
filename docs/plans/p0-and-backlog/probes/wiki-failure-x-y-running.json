@@ -1,0 +1,21 @@
+{
+  "prototype": "/tmp/rssripple-v17-web-review-eyo54230",
+  "base_prototype": "/tmp/rssripple-v16-failure-review",
+  "freeze": "wiki-failure-x-frozen.json",
+  "effective_files": "wiki-failure-x-source.json",
+  "unit": {
+    "session": 9731,
+    "log": "/tmp/rssripple-v17-unit-x.log",
+    "junit": "/tmp/rssripple-v17-unit-x.xml",
+    "coverage": "/tmp/rssripple-v17-unit-x-coverage.xml",
+    "threshold": 95
+  },
+  "integration": {
+    "project": "rssripple-v17-final-y",
+    "session": 8668,
+    "startup_exit": 0,
+    "log": "/tmp/rssripple-v17-integration-y.log",
+    "threshold": 85
+  },
+  "accepted": false
+}
