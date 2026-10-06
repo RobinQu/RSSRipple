@@ -1,0 +1,27 @@
+{
+  "prototype": "/tmp/rssripple-v22-cors-36t2eojn",
+  "base_runtime_commit": "6bf8c1c",
+  "accepted": false,
+  "files": {
+    "app/config.py": "8c9df6bccc0bfbe9e46ca3246ceea394cf55554770e6b000baa083445545cba8",
+    "app/main.py": "13029f41e7af99614759ac3ac59aa272e1b288e7b7938f462db93b438132545f",
+    "app/middleware/cors.py": "6297e1adc55daa706239429feb47bda1240f1a7556f65eb129c35a05647f7e35",
+    "tests/integration/security/test_cors_policy.py": "76a5ed3be3859dd3a1e5af264b7dbd804f7767c0784f86a0c3111dbf8dec9565",
+    "tests/unit/test_cors_config.py": "648a18ad8ec9dc15f2cac9a6ce650942140a67d140f129ac2686d494cabe905f",
+    ".env.example": "44f3d789276eacac9c2290a891e2b0f88e2e6597251c3c63bfc781bee8aea474",
+    "docs/design/conventions.md": "1ff2616f24c4604ee69f9946e9653db0b6d9a865fec18c0d55d6b4c4e5de8d7c",
+    "docs/design/api-endpoints.md": "eaa47913852c7ca673e24ab7710b21a6f5f808fbfadf6395c200f9fbc72ea23f",
+    "docs/testing/integration-inventory.md": "6ced113a0ac9ad85d4f00d931066a11c1caf95ab1d21e647f347be1748e3c5b3"
+  },
+  "base_hashes": {
+    "app/config.py": "57b4bd7bac61ed0f60cfa09846ea6647d97ff69a457fcd7c2f4b2ae06fda1a99",
+    "app/main.py": "18d941b374bbdfe6e468314bb20df33452f92d43de2dedf76cac2189174b9ea0",
+    "app/middleware/cors.py": null,
+    "tests/integration/security/test_cors_policy.py": null,
+    "tests/unit/test_cors_config.py": null,
+    ".env.example": "4a7fdb10283290bceebf41385a39c2fcbaa1716fb6aa404dd3a4d42960ba9862",
+    "docs/design/conventions.md": "72a6522b6d5435f2051d38793c4a111b107ccacc21e99c020e49185c4e971d40",
+    "docs/design/api-endpoints.md": "b401921e6fc7c23e2e99b4272f144b5fb16f63d2e72dfa5ce4200e083f94f2f9",
+    "docs/testing/integration-inventory.md": "de96961fd322cff52f945d460b6d1e2bb135a13a96dc3f1c74d8002b7fafeaef"
+  }
+}
