@@ -1,0 +1,65 @@
+{
+  "prototype": "/tmp/rssripple-v23-work-limit-ji74j3mq",
+  "base_runtime_commit": "6bf8c1c",
+  "accepted": false,
+  "files": {
+    "app/api/v1/agents.py": "6c5f7650fc8c2dd8039844cb759542d7accca7d5f75ee48f53f4889b1a9a6f1f",
+    "tests/api/test_agent_work_limit.py": "431c9ccd0afdd91e9de9498d5cc908392ff3028de5cd3ec2bfe269a9a6e790fb"
+  },
+  "base_hashes": {
+    "app/api/v1/agents.py": "fba2ae091014bbaf168735a5e22b2395915fa272974675bd9d0621f2da59b202",
+    "tests/api/test_agent_work_limit.py": null
+  },
+  "c": {
+    "exit": 0,
+    "passed": 7,
+    "seconds": 11.95
+  },
+  "d": {
+    "exit": 1,
+    "passed": 7,
+    "failed": 1,
+    "seconds": 13.65,
+    "observations": {
+      "test_effective_work_limit[replace-eleven]": {
+        "observed_status": "422",
+        "persisted_works": "1",
+        "persisted_scope_channel_wide": "False"
+      },
+      "test_effective_work_limit[narrow-existing-eleven]": {
+        "observed_status": "422",
+        "persisted_works": "11",
+        "persisted_scope_channel_wide": "True"
+      },
+      "test_effective_work_limit[replace-ten]": {
+        "observed_status": "200",
+        "persisted_works": "10",
+        "persisted_scope_channel_wide": "False"
+      },
+      "test_effective_work_limit[wide-eleven]": {
+        "observed_status": "200",
+        "persisted_works": "11",
+        "persisted_scope_channel_wide": "True"
+      },
+      "test_effective_work_limit[narrow-with-ten]": {
+        "observed_status": "200",
+        "persisted_works": "10",
+        "persisted_scope_channel_wide": "False"
+      },
+      "test_effective_work_limit[narrow-with-empty]": {
+        "observed_status": "200",
+        "persisted_works": "0",
+        "persisted_scope_channel_wide": "False"
+      },
+      "test_effective_work_limit[wide-null]": {
+        "observed_status": "200",
+        "persisted_works": "11",
+        "persisted_scope_channel_wide": "True"
+      },
+      "test_concurrent_adds_cannot_exceed_limit": {
+        "statuses": "[201, 201]",
+        "persisted_works": "11"
+      }
+    }
+  }
+}

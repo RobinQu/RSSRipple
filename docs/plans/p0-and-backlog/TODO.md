@@ -59,7 +59,7 @@
 - [ ] **P1-B5 队列无重试/退避/死信**：失败即终态（`app/services/task_queue.py:264-271,610-654`），队列 API 只读。
       **修复**：先补副作用幂等，再按任务类型加有限重试/退避；DLQ 为增强，不是所有任务的修复前提。
 - [ ] **P1-B6 `PUT /agents/{id}` 绕过 AgentWork ≤10 上限**：`app/api/v1/agents.py:426-439` 无计数校验。
-      **修复**：按更新后的有效 scope/works 检查，保留全范围例外；V23 真实 API/Turso 已复现两条更新路径持久化 11 条，合法对照通过。并发及无副作用验收方案见 [V23](V23-AGENT-WORK-LIMIT.md)。
+      **修复**：按更新后的有效 scope/works 检查，保留全范围例外；V23 真实 API/Turso 已复现两条更新路径持久化 11 条，合法对照通过。顺序原型 7 项通过；又复现 Turso 双请求从 9 增至 11，需补父行冲突保护与真实重试。并发及无副作用验收方案见 [V23](V23-AGENT-WORK-LIMIT.md)。
 - [ ] **P1-B8 reparse 409 卡住 `confirmation_ignored_at`**：`app/api/v1/resources.py:1023-1037` 先 commit
       标记再入队，入队失败返回 409 但标记不清；仅 job `finally` 清除。**修复**：区分已有任务（通常会 finally 清理）、入队异常及崩溃恢复；按任务所有权清标记，禁止先入队后提交。
 - [ ] **P1-F1 `WorkMetadataRefreshModal` 未国际化**：整个 modal 硬编码中文
