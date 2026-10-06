@@ -1,5 +1,7 @@
 """Application configuration using pydantic-settings."""
 
+import httpx
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -51,6 +53,38 @@ class Settings(BaseSettings):
     # When set, poster URLs returned by LLM are downloaded and stored here,
     # and the DB pointer is updated to the local /posters/<file> path.
     poster_cache_dir: str = "data/posters"
+
+    # Explicit administrator exceptions for resource URLs derived from feeds
+    # or metadata. Exact HTTP(S) origins only, never CIDRs or hostname globs.
+    outbound_private_origins: list[str] = []
+
+    @field_validator("outbound_private_origins")
+    @classmethod
+    def validate_outbound_private_origins(cls, values: list[str]) -> list[str]:
+        normalized = []
+        for value in values:
+            try:
+                parsed = httpx.URL(value)
+                valid = (
+                    parsed.scheme in {"http", "https"} and parsed.host
+                    and "*" not in parsed.host and not parsed.userinfo
+                    and parsed.path == "/" and not parsed.query and not parsed.fragment
+                    and not any(ord(c) < 32 or ord(c) == 127 for c in value)
+                )
+            except httpx.InvalidURL:
+                valid = False
+            if not valid:
+                raise ValueError(
+                    "outbound_private_origins requires exact HTTP(S) origins "
+                    "without credentials, paths or wildcards"
+                )
+            default_port = 443 if parsed.scheme == "https" else 80
+            normalized.append(str(parsed.copy_with(
+                port=None if parsed.port == default_port else parsed.port,
+                path="", query=None, fragment=None,
+            )))
+        return list(dict.fromkeys(normalized))
+
     organize_lock_dir: str = "data/organize-locks"
 
     # Torrent file cache — .torrent files fetched for content inspection

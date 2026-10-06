@@ -124,7 +124,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 | POST | `/channels/{id}/analyze-stream` | SSE 流式 LLM 分析（`status/delta/reset/done/error` 事件；连接建立即冲刷响应头，RSS 抓取与 LLM 生成的 delta 实时下发，重试前发 `reset` 通知前端清空半程文本） |
 | POST | `/channels/{id}/summarize-filters` | 给定若干资源 ID，按 Agent 规则结构生成建议：作品订阅 + 全局共性条件 + 按作品差异化条件 |
 | POST | `/channels/validate-url` | 验证 RSS URL 可达性与格式（创建前校验） |
-| POST | `/channels/preview-feed` | 预览 RSS 源，可选附带 field_mapping 预览解析结果（不落库） |
+| POST | `/channels/preview-feed` | 预览 RSS 源，可选附带 field_mapping 预览解析结果（不落库）；成功空源返回 200 + 空 entries，网络/HTTP/目的地策略失败走现有 400 + FETCH_ERROR 分支 |
 | POST | `/channels/analyze-url-stream` | 基于 URL 的 SSE 流式分析（创建频道前使用，无需 channel_id） |
 
 频道调度：创建事务提交成功后才尝试首次自动抓取；inactive 或 SCHEDULER_ENABLED=false 不自动入队，`meta.fetch_triggered` 反映首次入队结果。更新/删除后的周期任务由各 worker 每 30 秒对账同步，无需重启 worker；接口不操作 web 本地调度器。ChannelUpdate 当前不接受 status（不能通过 PUT 暂停/恢复）；数据库中 inactive 状态由同一对账机制移除周期任务。

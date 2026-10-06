@@ -26,8 +26,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import bencodepy
-import httpx
 
+from app.clients import outbound_http
 from app.config import settings
 from app.services.resource_parser import extract_season_episode_from_path
 
@@ -176,8 +176,8 @@ async def fetch_torrent_file(url: str, resource_id: str) -> str | None:
                 f"{settings.app_name}/0.1.0 "
                 f"(https://github.com/RobinQu/RSSRipple) torrent-inspect"
             )
-            with httpx.Client(
-                timeout=_DOWNLOAD_TIMEOUT, follow_redirects=True, headers={"User-Agent": ua}
+            with outbound_http.client(
+                timeout=_DOWNLOAD_TIMEOUT, headers={"User-Agent": ua}
             ) as client, client.stream("GET", url) as resp:
                 if resp.status_code != 200:
                     logger.debug("[torrent] %s -> HTTP %s", url[:80], resp.status_code)

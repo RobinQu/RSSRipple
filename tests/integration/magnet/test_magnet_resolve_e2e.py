@@ -7,8 +7,8 @@ harvest set (source of the live-test magnet).
 
 Two layers:
 
-- **Hermetic E2E** (CI-safe, no network): a channel points at the fixture
-  feed file (feedparser accepts a filesystem path), the fetch pipeline
+- **Hermetic E2E** (CI-safe, loopback HTTP only): a channel points at a
+  local server replaying the unchanged fixture XML, the fetch pipeline
   creates magnet FileResources and enqueues ``resolve_magnet_torrent`` jobs,
   the queue handler claims each row and the worker pool rebuilds a .torrent
   through a fake libtorrent — then Channel A inspection and the files
@@ -31,7 +31,9 @@ import asyncio
 import json
 import os
 import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Thread
 from types import SimpleNamespace
 
 import bencodepy
@@ -135,6 +137,35 @@ class _StubQueue:
         return {"key": key, "status": "queued"}
 
 
+@pytest.fixture
+def fixture_feed_url():
+    payload = FEED_FILE.read_bytes()
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path != "/magnet_feed.xml":
+                self.send_error(404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/rss+xml")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}/magnet_feed.xml"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 @pytest.fixture(autouse=True)
 def _reset_magnet_state():
     mr._session = None
@@ -205,7 +236,7 @@ async def _drain_and_wait(db_session, resource_ids: list[str], deadline_s: float
 # =============================================================================
 
 
-async def test_fetch_to_magnet_resolve_end_to_end(db_session, monkeypatch, tmp_path):
+async def test_fetch_to_magnet_resolve_end_to_end(db_session, monkeypatch, tmp_path, fixture_feed_url):
     """Fixture feed → fetch → enqueue → claim → rebuild .torrent → Channel A
     → files chain, all in-process with a fake libtorrent."""
     from app.api.v1.resources import _resolve_resource_files
@@ -221,7 +252,7 @@ async def test_fetch_to_magnet_resolve_end_to_end(db_session, monkeypatch, tmp_p
     # 1. Fetch: the fixture feed's magnet entries become FileResources.
     # Capture the id up front — fetch commits expire ORM objects, and lazy
     # attribute access on an expired object raises MissingGreenlet.
-    channel = await _make_feed_channel(db_session, str(FEED_FILE))
+    channel = await _make_feed_channel(db_session, fixture_feed_url)
     channel_id = channel.id
     result = await fetch_channel_resources(channel, db_session)
     assert result["new_count"] == 3
@@ -279,7 +310,7 @@ async def test_fetch_to_magnet_resolve_end_to_end(db_session, monkeypatch, tmp_p
     ]
 
 
-async def test_fetch_to_resolve_via_cache_mirror(db_session, monkeypatch, tmp_path):
+async def test_fetch_to_resolve_via_cache_mirror(db_session, monkeypatch, tmp_path, fixture_feed_url):
     """Mirror fast path E2E: fetch → enqueue → claim → mirror hit, with P2P
     never engaged (fake lt session never constructed).
 
@@ -303,7 +334,7 @@ async def test_fetch_to_resolve_via_cache_mirror(db_session, monkeypatch, tmp_pa
     monkeypatch.setattr(mr, "_extract_v1_infohash", lambda uri, params: mirror_hash)
     monkeypatch.setattr(mr, "_fetch_mirror_torrent", lambda url: mirror_raw)
 
-    channel = await _make_feed_channel(db_session, str(FEED_FILE))
+    channel = await _make_feed_channel(db_session, fixture_feed_url)
     result = await fetch_channel_resources(channel, db_session)
     assert result["new_count"] == 3
     resources = await _channel_resources(db_session, channel.id)
@@ -355,7 +386,7 @@ async def test_live_magnet_resolution(tmp_path):
 
 @_live_skip
 @pytest.mark.timeout(_LIVE_TIMEOUT + 120)
-async def test_live_fetch_to_resolve_end_to_end(db_session, monkeypatch, tmp_path):
+async def test_live_fetch_to_resolve_end_to_end(db_session, monkeypatch, tmp_path, fixture_feed_url):
     """Full live pipeline: fixture feed fetch → real resolution → done state
     → cached .torrent serving the files chain."""
     from app.api.v1.resources import _resolve_resource_files
@@ -366,7 +397,7 @@ async def test_live_fetch_to_resolve_end_to_end(db_session, monkeypatch, tmp_pat
     # Live means live P2P only — never hit real mirrors from tests.
     monkeypatch.setattr(mr.settings, "magnet_resolve_cache_mirrors", [])
 
-    channel = await _make_feed_channel(db_session, str(FEED_FILE))
+    channel = await _make_feed_channel(db_session, fixture_feed_url)
     result = await fetch_channel_resources(channel, db_session)
     assert result["new_count"] == 3
     resources = await _channel_resources(db_session, channel.id)

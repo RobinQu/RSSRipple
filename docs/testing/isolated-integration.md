@@ -17,6 +17,8 @@ cp docker/Dockerfile.integration "$gate_context/Dockerfile"
 docker build --builder default -t rssripple-v0-tests:local "$gate_context"
 ```
 
+并行或独立候选可通过 `RSSRIPPLE_TEST_IMAGE` 指定本轮专用依赖镜像（默认仍为 `rssripple-v0-tests:local`）；构建及后续 Compose 命令必须使用同一镜像。派生资源的本地测试服务由 Compose 明确设置 `OUTBOUND_PRIVATE_ORIGINS=["http://test-server:8080"]`，不影响生产默认策略。
+
 安装依赖需要网络，测试运行网络仅允许栈内通信。服务端外部提供者使用本地 mock；生产语料使用已捕获且附来源的离线夹具。真实媒体文件内容仍为明确声明的合成字节，不能把本套件通过解释为实时提供者质量或真实视频内容验证。
 
 ## 运行、汇总、清理

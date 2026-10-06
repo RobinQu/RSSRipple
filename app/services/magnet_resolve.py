@@ -33,6 +33,7 @@ from urllib.parse import urlsplit
 import bencodepy
 import httpx
 
+from app.clients import outbound_http
 from app.config import settings
 from app.services.torrent_inspect import (
     _MAX_TORRENT_BYTES,
@@ -175,9 +176,13 @@ def _fetch_mirror_torrent(url: str) -> bytes | None:
             f"{settings.app_name}/0.1.0 "
             "(https://github.com/RobinQu/RSSRipple) torrent-inspect"
         )
-        with httpx.Client(
-            timeout=_MIRROR_TIMEOUT, follow_redirects=True, headers={"User-Agent": ua}
-        ) as client, client.stream("GET", url) as resp:
+        parsed = httpx.URL(url)
+        auth = httpx.BasicAuth(parsed.username, parsed.password) if parsed.userinfo else None
+        clean = parsed.copy_with(username=None, password=None)
+        with outbound_http.client(
+            timeout=_MIRROR_TIMEOUT, headers={"User-Agent": ua},
+            allowed_origins=[str(clean)],
+        ) as client, client.stream("GET", clean, auth=auth) as resp:
             if resp.status_code != 200:
                 logger.debug("[magnet] mirror %s -> HTTP %s", url[:80], resp.status_code)
                 return None

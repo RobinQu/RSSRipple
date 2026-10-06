@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 
+from app.clients import outbound_http
 from app.models.episode import Episode
 from app.models.movie import Movie
 from app.models.resource_file_assignment import ResourceFileAssignment
@@ -295,20 +296,24 @@ async def analyze_listing(
         import httpx as _httpx
         from openai import AsyncOpenAI as _AsyncOpenAI
 
-        client = _AsyncOpenAI(
+        async with _AsyncOpenAI(
             api_key=runtime_config.llm_api_key,
             base_url=runtime_config.llm_base_url,
             timeout=_httpx.Timeout(120.0, connect=5.0),
-        )
-        response = await client.chat.completions.create(
-            model=runtime_config.llm_model,
-            messages=messages,
-            temperature=0.1,
-            timeout=120,
-            extra_body=runtime_config.llm_extra_body(),
-        )
-        raw = response.choices[0].message.content or ""
-        data = _parse_llm_json(raw)
+            http_client=outbound_http.async_client(
+                timeout=_httpx.Timeout(120.0, connect=5.0),
+                allowed_origins=[runtime_config.llm_base_url],
+            ),
+        ) as client:
+            response = await client.chat.completions.create(
+                model=runtime_config.llm_model,
+                messages=messages,
+                temperature=0.1,
+                timeout=120,
+                extra_body=runtime_config.llm_extra_body(),
+            )
+            raw = response.choices[0].message.content or ""
+            data = _parse_llm_json(raw)
     except Exception as e:  # noqa: BLE001 — best-effort refinement
         logger.warning("[batch] LLM analysis failed (deterministic layer still returned): %s", e)
         return None
@@ -354,24 +359,28 @@ async def analyze_listing_stream(
         import httpx as _httpx
         from openai import AsyncOpenAI as _AsyncOpenAI
 
-        client = _AsyncOpenAI(
+        async with _AsyncOpenAI(
             api_key=runtime_config.llm_api_key,
             base_url=runtime_config.llm_base_url,
             timeout=_httpx.Timeout(120.0, connect=5.0),
-        )
-        stream = await client.chat.completions.create(
-            model=runtime_config.llm_model,
-            messages=messages,
-            temperature=0.1,
-            stream=True,
-            extra_body=runtime_config.llm_extra_body(),
-        )
-        async for chunk in stream:
-            delta = chunk.choices[0].delta.content or ""
-            if delta:
-                raw_parts.append(delta)
-                yield "delta", delta
-        data = _parse_llm_json("".join(raw_parts))
+            http_client=outbound_http.async_client(
+                timeout=_httpx.Timeout(120.0, connect=5.0),
+                allowed_origins=[runtime_config.llm_base_url],
+            ),
+        ) as client:
+            stream = await client.chat.completions.create(
+                model=runtime_config.llm_model,
+                messages=messages,
+                temperature=0.1,
+                stream=True,
+                extra_body=runtime_config.llm_extra_body(),
+            )
+            async for chunk in stream:
+                delta = chunk.choices[0].delta.content or ""
+                if delta:
+                    raw_parts.append(delta)
+                    yield "delta", delta
+            data = _parse_llm_json("".join(raw_parts))
         if not isinstance(data, dict) or not isinstance(data.get("works"), list):
             raise ValueError("LLM output does not contain a works list")
         yield "result", data

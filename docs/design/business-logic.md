@@ -10,6 +10,12 @@ ensure_torrent_cached 的缓存命中路径也将文件存在检查、读取校�
 
 maybe_inspect_torrent 的缓存存在检查、无效文件删除、parse_torrent_files 和 analyze_torrent_files 在工作线程执行。仅传入路径或普通文件清单，不传 ORM 对象/session；分类、指派和关联持久化仍在调用协程内。响应性测试使用录制种子及可控阻塞，不替代真实 Redis 租约接管验收。
 
+### 外部 HTTP 目的地与 SDK
+
+资源派生的 torrent/poster 和 Wiki REST summary 使用统一受控客户端：仅 HTTP(S)、建连时验证全部 DNS 结果并拨号至已验证 IP，保留原 Host/SNI 与证书验证，重定向重新检查。管理员配置的 RSS、镜像和 LLM 初始 origin 可为私网；全局私网例外使用精确 origin 配置，见 conventions.md。镜像仍须验证 infohash。
+
+feed_analyzer（OpenAI/OpenRouter）、batch_content_analysis（普通/流式）及 MetadataAgent（LangChain 同步/异步）均注入受控 HTTP 客户端；保留 SDK 协议、响应解析和现有重试。短生命周期请求结束释放连接；长生命周期模型不保留空闲连接，避免配置重置遗留连接池。Transmission 在首次构造器 RPC 前安装实例级响应检查，仅允许同 origin 跳转，保留原生 409 协商。
+
 ### RSS 抓取流程（fetch_service）
 
 入口：`fetch_channel_resources(channel_id: str)`，由定时任务或手动触发入队。
@@ -19,7 +25,10 @@ fetch_channel_resources(channel, db)
   │
   ├─ 1. 更新 channel.last_fetch_status = "running"
   │
-  ├─ 2. 使用 feedparser 在 asyncio.to_thread 中抓取 RSS（超时 30s）
+  ├─ 2. 在 asyncio.to_thread 中用受控 HTTP 客户端抓取 RSS（超时 30s），再把响应字节交给 feedparser
+  │     ├─ URL 仅限 HTTP(S)，不接受本地路径/file URI；保留管理员明确指定的内网初始 origin
+  │     ├─ 重定向每跳重新执行目的地址策略，不把内网授权转交给其他 origin
+  │     ├─ 初始 URL Basic auth 转为请求认证，同 origin 重定向保留，跨 origin 不转发
   │     ├─ 抓取失败 → 标记 channel.status="error"、记录 last_fetch_error → 返回
   │
   ├─ 3. 遍历 entries：

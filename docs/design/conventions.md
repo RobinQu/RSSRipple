@@ -1,5 +1,13 @@
 # 其他约定
 
+- **资源出站 HTTP**：外部资源派生的 torrent/poster 默认仅访问公网 HTTP(S)，实际建连时校验并固定 DNS 地址，重定向每跳重验，不使用环境代理绕过此边界。RSS URL 与磁力缓存镜像是管理员指定的初始 origin，可访问其内网服务；该授权仅覆盖相同 scheme/host/port，不继承给其他私网重定向目标。RSS 不再接受文件路径或 file URI，离线夹具须通过本地 HTTP 服务回放。Basic auth 仅用于管理员初始端点，同源重定向保留、跨源不转发；镜像响应仍必须通过 infohash 校验。
+
+- **出站私网例外**：`OUTBOUND_PRIVATE_ORIGINS` 为 JSON 字符串数组，默认 `[]`；只接受完整 HTTP(S) origin，例如 `["https://assets.internal:8443"]`，禁止通配、用户信息、路径、查询或片段。显式默认端口归一化并去重。例外只匹配 scheme/host/port；不同端口和重定向目标须各自获授权。该部署配置影响受控资源及 LLM 客户端，不能作为不可信请求参数开放。
+- **受控连接兼容性**：RSS、镜像、torrent/poster、Wiki REST summary 与 OpenAI/OpenRouter/LangChain 客户端禁用环境代理，避免代理侧解析绕过目的地检查；保留系统 CA 及 OpenSSL 的 `SSL_CERT_FILE`/`SSL_CERT_DIR`。同步/异步 DNS 共用最多 4 个解析线程与 8 个未完成查询；超时返回后系统查询仍占槽直至结束，不累积无界线程。HTTPX/httpcore 固定为已验证的 0.28.1/1.0.9，升级需重验 transport 适配、DNS、重定向与 TLS 矩阵。
+- **LLM 与 RPC 端点**：管理员配置的 LLM 初始 origin 允许私网访问，普通和流式 SDK 请求使用相同目的地策略。短生命周期 SDK 使用上下文释放连接；MetadataAgent 模型使用零空闲连接池，允许配置重置前的在途请求结束。Transmission 只允许同源重定向，保留 409 session-id 协商；HTTP 跳 HTTPS 时须直接配置最终 HTTPS 地址。
+
+- **RPC/LLM 目的地**：Transmission RPC 保留配置 origin 内重定向和 409 session-id 协商，拒绝跨 origin 转交 RPC（包括 HTTP→HTTPS，需直接配置最终 HTTPS 地址），避免向新服务转发 RPC 数据。RSS 分析的 OpenAI 普通/流式调用使用相同受控异步 HTTP 层，管理员 LLM 初始 origin 可为内网，后续跳转不扩大私网授权；调用完成或失败均关闭 SDK 客户端。
+
 - **时间格式**：API 中所有时间均为 ISO 8601 UTC 字符串（如 `2025-01-01T12:00:00Z`）。
 - **下载目录格式**：
   - `DownloaderInstance.download_dir` 必填，必须是 Transmission 下载服务器 OS 可识别的绝对路径；路径语义以 Transmission daemon 为准，而不是 RSSRipple 后端进程所在主机为准。

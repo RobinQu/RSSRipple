@@ -832,7 +832,7 @@ def _stub_mirror_client(monkeypatch, *, status=200, chunks=None, raise_exc=None)
         def __exit__(self_inner, *a):
             return False
 
-        def stream(self_inner, method, url):
+        def stream(self_inner, method, url, **kwargs):
             if raise_exc is not None:
                 raise raise_exc
             return _Resp()

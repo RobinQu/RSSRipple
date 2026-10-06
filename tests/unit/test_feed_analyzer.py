@@ -84,6 +84,13 @@ MOCK_MEDIUM_RESPONSE = {
 }
 
 
+def _attach_openai_client(mock_openai_class, mock_client):
+    """Model the SDK async context manager without changing its response mock."""
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+    mock_openai_class.return_value = mock_client
+
+
 def _setup_openai_mock(mock_openai_class, response_str: str):
     """Configure mock_openai_class to return a given JSON string as LLM response."""
     mock_choice = MagicMock()
@@ -92,7 +99,7 @@ def _setup_openai_mock(mock_openai_class, response_str: str):
     mock_response.choices = [mock_choice]
     mock_client = AsyncMock()
     mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
-    mock_openai_class.return_value = mock_client
+    _attach_openai_client(mock_openai_class, mock_client)
 
 
 # =============================================================================
@@ -236,7 +243,7 @@ async def test_analyze_feed_api_error(mock_settings, mock_openai_class):
     mock_client.chat.completions.create = AsyncMock(
         side_effect=Exception("API rate limit exceeded")
     )
-    mock_openai_class.return_value = mock_client
+    _attach_openai_client(mock_openai_class, mock_client)
 
     result = await analyze_feed(SAMPLE_ENTRIES)
 
@@ -677,7 +684,7 @@ async def test_call_openai_sends_both_thinking_spellings(mock_settings, mock_ope
     mock_client.chat.completions.create = AsyncMock(
         return_value=_make_openai_response(content='{"ok": true}')
     )
-    mock_openai_class.return_value = mock_client
+    _attach_openai_client(mock_openai_class, mock_client)
 
     await _call_openai([{"role": "user", "content": "test"}])
 
@@ -699,7 +706,7 @@ async def test_call_openai_thinking_enabled_propagates_to_both(mock_settings, mo
     mock_client.chat.completions.create = AsyncMock(
         return_value=_make_openai_response(content='{"ok": true}')
     )
-    mock_openai_class.return_value = mock_client
+    _attach_openai_client(mock_openai_class, mock_client)
 
     await _call_openai([{"role": "user", "content": "test"}])
 
@@ -738,7 +745,7 @@ async def test_call_openai_non_thinking_model(mock_settings, mock_openai_class):
     mock_client.chat.completions.create = AsyncMock(
         return_value=_make_openai_response(content='{"ok": true}')
     )
-    mock_openai_class.return_value = mock_client
+    _attach_openai_client(mock_openai_class, mock_client)
 
     messages = [{"role": "user", "content": "test"}]
     result = await _call_openai(messages)
@@ -764,7 +771,7 @@ async def test_call_openai_thinking_model_content_empty(mock_settings, mock_open
     mock_client.chat.completions.create = AsyncMock(
         return_value=_make_openai_response(content=None, reasoning_content='{"answer": 42}')
     )
-    mock_openai_class.return_value = mock_client
+    _attach_openai_client(mock_openai_class, mock_client)
 
     result = await _call_openai([{"role": "user", "content": "test"}])
     assert result == '{"answer": 42}'
@@ -783,7 +790,7 @@ async def test_call_openai_constructs_client_with_correct_params(mock_settings, 
     mock_client.chat.completions.create = AsyncMock(
         return_value=_make_openai_response(content="hello")
     )
-    mock_openai_class.return_value = mock_client
+    _attach_openai_client(mock_openai_class, mock_client)
 
     await _call_openai([{"role": "user", "content": "hi"}])
 
@@ -831,7 +838,7 @@ async def test_stream_openai_non_thinking_model(mock_settings, mock_openai_class
     ]
     mock_client = MagicMock()
     mock_client.chat.completions.create = AsyncMock(return_value=_make_openai_stream(chunks))
-    mock_openai_class.return_value = mock_client
+    _attach_openai_client(mock_openai_class, mock_client)
 
     events = await _collect_events(
         _stream_openai([{"role": "user", "content": "analyze"}])
@@ -869,7 +876,7 @@ async def test_stream_openai_thinking_model_reasoning_content(mock_settings, moc
     ]
     mock_client = MagicMock()
     mock_client.chat.completions.create = AsyncMock(return_value=_make_openai_stream(chunks))
-    mock_openai_class.return_value = mock_client
+    _attach_openai_client(mock_openai_class, mock_client)
 
     events = await _collect_events(
         _stream_openai([{"role": "user", "content": "analyze"}])
@@ -898,7 +905,7 @@ async def test_stream_openai_empty_response(mock_settings, mock_openai_class):
     chunks = [_make_stream_chunk(content="")]
     mock_client = MagicMock()
     mock_client.chat.completions.create = AsyncMock(return_value=_make_openai_stream(chunks))
-    mock_openai_class.return_value = mock_client
+    _attach_openai_client(mock_openai_class, mock_client)
 
     events = await _collect_events(
         _stream_openai([{"role": "user", "content": "analyze"}])
@@ -921,7 +928,7 @@ async def test_stream_openai_invalid_json(mock_settings, mock_openai_class):
     chunks = [_make_stream_chunk(content="Sorry, I cannot help with that.")]
     mock_client = MagicMock()
     mock_client.chat.completions.create = AsyncMock(return_value=_make_openai_stream(chunks))
-    mock_openai_class.return_value = mock_client
+    _attach_openai_client(mock_openai_class, mock_client)
 
     events = await _collect_events(
         _stream_openai([{"role": "user", "content": "analyze"}])
@@ -1033,7 +1040,7 @@ async def test_analyze_feed_per_day_limit_returns_immediately(mock_settings, moc
     mock_client.chat.completions.create = AsyncMock(
         side_effect=Exception("daily tokens per-day limit exceeded")
     )
-    mock_openai_class.return_value = mock_client
+    _attach_openai_client(mock_openai_class, mock_client)
 
     result = await analyze_feed(SAMPLE_ENTRIES)
     assert result["confidence"] == "low"
@@ -1056,7 +1063,7 @@ async def test_analyze_feed_per_minute_limit_retries_then_succeeds(mock_settings
             _make_openai_response(content=json.dumps(MOCK_LLM_RESPONSE)),
         ]
     )
-    mock_openai_class.return_value = mock_client
+    _attach_openai_client(mock_openai_class, mock_client)
 
     result = await analyze_feed(SAMPLE_ENTRIES)
     assert result["confidence"] == "high"
@@ -1074,7 +1081,7 @@ async def test_analyze_feed_per_minute_limit_exhausts_all_attempts(mock_settings
     mock_client.chat.completions.create = AsyncMock(
         side_effect=Exception("per-minute rate limit exceeded")
     )
-    mock_openai_class.return_value = mock_client
+    _attach_openai_client(mock_openai_class, mock_client)
 
     result = await analyze_feed(SAMPLE_ENTRIES)
     assert result["confidence"] == "low"
@@ -1096,7 +1103,7 @@ async def test_analyze_feed_retries_on_empty_then_succeeds(mock_settings, mock_o
             _make_openai_response(content=json.dumps(MOCK_LLM_RESPONSE)),
         ]
     )
-    mock_openai_class.return_value = mock_client
+    _attach_openai_client(mock_openai_class, mock_client)
 
     result = await analyze_feed(SAMPLE_ENTRIES)
     assert result["confidence"] == "high"
@@ -1114,7 +1121,7 @@ async def test_analyze_feed_all_attempts_fail_generic(mock_settings, mock_openai
     mock_client.chat.completions.create = AsyncMock(
         side_effect=Exception("upstream 500")
     )
-    mock_openai_class.return_value = mock_client
+    _attach_openai_client(mock_openai_class, mock_client)
 
     result = await analyze_feed(SAMPLE_ENTRIES)
     assert result["confidence"] == "low"
@@ -1482,7 +1489,7 @@ async def test_stream_openai_exhausts_transient_retries(mock_settings, mock_open
     mock_settings.llm_model = "test-model"
     mock_client = MagicMock()
     mock_client.chat.completions.create = AsyncMock(side_effect=RuntimeError("boom"))
-    mock_openai_class.return_value = mock_client
+    _attach_openai_client(mock_openai_class, mock_client)
 
     events = await _collect_events(_stream_openai([{"role": "user", "content": "hi"}]))
     assert events[-1]["type"] == "error"
@@ -1502,7 +1509,7 @@ async def test_stream_openai_skips_chunks_without_choices(mock_settings, mock_op
     mock_client.chat.completions.create = AsyncMock(return_value=_make_openai_stream([
         empty_chunk, content_chunk,
     ]))
-    mock_openai_class.return_value = mock_client
+    _attach_openai_client(mock_openai_class, mock_client)
 
     events = await _collect_events(_stream_openai([{"role": "user", "content": "hi"}]))
     assert events[-1]["type"] == "done"
@@ -1520,7 +1527,7 @@ async def test_stream_openai_invalid_json_exhausts_retries(mock_settings, mock_o
     mock_client.chat.completions.create = AsyncMock(
         side_effect=lambda *a, **kw: _make_openai_stream([_make_stream_chunk(content="nope {{{")])
     )
-    mock_openai_class.return_value = mock_client
+    _attach_openai_client(mock_openai_class, mock_client)
 
     events = await _collect_events(_stream_openai([{"role": "user", "content": "hi"}]))
     assert events[-1]["type"] == "error"
@@ -1539,7 +1546,7 @@ async def test_stream_openai_empty_response_exhausts_retries(mock_settings, mock
     mock_client.chat.completions.create = AsyncMock(
         return_value=_make_openai_stream([_make_stream_chunk(content="")])
     )
-    mock_openai_class.return_value = mock_client
+    _attach_openai_client(mock_openai_class, mock_client)
 
     events = await _collect_events(_stream_openai([{"role": "user", "content": "hi"}]))
     assert events[-1]["type"] == "error"

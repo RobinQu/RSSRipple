@@ -16,6 +16,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import bencodepy
+import httpx
 import pytest
 
 import app.services.torrent_inspect as ti
@@ -367,7 +368,7 @@ def _stub_httpx(monkeypatch, *, status: int = 200, chunks: list[bytes] | None = 
     async def _no_sleep(*a, **kw):
         return None
 
-    monkeypatch.setattr(ti.httpx, "Client", _Client)
+    monkeypatch.setattr(httpx, "Client", _Client)
     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
     monkeypatch.setattr(asyncio, "sleep", _no_sleep)
 
@@ -525,7 +526,7 @@ async def test_fetch_network_error_returns_none(tmp_path, monkeypatch):
             return False
 
         def stream(self_inner, method, url):
-            raise ti.httpx.ConnectError("connection refused")
+            raise httpx.ConnectError("connection refused")
 
     async def _fake_to_thread(fn, *a, **kw):
         return fn(*a, **kw)
@@ -533,7 +534,7 @@ async def test_fetch_network_error_returns_none(tmp_path, monkeypatch):
     async def _no_sleep(*a, **kw):
         return None
 
-    monkeypatch.setattr(ti.httpx, "Client", _Client)
+    monkeypatch.setattr(httpx, "Client", _Client)
     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
     monkeypatch.setattr(asyncio, "sleep", _no_sleep)
     assert await fetch_torrent_file("https://x/a.torrent", "rid-5") is None
@@ -586,7 +587,7 @@ def _stub_httpx_counting(monkeypatch, behaviors):
     async def _no_sleep(*a, **kw):
         return None
 
-    monkeypatch.setattr(ti.httpx, "Client", _Client)
+    monkeypatch.setattr(httpx, "Client", _Client)
     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
     monkeypatch.setattr(asyncio, "sleep", _no_sleep)
     return calls
@@ -596,7 +597,7 @@ async def test_fetch_retries_transient_failure_then_succeeds(tmp_path, monkeypat
     monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
     payload = _single_torrent("Show.S01E01.mkv", 500 * MB)
     calls = _stub_httpx_counting(monkeypatch, [
-        ("raise", ti.httpx.ConnectError("connection refused")),
+        ("raise", httpx.ConnectError("connection refused")),
         ("respond", 200, [payload]),
     ])
     out = await fetch_torrent_file("https://x/retry.torrent", "rid-retry")
@@ -607,8 +608,8 @@ async def test_fetch_retries_transient_failure_then_succeeds(tmp_path, monkeypat
 async def test_fetch_transient_failure_exhausts_attempts(tmp_path, monkeypatch):
     monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
     calls = _stub_httpx_counting(monkeypatch, [
-        ("raise", ti.httpx.ConnectError("connection refused")),
-        ("raise", ti.httpx.ReadTimeout("timed out")),
+        ("raise", httpx.ConnectError("connection refused")),
+        ("raise", httpx.ReadTimeout("timed out")),
     ])
     assert await fetch_torrent_file("https://x/down.torrent", "rid-down") is None
     assert calls[0] == 2

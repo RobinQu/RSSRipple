@@ -21,6 +21,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import bencodepy
+import httpx
 
 import app.services.batch_content_analysis as bca
 import app.services.franchise_service as fs_mod
@@ -160,7 +161,7 @@ def _stub_httpx_counting(monkeypatch, behaviors):
     async def _no_sleep(*a, **kw):
         return None
 
-    monkeypatch.setattr(ti.httpx, "Client", _Client)
+    monkeypatch.setattr(httpx, "Client", _Client)
     monkeypatch.setattr(asyncio, "sleep", _no_sleep)
     return calls
 
@@ -212,8 +213,8 @@ async def test_fetch_oversize_aborts_without_retry(tmp_path, monkeypatch):
 async def test_fetch_download_error_uses_retry_budget(tmp_path, monkeypatch):
     monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
     calls = _stub_httpx_counting(monkeypatch, [
-        ("raise", ti.httpx.ConnectError("connection refused")),
-        ("raise", ti.httpx.ReadTimeout("timed out")),
+        ("raise", httpx.ConnectError("connection refused")),
+        ("raise", httpx.ReadTimeout("timed out")),
     ])
     assert await fetch_torrent_file("https://x/down.torrent", "rid-err") is None
     assert calls[0] == 2

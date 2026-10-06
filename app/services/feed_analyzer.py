@@ -11,10 +11,12 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
 import httpx
 from openai import AsyncOpenAI
 
+from app.clients import outbound_http
 from app.services.runtime_config import runtime_config
 
 logger = logging.getLogger(__name__)
@@ -410,6 +412,23 @@ async def analyze_feed(entries: list[dict], sample_count: int = 5) -> dict:
     return empty_result
 
 
+@asynccontextmanager
+async def _openrouter_client():
+    """Own the injected HTTP client; OpenRouter does not close supplied clients."""
+    from openrouter import OpenRouter
+
+    async with outbound_http.async_client(
+        timeout=httpx.Timeout(120.0, connect=10.0),
+        allowed_origins=[runtime_config.llm_base_url],
+    ) as http_client:
+        async with OpenRouter(
+            api_key=runtime_config.llm_api_key,
+            server_url=runtime_config.llm_base_url,
+            async_client=http_client,
+        ) as client:
+            yield client
+
+
 async def _call_openrouter(messages: list[dict]) -> str:
     """Call OpenRouter using the native SDK.
 
@@ -428,9 +447,7 @@ async def _call_openrouter(messages: list[dict]) -> str:
       itself omits the ``reasoning`` field, and sending it would shrink the
       candidate pool; non-reasoning models reject the parameter outright.
     """
-    from openrouter import OpenRouter
-
-    async with OpenRouter(api_key=runtime_config.llm_api_key) as client:
+    async with _openrouter_client() as client:
         res = await client.chat.send_async(
             messages=messages,
             model=runtime_config.llm_model,
@@ -466,20 +483,24 @@ async def _call_openai(messages: list[dict]) -> str:
     DeepSeek-R1) respect it. Providers that don't recognise the fields
     silently ignore them.
     """
-    client = AsyncOpenAI(
+    async with AsyncOpenAI(
         api_key=runtime_config.llm_api_key,
         base_url=runtime_config.llm_base_url,
         timeout=httpx.Timeout(120.0, connect=10.0),
-    )
-    response = await client.chat.completions.create(
-        model=runtime_config.llm_model,
-        messages=messages,
-        temperature=0.1,
-        timeout=120,
-        extra_body=runtime_config.llm_extra_body(),
-    )
-    msg = response.choices[0].message
-    return _extract_content(msg)
+        http_client=outbound_http.async_client(
+            timeout=httpx.Timeout(120.0, connect=10.0),
+            allowed_origins=[runtime_config.llm_base_url],
+        ),
+    ) as client:
+        response = await client.chat.completions.create(
+            model=runtime_config.llm_model,
+            messages=messages,
+            temperature=0.1,
+            timeout=120,
+            extra_body=runtime_config.llm_extra_body(),
+        )
+        msg = response.choices[0].message
+        return _extract_content(msg)
 
 
 async def call_llm(messages: list[dict]) -> str:
@@ -553,8 +574,6 @@ async def _stream_openrouter(messages: list[dict]) -> AsyncGenerator[dict, None]
     Retries up to 3 times on transient failures (network errors, empty
     responses, JSON parse errors).
     """
-    from openrouter import OpenRouter
-
     max_attempts = 3
     for attempt in range(1, max_attempts + 1):
         if attempt > 1:
@@ -564,7 +583,7 @@ async def _stream_openrouter(messages: list[dict]) -> AsyncGenerator[dict, None]
         reasoning_buf = ""
 
         try:
-            async with OpenRouter(api_key=runtime_config.llm_api_key) as client:
+            async with _openrouter_client() as client:
                 res = await client.chat.send_async(
                     messages=messages,
                     model=runtime_config.llm_model,
@@ -653,37 +672,40 @@ async def _stream_openai(messages: list[dict]) -> AsyncGenerator[dict, None]:
         reasoning_buf = ""
 
         try:
-            client = AsyncOpenAI(
+            async with AsyncOpenAI(
                 api_key=runtime_config.llm_api_key,
                 base_url=runtime_config.llm_base_url,
                 timeout=httpx.Timeout(120.0, connect=10.0),
-            )
-
-            stream = await client.chat.completions.create(
-                model=runtime_config.llm_model,
-                messages=messages,
-                temperature=0.1,
-                stream=True,
-                timeout=120,
-                extra_body=runtime_config.llm_extra_body(),
-            )
-
-            async for chunk in stream:
-                if not chunk.choices:
-                    continue
-                delta = chunk.choices[0].delta
-                c = getattr(delta, "content", None) or ""
-                r = (
-                    getattr(delta, "reasoning", None)
-                    or getattr(delta, "reasoning_content", None)
-                    or ""
+                http_client=outbound_http.async_client(
+                    timeout=httpx.Timeout(120.0, connect=10.0),
+                    allowed_origins=[runtime_config.llm_base_url],
+                ),
+            ) as client:
+                stream = await client.chat.completions.create(
+                    model=runtime_config.llm_model,
+                    messages=messages,
+                    temperature=0.1,
+                    stream=True,
+                    timeout=120,
+                    extra_body=runtime_config.llm_extra_body(),
                 )
-                if c:
-                    content_buf += c
-                    yield {"type": "delta", "content": c}
-                elif r:
-                    reasoning_buf += r
-                    yield {"type": "delta", "content": r}
+
+                async for chunk in stream:
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta
+                    c = getattr(delta, "content", None) or ""
+                    r = (
+                        getattr(delta, "reasoning", None)
+                        or getattr(delta, "reasoning_content", None)
+                        or ""
+                    )
+                    if c:
+                        content_buf += c
+                        yield {"type": "delta", "content": c}
+                    elif r:
+                        reasoning_buf += r
+                        yield {"type": "delta", "content": r}
         except Exception as e:
             if attempt < max_attempts:
                 logger.warning(

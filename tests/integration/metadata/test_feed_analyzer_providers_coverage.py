@@ -102,7 +102,15 @@ def _patch_openai(monkeypatch, scripts):
     chat = _FakeChat(scripts)
 
     class FakeOpenAI:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            await self._http_client.aclose()
+            return False
+
         def __init__(self, **kwargs):
+            self._http_client = kwargs["http_client"]
             self.chat = SimpleNamespace(completions=chat)
 
     monkeypatch.setattr(fa, "AsyncOpenAI", FakeOpenAI)

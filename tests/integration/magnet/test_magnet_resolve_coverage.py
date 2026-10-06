@@ -247,7 +247,7 @@ class _FakeHttpxClient:
     def __exit__(self, *a):
         return False
 
-    def stream(self, method, url):
+    def stream(self, method, url, **kwargs):
         return self._resp
 
 

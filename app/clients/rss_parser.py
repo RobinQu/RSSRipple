@@ -11,7 +11,10 @@ import re
 from datetime import datetime
 
 import feedparser
+import httpx
 from pydantic import BaseModel
+
+from app.clients import outbound_http
 
 # Regex to find magnet links in text content
 _MAGNET_RE = re.compile(r"magnet:\?xt=urn:btih:[^\s\"'<>]+", re.IGNORECASE)
@@ -30,8 +33,23 @@ class RawRSSItem(BaseModel):
 
 
 def _parse_feed_sync(url: str) -> feedparser.FeedParserDict:
-    """Synchronous feedparser call (blocking)."""
-    return feedparser.parse(url)
+    """Fetch an administrator-selected HTTP origin, then parse bytes only."""
+    parsed = httpx.URL(url)
+    # A configured RSS endpoint may use Basic auth. Keep credentials out of
+    # URLs passed to transports and parser; HTTPX removes Authorization on
+    # redirects to another origin.
+    auth = httpx.BasicAuth(parsed.username, parsed.password) if parsed.userinfo else None
+    clean = parsed.copy_with(username=None, password=None)
+    outbound_http.origin(clean)
+    with outbound_http.client(
+        timeout=30, allowed_origins=[str(clean)],
+        headers={"User-Agent": feedparser.USER_AGENT},
+    ) as client:
+        response = client.get(clean, auth=auth)
+        response.raise_for_status()
+        headers = dict(response.headers)
+        headers["content-location"] = str(response.url)
+        return feedparser.parse(response.content, response_headers=headers)
 
 
 def _extract_download_urls(entry) -> tuple[str | None, str | None]:

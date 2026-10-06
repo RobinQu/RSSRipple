@@ -1,5 +1,5 @@
 # Isolated full integration gate: always -p <unique-name>.
-# Build rssripple-v0-tests:local with locked dev dependencies first.
+# Build ${RSSRIPPLE_TEST_IMAGE:-rssripple-v0-tests:local} with locked dev dependencies first.
 # No host .env/data mounts or published ports; runtime networking is internal.
 services:
   app:
@@ -11,6 +11,7 @@ services:
       AUTH_ENABLED: 'true'
       API_KEY: test-integration-key
       APP_ROLE: all
+      OUTBOUND_PRIVATE_ORIGINS: '["http://test-server:8080"]'
       MAGNET_RESOLVE_ENABLED: 'true'
       PYTHONPATH: /app
       DATABASE_URL: sqlite+aioturso:///data/rss_ripple_test_turso.db
@@ -55,7 +56,7 @@ services:
       start_period: 15s
     networks:
     - integration-gate
-    image: rssripple-v0-tests:local
+    image: ${RSSRIPPLE_TEST_IMAGE:-rssripple-v0-tests:local}
   app-llm:
     environment:
       LLM_API_KEY: mock-key
@@ -65,6 +66,7 @@ services:
       AUTH_ENABLED: 'true'
       API_KEY: test-integration-key
       APP_ROLE: all
+      OUTBOUND_PRIVATE_ORIGINS: '["http://test-server:8080"]'
       MAGNET_RESOLVE_ENABLED: 'true'
       PYTHONPATH: /app
       DATABASE_URL: sqlite+aioturso:///data/rss_ripple_test_llm_turso.db
@@ -112,7 +114,7 @@ services:
       start_period: 15s
     networks:
     - integration-gate
-    image: rssripple-v0-tests:local
+    image: ${RSSRIPPLE_TEST_IMAGE:-rssripple-v0-tests:local}
   test-server:
     environment:
     - SERVER_URL=http://test-server:8080
@@ -165,6 +167,7 @@ services:
       AUTH_ENABLED: 'true'
       API_KEY: test-integration-key
       APP_ROLE: all
+      OUTBOUND_PRIVATE_ORIGINS: '["http://test-server:8080"]'
       MAGNET_RESOLVE_ENABLED: 'true'
       PYTHONPATH: /app
       DATABASE_URL: sqlite+aioturso:///data/rss_ripple_test_turso.db
@@ -210,7 +213,7 @@ services:
     - --tb=short
     networks:
     - integration-gate
-    image: rssripple-v0-tests:local
+    image: ${RSSRIPPLE_TEST_IMAGE:-rssripple-v0-tests:local}
   coverage-report:
     volumes:
     - gate-data:/app/data
@@ -229,7 +232,7 @@ services:
       -m coverage report --rcfile=/app/.coveragerc --fail-under=85
     networks:
     - integration-gate
-    image: rssripple-v0-tests:local
+    image: ${RSSRIPPLE_TEST_IMAGE:-rssripple-v0-tests:local}
     environment:
       LLM_API_KEY: ''
       TMDB_API_KEY: ''
@@ -238,6 +241,7 @@ services:
       AUTH_ENABLED: 'true'
       API_KEY: test-integration-key
       APP_ROLE: all
+      OUTBOUND_PRIVATE_ORIGINS: '["http://test-server:8080"]'
       MAGNET_RESOLVE_ENABLED: 'true'
       PYTHONPATH: /app
       DATABASE_URL: sqlite+aioturso:///data/rss_ripple_test_turso.db

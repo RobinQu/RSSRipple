@@ -14,6 +14,7 @@ import logging
 from functools import lru_cache
 from typing import Any
 
+from app.clients import outbound_http
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -252,7 +253,7 @@ async def _fetch_wikipedia_page_image(
     # canonical article title it can resolve to a different page and surface an
     # unrelated image. ``_title_ok`` rejects those the same way.
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+        async with outbound_http.async_client(timeout=15) as client:
             resp = await client.get(
                 f"https://{wiki_lang}.wikipedia.org/api/rest_v1/page/summary/{quote(title)}",
                 headers=headers,

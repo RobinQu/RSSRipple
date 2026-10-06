@@ -1,10 +1,47 @@
 """Transmission RPC client wrapper."""
 
 import asyncio
+from functools import partial
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
-from transmission_rpc import Client as TransmissionClient
+import httpx
+from transmission_rpc import Client as _TransmissionClient
+from transmission_rpc.error import TransmissionError
+
+from app.clients.outbound_http import origin
+
+
+class TransmissionClient(_TransmissionClient):
+    """Keep RPC requests at the configured origin, including SDK startup I/O."""
+
+    @staticmethod
+    def _check_redirect(response, *, configured, **kwargs):
+        if not response.is_redirect:
+            return response
+        try:
+            current = httpx.URL(response.url).copy_with(username=None, password=None)
+            target = urljoin(str(current), response.headers["Location"])
+            if origin(target) != origin(configured):
+                raise ValueError("different RPC origin")
+        except Exception as exc:
+            response.close()
+            raise TransmissionError("RPC redirect must remain at the configured HTTP origin") from exc
+        return response
+
+    def _http_query(self, query, timeout=None):
+        # transmission-rpc constructs its Requests session and immediately
+        # calls get_session(). This override installs the response hook before
+        # that first request without changing global Session behavior.
+        if not getattr(self, "_redirect_policy_installed", False):
+            configured = httpx.URL(self._url).copy_with(username=None, password=None)
+            # Capture only the configured URL, not this client, so Session's
+            # hook does not keep a client/session reference cycle alive.
+            self._http_session.hooks["response"].append(
+                partial(self._check_redirect, configured=configured)
+            )
+            self._redirect_policy_installed = True
+        return super()._http_query(query, timeout=timeout)
 
 # Fields requested from Transmission for the torrent list view.
 _TORRENT_FIELDS = [

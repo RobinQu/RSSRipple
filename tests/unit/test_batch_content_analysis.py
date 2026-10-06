@@ -164,7 +164,15 @@ async def test_analyze_listing_timeout_and_thinking_body(monkeypatch):
             return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
     class _FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            await self._http_client.aclose()
+            return False
+
         def __init__(self, **kwargs):
+            self._http_client = kwargs["http_client"]
             captured["client_timeout"] = kwargs.get("timeout")
 
         chat = SimpleNamespace(completions=_FakeCompletions())
@@ -739,7 +747,15 @@ def _fake_openai_client(monkeypatch, completions):
     import openai
 
     class _OpenAI:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            await self._http_client.aclose()
+            return False
+
         def __init__(self, *a, **k):
+            self._http_client = k["http_client"]
             self.chat = _SimpleNamespace(completions=completions)
 
     monkeypatch.setattr(openai, "AsyncOpenAI", _OpenAI)

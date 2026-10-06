@@ -64,15 +64,18 @@ class TestValidateAndPreview:
         assert sample.get("subtitle_group")
 
     def test_preview_feed_bad_url(self):
-        # Unreachable URL: get_raw_entries degrades to an empty entry list
-        # rather than raising (feedparser swallows connection errors).
+        # Explicit HTTP fetching now reports transport failures through the
+        # endpoint's existing FETCH_ERROR response instead of a false empty feed.
         r = _api(
             "/api/v1/channels/preview-feed",
             method="post",
             json={"url": "http://test-server:1/rss"},
         )
-        assert r.status_code == 200
-        assert r.json()["data"]["entries"] == []
+        assert r.status_code == 400
+        body = r.json()
+        assert body["success"] is False and body["data"] is None
+        assert body["error"]["code"] == "FETCH_ERROR"
+        assert body["error"]["message"]
 
 
 class TestFetchFailurePath:

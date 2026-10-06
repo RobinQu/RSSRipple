@@ -26,6 +26,7 @@ import httpx
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.clients import outbound_http
 from app.config import settings
 from app.models.audio_work import AudioWork
 from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
@@ -343,8 +344,8 @@ async def download_and_cache_poster(remote_url: str | None) -> str | None:
                 f"{settings.app_name}/0.1.0 "
                 f"(https://github.com/RobinQu/RSSRipple) metadata-agent"
             )
-            with httpx.Client(
-                timeout=30, follow_redirects=True, headers={"User-Agent": ua}
+            with outbound_http.client(
+                timeout=30, headers={"User-Agent": ua}
             ) as client:
                 resp = client.get(remote_url)
                 resp.raise_for_status()

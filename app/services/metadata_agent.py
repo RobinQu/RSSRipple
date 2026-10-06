@@ -26,6 +26,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent  # noqa: F401 — kept for compat; deprecation warning is harmless
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.clients import outbound_http
 from app.services import metadata_audio_resolver as _resolver
 from app.services import metadata_repository as _repo
 from app.services import metadata_wiki_judge as _wiki_judge
@@ -398,6 +399,14 @@ class UnifiedMetadataAgent:
             model=runtime_config.llm_model,
             api_key=runtime_config.llm_api_key,
             base_url=runtime_config.llm_base_url,
+            # Config resets can retire a model while old runs still use it.
+            # Do not keep idle sockets attached to retired client instances.
+            http_client=outbound_http.client(
+                timeout=60, allowed_origins=[runtime_config.llm_base_url], keepalive_connections=0,
+            ),
+            http_async_client=outbound_http.async_client(
+                timeout=60, allowed_origins=[runtime_config.llm_base_url], keepalive_connections=0,
+            ),
             temperature=0.1,
             # The upstream relay (LLM_BASE_URL) fails two ways, tuned
             # separately because they want opposite handling:

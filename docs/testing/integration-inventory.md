@@ -6,6 +6,16 @@
 
 Turso 的应用子进程完全退出后才由 CLI 打开文件；仅 dispose SQLAlchemy 不代表已释放底层独占句柄。PostgreSQL 沿用 `QUEUE_RECOVERY_POSTGRES_URL` 的专用管理库，每次建 `auth_enrollment_*` 子库并 finally 删除；完整隔离门禁设置 `QUEUE_RECOVERY_REQUIRED=1`，缺库必失败。父测试超时杀进程组，终端文件描述符 finally 关闭。
 
+## 出站请求安全回归
+
+`organize/test_admin_outbound.py` 使用真实本地 HTTP 和 Turso 投递，证明管理员配置的 Plex/Emby/Jellyfin/Wigolo/webhook 内网直连可用，307 不转发请求或凭证。webhook body 使用录制 torrent 的解析文件表，通知外壳为合成；拒绝后检查持久状态与退避。Wigolo 当前空重定向响应在 JSON 解析处报错，本组不宣称其错误分类已统一。
+
+`security/test_sdk_outbound.py` 通过真实 Transmission/OpenAI/OpenRouter/LangChain SDK 与本地协议服务覆盖直连、同源/跨源重定向、409 与 SSE；batch 输入来自既有录制 torrent 的真实解析文件表，模型响应明确合成。`security/test_wiki_outbound.py` 覆盖真实 pageimages→REST summary 回退和私网重定向拒绝，以本地测试 CA 保持 TLS 证书校验。`unit/test_outbound_config.py` 与 `unit/test_outbound_dns.py` 验证 origin 规范化、非法配置、超时和解析容量边界。TLS 矩阵包含同步/异步 `SSL_CERT_FILE`。magnet E2E 经本地 HTTP 回放原 XML，不依赖生产接受文件路径；隔离 Compose 仅显式授权 `http://test-server:8080` 用于派生资源测试。
+
+出站安全：`security/test_untrusted_outbound.py` 使用原录制 torrent 与本地 HTTP/TLS，覆盖生产 torrent/poster 缓存、镜像 infohash、私网重定向、混合 DNS、非标准数字地址、Host/SNI/证书及代理边界；`security/test_feed_outbound.py` 使用含真实磁力条目的既有 XML，覆盖管理员内网 RSS、本地路径/file URI 拒绝和 Basic auth 跨源隔离。公网 DNS/拨号映射、图片及证书为明确合成；不会访问生产或真实公网服务。
+
+`security/test_sdk_outbound.py` 通过生产 Transmission wrapper / RSS 分析 helper 调用真实 SDK，验证私网初始地址、307 跨源拒绝、同源 RPC 跳转、409 session-id 协商及普通/SSE LLM；端点协议响应和凭证为合成。同步/异步连接的 TLS 用真实握手验证 SNI/Host、信任链和 hostname 拒绝。
+
 > 重组完成于 2026-07-24 ｜ 分支 `refactor/integration-tests`
 > 范围：`tests/integration/` ｜ 最新验收（2026-09-09）：**82 个测试文件 / 单节点 2351 passed + 17 skipped**（历史计数：重组前 16 文件 / 166 用例，重组去重 17 个）
 
