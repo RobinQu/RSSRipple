@@ -1,0 +1,52 @@
+{
+  "prototype": "/tmp/rssripple-v22-cors-36t2eojn",
+  "base_runtime_commit": "6bf8c1c",
+  "accepted": false,
+  "files": {
+    "app/config.py": "8c9df6bccc0bfbe9e46ca3246ceea394cf55554770e6b000baa083445545cba8",
+    "app/main.py": "13029f41e7af99614759ac3ac59aa272e1b288e7b7938f462db93b438132545f",
+    "app/middleware/cors.py": "47807f7611bfd0a5f7552643578d246a6966e80f3a4652a32f4187445e5f9ef1",
+    "tests/integration/security/test_cors_policy.py": "40c2e8a3b3ff3e2f96793945f2a77da3612aefbc58313b2b1f00a1d0ca825324",
+    "tests/unit/test_cors_config.py": "648a18ad8ec9dc15f2cac9a6ce650942140a67d140f129ac2686d494cabe905f",
+    ".env.example": "44f3d789276eacac9c2290a891e2b0f88e2e6597251c3c63bfc781bee8aea474",
+    "docs/design/conventions.md": "e5245526456104f988fd5ad499ae86f21ed8285100cd65e26e987094f51e878d",
+    "docs/design/api-endpoints.md": "ced1f49d95b71e9c0b09beafda80293380d9486b05cee1fe237ac5bd888200a6",
+    "docs/testing/integration-inventory.md": "f7626ed2212af18ad423eb5023f504ae6c0640a8669deba12bfb39f225b62958",
+    "app/middleware/csrf.py": "c30efc8597a21c3e163403379ba987c8996267f2f3ace07614bed4eee3a08f09",
+    "docs/design/error-handling.md": "814994f8495b792d79b09031bbb7d11adadee69ace49cf827b9557e39d3376bb",
+    "tests/browser/README.md": "55f60aabbc5fed6c829fab6726d108372a2a4408e0f445801bfb6cf8f154e886",
+    "tests/browser/cors_fixture_server.py": "42eecb8a5a2d5bde64dfb6998414b456298560c03109999bc2b45526ee0b7d2e",
+    "tests/browser/cors_policy.cjs": "ed54e5a7bf392d4f002d16d432101be4a8326cdf53645fe82612c2685dd70c95"
+  },
+  "base_hashes": {
+    "app/config.py": "57b4bd7bac61ed0f60cfa09846ea6647d97ff69a457fcd7c2f4b2ae06fda1a99",
+    "app/main.py": "18d941b374bbdfe6e468314bb20df33452f92d43de2dedf76cac2189174b9ea0",
+    "app/middleware/cors.py": null,
+    "tests/integration/security/test_cors_policy.py": null,
+    "tests/unit/test_cors_config.py": null,
+    ".env.example": "4a7fdb10283290bceebf41385a39c2fcbaa1716fb6aa404dd3a4d42960ba9862",
+    "docs/design/conventions.md": "72a6522b6d5435f2051d38793c4a111b107ccacc21e99c020e49185c4e971d40",
+    "docs/design/api-endpoints.md": "b401921e6fc7c23e2e99b4272f144b5fb16f63d2e72dfa5ce4200e083f94f2f9",
+    "docs/testing/integration-inventory.md": "de96961fd322cff52f945d460b6d1e2bb135a13a96dc3f1c74d8002b7fafeaef",
+    "app/middleware/csrf.py": null,
+    "docs/design/error-handling.md": "f49395ac467af2d0168f84d2846a5196be70a1410477dbfa250a6b8357b53f2b",
+    "tests/browser/README.md": null,
+    "tests/browser/cors_fixture_server.py": null,
+    "tests/browser/cors_policy.cjs": null
+  },
+  "targeted": {
+    "n": {
+      "passed": 76,
+      "exit": 0,
+      "seconds": 26.72
+    },
+    "o": {
+      "passed": 78,
+      "exit": 0,
+      "seconds": 26.49,
+      "cors_lines": "8/8",
+      "csrf_lines": "35/35",
+      "warning": "existing pytest event_loop_policy deprecation"
+    }
+  }
+}
