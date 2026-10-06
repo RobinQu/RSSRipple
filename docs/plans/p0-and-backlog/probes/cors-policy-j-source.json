@@ -1,0 +1,44 @@
+{
+  "prototype": "/tmp/rssripple-v22-cors-36t2eojn",
+  "base_runtime_commit": "6bf8c1c",
+  "accepted": false,
+  "files": {
+    "app/config.py": "8c9df6bccc0bfbe9e46ca3246ceea394cf55554770e6b000baa083445545cba8",
+    "app/main.py": "13029f41e7af99614759ac3ac59aa272e1b288e7b7938f462db93b438132545f",
+    "app/middleware/cors.py": "47807f7611bfd0a5f7552643578d246a6966e80f3a4652a32f4187445e5f9ef1",
+    "tests/integration/security/test_cors_policy.py": "e42f34a1d85c32b826770f890a6617cdb914c76b50e3a33af59912d7463c1ffb",
+    "tests/unit/test_cors_config.py": "648a18ad8ec9dc15f2cac9a6ce650942140a67d140f129ac2686d494cabe905f",
+    ".env.example": "44f3d789276eacac9c2290a891e2b0f88e2e6597251c3c63bfc781bee8aea474",
+    "docs/design/conventions.md": "97f571dab2d8eb144853a5572f39505e6993e2fe97307d34924d81307feab0e2",
+    "docs/design/api-endpoints.md": "ced1f49d95b71e9c0b09beafda80293380d9486b05cee1fe237ac5bd888200a6",
+    "docs/testing/integration-inventory.md": "cc8d07d3bdf05fd578a26f0e321b684ee6f3bd8614ff34a1c19253aa98f4ca6e",
+    "app/middleware/csrf.py": "e7961a971059551dc8a4dbe40bf6970df1507c001dbe49c4f7cc99794bd655e9",
+    "docs/design/error-handling.md": "814994f8495b792d79b09031bbb7d11adadee69ace49cf827b9557e39d3376bb"
+  },
+  "base_hashes": {
+    "app/config.py": "57b4bd7bac61ed0f60cfa09846ea6647d97ff69a457fcd7c2f4b2ae06fda1a99",
+    "app/main.py": "18d941b374bbdfe6e468314bb20df33452f92d43de2dedf76cac2189174b9ea0",
+    "app/middleware/cors.py": null,
+    "tests/integration/security/test_cors_policy.py": null,
+    "tests/unit/test_cors_config.py": null,
+    ".env.example": "4a7fdb10283290bceebf41385a39c2fcbaa1716fb6aa404dd3a4d42960ba9862",
+    "docs/design/conventions.md": "72a6522b6d5435f2051d38793c4a111b107ccacc21e99c020e49185c4e971d40",
+    "docs/design/api-endpoints.md": "b401921e6fc7c23e2e99b4272f144b5fb16f63d2e72dfa5ce4200e083f94f2f9",
+    "docs/testing/integration-inventory.md": "de96961fd322cff52f945d460b6d1e2bb135a13a96dc3f1c74d8002b7fafeaef",
+    "app/middleware/csrf.py": null,
+    "docs/design/error-handling.md": "f49395ac467af2d0168f84d2846a5196be70a1410477dbfa250a6b8357b53f2b"
+  },
+  "targeted": {
+    "i": {
+      "passed": 46,
+      "exit": 0,
+      "seconds": 1.0
+    },
+    "browser_j": {
+      "exit": 0,
+      "untrusted_logout_preserved_auth": true,
+      "allowed_logout_cleared_auth": true,
+      "server_sigint_exit": 130
+    }
+  }
+}

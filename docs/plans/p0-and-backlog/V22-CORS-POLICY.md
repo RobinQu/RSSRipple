@@ -38,3 +38,11 @@ f 启动器模块名错误、g 初始化与服务使用不同事件循环导致�
 关键新证据：从未授权同站来源发简单 POST 到真实 `/api/v1/auth/logout`，浏览器读取失败，但返回 API 同源页面再读状态为 authenticated=false。这证明当前 CORS 原型不能阻止退出登录副作用，SameSite=Lax 也不能阻止本次同站来源行为。仅证明 logout CSRF，不推广为所有业务写操作可被跨站利用。
 
 下一步扩展状态变更来源防护：明确 Cookie/无凭证认证端点与显式 API key 的规则，允许同源与配置白名单，拒绝不可信 Origin/明确跨站浏览器请求；保留无 Origin 程序端兼容，并评估 Referer/Sec-Fetch-Site 的边界。需用真实浏览器重新证明未授权 logout 不清 Cookie，并覆盖合法登录/退出及业务写入，不能只让 CORS read 失败。浏览器原始脚本、启动器、结果与夹具错误日志归档为 probes/cors-browser-*；临时服务发送 SIGINT 后会话 82114 已终止，进程退出 130；浏览器脚本自身退出 0，源页面临时 HTTP 服务在 finally 关闭。
+
+## 来源防护原型与浏览器回归（i/j）
+
+增加独立 BrowserOriginMiddleware，在 CORS 内、完整应用栈外拒绝不可信的 API 状态变更；同源比较按 scheme/host/实际端口，配置白名单共享来源规范。Origin 优先；缺失时使用 Referer，完全缺失时拒绝明确 cross-site/same-site Fetch Metadata；无浏览器来源头的程序端保留兼容。明确 API-key 头不会绕过不可信来源检查。403 使用 FORBIDDEN 统一错误结构，已同步候选权威约定/API/错误文档。
+
+i 46 passed、1 项既有弃用警告，1.00 秒；涵盖真实 logout 是否发送清 Cookie、信任/不信任来源、无来源兼容以及实际 channels 请求模型自动 422。Ruff 通过。j 真实 Chromium 脚本加入强断言并退出 0：拒绝同站来源 logout 后同源状态仍 authenticated=true；允许来源 logout 返回 200，随后 authenticated=false；允许读取和拒绝读取保持正常。临时服务 SIGINT 退出 130，浏览器与页面服务 finally 清理。
+
+十一文件候选/基线/归档见 `probes/cors-policy-j-*`，浏览器结果与脚本见 `probes/cors-browser-j-*`。尚未合入；仍需把浏览器入口整理为可移植自动化、覆盖代理/重复头/压缩/poster 等剩余边界、完整代码审查以及 ≥95%/≥85% 门禁。V21 冻结候选未修改。
