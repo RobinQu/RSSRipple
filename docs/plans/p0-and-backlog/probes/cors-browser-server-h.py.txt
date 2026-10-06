@@ -1,0 +1,25 @@
+import asyncio
+from pathlib import Path
+import sys
+sys.path.insert(0, '/tmp/rssripple-v22-cors-36t2eojn')
+from fastapi.responses import HTMLResponse
+from app.main import app
+from app.database import create_tables, async_session_factory
+from app.services.settings_service import set_setting
+
+@app.get('/browser-probe')
+async def browser_probe():
+    return HTMLResponse('<!doctype html><title>Synthetic CORS probe</title>')
+
+async def setup():
+    await create_tables()
+    async with async_session_factory() as db:
+        await set_setting(db, 'auth_totp_secret', 'JBSWY3DPEHPK3PXP')
+        await db.commit()
+
+if __name__ == '__main__':
+    import uvicorn
+    async def main():
+        await setup()
+        await uvicorn.Server(uvicorn.Config(app, host='127.0.0.1', port=32900, lifespan='off', log_level='warning')).serve()
+    asyncio.run(main())

@@ -28,3 +28,13 @@ a 三项红测中第三项先因错误假设未知 API 路径应返回 404 失�
 c 首次因遗漏 lifespan 的 FastAPI 类型导入而收集失败，修正后 d 14 passed；e 扩大错误/配置/流式/无 Origin/拒绝来源矩阵，32 passed、1 项既有 pytest 弃用警告，0.94 秒，Ruff 通过。422 专项目前由临时端点主动抛出，不代表已覆盖请求模型自动验证；500 为真实未捕获异常经生产 handler 生成。源码/基线与九文件候选归档见 `probes/cors-policy-e-*`。
 
 续接仍须独立进程配置接入、真实 Cookie/浏览器 SameSite/CSRF、GZip、poster 和自动 422 等边界；随后对齐 V21 验收主干、五维审查和完整双门禁。32 项局部通过不关闭 S4，也不替代 CSRF 论证。
+
+## Chromium 真实 Cookie 验证（f–h）
+
+在三个仅回环临时来源上运行 Chromium 1194，启动独立 Turso 库，生产 TOTP 端点使用固定合成秘钥登录并实际签发 HttpOnly/SameSite=Lax Cookie。环境变量允许 127.0.0.1:32901；拒绝同站另一端口 32902 及跨站 localhost:32902。不加载真实用户配置，应用 lifespan 关闭以避免调度任务；建表与测试秘钥初始化使用生产 DB helper。
+
+f 启动器模块名错误、g 初始化与服务使用不同事件循环导致登录 500，均为夹具失败，不是产品缺陷。h 修复后浏览器脚本退出 0：允许来源读取 authenticated=true；两个拒绝来源 fetch 均报 TypeError。Playwright 对被 CORS 阻断请求获取的请求头不完整，结果 JSON 的 cookieSent=false **不能当作 Cookie 未上网证据**；该字段只来自浏览器 API 可见头。
+
+关键新证据：从未授权同站来源发简单 POST 到真实 `/api/v1/auth/logout`，浏览器读取失败，但返回 API 同源页面再读状态为 authenticated=false。这证明当前 CORS 原型不能阻止退出登录副作用，SameSite=Lax 也不能阻止本次同站来源行为。仅证明 logout CSRF，不推广为所有业务写操作可被跨站利用。
+
+下一步扩展状态变更来源防护：明确 Cookie/无凭证认证端点与显式 API key 的规则，允许同源与配置白名单，拒绝不可信 Origin/明确跨站浏览器请求；保留无 Origin 程序端兼容，并评估 Referer/Sec-Fetch-Site 的边界。需用真实浏览器重新证明未授权 logout 不清 Cookie，并覆盖合法登录/退出及业务写入，不能只让 CORS read 失败。浏览器原始脚本、启动器、结果与夹具错误日志归档为 probes/cors-browser-*；临时服务发送 SIGINT 后会话 82114 已终止，进程退出 130；浏览器脚本自身退出 0，源页面临时 HTTP 服务在 finally 关闭。

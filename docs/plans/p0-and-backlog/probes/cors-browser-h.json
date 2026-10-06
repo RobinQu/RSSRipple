@@ -1,0 +1,65 @@
+{
+  "synthetic": true,
+  "browser": "Chromium",
+  "cases": [
+    {
+      "name": "allowed-same-site",
+      "read": {
+        "status": 200,
+        "body": {
+          "success": true,
+          "data": {
+            "authenticated": true
+          },
+          "error": null,
+          "meta": {}
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "cookieSent": true,
+          "origin": "http://127.0.0.1:32901"
+        }
+      ]
+    },
+    {
+      "name": "denied-same-site",
+      "read": {
+        "error": "TypeError"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "cookieSent": false
+        }
+      ]
+    },
+    {
+      "name": "denied-cross-site",
+      "read": {
+        "error": "TypeError"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "cookieSent": false
+        }
+      ]
+    }
+  ],
+  "cookieAttributes": [
+    {
+      "name": "rssripple_auth",
+      "httpOnly": true,
+      "sameSite": "Lax",
+      "secure": false
+    }
+  ],
+  "logout": {
+    "browserRead": {
+      "error": "TypeError"
+    },
+    "authenticatedAfter": false
+  }
+}
