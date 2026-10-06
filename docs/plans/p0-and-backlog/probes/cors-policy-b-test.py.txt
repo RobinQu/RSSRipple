@@ -1,0 +1,46 @@
+"""Production ASGI stack checks; origins and bootstrap credential are synthetic.
+
+No browser SameSite or CSRF conclusion follows from manually setting Cookie.
+"""
+
+import httpx
+import pytest
+
+from app.config import settings
+from app.main import app
+
+
+@pytest.fixture
+async def cors_client(monkeypatch):
+    monkeypatch.setattr(settings, "auth_enabled", True)
+    monkeypatch.setattr(settings, "api_key", "synthetic-cors-probe")
+    app.middleware_stack = None
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://api.example.test") as client:
+        yield client
+    app.middleware_stack = None
+
+
+async def test_allowed_preflight_reaches_cors_before_auth(cors_client):
+    response = await cors_client.options("/api/v1/channels", headers={
+        "Origin": "https://ui.example.test", "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "authorization,content-type",
+    })
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "https://ui.example.test"
+
+
+async def test_allowed_unauthorized_response_exposes_cors(cors_client):
+    response = await cors_client.get("/api/v1/channels", headers={"Origin": "https://ui.example.test"})
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "UNAUTHORIZED"
+    assert response.headers.get("access-control-allow-origin") == "https://ui.example.test"
+
+
+async def test_unlisted_origin_does_not_receive_credentialed_read_permission(cors_client):
+    response = await cors_client.get("/api/v1/synthetic-missing", headers={
+        "Origin": "https://unlisted.example.test", "X-API-Key": "synthetic-cors-probe",
+        "Cookie": "synthetic=present",
+    })
+    # The production SPA catch-all returns 200 for this synthetic path.
+    assert response.status_code == 200
+    assert "access-control-allow-origin" not in response.headers

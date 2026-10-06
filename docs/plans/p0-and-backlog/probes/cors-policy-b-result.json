@@ -1,0 +1,27 @@
+{
+  "base_runtime_commit": "6bf8c1c",
+  "prototype": "/tmp/rssripple-v22-cors-36t2eojn",
+  "accepted": false,
+  "runtime_changes": false,
+  "a": {
+    "exit": 1,
+    "failed": 3,
+    "note": "First two valid reproductions; third stopped on mistaken 404 assumption for SPA fallback"
+  },
+  "b": {
+    "exit": 1,
+    "failed": 3,
+    "seconds": 0.96,
+    "findings": [
+      "OPTIONS returns 401",
+      "401 lacks allow-origin",
+      "arbitrary Origin reflected with credentials when synthetic Cookie and valid synthetic API key sent"
+    ]
+  },
+  "test_sha256": "9c1b93fc6814535281f1e41e6ef9d246bfe548208bdb6e46cb9e37e19f5caa3f",
+  "limitations": [
+    "No browser execution",
+    "Synthetic Cookie does not prove session authentication or SameSite bypass",
+    "No real user data or external network accessed"
+  ]
+}
