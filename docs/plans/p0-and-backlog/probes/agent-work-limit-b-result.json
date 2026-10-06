@@ -1,0 +1,38 @@
+{
+  "prototype": "/tmp/rssripple-v23-work-limit-ji74j3mq",
+  "base_runtime_commit": "6bf8c1c",
+  "accepted": false,
+  "runtime_changes": false,
+  "a": {
+    "failed": 4,
+    "reason": "fixture missing required content_type"
+  },
+  "b": {
+    "passed": 2,
+    "failed": 2,
+    "seconds": 6.89,
+    "exit": 1,
+    "observations": {
+      "test_effective_work_limit[replace-eleven]": {
+        "observed_status": "200",
+        "persisted_works": "11",
+        "persisted_scope_channel_wide": "False"
+      },
+      "test_effective_work_limit[narrow-existing-eleven]": {
+        "observed_status": "200",
+        "persisted_works": "11",
+        "persisted_scope_channel_wide": "False"
+      },
+      "test_effective_work_limit[replace-ten]": {
+        "observed_status": "200",
+        "persisted_works": "10",
+        "persisted_scope_channel_wide": "False"
+      },
+      "test_effective_work_limit[wide-eleven]": {
+        "observed_status": "200",
+        "persisted_works": "11",
+        "persisted_scope_channel_wide": "True"
+      }
+    }
+  }
+}

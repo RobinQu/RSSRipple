@@ -1,0 +1,52 @@
+"""Real router + Turso persistence probes for the documented work limit.
+
+All identities/counts are synthetic; a torrent corpus is not relevant here.
+"""
+
+import pytest
+from sqlalchemy import func, select
+
+from app.models.agent import Agent
+from app.models.agent_work import AgentWork
+from app.models.movie import Movie
+from tests.api.test_agents import channel_and_dl  # noqa: F401
+
+
+@pytest.mark.parametrize("scenario", ["replace-eleven", "narrow-existing-eleven", "replace-ten", "wide-eleven"])
+async def test_effective_work_limit(client, channel_and_dl, db_session, scenario, record_property):
+    channel_id, downloader_id = channel_and_dl
+    movies = [Movie(title_cn=f"Synthetic cap probe {i}") for i in range(11)]
+    db_session.add_all(movies)
+    await db_session.commit()
+    works = [{"movie_id": m.id, "content_type": "movie"} for m in movies]
+    initially_wide = scenario == "narrow-existing-eleven"
+    original = works if initially_wide else works[:1]
+    response = await client.post("/api/v1/agents", json={
+        "name": "Synthetic cap probe", "channel_id": channel_id, "downloader_id": downloader_id,
+        "scope_channel_wide": initially_wide, "works": original,
+    })
+    assert response.status_code == 201
+    agent_id = response.json()["data"]["id"]
+    body = {"name": "Changed name"}
+    if initially_wide:
+        body["scope_channel_wide"] = False
+    else:
+        body["works"] = works[:10] if scenario == "replace-ten" else works
+        if scenario == "wide-eleven":
+            body["scope_channel_wide"] = True
+    response = await client.put(f"/api/v1/agents/{agent_id}", json=body)
+    db_session.expire_all()
+    count = await db_session.scalar(select(func.count()).select_from(AgentWork).where(AgentWork.agent_id == agent_id))
+    agent = await db_session.get(Agent, agent_id)
+    record_property("observed_status", response.status_code)
+    record_property("persisted_works", count)
+    record_property("persisted_scope_channel_wide", agent.scope_channel_wide)
+    if scenario in {"replace-eleven", "narrow-existing-eleven"}:
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+        assert count == len(original)
+        assert agent.name == "Synthetic cap probe"
+        assert agent.scope_channel_wide == initially_wide
+    else:
+        assert response.status_code == 200
+        assert count == (10 if scenario == "replace-ten" else 11)
