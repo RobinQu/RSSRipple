@@ -8,7 +8,7 @@
 
 > 2026-09-27 主干复核：当前 P0（P0-1/2/3/7/8/9）及 B9 的提交 `4c804ed` 已包含在本地 `main`；原 P0-4、P0-6 降级后的修复 `7fd8121`、`e535e1f` 也已包含。原 P0-5 仍按 P2 保留。最新核验基线 `098c5c3`，本地领先本地记录的 `origin/main` 45 个提交（核验记录提交前），未推送远端；详情见 [PLAN.md](PLAN.md#p0-主干复核2026-09-27)。
 
-> B7/B4/M1/M2 已验收合入，详见 V13–V16；M3 也已通过 x/aa 完整门禁并合入 `2274768`，见 [V17](V17-WIKI-TRANSIENT-FAILURE.md)。S2 已通过 p/q 合入 `f343b7b`，S3 已通过 m/n 合入 `b0e2ce1`；下一批继续 S1 剩余出站路径和严格验证；S1 的必要性与严格出站验证方案见 [V20](V20-OUTBOUND-POLICY.md)。候选已补 batch/LangChain/OpenRouter/Wiki 路径及真实 HTTP feed 回放；ah 单元/API 4078 项、97.11%；ak 完整集成 3280 项、88.33%，均零失败；待最终合入审查，尚不能关闭 S1。
+> B7/B4/M1/M2 已验收合入，详见 V13–V16；M3 也已通过 x/aa 完整门禁并合入 `2274768`，见 [V17](V17-WIKI-TRANSIENT-FAILURE.md)。S2 已通过 p/q 合入 `f343b7b`，S3 已通过 m/n 合入 `b0e2ce1`；S1 也已验收合入 `6bf8c1c`，下一步推进剩余问题；S1 的必要性与严格出站验证方案见 [V20](V20-OUTBOUND-POLICY.md)。候选已补 batch/LangChain/OpenRouter/Wiki 路径及真实 HTTP feed 回放；ah 单元/API 4078 项、97.11%；ak 完整集成 3280 项、88.33%，均零失败；已完成最终审查与本地合入。
 
 ## 优先级
 
@@ -34,8 +34,7 @@
 
 ### 安全
 
-- [ ] **P1-S1 外部派生 URL 与 SDK 重定向缺少目的地约束**：已复现 torrent/poster、RSS/镜像及部分 LLM/RPC 调用可触达未授权私网目标。管理员明确配置的内网 webhook/media-server/Wigolo 直连属于正常功能，ag 真实 HTTP 验证其默认不跟随重定向，不再笼统归为缺陷。
-      **修复**：独立候选已接入连接时 DNS/IP 校验、逐跳策略、精确私网例外、CA 兼容及有界 DNS；覆盖 batch/LangChain/OpenRouter/Wiki，magnet 夹具改为 HTTP 回放。完整 ah/ak 门禁已通过（97.11%/88.33%），冻结和跳过审计通过；仍待最终审查合入。方案、原始红测和续接目录见 [V20](V20-OUTBOUND-POLICY.md)，门禁前五维审查见 [V20-REVIEW](V20-REVIEW.md)。
+- [x] **P1-S1 外部派生 URL 与 SDK 重定向目的地约束**：已合入本地 main `6bf8c1c`。完整 ah 单元/API 4078 passed、97.11%；ak 集成 3280 passed、88.33%，零失败，跳过/哈希/退出/清理审计完成。真实录制数据与受控 HTTP/TLS/SDK 验证范围见 [V20](V20-OUTBOUND-POLICY.md)，五维审查见 [V20-REVIEW](V20-REVIEW.md)。
 
 ---
 

@@ -1,6 +1,8 @@
 # V21：过期资源清理保留权威关联
 
-状态：必要性已复现，独立原型 `/tmp/rssripple-v21-cleanup-fs3vtp33`，基于已验收 main 运行代码 `b0e2ce1`；未合入、未完整验收。S1 ah/ai 门禁期间未修改其冻结目录。最新 V21 十四文件候选/基线哈希见 `probes/cleanup-associations-u-source.json`，可从同名前缀 candidate.tar.gz 恢复。
+最新状态：已三方对齐 S1 主干 `6bf8c1c`，新候选 `/tmp/rssripple-v21-rebased-176jhgxl`，十四文件无冲突，完整 v/w 门禁已启动（单元会话 75854；集成日志/退出跟踪会话 81087）。冻结与源码见 `probes/cleanup-associations-v-*`，五维审查见 [V21-REVIEW](V21-REVIEW.md)。未合入。
+
+历史原型：必要性已复现，独立原型 `/tmp/rssripple-v21-cleanup-fs3vtp33`，基于已验收 main 运行代码 `b0e2ce1`；未合入、未完整验收。S1 ah/ai 门禁期间未修改其冻结目录。最新 V21 十四文件候选/基线哈希见 `probes/cleanup-associations-u-source.json`，可从同名前缀 candidate.tar.gz 恢复。
 
 ## 必要性与优先级
 
@@ -35,3 +37,5 @@ r 暴露父表重建时触发器引用临时不存在的表，26 passed / 2 fail
 - S1 验收合入后将十四文件候选对齐最新 main，保留 S1 同文件变更；权威业务/API/数据模型/迁移/集成文档已在候选同步，尚未应用主干。
 - 五维审查必须包含新增 Turso DDL 生命周期、升级回滚与事务重试范围；冻结后执行完整单元/API ≥95% 和唯一隔离集成 ≥85%，零失败，审计跳过、哈希、退出、覆盖率、导出及清理。
 - 当前专项不能替代完整门禁；本项仍为 P2 未完成，不从 TODO 删除。
+
+续接：实时路径、独立项目和收尾要求见 `probes/cleanup-associations-v-w-running.json`。w 的 up -d 同时启动报告器，报告器在建表前因缺 tv_series 退出 1；原始错误已归档，不能当最终覆盖率结果。实际 test-runner 已运行，禁止重复启动；最终报告需等测试结束和应用正常退出后执行。

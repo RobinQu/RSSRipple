@@ -1,8 +1,8 @@
 # S1：按输入来源约束出站请求
 
-状态：已复核必要性并建立本地复现；独立副本已实现部分连接策略原型，尚未合入 main。副本 `/tmp/rssripple-v20-outbound-policy` 的运行基线为 M2 `756bce6`；M3 合入 `2274768` 后，所测 torrent/poster 两个服务文件没有变化。
+状态：已验收合入本地 main `6bf8c1c`。以下原型起点说明为历史记录。副本 `/tmp/rssripple-v20-outbound-policy` 的运行基线为 M2 `756bce6`；M3 合入 `2274768` 后，所测 torrent/poster 两个服务文件没有变化。
 
-最新续修目录：`/tmp/rssripple-v20-validation-h9wb61g5`，基于已验收 main 运行代码 `b0e2ce1`。aj 候选 37 有效文件、3099 冻结输入；源码、归档和冻结清单见 `probes/outbound-policy-aj-*`。完整单元/API ah：4078 passed、12 skipped、97.11%；完整集成 ak：3280 passed、17 skipped、88.33%，均退出 0。冻结输入未变，跳过理由无变化，两路应用退出 0，覆盖率与证据导出退出 0。尚待最后合入审查，未合入 main。机器证据见 `probes/outbound-policy-aj-ak-audit.json`；下文旧副本与未完成状态均为历史记录。
+最新续修目录：`/tmp/rssripple-v20-validation-h9wb61g5`，基于已验收 main 运行代码 `b0e2ce1`。aj 候选 37 有效文件、3099 冻结输入；源码、归档和冻结清单见 `probes/outbound-policy-aj-*`。完整单元/API ah：4078 passed、12 skipped、97.11%；完整集成 ak：3280 passed、17 skipped、88.33%，均退出 0。冻结输入未变，跳过理由无变化，两路应用退出 0，覆盖率与证据导出退出 0。已完成最终审查，合入本地 main `6bf8c1c`，未推送。机器证据见 `probes/outbound-policy-aj-ak-audit.json`；下文旧副本与未完成状态均为历史记录。
 
 ai 首次完整集成 3274 passed / 2 failed / 17 skipped，覆盖率 88.27%，不能验收。两处失败分别为不可达 feed 旧用例期待 200 空结果（现有 API 的抓取失败契约为 400 FETCH_ERROR）、镜像 mock stream 不接受 auth 参数。aj 修正这两处测试并增加真实 HTTP→生产预览路由的有效 feed、成功空 feed、HTTP 失败和禁止跨源四类测试，专项 73 passed。仅三个集成测试文件及 API 文档相对 ah 改变，应用、单元/API、配置、依赖和夹具完全相同，因此复用 ah 完整单元门禁。ai 红测、清理退出及跳过审计保留在 `probes/outbound-policy-ah-ai-*`。
 

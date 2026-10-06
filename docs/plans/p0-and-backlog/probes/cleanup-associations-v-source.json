@@ -1,0 +1,37 @@
+{
+  "prototype": "/tmp/rssripple-v21-rebased-176jhgxl",
+  "base_runtime_commit": "6bf8c1c",
+  "files": {
+    "app/database.py": "410a34075e58af554ddc42fc64f5bf4ca92b5057f985c22c016dd73e1b8ba001",
+    "app/models/__init__.py": "eeb29fcfa15391c6a11161e338bac17586363ff7cf6d1d1755f38232fac03e1f",
+    "app/services/resource_cleanup.py": "b881cc2b071a5cd2d3eae2a39daebe6c7090c06154536a53838dd335765ded62",
+    "app/services/resource_parent_guard.py": "4aba54d2705432a6f755a180471b1710170033378be97c47c23d5f1d6879848e",
+    "app/services/schema_foreign_keys.py": "46f8e6fd111eb0866edd618b2598e4c7888e8c3fd47bac4f83e8b4ce23b12d82",
+    "tests/integration/organize/test_cleanup_associations.py": "d85f1b4d2de7cda2a6b966ba1a1c751dc5f40759adb1bdebde67c54d669025a5",
+    "tests/integration/organize/test_cleanup_postgres.py": "fea252ef8bc4949d37ce6f9b8feb0bf21fa8030f1663196e1c56f741ee963b62",
+    "tests/integration/organize/test_cleanup_turso_concurrency.py": "623dabcc9c9908a721cd3a6e2792b5e9bcee780ed6ea061e2f718d1f3231a065",
+    "tests/integration/organize/test_cleanup_schema.py": "309674afccaa78950802c427ca610a8c27f9975883849b68a988bc7989d57585",
+    "docs/design/business-logic.md": "91f17c6d8b284b8dbf8827eeb7bdafc6e751e5b478e1942c84e76b0a448e06b5",
+    "docs/design/api-endpoints.md": "3138ff4d75fce89fe8606a3aaad92174116f1bef4a7b22d8fae9ea72fe7f1d11",
+    "docs/design/data-models.md": "5b36d512815192c2fdb8f9de50cb9b6ca996efcb7fc690796805c9e7bd977558",
+    "docs/design/db-migration.md": "23fb5ebf67367f9c5fb46dc3ba7e1bdf47fe4cd160c2909b21611037d020c0f0",
+    "docs/testing/integration-inventory.md": "ae8b9381e497e98be3bbce86c9d0aa567272ca5ccb27b7f9e9134e27f941174a"
+  },
+  "base_hashes": {
+    "app/database.py": "fce844a848c7326e8fa0d642e241a8a1abc834815dc9df877b1bbca2a41202f4",
+    "app/models/__init__.py": "34467b58212f9dcf1edf911cdba3494b3cac63cab04393c211bab49a0954ee43",
+    "app/services/resource_cleanup.py": "b421272f4dd7f49b5c5601f75a7bdda5a1da7ad806b9df786db597d5c4a9b48f",
+    "app/services/resource_parent_guard.py": null,
+    "app/services/schema_foreign_keys.py": "3658c48cc9a732b2baa3c55796b05bb25f67a4fb1c6562161ebae4c3ba956f2f",
+    "tests/integration/organize/test_cleanup_associations.py": null,
+    "tests/integration/organize/test_cleanup_postgres.py": null,
+    "tests/integration/organize/test_cleanup_turso_concurrency.py": null,
+    "tests/integration/organize/test_cleanup_schema.py": null,
+    "docs/design/business-logic.md": "3abcd56733f800dc031de31dcf185b1859f97182dbe3b16e22d3cabcb22e3ee7",
+    "docs/design/api-endpoints.md": "b401921e6fc7c23e2e99b4272f144b5fb16f63d2e72dfa5ce4200e083f94f2f9",
+    "docs/design/data-models.md": "3bc0e52f282bf5b501fac1d1cdda8e68aeb6653cb00bba7ac0128bc94fe3a5c2",
+    "docs/design/db-migration.md": "881860af3e46caa903b927e99b950877bf882c6a176adaebb762344642cfd8f8",
+    "docs/testing/integration-inventory.md": "de96961fd322cff52f945d460b6d1e2bb135a13a96dc3f1c74d8002b7fafeaef"
+  },
+  "accepted": false
+}

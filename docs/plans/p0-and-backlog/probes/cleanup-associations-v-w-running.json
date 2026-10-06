@@ -1,0 +1,33 @@
+{
+  "accepted": false,
+  "prototype": "/tmp/rssripple-v21-rebased-176jhgxl",
+  "base_runtime_commit": "6bf8c1c",
+  "source": "cleanup-associations-v-source.json",
+  "freeze": "cleanup-associations-v-frozen.json",
+  "unit": {
+    "status": "running",
+    "session": 75854,
+    "postgres_container": "rssripple-v21-unit-pg-v",
+    "postgres_port": 32854,
+    "log": "/tmp/rssripple-v21-unit-v.log",
+    "junit": "/tmp/rssripple-v21-unit-v.xml",
+    "coverage": "/tmp/rssripple-v21-unit-v-coverage.xml",
+    "coverage_data": "/tmp/rssripple-v21-unit-v.coverage",
+    "threshold": 95
+  },
+  "integration": {
+    "status": "running",
+    "session": 81087,
+    "container": "rssripple-v21-final-w-test-runner-1",
+    "project": "rssripple-v21-final-w",
+    "startup_exit": 0,
+    "log": "/tmp/rssripple-v21-integration-w.log",
+    "exit_file": "/tmp/rssripple-v21-integration-w.exit",
+    "image": "rssripple-v20-tests:local",
+    "threshold": 85,
+    "cleanup": "pending",
+    "early_report_exit": 1,
+    "early_report_note": "up -d also started report before schema existed; no such table tv_series. Preserve evidence; final report must run after tests and app SIGINT/exits. Do not launch another runner."
+  },
+  "warning": "Frozen candidate: do not edit. Poll actual handles; after terminal collect app exits, final coverage, export, down unique project and stop unit PG."
+}
