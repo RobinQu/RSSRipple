@@ -1,0 +1,158 @@
+{
+  "accepted": false,
+  "runs": {
+    "g": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "8",
+      "time": "3.592",
+      "timestamp": "2026-09-27T15:28:40.123134+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "h": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "17",
+      "time": "25.170",
+      "timestamp": "2026-09-27T15:29:49.011904+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "i": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "1",
+      "skipped": "0",
+      "tests": "1",
+      "time": "1.714",
+      "timestamp": "2026-09-27T15:31:08.947504+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "j": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "1",
+      "time": "1.294",
+      "timestamp": "2026-09-27T15:32:13.351708+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "k": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "1",
+      "skipped": "0",
+      "tests": "42",
+      "time": "21.314",
+      "timestamp": "2026-09-27T15:33:23.282192+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "l": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "1",
+      "skipped": "0",
+      "tests": "1",
+      "time": "1.736",
+      "timestamp": "2026-09-27T15:35:29.946397+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "m": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "2",
+      "time": "3.411",
+      "timestamp": "2026-09-27T15:37:16.958100+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "n": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "1",
+      "time": "1.655",
+      "timestamp": "2026-09-27T15:39:40.161708+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "o": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "2",
+      "time": "3.672",
+      "timestamp": "2026-09-27T15:42:27.480124+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "p": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "13",
+      "time": "22.844",
+      "timestamp": "2026-09-27T15:43:46.384284+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "q": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "103",
+      "time": "122.785",
+      "timestamp": "2026-09-27T15:45:44.057811+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "r": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "2",
+      "skipped": "0",
+      "tests": "28",
+      "time": "53.434",
+      "timestamp": "2026-09-27T15:47:23.199012+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "s": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "41",
+      "time": "26.891",
+      "timestamp": "2026-09-27T15:53:03.070040+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "t": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "1",
+      "skipped": "0",
+      "tests": "2",
+      "time": "1.339",
+      "timestamp": "2026-09-27T15:55:01.920894+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "u": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "2",
+      "time": "1.231",
+      "timestamp": "2026-09-27T15:56:38.595402+00:00",
+      "hostname": "dl-workstation-albert"
+    }
+  },
+  "postgres_container": "rssripple-v21-cleanup-pg-g",
+  "postgres_cleanup_exit": 0,
+  "remaining": "Complete gates and S1 rebase pending; all targeted sessions terminal"
+}

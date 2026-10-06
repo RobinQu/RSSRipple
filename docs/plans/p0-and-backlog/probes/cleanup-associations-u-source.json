@@ -1,0 +1,38 @@
+{
+  "prototype": "/tmp/rssripple-v21-cleanup-fs3vtp33",
+  "base_runtime_commit": "b0e2ce1",
+  "accepted": false,
+  "files": {
+    "app/database.py": "410a34075e58af554ddc42fc64f5bf4ca92b5057f985c22c016dd73e1b8ba001",
+    "app/models/__init__.py": "eeb29fcfa15391c6a11161e338bac17586363ff7cf6d1d1755f38232fac03e1f",
+    "app/services/resource_cleanup.py": "b881cc2b071a5cd2d3eae2a39daebe6c7090c06154536a53838dd335765ded62",
+    "app/services/resource_parent_guard.py": "4aba54d2705432a6f755a180471b1710170033378be97c47c23d5f1d6879848e",
+    "app/services/schema_foreign_keys.py": "46f8e6fd111eb0866edd618b2598e4c7888e8c3fd47bac4f83e8b4ce23b12d82",
+    "tests/integration/organize/test_cleanup_associations.py": "d85f1b4d2de7cda2a6b966ba1a1c751dc5f40759adb1bdebde67c54d669025a5",
+    "tests/integration/organize/test_cleanup_postgres.py": "fea252ef8bc4949d37ce6f9b8feb0bf21fa8030f1663196e1c56f741ee963b62",
+    "tests/integration/organize/test_cleanup_turso_concurrency.py": "623dabcc9c9908a721cd3a6e2792b5e9bcee780ed6ea061e2f718d1f3231a065",
+    "tests/integration/organize/test_cleanup_schema.py": "309674afccaa78950802c427ca610a8c27f9975883849b68a988bc7989d57585",
+    "docs/design/business-logic.md": "69decd5fe985f1092ca68c32ba11d5944a296feb0665e49c2c3ee2171ba449fa",
+    "docs/design/api-endpoints.md": "ddd6e9d591b60bcc38c6d538ab6193b9ef8b4641fbfd06094f3863795c4cbc19",
+    "docs/design/data-models.md": "5b36d512815192c2fdb8f9de50cb9b6ca996efcb7fc690796805c9e7bd977558",
+    "docs/design/db-migration.md": "23fb5ebf67367f9c5fb46dc3ba7e1bdf47fe4cd160c2909b21611037d020c0f0",
+    "docs/testing/integration-inventory.md": "d4d936581fefd8500612c0e6b4539d373e74cf775a61f3d039273699e1a91242"
+  },
+  "base_hashes": {
+    "app/database.py": "fce844a848c7326e8fa0d642e241a8a1abc834815dc9df877b1bbca2a41202f4",
+    "app/models/__init__.py": "34467b58212f9dcf1edf911cdba3494b3cac63cab04393c211bab49a0954ee43",
+    "app/services/resource_cleanup.py": "b421272f4dd7f49b5c5601f75a7bdda5a1da7ad806b9df786db597d5c4a9b48f",
+    "app/services/resource_parent_guard.py": null,
+    "app/services/schema_foreign_keys.py": "3658c48cc9a732b2baa3c55796b05bb25f67a4fb1c6562161ebae4c3ba956f2f",
+    "tests/integration/organize/test_cleanup_associations.py": null,
+    "tests/integration/organize/test_cleanup_postgres.py": null,
+    "tests/integration/organize/test_cleanup_turso_concurrency.py": null,
+    "tests/integration/organize/test_cleanup_schema.py": null,
+    "docs/design/business-logic.md": "c46b2b76d4125cede7b9d73957e3be5c0fa1c3704919877281cdfd1642d547aa",
+    "docs/design/api-endpoints.md": "d588c6cac97bfdc14d0a0935a31044fcb5a92c6a013642ecc0f15754e7ed78b6",
+    "docs/design/data-models.md": "3bc0e52f282bf5b501fac1d1cdda8e68aeb6653cb00bba7ac0128bc94fe3a5c2",
+    "docs/design/db-migration.md": "881860af3e46caa903b927e99b950877bf882c6a176adaebb762344642cfd8f8",
+    "docs/testing/integration-inventory.md": "14d9b0d4d296f10b53c04f4e80767349a3c1c401d567dc1ba8583b6389d1f208"
+  },
+  "remaining": "Rebase onto accepted S1; review then complete gates. No V21 process remains running."
+}

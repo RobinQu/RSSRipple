@@ -1,0 +1,47 @@
+{
+  "accepted": false,
+  "unit": {
+    "exit": 0,
+    "passed": 4078,
+    "skipped": 12,
+    "seconds": 2312.41,
+    "coverage": {
+      "lines-covered": "23110",
+      "lines-valid": "23798",
+      "line-rate": "0.9711"
+    },
+    "postgres_cleanup_exit": 0
+  },
+  "integration": {
+    "exit": 1,
+    "passed": 3274,
+    "failed": 2,
+    "skipped": 17,
+    "seconds": 2057.39,
+    "coverage": {
+      "lines-covered": "21006",
+      "lines-valid": "23798",
+      "line-rate": "0.8827"
+    },
+    "app_exits": [
+      0,
+      0
+    ],
+    "coverage_exit": 0,
+    "export_exit": 0,
+    "cleanup_exit": 0,
+    "project": "rssripple-v20-final-ai",
+    "artifacts": "/tmp/rssripple-v20-artifacts-ai"
+  },
+  "aj_local": {
+    "passed": 73,
+    "exit": 0
+  },
+  "replacement": "/tmp/rssripple-v20-validation-h9wb61g5",
+  "changed_from_ah": [
+    "docs/design/api-endpoints.md",
+    "tests/integration/http/test_misc_api.py",
+    "tests/integration/magnet/test_magnet_resolve_coverage.py",
+    "tests/integration/security/test_feed_outbound.py"
+  ]
+}

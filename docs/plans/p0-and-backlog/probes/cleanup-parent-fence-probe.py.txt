@@ -1,0 +1,22 @@
+"""Unmerged schema experiment: make FK child insertion write the parent row."""
+
+import pytest
+from sqlalchemy import text
+
+from tests.integration.organize.test_cleanup_turso_concurrency import (
+    test_cleanup_old_snapshot_preserves_newly_committed_work_link as _snapshot_case,
+)
+
+
+@pytest.mark.parametrize("touch", ["noop", "timestamp", "primary_key"])
+async def test_parent_write_fences_turso_snapshot_delete(db_session, touch, record_testsuite_property):
+    # Test-only DDL. The noop distinguishes row-version conflict tracking from
+    # a dependence on wall-clock timestamp precision. Neither is shipped yet.
+    column = "id" if touch == "primary_key" else "updated_at"
+    expression = column if touch != "timestamp" else "strftime('%Y-%m-%d %H:%M:%f', 'now')"
+    await db_session.execute(text(
+        "CREATE TRIGGER cleanup_probe_parent_write BEFORE INSERT ON resource_work_links "
+        "BEGIN UPDATE file_resources SET " + column + " = " + expression + " WHERE id = NEW.resource_id; END"
+    ))
+    await db_session.commit()
+    await _snapshot_case(db_session, "prior_write", record_testsuite_property)

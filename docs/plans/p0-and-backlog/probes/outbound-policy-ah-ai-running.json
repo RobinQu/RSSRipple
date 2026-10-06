@@ -9,7 +9,7 @@
   "image_id": "sha256:82b848a7ced66ed29f4556606eb97da654fa9332edb34c9d01cffcbb2e5c1a12",
   "build_exit": 0,
   "unit": {
-    "status": "running",
+    "status": "complete",
     "session": 8726,
     "postgres_container": "rssripple-v20-unit-pg-ah",
     "postgres_port": 32850,
@@ -17,10 +17,12 @@
     "log": "/tmp/rssripple-v20-unit-ah.log",
     "junit": "/tmp/rssripple-v20-unit-ah.xml",
     "coverage": "/tmp/rssripple-v20-unit-ah-coverage.xml",
-    "coverage_data": "/tmp/rssripple-v20-unit-ah.coverage"
+    "coverage_data": "/tmp/rssripple-v20-unit-ah.coverage",
+    "exit_code": 0,
+    "postgres_cleanup_exit": 0
   },
   "integration": {
-    "status": "running",
+    "status": "failed",
     "session": 38311,
     "project": "rssripple-v20-final-ai",
     "startup_exit": 0,
@@ -29,7 +31,10 @@
     "compose_env": {
       "RSSRIPPLE_TEST_IMAGE": "rssripple-v20-tests:local"
     },
-    "cleanup": "pending"
+    "cleanup": "complete",
+    "exit_code": 1,
+    "cleanup_exit": 0
   },
-  "warning": "Do not edit frozen candidate while either gate runs. After tests, SIGINT both app services, inspect exit, combine/export four coverage files, remove only the unique project and unit PG."
+  "warning": "Historical ah/ai processes ended; continue aj/ak, do not restart these handles.",
+  "terminal": "outbound-policy-ah-ai-terminal.json"
 }

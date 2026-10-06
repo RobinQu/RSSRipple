@@ -1,0 +1,23 @@
+{
+  "integration_exit": 0,
+  "passed": 3280,
+  "skipped": 17,
+  "warnings": 8,
+  "seconds": 2062.27,
+  "coverage_exit": 0,
+  "coverage": {
+    "lines-covered": "21021",
+    "lines-valid": "23798",
+    "line-rate": "0.8833"
+  },
+  "app_exits": [
+    0,
+    0
+  ],
+  "export_exit": 0,
+  "frozen_files": 3099,
+  "frozen_changes": [],
+  "skip_same_as_ai": true,
+  "cleanup": "complete",
+  "cleanup_exit": 0
+}

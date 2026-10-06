@@ -1,0 +1,16 @@
+{
+  "unit": {
+    "previous": 12,
+    "current": 12,
+    "added": [],
+    "removed": [],
+    "reason_changes": []
+  },
+  "integration": {
+    "previous": 17,
+    "current": 17,
+    "added": [],
+    "removed": [],
+    "reason_changes": []
+  }
+}

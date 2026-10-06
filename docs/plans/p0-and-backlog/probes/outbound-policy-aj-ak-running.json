@@ -1,0 +1,33 @@
+{
+  "accepted": false,
+  "prototype": "/tmp/rssripple-v20-validation-h9wb61g5",
+  "source": "outbound-policy-aj-source.json",
+  "freeze": "outbound-policy-aj-frozen.json",
+  "effective_files": 37,
+  "frozen_count": 3099,
+  "unit": {
+    "status": "passed",
+    "source": "ah",
+    "passed": 4078,
+    "skipped": 12,
+    "coverage": "23110/23798 = 97.11%",
+    "note": "Only three integration test files and API documentation differ; all runtime, unit/API, fixture/config/dependency inputs identical"
+  },
+  "integration": {
+    "status": "passed",
+    "session": 53921,
+    "project": "rssripple-v20-final-ak",
+    "log": "/tmp/rssripple-v20-integration-ak.log",
+    "startup_exit": 0,
+    "threshold": 85,
+    "cleanup": "complete",
+    "compose_env": {
+      "RSSRIPPLE_TEST_IMAGE": "rssripple-v20-tests:local"
+    },
+    "exit": 0,
+    "passed": 3280,
+    "skipped": 17,
+    "coverage": "21021/23798 = 88.33%"
+  },
+  "warning": "Historical terminal handles; do not restart. Final merge review pending; audit in outbound-policy-aj-ak-audit.json."
+}
