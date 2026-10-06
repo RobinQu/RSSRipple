@@ -46,3 +46,11 @@ f 启动器模块名错误、g 初始化与服务使用不同事件循环导致�
 i 46 passed、1 项既有弃用警告，1.00 秒；涵盖真实 logout 是否发送清 Cookie、信任/不信任来源、无来源兼容以及实际 channels 请求模型自动 422。Ruff 通过。j 真实 Chromium 脚本加入强断言并退出 0：拒绝同站来源 logout 后同源状态仍 authenticated=true；允许来源 logout 返回 200，随后 authenticated=false；允许读取和拒绝读取保持正常。临时服务 SIGINT 退出 130，浏览器与页面服务 finally 清理。
 
 十一文件候选/基线/归档见 `probes/cors-policy-j-*`，浏览器结果与脚本见 `probes/cors-browser-j-*`。尚未合入；仍需把浏览器入口整理为可移植自动化、覆盖代理/重复头/压缩/poster 等剩余边界、完整代码审查以及 ≥95%/≥85% 门禁。V21 冻结候选未修改。
+
+## 兼容性矩阵与可复用浏览器入口（k–m）
+
+k 新增重复头、代理、GZip 与 poster 专项，30 passed / 1 failed，证明重复 Referer 第一项可信时仍执行 logout。修正为单值 Referer 后，l 完整专项 53 passed、1 项既有弃用警告，0.99 秒。没有通过信任任意 Forwarded 头来解决代理场景；伪造转发头仍被拒绝，已还原的外部 HTTPS ASGI scope 同源成功。压缩响应同时保留 Vary Origin/Accept-Encoding；真实 poster 静态挂载仍需认证。
+
+新增 `tests/browser/` 可复用夹具、脚本和 README，移除机器专属路径；Playwright/Python/浏览器路径从标准依赖或可选环境传入。夹具强制临时数据库/海报目录、合成 TOTP、回环监听与关闭应用 lifespan，并在 finally dispose/删除数据。m 按此入口实际运行退出 0，所有浏览器断言通过；服务 SIGINT 收尾。十四文件候选及哈希见 `probes/cors-policy-m-*`。
+
+下一步：核验源码五维质量与新增中间件覆盖率，等待 V21 门禁结果后对齐主干并冻结完整双门禁。尚未完成完整 ≥95%/≥85% 验收，CORS/CSRF 项不关闭。
