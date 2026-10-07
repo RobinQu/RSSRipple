@@ -1,0 +1,125 @@
+"""Compare proposed heartbeat layouts using real concurrent DB connections.
+
+Synthetic minimal tables isolate snapshot behavior; this is not a handler or
+lease protocol acceptance test. Each run uses a private schema or temp file.
+"""
+
+import asyncio
+import importlib.metadata
+import json
+import os
+import tempfile
+import uuid
+from pathlib import Path
+from urllib.parse import urlsplit
+
+from sqlalchemy import text
+from sqlalchemy.exc import DatabaseError
+from sqlalchemy.ext.asyncio import create_async_engine
+
+from app.database import normalize_database_url
+
+
+async def check_layout(engine, layout, fresh, started_by_write):
+    identity = uuid.uuid4().hex
+    async with engine.begin() as conn:
+        await conn.execute(text("INSERT INTO probe_runs VALUES (:id, 'running', 0)"), {"id": identity})
+        await conn.execute(text("INSERT INTO probe_leases VALUES (:id, 0)"), {"id": identity})
+        await conn.execute(text("INSERT INTO probe_markers VALUES (:id, 0)"), {"id": identity})
+    result = {"layout": layout, "fresh_final_transaction": fresh, "started_by_write": started_by_write}
+    async with engine.connect() as processing:
+        if started_by_write:
+            # A SELECT may not start a physical transaction in legacy DBAPI mode.
+            # Disjoint write guarantees that this connection has an active txn.
+            await processing.execute(
+                text("UPDATE probe_markers SET revision=1 WHERE id=:id"), {"id": identity}
+            )
+        assert await processing.scalar(
+            text("SELECT status FROM probe_runs WHERE id=:id"), {"id": identity}
+        ) == "running"
+        async with engine.begin() as heartbeat:
+            table = "probe_runs" if layout == "same_row" else "probe_leases"
+            await heartbeat.execute(
+                text(f"UPDATE {table} SET revision=revision+1 WHERE id=:id"), {"id": identity}
+            )
+        if fresh:
+            # All business writes must already be committed before this boundary.
+            await processing.rollback()
+        try:
+            await processing.execute(
+                text("UPDATE probe_runs SET status='success' WHERE id=:id AND status='running'"),
+                {"id": identity},
+            )
+            await processing.commit()
+            result["final_commit"] = "success"
+        except DatabaseError as exc:
+            await processing.rollback()
+            result["final_commit"] = "database_error"
+            result["error"] = str(exc.orig)
+    async with engine.connect() as reader:
+        result["persisted_status"] = await reader.scalar(
+            text("SELECT status FROM probe_runs WHERE id=:id"), {"id": identity}
+        )
+        table = "probe_runs" if layout == "same_row" else "probe_leases"
+        assert await reader.scalar(text(f"SELECT revision FROM {table} WHERE id=:id"), {"id": identity}) == 1
+    if fresh:
+        assert result["final_commit"] == "success", result
+    return result
+
+
+async def main():
+    reports = []
+    with tempfile.TemporaryDirectory(prefix="rssripple-v34-snapshot-") as temporary:
+        urls = [("turso", normalize_database_url(f"sqlite+aioturso:///{temporary}/probe.db"))]
+        postgres = os.environ.get("AGENT_RUN_TEST_POSTGRES_URL")
+        if postgres:
+            parts = urlsplit(postgres)
+            assert parts.hostname == "127.0.0.1" and parts.path == "/work_fk_probe"
+            urls.append(("postgresql", postgres))
+        for backend, url in urls:
+            schema = "v34_" + uuid.uuid4().hex
+            admin = create_async_engine(url)
+            engine = admin
+            try:
+                if backend == "postgresql":
+                    async with admin.begin() as conn:
+                        await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
+                    engine = create_async_engine(url, connect_args={"server_settings": {"search_path": schema}})
+                async with engine.begin() as conn:
+                    if backend == "turso":
+                        await conn.execute(text("PRAGMA journal_mode='mvcc'"))
+                    await conn.execute(text(
+                        "CREATE TABLE probe_runs (id VARCHAR(32) PRIMARY KEY, "
+                        "status VARCHAR(32) NOT NULL, revision INTEGER NOT NULL)"
+                    ))
+                    await conn.execute(text(
+                        "CREATE TABLE probe_leases (id VARCHAR(32) PRIMARY KEY, revision INTEGER NOT NULL)"
+                    ))
+                    await conn.execute(text(
+                        "CREATE TABLE probe_markers (id VARCHAR(32) PRIMARY KEY, revision INTEGER NOT NULL)"
+                    ))
+                for layout in ["same_row", "separate_table"]:
+                    for fresh in [False, True]:
+                        for started_by_write in [False, True]:
+                            result = await asyncio.wait_for(
+                                check_layout(engine, layout, fresh, started_by_write), timeout=30
+                            )
+                            reports.append({"backend": backend, **result})
+            finally:
+                await engine.dispose()
+                if backend == "postgresql":
+                    async with admin.begin() as conn:
+                        await conn.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+                    await admin.dispose()
+    output = {
+        "pyturso": importlib.metadata.version("pyturso"),
+        "sqlalchemy": importlib.metadata.version("SQLAlchemy"),
+        "scope": "Synthetic layout experiment, not application or lease acceptance",
+        "cases": reports,
+    }
+    Path(os.environ["PROBE_RESULT"]).write_text(json.dumps(output, indent=2) + "\n")
+    print(json.dumps(output, indent=2))
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

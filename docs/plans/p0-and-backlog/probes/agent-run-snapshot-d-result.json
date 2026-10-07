@@ -1,0 +1,139 @@
+{
+  "pyturso": "0.8.0rc2",
+  "sqlalchemy": "2.0.51",
+  "scope": "Synthetic layout experiment, not application or lease acceptance",
+  "cases": [
+    {
+      "backend": "turso",
+      "layout": "same_row",
+      "fresh_final_transaction": false,
+      "started_by_write": false,
+      "final_commit": "success",
+      "persisted_status": "success"
+    },
+    {
+      "backend": "turso",
+      "layout": "same_row",
+      "fresh_final_transaction": false,
+      "started_by_write": true,
+      "final_commit": "database_error",
+      "error": "Write-write conflict",
+      "persisted_status": "running"
+    },
+    {
+      "backend": "turso",
+      "layout": "same_row",
+      "fresh_final_transaction": true,
+      "started_by_write": false,
+      "final_commit": "success",
+      "persisted_status": "success"
+    },
+    {
+      "backend": "turso",
+      "layout": "same_row",
+      "fresh_final_transaction": true,
+      "started_by_write": true,
+      "final_commit": "success",
+      "persisted_status": "success"
+    },
+    {
+      "backend": "turso",
+      "layout": "separate_table",
+      "fresh_final_transaction": false,
+      "started_by_write": false,
+      "final_commit": "success",
+      "persisted_status": "success"
+    },
+    {
+      "backend": "turso",
+      "layout": "separate_table",
+      "fresh_final_transaction": false,
+      "started_by_write": true,
+      "final_commit": "success",
+      "persisted_status": "success"
+    },
+    {
+      "backend": "turso",
+      "layout": "separate_table",
+      "fresh_final_transaction": true,
+      "started_by_write": false,
+      "final_commit": "success",
+      "persisted_status": "success"
+    },
+    {
+      "backend": "turso",
+      "layout": "separate_table",
+      "fresh_final_transaction": true,
+      "started_by_write": true,
+      "final_commit": "success",
+      "persisted_status": "success"
+    },
+    {
+      "backend": "postgresql",
+      "layout": "same_row",
+      "fresh_final_transaction": false,
+      "started_by_write": false,
+      "final_commit": "success",
+      "persisted_status": "success"
+    },
+    {
+      "backend": "postgresql",
+      "layout": "same_row",
+      "fresh_final_transaction": false,
+      "started_by_write": true,
+      "final_commit": "success",
+      "persisted_status": "success"
+    },
+    {
+      "backend": "postgresql",
+      "layout": "same_row",
+      "fresh_final_transaction": true,
+      "started_by_write": false,
+      "final_commit": "success",
+      "persisted_status": "success"
+    },
+    {
+      "backend": "postgresql",
+      "layout": "same_row",
+      "fresh_final_transaction": true,
+      "started_by_write": true,
+      "final_commit": "success",
+      "persisted_status": "success"
+    },
+    {
+      "backend": "postgresql",
+      "layout": "separate_table",
+      "fresh_final_transaction": false,
+      "started_by_write": false,
+      "final_commit": "success",
+      "persisted_status": "success"
+    },
+    {
+      "backend": "postgresql",
+      "layout": "separate_table",
+      "fresh_final_transaction": false,
+      "started_by_write": true,
+      "final_commit": "success",
+      "persisted_status": "success"
+    },
+    {
+      "backend": "postgresql",
+      "layout": "separate_table",
+      "fresh_final_transaction": true,
+      "started_by_write": false,
+      "final_commit": "success",
+      "persisted_status": "success"
+    },
+    {
+      "backend": "postgresql",
+      "layout": "separate_table",
+      "fresh_final_transaction": true,
+      "started_by_write": true,
+      "final_commit": "success",
+      "persisted_status": "success"
+    }
+  ],
+  "actual_exit": 0,
+  "source_sha256": "22a3ef4ec1f5615497b3d7e33d96e916306b00bb067c70dc8392dbc64f319afd",
+  "observed_matrix_verified": true
+}

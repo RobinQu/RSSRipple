@@ -1,0 +1,43 @@
+{
+  "baseline": "e6e0cae",
+  "runs": {
+    "b": {
+      "exit": 0,
+      "cases": 8
+    },
+    "c": {
+      "exit": 0,
+      "cases": 4
+    },
+    "d": {
+      "exit": 0,
+      "cases": 16
+    },
+    "e": {
+      "exit": 0,
+      "cases": 8
+    }
+  },
+  "scope": "minimal synthetic SQL tables, not handler integration or lease recovery acceptance",
+  "cleanup": {
+    "rssripple-v34-lease-b": {
+      "containers": [],
+      "networks": [],
+      "volumes": []
+    },
+    "rssripple-v34-lease-d": {
+      "containers": [],
+      "networks": [],
+      "volumes": []
+    }
+  },
+  "startup_exits": [
+    0,
+    0
+  ],
+  "down_exits": [
+    0,
+    0
+  ],
+  "runtime_changed": false
+}
