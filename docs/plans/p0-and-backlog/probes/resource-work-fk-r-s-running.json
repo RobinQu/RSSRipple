@@ -36,7 +36,11 @@
     "log": "/tmp/rssripple-v27-integration-s.log",
     "startup_exit": 0,
     "threshold": 85,
-    "cleanup": "pending"
+    "cleanup": "pending",
+    "observed_failures": [
+      "tests/integration/metadata/test_metadata_audio_resolver_coverage.py::TestResolveAudioWork::test_local_match_links_without_search"
+    ],
+    "failure_observation": "Independent w confirms illegal fixture insert before resolver; x complete audio file 12 passed with committed series-to-audio/movie-to-audio transitions."
   },
   "image": "rssripple-v20-tests:local",
   "startup_artifacts": {
@@ -45,10 +49,13 @@
   },
   "warning": "Require terminal zero-failure results, skip comparison to V26 q/r, full frozen input and effective scope verification, coverage exit codes, application exits, raw artifact export before cleanup, and empty project labels. Do not merge from preflight alone.",
   "successor": {
-    "candidate": "/tmp/rssripple-v27-fixture-ilkvds19",
-    "source": "resource-work-fk-v-source.json",
-    "targeted_results": "resource-work-fk-t-v-result.json",
-    "effective_files": 14,
+    "candidate": "/tmp/rssripple-v27-audio-xfc1jaw8",
+    "source": "resource-work-fk-x-source.json",
+    "targeted_results": [
+      "resource-work-fk-t-v-result.json",
+      "resource-work-fk-w-x-result.json"
+    ],
+    "effective_files": 15,
     "full_gates_started": false,
     "runtime_unchanged": true
   }

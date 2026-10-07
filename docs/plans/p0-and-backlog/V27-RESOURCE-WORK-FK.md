@@ -99,3 +99,12 @@ r/s 仍在 p 冻结候选上运行，输入未改变。独立后继副本 `/tmp/
 五维复核：本轮只改一个测试文件，无运行代码/架构/安全/性能改动；参数化数据符合权威约束并保持来源覆盖，命名和解释明确。两个版本全仓无缓存 Ruff 均退出 0。独立从 Git 基线推导后继 **14 个有效文件**，原 p 的 13 个文件哈希全部相同，r/s 的 6,183 个冻结输入仍未改变。源码/可恢复归档见 [v-source](probes/resource-work-fk-v-source.json)，红绿/实际退出和范围见 [t–v](probes/resource-work-fk-t-v-result.json)。本轮未创建 Compose 资源，临时 Turso 由测试夹具释放。
 
 下一步：取得 r/s 的全部终态和失败，按需继续修正后继候选；完成旧轮证据导出与清理，再冻结最终后继并重跑完整双门禁。现有 77/3 项专项结果不能替代完整验收，V27 仍未合入。
+
+
+## w/x：音频解析集成的旧双 FK 夹具
+
+s 完整集成运行中暴露 `test_local_match_links_without_search` 失败。独立后继 `/tmp/rssripple-v27-audio-xfc1jaw8` 原样重跑 w：**1 failed、2.24 秒、退出 1**，traceback 明确在 `_make_resource` 的 commit 插入非法 series_id+movie_id 时触发 `ck_file_resources_work_fk`，尚未进入音频解析器，不能把该错误当作实际解析器清理失败。
+
+测试改为两种合法起点（series 或 movie），给合成剧集提供合集归属；仍断言本地匹配不得搜索 Wikipedia，且增加提交/重新读取后检查音频 FK、旧作品 FK 清空、标题和匹配时间。解析器与约束运行代码均不改动。x 整个音频解析集成文件 **12 passed、11.63 秒、退出 0**，全仓无缓存 Ruff 退出 0。该文件沿用原合成音频数据，不冒充录制音频样本；V27 核心约束测试仍保留此前真实录制资源数据。
+
+后继相对已验收基线独立推导为 **15 个有效文件**，v 的十四文件哈希保持，新增差异仅上述测试文件。源/可恢复 tar 见 [x-source](probes/resource-work-fk-x-source.json)，红绿结果见 [w–x](probes/resource-work-fk-w-x-result.json)。未创建新的外部项目，临时 Turso 已由正常退出夹具释放。r/s 原冻结完整门禁继续运行，当前各观察到一个旧夹具失败；实际总数以终态为准。后继尚未启动完整门禁，必须取得旧轮全部结果并清理，再完整重验，不批准合入。

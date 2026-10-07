@@ -1,0 +1,46 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v27-audio-xfc1jaw8",
+  "effective_files": 15,
+  "runs": {
+    "w": {
+      "exit_code": 1,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "1",
+        "skipped": "0",
+        "tests": "1",
+        "time": "2.221",
+        "timestamp": "2026-10-07T11:29:29.801320+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    "x": {
+      "exit_code": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "12",
+        "time": "11.606",
+        "timestamp": "2026-10-07T11:30:17.351436+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    }
+  },
+  "diagnosis": "w fails in fixture commit before audio resolver executes: dual series/movie CHECK violation",
+  "fix": "Two legitimate prior work types; required series collection supplied; resolver unchanged; final commit/refresh verifies stored exclusivity",
+  "runtime_unchanged": true,
+  "ruff_no_cache_exit": 0,
+  "external_resources": "No Compose project; unit-owned temporary Turso fixtures completed teardown",
+  "full_gates": "Original r/s still running; successor requires complete repeat after terminal audit and cleanup",
+  "artifacts": {
+    "resource-work-fk-audio-w.log.gz": "df9d9fd08376ecb4dfe0aab72e32392e930fd834d9e01eae084115c6f1af8958",
+    "resource-work-fk-audio-w.xml.gz": "7ed0384ce6281cbadbde2580ca045ccf233d8ea4aefb6434ac52a869f397cd05",
+    "resource-work-fk-audio-x.log.gz": "006d9b5d874298d455f68150ee68f2644fd1522d56d6c47205c70422840795bf",
+    "resource-work-fk-audio-x.xml.gz": "69ff2dafc3defec51920e34efc261331773d6fd356d2ed28d2d869ac89a09702",
+    "resource-work-fk-audio-x-ruff.log.gz": "f3af4d142827f5aad2eb0c72d556d325488a57fb6219aac10afeb51085667d53"
+  }
+}
