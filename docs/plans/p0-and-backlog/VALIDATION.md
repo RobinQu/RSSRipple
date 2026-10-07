@@ -980,3 +980,21 @@ gb 原进程退出 1：3139 passed、3 failed、17 skipped、8 warnings，1709.7
 ## D6 本地主干接收（2026-09-20）
 
 22 个有效实现/测试/权威文档文件完成最终复核并提交本地 main：`7c99db9`。运行 Python 与 hl/hn 冻结副本一致；后增独立工具与 hx/hu 补充证据匹配，前端生产构建通过；应用到主工作树后全仓 Ruff 和 git diff --check 通过。D6 从 pending-only TODO 删除。历史孤儿需显式离线审核清理，本轮未操作生产数据、未推送远端。下一批 B7 见 V13，仍是未修复红测。
+
+
+## 决策终态守卫待办复核（2026-10-07）
+
+必要性复核基线 `bbf9310`：原 TODO “confirm 无 pending 状态守卫”已过时。`current_choice_error` 在任何候选身份/资源校验前检查 status，确认端点持锁调用；该守卫由已验收提交 `11ee930` 引入。与最近完整验收的 `7da83a2` 比较，确认路由和校验服务无差异。本轮不新增运行实现。
+
+旧终态测试使用不存在的候选与缺失身份，因此 409 可能由其他校验触发，不能单独证明状态守卫。本轮补 [可重跑探针](probes/decision_terminal_revalidation.py)：实际 ASGI + 每例独立 Turso 文件库，创建合法两候选身份；decided 通过首次实际确认产生（RPC 替身收到一次调用），skipped 通过实际跳过产生，expired 显式写库。三个终态各重选相同/不同候选，检查准确的 409 原因、RPC 调用数不变及独立会话重读终态不变。a **6 passed，14.12 秒，退出 0**。只在 b 测试进程绕过状态检查，其余校验仍调用原函数；b **6 failed，14.04 秒，退出 1**，六项均因错误接受为 200 而失败。负向对照证明断言敏感，不能把 b 当作运行代码失败。
+
+录制素材仅为固定 SHA 的 prod_works_v1 资源标题，候选等价关系/身份及状态显式合成；无真实下载，不声称覆盖 PostgreSQL 或并发确认。两个进程均已终止，临时引擎/文件由 fixture 清理。原始日志、JUnit 和源码哈希见 [复核摘要](probes/decision-terminal-revalidation-result.json)。仅移除被证据推翻的旧条目，不据此宣称所有派发幂等问题已完成。
+
+按 code-review-and-quality 五轴复核：准确性由合法输入与六项负向对照支撑；可读性明确数据/替身边界；架构和运行代码无变更；无新增外部连接、密钥或依赖；仅新增离线探针，无运行性能影响。文档与证据变更通过 diff-check 和探针 Ruff；未把专项测试替代完整门禁，V27 冻结副本及其在跑门禁保持不变。
+
+复跑命令（仓库根目录，文件数据库测试需允许本地原生引擎运行）：
+
+```bash
+PYTHONPATH=. DATABASE_URL=sqlite+aioturso:///:memory: .venv/bin/pytest -p tests.conftest -p tests.api.conftest docs/plans/p0-and-backlog/probes/decision_terminal_revalidation.py -q
+# 负向对照：同一命令前另设 DECISION_GUARD_MUTATION=1，预期 6 failed。
+```

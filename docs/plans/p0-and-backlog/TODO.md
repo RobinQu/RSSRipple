@@ -118,7 +118,6 @@
 - [ ] `ChannelUpdate` 未接受 `status`，PUT 提交 inactive/active 被静默忽略；补明确的暂停/恢复入口及前端交互，且须定义在途抓取的状态写回语义（本次三 worker 回归确认）。
 
 - [ ] 500 响应回显 `str(e)`（`app/api/v1/resources.py:625-628,1081-1085`、`downloaders.py:298-301`）。
-- [ ] `confirm` 决策无 `pending` 状态守卫可重复派发（`app/api/v1/decisions.py:158-224`）。
 - [ ] `POST /downloaders/{id}/test` 可用存储凭证打任意 URL（`app/api/v1/downloaders.py:326-353`）。
 - [ ] **产品增强/威胁模型待定，非单独漏洞结论**：`GET /volumes/dirs` 枚举任意绝对路径（`app/api/v1/volumes.py:94-129`）。
 - [ ] 无安全响应头（HSTS/CSP/X-Frame-Options 等）、无 `TrustedHostMiddleware`。

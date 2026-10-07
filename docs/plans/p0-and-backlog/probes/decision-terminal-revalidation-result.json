@@ -1,0 +1,47 @@
+{
+  "baseline": "bbf9310ea8f0759aecf3ee6b63e16529041c6a82",
+  "guard_introduced_in": "11ee930",
+  "classification": "obsolete TODO: required pending guard already present",
+  "runs": [
+    {
+      "run": "a",
+      "actual_process_exit_code": 0,
+      "mutation": false,
+      "junit": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "6",
+        "time": "13.827",
+        "timestamp": "2026-10-07T12:05:06.829281+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    {
+      "run": "b",
+      "actual_process_exit_code": 1,
+      "mutation": true,
+      "junit": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "6",
+        "skipped": "0",
+        "tests": "6",
+        "time": "14.018",
+        "timestamp": "2026-10-07T12:05:45.073424+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    }
+  ],
+  "source_sha256": {
+    "app/api/v1/decisions.py": "744f91ca2ee2cd8ac56d5caba5de853ba03fa233f200413a58b93d055ecf4777",
+    "app/services/decision_review.py": "3b6079677c6c6d87c23e8f4ac4282c56e8b2f6e0d8330a1d852dd9375a7d0773",
+    "docs/plans/p0-and-backlog/probes/decision_terminal_revalidation.py": "34af72074e6f9e7e68942aa2e41c92e42428ccbe2c8b8f71ab7a5d8be0e035a2"
+  },
+  "data_provenance": "Unchanged recorded resource titles from prod_works_v1.json; candidate equivalence, identities and terminal states synthetic",
+  "scope": "Real ASGI requests and per-case file-backed Turso commit/read; downloader RPC mocked; no PostgreSQL or concurrent-confirmation claim",
+  "runtime_changes": false,
+  "complete_gate_rerun": false,
+  "cleanup": "Per-case db_engine fixture finalizers completed; engines disposed and temporary DB directory cleaned"
+}
