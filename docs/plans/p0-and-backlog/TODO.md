@@ -70,6 +70,7 @@
 
 - [ ] 为 `series_id/movie_id/audio_work_id` 至多一非空增加 DB 约束（原评审快照 0 违规；实施前重新检查，不代表无需 DDL 迁移）。
       2026-10-07 重新扫描既有录制子集 559 条：工作 FK 违规 0，工作与 collection 合法共存 1 条；三工作 FK 字段均完整。该数据导出于 2026-09-04，不代表当前生产状态，仍按 P2 约束硬化处理。证据见 [录制预检](probes/resource-work-fk-recorded-preflight.json)。
+      V27 双库直接 SQL 全组合基线 32 failed/32 passed，确认无约束；新库 CHECK 原型 64 项通过。旧库升级与真实服务调用尚未验证，未合入，见 [V27](V27-RESOURCE-WORK-FK.md)。
       **不要**包含 `collection_id` 互斥（见 [PLAN.md](PLAN.md) §3，`sync_resource_collection` 刻意共存）。
       **实现**：`app/models/file_resource.py` 加 `CheckConstraint`；PostgreSQL 用
       `ALTER TABLE ... ADD CONSTRAINT`（幂等查 `pg_constraint`）；SQLite/Turso 用

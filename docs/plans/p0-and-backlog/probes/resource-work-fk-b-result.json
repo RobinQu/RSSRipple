@@ -1,0 +1,54 @@
+{
+  "candidate": "/tmp/rssripple-v27-work-fk-j9q729vt",
+  "main_base": "ef3c2d82a729c83856fcddae9cdd646fec3dc6af",
+  "runtime_base": "c642911",
+  "phase": "fresh-database prototype only",
+  "accepted": false,
+  "files": {
+    "app/models/file_resource.py": {
+      "base": "9e2f72f30ee6be9e86b6d42aebcb625faae590014f090d42553f1ba659b6413e",
+      "candidate": "b4f984e4ddff49ddb1a0f01d7d0358b78bb6fe0c4247463ec29f48a06e44ea16"
+    },
+    "tests/integration/resource_work_fk/conftest.py": {
+      "base": null,
+      "candidate": "eb3bdb7e4261d014db3ff439219e74e87519de9b8c297f0f6cc9bfe051399371"
+    },
+    "tests/integration/resource_work_fk/test_constraint.py": {
+      "base": null,
+      "candidate": "245b87197b9582e8356317808756fe54a8323b377205c568786fea8a8d2fe8a7"
+    },
+    "docs/design/data-models.md": {
+      "base": "a9ac2403bb9e2d30b258d084d97da823172a2069b6f37f765df016a599011201",
+      "candidate": "1e2f3bd1c2dc34239ee1b382d6bf1e4ad9fcaffd145e602e337a21bde40eb11d"
+    },
+    "docs/design/db-migration.md": {
+      "base": "1114cb53bdcdf1af0e7c9eebb3d368dbb88e819344c1c636c349eeac5e15a07b",
+      "candidate": "260266bf8dd9c4823ab47c16cc7663e24565a57c56ba5478fa2097e74615c197"
+    },
+    "docs/testing/integration-inventory.md": {
+      "base": "cc1d4401ce19f2512aa3648b74e489523c2a838030c7ad712cb9221d6654321f",
+      "candidate": "8ac45333ea8d62e04768db6c291a18458657150f76ed75223a4a3b15a575450e"
+    }
+  },
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "64",
+    "time": "51.678",
+    "timestamp": "2026-10-07T04:51:15.039064+00:00",
+    "hostname": "dl-workstation-albert",
+    "exit_code": 0
+  },
+  "seconds": 51.68,
+  "ruff_no_cache_exit": 0,
+  "cleanup": "complete: resource-work-fk-ab-cleanup.json",
+  "remaining": [
+    "legacy upgrades and idempotence",
+    "guard drift and dirty-data review",
+    "actual service transitions and FK deletion/rebuild compatibility",
+    "rebase after V25/V26",
+    "complete unit/API and integration gates"
+  ]
+}

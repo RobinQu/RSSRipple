@@ -1,0 +1,23 @@
+{
+  "candidate": "/tmp/rssripple-v27-work-fk-j9q729vt",
+  "main_base": "ef3c2d82a729c83856fcddae9cdd646fec3dc6af",
+  "runtime_base": "c642911",
+  "phase": "necessity reproduction only",
+  "accepted": false,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "32",
+    "skipped": "0",
+    "tests": "64",
+    "time": "62.292",
+    "timestamp": "2026-10-07T04:47:59.372515+00:00",
+    "hostname": "dl-workstation-albert",
+    "exit_code": 1
+  },
+  "passed": 32,
+  "failed": 32,
+  "seconds": 62.3,
+  "evidence": "Recorded resource bac4892f-dd3b-41b2-b648-ff20a589779b with existing recorded series/collection parents; synthetic channel/audio parent and conflicting reference combinations. All invalid combinations committed without the required DB error; valid empty/single work and optional collection controls passed.",
+  "priority": "P2: demonstrated enforcement gap, not evidence of current production corruption"
+}
