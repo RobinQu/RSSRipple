@@ -1,0 +1,352 @@
+{
+  "be": {
+    "suite": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "38",
+      "time": "76.906",
+      "timestamp": "2026-10-07T06:08:24.193298+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "exit_code": 0,
+    "properties": [],
+    "artifacts": {
+      "dedup-preservation-be.xml.gz": "5527bc4ad84c456246d83f2954a12afcfa2c6b4234ed804747023fa912369e6f",
+      "dedup-preservation-be.log.gz": "d619437f752eaa14b0da0fab6f56f1fc05b6dceb5a35039df6f80b8539766df8"
+    }
+  },
+  "bf": {
+    "suite": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "11",
+      "time": "17.881",
+      "timestamp": "2026-10-07T06:10:31.293976+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "exit_code": 0,
+    "properties": [],
+    "artifacts": {
+      "dedup-preservation-bf.xml.gz": "ef586a793c8a7da81ea8502e932c426b06a216ec0566867545c0d08bb84bbb2a",
+      "dedup-preservation-bf.log.gz": "0f52a38c79046ae1a1fa6d53e1e01d7f1e14f0c6de5311b7fc592d1876ae7116"
+    }
+  },
+  "bg": {
+    "suite": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "90",
+      "time": "131.349",
+      "timestamp": "2026-10-07T06:13:58.703415+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "exit_code": 0,
+    "properties": [
+      {
+        "name": "real_case",
+        "value": "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b"
+      },
+      {
+        "name": "torrent_sha256",
+        "value": "7f2b6d96aeeb800355ca64985173449a91b4b76df85edeba6a105368e64dd813"
+      },
+      {
+        "name": "rss_source",
+        "value": "synthetic shell; recorded raw RSS unavailable"
+      },
+      {
+        "name": "metadata_boundary",
+        "value": "explicit reviewed adapter"
+      },
+      {
+        "name": "real_case",
+        "value": "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b"
+      },
+      {
+        "name": "torrent_sha256",
+        "value": "7f2b6d96aeeb800355ca64985173449a91b4b76df85edeba6a105368e64dd813"
+      },
+      {
+        "name": "rss_source",
+        "value": "synthetic shell; recorded raw RSS unavailable"
+      },
+      {
+        "name": "metadata_boundary",
+        "value": "explicit reviewed adapter"
+      },
+      {
+        "name": "real_case",
+        "value": "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b"
+      },
+      {
+        "name": "torrent_sha256",
+        "value": "7f2b6d96aeeb800355ca64985173449a91b4b76df85edeba6a105368e64dd813"
+      },
+      {
+        "name": "rss_source",
+        "value": "synthetic shell; recorded raw RSS unavailable"
+      },
+      {
+        "name": "metadata_boundary",
+        "value": "explicit reviewed adapter"
+      },
+      {
+        "name": "real_case",
+        "value": "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b"
+      },
+      {
+        "name": "torrent_sha256",
+        "value": "7f2b6d96aeeb800355ca64985173449a91b4b76df85edeba6a105368e64dd813"
+      },
+      {
+        "name": "rss_source",
+        "value": "synthetic shell; recorded raw RSS unavailable"
+      },
+      {
+        "name": "metadata_boundary",
+        "value": "explicit reviewed adapter"
+      },
+      {
+        "name": "real_case",
+        "value": "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b"
+      },
+      {
+        "name": "torrent_sha256",
+        "value": "7f2b6d96aeeb800355ca64985173449a91b4b76df85edeba6a105368e64dd813"
+      },
+      {
+        "name": "rss_source",
+        "value": "synthetic shell; recorded raw RSS unavailable"
+      },
+      {
+        "name": "metadata_boundary",
+        "value": "explicit reviewed adapter"
+      },
+      {
+        "name": "real_case",
+        "value": "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b"
+      },
+      {
+        "name": "torrent_sha256",
+        "value": "7f2b6d96aeeb800355ca64985173449a91b4b76df85edeba6a105368e64dd813"
+      },
+      {
+        "name": "rss_source",
+        "value": "synthetic shell; recorded raw RSS unavailable"
+      },
+      {
+        "name": "metadata_boundary",
+        "value": "explicit reviewed adapter"
+      },
+      {
+        "name": "real_case",
+        "value": "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b"
+      },
+      {
+        "name": "torrent_sha256",
+        "value": "7f2b6d96aeeb800355ca64985173449a91b4b76df85edeba6a105368e64dd813"
+      },
+      {
+        "name": "rss_source",
+        "value": "synthetic shell; recorded raw RSS unavailable"
+      },
+      {
+        "name": "metadata_boundary",
+        "value": "explicit reviewed adapter"
+      },
+      {
+        "name": "real_case",
+        "value": "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b"
+      },
+      {
+        "name": "torrent_sha256",
+        "value": "7f2b6d96aeeb800355ca64985173449a91b4b76df85edeba6a105368e64dd813"
+      },
+      {
+        "name": "rss_source",
+        "value": "synthetic shell; recorded raw RSS unavailable"
+      },
+      {
+        "name": "metadata_boundary",
+        "value": "explicit reviewed adapter"
+      }
+    ],
+    "artifacts": {
+      "dedup-preservation-bg.xml.gz": "78c9fcfa42adb810c1d91c7b64bdcd98db9c8ba34de47c9a776c14dd1d800750",
+      "dedup-preservation-bg.log.gz": "3951f2ec1a321bda5f15353c037ccf38b25d7e2c1935c39250731602d4bb8f1a"
+    }
+  },
+  "bh": {
+    "suite": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "1",
+      "skipped": "0",
+      "tests": "1",
+      "time": "10.567",
+      "timestamp": "2026-10-07T06:17:12.354437+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "exit_code": 1,
+    "properties": [],
+    "artifacts": {
+      "dedup-preservation-bh.xml.gz": "732f6537e767f0fb580697bac5cf4bdcaa627797b945c3ff9af9b7f1445e1c05",
+      "dedup-preservation-bh.log.gz": "7581eaf6473f20d70ceedea5f51397e8d3fa42273e8c315f21ca73ede35a972e"
+    }
+  },
+  "bi": {
+    "suite": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "1",
+      "time": "8.184",
+      "timestamp": "2026-10-07T06:17:47.649631+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "exit_code": 0,
+    "properties": [
+      {
+        "name": "stale_parent_attempted",
+        "value": "0"
+      },
+      {
+        "name": "fresh_observer_attempted",
+        "value": "30"
+      },
+      {
+        "name": "fresh_observer_untouched",
+        "value": "10"
+      }
+    ],
+    "artifacts": {
+      "dedup-preservation-bi.xml.gz": "4408187e18eaaf98a766bad68b9a990cba3f16404e9c254c11663cbacad7e7b0",
+      "dedup-preservation-bi.log.gz": "d85e84e52e5afa692b62d908fd6ab3b5fa9d4513b0bb3e9c6896dc75e3bc9eef"
+    }
+  },
+  "bj": {
+    "suite": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "1",
+      "time": "4.172",
+      "timestamp": "2026-10-07T06:22:42.937407+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "exit_code": 0,
+    "properties": [
+      {
+        "name": "old_resource_attempts",
+        "value": "3"
+      },
+      {
+        "name": "admitted_peer_cohorts",
+        "value": "[3, 3, 0]"
+      },
+      {
+        "name": "committed_attempted",
+        "value": "30"
+      }
+    ],
+    "artifacts": {
+      "dedup-preservation-bj.xml.gz": "fbb960bb6290f09caa15c0aa689be02feeba70e27a3053e3f032a170ed19b26f",
+      "dedup-preservation-bj.log.gz": "766205f256bfc22f4fe2c6f807c42b0f673cfb5297737412f17d2ee3ed20d641"
+    }
+  },
+  "bk": {
+    "suite": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "1",
+      "skipped": "0",
+      "tests": "1",
+      "time": "4.283",
+      "timestamp": "2026-10-07T06:24:26.088934+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "exit_code": null,
+    "properties": [
+      {
+        "name": "old_resource_attempts",
+        "value": "5"
+      },
+      {
+        "name": "admitted_peer_cohorts",
+        "value": "[3, 3, 3, 3, 3]"
+      },
+      {
+        "name": "committed_attempted",
+        "value": "29"
+      }
+    ],
+    "artifacts": {
+      "dedup-preservation-bk.xml.gz": "47abb35222cfdc7eb5ad569abedc92b62ee6d209ad0a5924c07ad1697021e520",
+      "dedup-preservation-bk.log.gz": "c5de14cc48ddcfa56b1d4564b34a57f242d207db079a35afac5192b3dc50056e"
+    },
+    "exit_note": "Tool handle already missing when repolled; terminal JUnit/log prove one failure, raw exit not recovered."
+  },
+  "bl": {
+    "suite": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "75",
+      "time": "48.164",
+      "timestamp": "2026-10-07T06:30:21.296580+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "exit_code": 0,
+    "properties": [
+      {
+        "name": "old_resource_attempts",
+        "value": "3"
+      },
+      {
+        "name": "admitted_peer_cohorts",
+        "value": "[3, 3, 0]"
+      },
+      {
+        "name": "committed_attempted",
+        "value": "30"
+      },
+      {
+        "name": "old_resource_attempts",
+        "value": "1"
+      },
+      {
+        "name": "admitted_peer_cohorts",
+        "value": "[3]"
+      },
+      {
+        "name": "committed_attempted",
+        "value": "30"
+      },
+      {
+        "name": "old_resource_attempts",
+        "value": "3"
+      },
+      {
+        "name": "admitted_peer_cohorts",
+        "value": "[3, 3, 0]"
+      },
+      {
+        "name": "committed_attempted",
+        "value": "30"
+      }
+    ],
+    "artifacts": {
+      "dedup-preservation-bl.xml.gz": "db7f41c9a3d4ee6e7b6a368db610e06bc7308b3527c804730787119559a474e2",
+      "dedup-preservation-bl.log.gz": "a85fde4324cd67a7b6b1b3112d22a36dca7ffaab99af1182dfe7f6759725860b"
+    }
+  }
+}

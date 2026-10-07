@@ -25,7 +25,7 @@
 
 ### 从 P2 提升
 
-- [ ] dedup survivor 取最旧行，忽略数据完整度与人工保护（`metadata_dedup.py`）。V25 已以录制身份、真实双库事务/并发和逐字段矩阵确认必要性并实现候选。完整 av 集成 3634 passed、17 skipped、89.35%，runner/应用/覆盖率/导出/清理均通过；au 单元 4170 passed/1 个旧身份袋断言失败、96.97%，失败原样保留。独立修正仅一份单元测试，精确身份袋及反查三项通过；43 文件候选与 av 的运行/集成输入一致，完整单元/API az（句柄 64498）再次报并发回填失败，仍待终态；bd 四槽红测复现新资源越过待重试资源的事务准入缺口（1 failed/3 passed），运行逻辑尚未补修，不得关闭。最新入口见 [V25](V25-DEDUP-METADATA-PRESERVATION.md) 与 [az/av 清单](probes/dedup-preservation-az-av-running.json)。
+- [ ] dedup survivor 取最旧行，忽略数据完整度与人工保护（`metadata_dedup.py`）。V25 的录制身份、真实双库事务及逐字段矩阵已确认必要性。az 完整单元 4170 passed/1 failed、96.97%，实际回填重试耗尽仅提交 29/30；保留失败并已清理。新频道准入补修通过同一录制竞争回放（旧实现 29，新实现 30）及 bl 双库/完整 fetch 等 75 项。新 48 文件候选已冻结，需重新完成 bm/bn 两道完整门禁；旧 av 的集成通过不能沿用。未合入，不得关闭。入口见 [V25](V25-DEDUP-METADATA-PRESERVATION.md) 与 [新候选](probes/dedup-preservation-bm-source.json)。
 
 ### 数据模型 / 持久化
 

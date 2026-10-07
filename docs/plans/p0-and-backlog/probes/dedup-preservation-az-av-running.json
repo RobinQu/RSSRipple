@@ -4,7 +4,7 @@
   "effective_files": 43,
   "frozen_count": 5523,
   "unit": {
-    "status": "running",
+    "status": "failed",
     "session": 64498,
     "log": "/tmp/rssripple-v25-unit-az.log",
     "junit": "/tmp/rssripple-v25-unit-az.xml",
@@ -17,8 +17,10 @@
     "startup_exit": 0,
     "preflight_passed": 3,
     "preflight_exit": 0,
-    "cleanup": "pending",
-    "observed_failure": "tests/unit/test_fetch_service.py::TestMetadataBackfill::test_backfill_caps_and_records_attempts"
+    "cleanup": "complete",
+    "observed_failure": "tests/unit/test_fetch_service.py::TestMetadataBackfill::test_backfill_caps_and_records_attempts",
+    "exit_code": 1,
+    "audit": "dedup-preservation-az-audit.json"
   },
   "integration": {
     "status": "complete",
@@ -37,7 +39,7 @@
     "cleanup_exit": 0,
     "reuse_reason": "All 5523 inputs compared: only tests/unit/test_franchise_service.py differs; no app/shared fixture/integration/config/dependency changes. Integration command collects tests/integration only, no imports or references to the changed unit module found."
   },
-  "warning": "az live with observed backfill failure; retain full terminal report and do not edit frozen candidate. Only az PG remains. V26 combination is provisional, V27 phases complete but neither accepted. Any next V25 runtime change requires new full unit and integration gates.",
+  "warning": "Both old gates terminal and cleaned. az failed 29/30 with real counter retry exhaustion. Runtime changed in bm candidate, so av cannot validate bm.",
   "diagnostic_candidate": "/tmp/rssripple-v25-contention-75o4oqkh",
-  "diagnostic_status": "ba 15 processes passed; bb coverage singleton passed; bc full fetch file 61 passed; bd four-slot fairness 1 failed/3 passed. No diagnosis process left running. Source/results: dedup-preservation-ba-bd-result.json."
+  "diagnostic_status": "be-bl complete; controlled real-counter baseline bk fails 29/30; new bj passes 30/30, bl 75 passed including PostgreSQL/Turso. See be-bl-result."
 }

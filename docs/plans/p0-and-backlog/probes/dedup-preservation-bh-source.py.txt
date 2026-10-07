@@ -1,0 +1,36 @@
+"""Diagnostic: distinguish persisted metadata from the parent's stale identity map."""
+import pytest
+from sqlalchemy import event, select
+
+from app.database import async_session_factory
+from app.models.file_resource import FileResource
+from tests.unit.test_fetch_service import TestMetadataBackfill as _Cases
+from tests.unit.test_fetch_service import channel as channel
+from tests.unit.test_fetch_service import fake_queue as fake_queue
+
+
+async def test_retained_parent_rows_are_not_committed_database_state(db_session, channel, fake_queue, monkeypatch, record_property):
+    retained = []
+
+    def keep(session, instance):
+        if isinstance(instance, FileResource):
+            retained.append(instance)
+
+    event.listen(db_session.sync_session, 'pending_to_persistent', keep)
+    event.listen(db_session.sync_session, 'loaded_as_persistent', keep)
+    try:
+        with pytest.raises(AssertionError):
+            await _Cases().test_backfill_caps_and_records_attempts(db_session, channel, fake_queue, monkeypatch)
+        stale = len([row for row in retained if row.metadata_attempts == 1])
+        async with async_session_factory() as observer:
+            rows = list(await observer.scalars(select(FileResource)))
+            attempted = len([row for row in rows if row.metadata_attempts == 1])
+            untouched = len([row for row in rows if row.metadata_attempts == 0])
+        record_property('stale_parent_attempted', stale)
+        record_property('fresh_observer_attempted', attempted)
+        record_property('fresh_observer_untouched', untouched)
+        assert stale == 0
+        assert (attempted, untouched) == (30, 10)
+    finally:
+        event.remove(db_session.sync_session, 'pending_to_persistent', keep)
+        event.remove(db_session.sync_session, 'loaded_as_persistent', keep)

@@ -1,0 +1,18 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v26-bm-combined-mcizic1_",
+  "parent_frozen": "dedup-preservation-bm-frozen.json",
+  "poster_source": "poster-publication-j-result.json",
+  "merges": [
+    {
+      "file": "docs/testing/integration-inventory.md",
+      "resolution": "Preserve both append-only documentation additions."
+    }
+  ],
+  "scope": "Provisional combination; parent V25 gates still running; no main runtime merge.",
+  "session": 74348,
+  "status": "running",
+  "log": "/tmp/rssripple-v26-combination-l.log",
+  "junit": "/tmp/rssripple-v26-combination-l.xml",
+  "ruff_no_cache_exit": 0
+}

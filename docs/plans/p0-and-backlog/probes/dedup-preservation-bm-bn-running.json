@@ -1,0 +1,42 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v25-contention-75o4oqkh",
+  "source": "dedup-preservation-bm-source.json",
+  "frozen": "dedup-preservation-bm-frozen.json",
+  "effective_files": 48,
+  "frozen_count": 5527,
+  "unit": {
+    "status": "running",
+    "session": 80553,
+    "log": "/tmp/rssripple-v25-unit-bm.log",
+    "junit": "/tmp/rssripple-v25-unit-bm.xml",
+    "coverage": "/tmp/rssripple-v25-unit-bm-coverage.xml",
+    "coverage_data": "/tmp/rssripple-v25-unit-bm.coverage",
+    "threshold": 95,
+    "postgres_project": "rssripple-v25-unit-bm",
+    "postgres_compose": "/tmp/rssripple-v25-compose.yml",
+    "postgres_port": 32867,
+    "startup_exit": 0,
+    "preflight_passed": 3,
+    "preflight_exit": 0,
+    "cleanup": "pending"
+  },
+  "integration": {
+    "status": "running",
+    "session": 52058,
+    "log": "/tmp/rssripple-v25-integration-bn.log",
+    "project": "rssripple-v25-final-bn",
+    "runner": "rssripple-v25-final-bn-runner",
+    "compose": "/tmp/rssripple-v25-contention-75o4oqkh/docker-compose.integration-isolated.yml",
+    "startup_exit": 0,
+    "threshold": 85,
+    "cleanup": "pending"
+  },
+  "image": "rssripple-v20-tests:local",
+  "previous": {
+    "az": "failed; exit 1; archived and cleaned",
+    "av": "passed old runtime; cannot validate current runtime",
+    "bg": "specialty passed; cleaned; labels empty"
+  },
+  "warning": "Do not edit frozen candidate; await actual terminal exits, audit full reports/skips/hashes, stop only own app/app-llm for coverage, export artifacts before cleaning projects. No runtime code merged."
+}
