@@ -1,0 +1,1623 @@
+"""Tests for fetch_channel_resources pipeline."""
+
+from __future__ import annotations
+
+import uuid
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from app.models.agent import Agent
+from app.models.channel import Channel
+from app.models.downloader import DownloaderInstance
+from app.models.file_resource import FileResource
+from app.services import fetch_service as fs
+
+
+def _uuid():
+    return str(uuid.uuid4())
+
+
+TEST_FIELD_MAPPING = {
+    "list_locator": {"source": "entries"},
+    "field_mappings": {"title_cn": {"source": "title"}},
+}
+
+
+def _mock_feed(entries):
+    feed = MagicMock()
+    feed.bozo = False
+    feed.entries = entries
+    return feed
+
+
+def _entry(guid, title, link=None, enclosures=None, description=None, published=None):
+    """Create a feedparser-like entry object supporting .keys(), .get(), [key]
+    attribute access, plus the enclosures/published_parsed fields used by
+    fetch_service / rss_parser helpers."""
+    base = {
+        "title": title,
+        "link": link or f"https://example.com/{guid}",
+        "id": guid,
+        "description": description or "",
+    }
+    enclosures = enclosures or []
+    published_parsed = published or (2024, 1, 1, 0, 0, 0, 0, 0, 0)
+
+    class Entry(SimpleNamespace):
+        def keys(self):
+            return list(base.keys())
+
+        def get(self, key, default=None):
+            if key in base:
+                return base[key]
+            return default
+
+        def __getitem__(self, key):
+            return base[key]
+
+    return Entry(
+        id=guid,
+        title=title,
+        link=link or f"https://example.com/{guid}",
+        enclosures=enclosures,
+        description=description or "",
+        published_parsed=published_parsed,
+    )
+
+
+@pytest.fixture
+async def channel(db_session):
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    ch = Channel(
+        id=_uuid(), name="ch", type="rss_feed", url="https://example.com/rss",
+        field_mapping=TEST_FIELD_MAPPING,
+        metadata_agent_enabled=False, status="active",
+    )
+    db_session.add(ch)
+    await db_session.commit()
+    cur = await db_session.execute(
+        select(Channel).where(Channel.id == ch.id).options(
+            selectinload(Channel.agents),
+            selectinload(Channel.file_resources),
+            selectinload(Channel.raw_title_mappings),
+        )
+    )
+    return cur.scalar_one()
+
+
+@pytest.fixture
+async def downloader(db_session):
+    dl = DownloaderInstance(
+        id=_uuid(), name="dl", type="transmission",
+        url="http://127.0.0.1:9091/transmission/rpc",
+        download_dir="/downloads/rssripple",
+    )
+    db_session.add(dl)
+    await db_session.flush()
+    return dl
+
+
+@pytest.fixture
+def fake_queue(monkeypatch):
+    q = MagicMock()
+    q.enqueue = AsyncMock(return_value={"job_id": "j"})
+    import app.services.task_queue as tq_mod_real
+    monkeypatch.setattr(tq_mod_real, "task_queue", q)
+    return q
+
+
+class TestFetchChannelResources:
+    async def test_loss_after_created_publication_rolls_back_resource(self, db_session, channel, fake_queue, monkeypatch):
+        from sqlalchemy import select
+
+        from app.database import async_session_factory
+        from app.models.resource_publication import ResourcePublication
+        from app.services import resource_publication, task_queue
+
+        publish = resource_publication.publish_resource
+        expired = False
+
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired after created publication")
+
+        async def publish_then_expire(db, *args, **kwargs):
+            nonlocal expired
+            result = await publish(db, *args, **kwargs)
+            await db.flush()
+            expired = True
+            return result
+
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr(resource_publication, "publish_resource", publish_then_expire)
+        entry = _entry("ownership", "Synthetic 01", enclosures=[
+            {"url": "magnet:?xt=urn:btih:synthetic", "type": "application/x-bittorrent"},
+        ])
+        monkeypatch.setattr(fs, "_parse_feed_sync", lambda _: _mock_feed([entry]))
+        with pytest.raises(task_queue.ExecutionOwnershipLostError):
+            await fs.fetch_channel_resources(channel, db_session)
+        await db_session.rollback()
+        assert expired
+        async with async_session_factory() as observer:
+            assert (await observer.scalars(select(FileResource))).all() == []
+            assert (await observer.scalars(select(ResourcePublication))).all() == []
+        fake_queue.enqueue.assert_not_awaited()
+
+    @pytest.mark.parametrize("raises_loss", [False, True])
+    async def test_expired_backfill_cannot_finalize_channel(self, db_session, channel, fake_queue, monkeypatch, raises_loss):
+        from app.database import async_session_factory
+        from app.services import task_queue
+
+        channel_id = channel.id
+        expired = False
+
+        async def guard():
+            if expired:
+                raise task_queue.ExecutionOwnershipLostError("Expired during backfill")
+
+        async def backfill(*args, **kwargs):
+            nonlocal expired
+            expired = True
+            if raises_loss:
+                raise task_queue.ExecutionOwnershipLostError("Backfill lost ownership")
+            return 0
+
+        monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+        monkeypatch.setattr(fs, "_parse_feed_sync", lambda _: _mock_feed([]))
+        monkeypatch.setattr(fs, "_backfill_unmatched_resources", backfill)
+        with pytest.raises(task_queue.ExecutionOwnershipLostError):
+            await fs.fetch_channel_resources(channel, db_session)
+        async with async_session_factory() as observer:
+            saved = await observer.get(Channel, channel_id)
+            assert saved.last_fetch_status == "running"
+            assert saved.last_fetched_at is None
+        fake_queue.enqueue.assert_not_awaited()
+
+    async def test_feed_fetch_failure_marks_channel_error(self, db_session, channel, fake_queue):
+        with patch(
+            "app.services.fetch_service._parse_feed_sync",
+            side_effect=Exception("network error")
+        ):
+            res = await fs.fetch_channel_resources(channel, db_session)
+        assert res["new_count"] == 0
+        assert channel.status == "error"
+        assert channel.last_fetch_status == "failed"
+        assert "network error" in (channel.last_fetch_error or "")
+
+    async def test_bozo_feed_without_entries_marks_error(self, db_session, channel, fake_queue):
+        feed = MagicMock()
+        feed.bozo = True
+        feed.entries = []
+        feed.bozo_exception = Exception("bad xml")
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed):
+            res = await fs.fetch_channel_resources(channel, db_session)
+        assert res["new_count"] == 0
+        assert channel.last_fetch_status == "failed"
+
+    async def test_new_entries_create_resources(self, db_session, channel, fake_queue):
+        entries = [
+            _entry("g1", "[Group] Show - 01 [1080p]", enclosures=[
+                {"url": "magnet:?xt=urn:btih:aaa", "type": "application/x-bittorrent"}
+            ])
+        ]
+        feed = _mock_feed(entries)
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+             patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
+            res = await fs.fetch_channel_resources(channel, db_session)
+        assert res["new_count"] == 1
+        from sqlalchemy import func, select
+        count = (await db_session.execute(
+            select(func.count()).select_from(FileResource).where(FileResource.channel_id == channel.id)
+        )).scalar_one()
+        assert count == 1
+
+    async def test_pre_parser_fills_batch_and_subtitle_langs(self, db_session, channel, fake_queue):
+        """Batch flag and subtitle language tags land on the row before the
+        LLM path runs — even with the metadata agent stubbed out."""
+        entries = [
+            _entry("gb", "Show S01E01~13 1080p [简繁内封字幕]", enclosures=[
+                {"url": "magnet:?xt=urn:btih:bbb"},
+            ]),
+        ]
+        feed = _mock_feed(entries)
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+             patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
+            await fs.fetch_channel_resources(channel, db_session)
+
+        from sqlalchemy import select
+        row = (await db_session.execute(
+            select(FileResource).where(FileResource.guid == "gb")
+        )).scalar_one()
+        assert row.is_batch is True
+        assert row.episode_start == 1
+        assert row.episode_end == 13
+        assert row.episode is None
+        assert row.subtitle_langs == ["zh-CN", "zh-TW"]
+
+    async def test_pre_parser_fills_multi_season_span(self, db_session, channel, fake_queue):
+        """A 全N季 title spells out the covered seasons: the title layer
+        records them as multi-season coverage (batch_scope + batch_seasons)
+        so the pack is dispatchable even before torrent content detection."""
+        entries = [
+            _entry("gspan", "头文字D.全六季.日语.英文字幕.Initial D [BD] [1080p] [AV1]", enclosures=[
+                {"url": "magnet:?xt=urn:btih:span"},
+            ]),
+        ]
+        feed = _mock_feed(entries)
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+             patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
+            await fs.fetch_channel_resources(channel, db_session)
+
+        from sqlalchemy import select
+        row = (await db_session.execute(
+            select(FileResource).where(FileResource.guid == "gspan")
+        )).scalar_one()
+        assert row.is_batch is True
+        assert row.batch_scope == "multi_season"
+        assert row.batch_seasons == [1, 2, 3, 4, 5, 6]
+        assert row.episode is None
+
+    async def test_batch_detection_clears_field_mapped_episode(self, db_session, fake_queue):
+        """A detect_batch hit must clear a stray single ``episode`` parsed by
+        the channel field_mapping (e.g. a year like 1975 misparsed as an
+        episode number) — batches carry episode_start/end only."""
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+        ch = Channel(
+            id=_uuid(), name="ch-ep", type="rss_feed", url="https://example.com/rss-ep",
+            field_mapping={
+                "list_locator": {"source": "entries"},
+                "field_mappings": {
+                    "episode": {
+                        "source": "title", "regex": r"\[(\d{4})\]", "group": 1, "transform": "int",
+                    },
+                },
+            },
+            metadata_agent_enabled=False, status="active",
+        )
+        db_session.add(ch)
+        await db_session.commit()
+        cur = await db_session.execute(
+            select(Channel).where(Channel.id == ch.id).options(
+                selectinload(Channel.agents),
+                selectinload(Channel.file_resources),
+                selectinload(Channel.raw_title_mappings),
+            )
+        )
+        ch = cur.scalar_one()
+
+        entries = [
+            _entry("gfin", "[AYN][UFO机器人古连泰沙][TV fin][1975][BD1080P][简中内封]", enclosures=[
+                {"url": "magnet:?xt=urn:btih:fin"},
+            ]),
+        ]
+        feed = _mock_feed(entries)
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+             patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
+            await fs.fetch_channel_resources(ch, db_session)
+
+        row = (await db_session.execute(
+            select(FileResource).where(FileResource.guid == "gfin")
+        )).scalar_one()
+        assert row.is_batch is True
+        assert row.episode is None
+
+    async def test_existing_guid_skipped(self, db_session, channel, fake_queue):
+        existing = FileResource(
+            id=_uuid(), channel_id=channel.id, guid="g1",
+            title_raw="old", torrent_url="magnet:?xt=urn:btih:old",
+        )
+        db_session.add(existing)
+        await db_session.flush()
+        entries = [
+            _entry("g1", "[Group] Show - 01 [1080p]", enclosures=[
+                {"url": "magnet:?xt=urn:btih:aaa"},
+            ]),
+            _entry("g2", "[Group] Show - 02 [1080p]", enclosures=[
+                {"url": "magnet:?xt=urn:btih:bbb"},
+            ]),
+        ]
+        feed = _mock_feed(entries)
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+             patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
+            res = await fs.fetch_channel_resources(channel, db_session)
+        assert res["new_count"] == 1
+
+    async def test_active_agents_enqueued(self, db_session, channel, downloader, monkeypatch):
+        q = MagicMock()
+        q.enqueue = AsyncMock(return_value={"job_id": "j"})
+        import app.services.task_queue as tq_mod_real
+        monkeypatch.setattr(tq_mod_real, "task_queue", q)
+
+        agent = Agent(
+            id=_uuid(), name="a", channel_id=channel.id,
+            downloader_id=downloader.id, status="active",
+            scope_channel_wide=True,
+        )
+        db_session.add(agent)
+        inactive = Agent(
+            id=_uuid(), name="paused", channel_id=channel.id,
+            downloader_id=downloader.id, status="paused",
+            scope_channel_wide=True,
+        )
+        db_session.add(inactive)
+        await db_session.commit()
+        # Eager-load agents collection onto the channel instance
+        await db_session.refresh(channel, attribute_names=["agents", "file_resources"])
+
+        entries = [_entry("g1", "[G] S - 01", enclosures=[
+            {"url": "magnet:?xt=urn:btih:aaa"}
+        ])]
+        feed = _mock_feed(entries)
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+             patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
+            await fs.fetch_channel_resources(channel, db_session)
+        # The magnet entry additionally enqueues a resolve_magnet_torrent job
+        # (when libtorrent is available); only the run_agent fan-out is
+        # asserted here.
+        agent_calls = [c for c in q.enqueue.await_args_list if c.args[0] == "run_agent"]
+        assert len(agent_calls) == 1
+        args = agent_calls[0].args
+        assert args[2]["agent_id"] == agent.id
+
+    async def test_no_download_url_entry_skipped(self, db_session, channel, fake_queue):
+        e = _entry("g1", "title", link="https://example.com/page", enclosures=[])
+        feed = _mock_feed([e])
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+             patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
+            res = await fs.fetch_channel_resources(channel, db_session)
+        assert res["new_count"] == 0
+
+    async def test_empty_feed(self, db_session, channel, fake_queue):
+        feed = _mock_feed([])
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed):
+            res = await fs.fetch_channel_resources(channel, db_session)
+        assert res["new_count"] == 0
+        assert channel.last_fetch_status == "success"
+
+    # ------------------------------------------------------------------
+    # Field mapping parsing failure (lines 101-103)
+    # ------------------------------------------------------------------
+    async def test_field_mapping_parse_failure_falls_back_to_empty(self, db_session, channel, fake_queue):
+        """When parse_entry raises, parsed should fall back to {} and the
+        entry is still processed using auto-extracted torrent URL."""
+        entries = [
+            _entry("g1", "[Group] Show - 01 [1080p]", enclosures=[
+                {"url": "magnet:?xt=urn:btih:aaa", "type": "application/x-bittorrent"}
+            ])
+        ]
+        feed = _mock_feed(entries)
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+             patch("app.services.fetch_service.parse_entry", side_effect=Exception("mapping boom")), \
+             patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
+            res = await fs.fetch_channel_resources(channel, db_session)
+        # Entry still created because torrent_url comes from enclosure fallback
+        assert res["new_count"] == 1
+
+    # ------------------------------------------------------------------
+    # Metadata agent exception handling
+    # ------------------------------------------------------------------
+    async def test_metadata_agent_exception_uses_fallback(self, db_session, channel, fake_queue):
+        """When metadata agent raises, search_title falls back to _simple_title_clean."""
+        channel.metadata_agent_enabled = True
+        entries = [
+            _entry("g1", "[Group] Show - 01 [1080p]", enclosures=[
+                {"url": "magnet:?xt=urn:btih:aaa"}
+            ])
+        ]
+        feed = _mock_feed(entries)
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+             patch("app.services.metadata_agent.UnifiedMetadataAgent.process",
+                   new_callable=AsyncMock, side_effect=Exception("llm timeout")):
+            res = await fs.fetch_channel_resources(channel, db_session)
+        assert res["new_count"] == 1
+        from sqlalchemy import select as sa_select
+        row = (await db_session.execute(
+            sa_select(FileResource).where(FileResource.channel_id == channel.id)
+        )).scalar_one()
+        # _simple_title_clean should produce a search_title from the raw title
+        assert row.search_title is not None
+
+    async def test_metadata_agent_disabled_uses_local_match(self, db_session, channel, fake_queue):
+        """When metadata_agent_enabled=False, only local DB match runs."""
+        channel.metadata_agent_enabled = False
+        entries = [
+            _entry("g1", "[Group] Show - 01 [1080p]", enclosures=[
+                {"url": "magnet:?xt=urn:btih:aaa"}
+            ])
+        ]
+        feed = _mock_feed(entries)
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+             patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
+            res = await fs.fetch_channel_resources(channel, db_session)
+        assert res["new_count"] == 1
+
+    # ------------------------------------------------------------------
+    # Metadata linking exception handling
+    # ------------------------------------------------------------------
+    async def test_metadata_linking_exception_swallowed(self, db_session, channel, fake_queue):
+        """When fetch_and_link_metadata raises, the resource is still created."""
+        entries = [
+            _entry("g1", "[Group] Show - 01 [1080p]", enclosures=[
+                {"url": "magnet:?xt=urn:btih:aaa"}
+            ])
+        ]
+        feed = _mock_feed(entries)
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+             patch("app.services.fetch_service.fetch_and_link_metadata",
+                   new_callable=AsyncMock, side_effect=Exception("metadata boom")):
+            res = await fs.fetch_channel_resources(channel, db_session)
+        # Resource still created despite metadata linking failure
+        assert res["new_count"] == 1
+        assert channel.last_fetch_status == "success"
+
+    # ------------------------------------------------------------------
+    # Poster download for linked series (lines 160-167)
+    # ------------------------------------------------------------------
+    async def test_poster_download_for_series_with_http_url(self, db_session, channel, fake_queue):
+        """When resource is linked to a series with http poster_url, poster is downloaded."""
+        from app.models.series import TVSeries
+
+        series = TVSeries(
+            id=_uuid(), title_cn="Test", title_en="Test",
+            poster_url="https://example.com/poster.jpg"
+        )
+        db_session.add(series)
+        await db_session.flush()
+
+        async def _link_metadata(db, resource, ch):
+            resource.series_id = series.id
+
+        entries = [
+            _entry("g1", "[Group] Show - 01 [1080p]", enclosures=[
+                {"url": "magnet:?xt=urn:btih:aaa"}
+            ])
+        ]
+        feed = _mock_feed(entries)
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+             patch("app.services.fetch_service.fetch_and_link_metadata",
+                   new_callable=AsyncMock, side_effect=_link_metadata), \
+             patch("app.services.metadata_service.download_and_cache_poster",
+                   new_callable=AsyncMock, return_value="/posters/abc123.jpg") as mock_dl:
+            res = await fs.fetch_channel_resources(channel, db_session)
+
+        assert res["new_count"] == 1
+        mock_dl.assert_awaited_once_with("https://example.com/poster.jpg")
+        # Verify poster_url was updated to local path
+        await db_session.refresh(series)
+        assert series.poster_url == "/posters/abc123.jpg"
+
+    async def test_poster_download_series_local_url_skipped(self, db_session, channel, fake_queue):
+        """When series poster_url is already local (/posters/...), no download is attempted."""
+        from app.models.series import TVSeries
+
+        series = TVSeries(
+            id=_uuid(), title_cn="Test", title_en="Test",
+            poster_url="/posters/already_local.jpg"
+        )
+        db_session.add(series)
+        await db_session.flush()
+
+        async def _link_metadata(db, resource, ch):
+            resource.series_id = series.id
+
+        entries = [
+            _entry("g1", "[Group] Show - 01 [1080p]", enclosures=[
+                {"url": "magnet:?xt=urn:btih:aaa"}
+            ])
+        ]
+        feed = _mock_feed(entries)
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+             patch("app.services.fetch_service.fetch_and_link_metadata",
+                   new_callable=AsyncMock, side_effect=_link_metadata), \
+             patch("app.services.metadata_service.download_and_cache_poster",
+                   new_callable=AsyncMock) as mock_dl:
+            res = await fs.fetch_channel_resources(channel, db_session)
+
+        assert res["new_count"] == 1
+        mock_dl.assert_not_awaited()
+
+    async def test_poster_download_series_returns_none(self, db_session, channel, fake_queue):
+        """When download_and_cache_poster returns None, poster_url is not updated."""
+        from app.models.series import TVSeries
+
+        original_url = "https://example.com/poster.jpg"
+        series = TVSeries(
+            id=_uuid(), title_cn="Test", title_en="Test",
+            poster_url=original_url
+        )
+        db_session.add(series)
+        await db_session.flush()
+
+        async def _link_metadata(db, resource, ch):
+            resource.series_id = series.id
+
+        entries = [
+            _entry("g1", "[Group] Show - 01 [1080p]", enclosures=[
+                {"url": "magnet:?xt=urn:btih:aaa"}
+            ])
+        ]
+        feed = _mock_feed(entries)
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+             patch("app.services.fetch_service.fetch_and_link_metadata",
+                   new_callable=AsyncMock, side_effect=_link_metadata), \
+             patch("app.services.metadata_service.download_and_cache_poster",
+                   new_callable=AsyncMock, return_value=None):
+            res = await fs.fetch_channel_resources(channel, db_session)
+
+        assert res["new_count"] == 1
+        # poster_url should remain the original http URL
+        await db_session.refresh(series)
+        assert series.poster_url == original_url
+
+    async def test_poster_download_series_no_poster_url(self, db_session, channel, fake_queue):
+        """When series has no poster_url (None), no download is attempted."""
+        from app.models.series import TVSeries
+
+        series = TVSeries(
+            id=_uuid(), title_cn="Test", title_en="Test",
+            poster_url=None
+        )
+        db_session.add(series)
+        await db_session.flush()
+
+        async def _link_metadata(db, resource, ch):
+            resource.series_id = series.id
+
+        entries = [
+            _entry("g1", "[Group] Show - 01 [1080p]", enclosures=[
+                {"url": "magnet:?xt=urn:btih:aaa"}
+            ])
+        ]
+        feed = _mock_feed(entries)
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+             patch("app.services.fetch_service.fetch_and_link_metadata",
+                   new_callable=AsyncMock, side_effect=_link_metadata), \
+             patch("app.services.metadata_service.download_and_cache_poster",
+                   new_callable=AsyncMock) as mock_dl:
+            res = await fs.fetch_channel_resources(channel, db_session)
+
+        assert res["new_count"] == 1
+        mock_dl.assert_not_awaited()
+
+    # ------------------------------------------------------------------
+    # Poster download for linked movie (lines 168-175)
+    # ------------------------------------------------------------------
+    async def test_poster_download_for_movie_with_http_url(self, db_session, channel, fake_queue):
+        """When resource is linked to a movie with http poster_url, poster is downloaded."""
+        from app.models.movie import Movie
+
+        movie = Movie(
+            id=_uuid(), title_cn="Test Movie", title_en="Test Movie",
+            poster_url="https://example.com/movie_poster.jpg"
+        )
+        db_session.add(movie)
+        await db_session.flush()
+
+        async def _link_metadata(db, resource, ch):
+            resource.movie_id = movie.id
+
+        entries = [
+            _entry("g1", "[Group] Movie Title [1080p]", enclosures=[
+                {"url": "magnet:?xt=urn:btih:aaa"}
+            ])
+        ]
+        feed = _mock_feed(entries)
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+             patch("app.services.fetch_service.fetch_and_link_metadata",
+                   new_callable=AsyncMock, side_effect=_link_metadata), \
+             patch("app.services.metadata_service.download_and_cache_poster",
+                   new_callable=AsyncMock, return_value="/posters/movie123.jpg") as mock_dl:
+            res = await fs.fetch_channel_resources(channel, db_session)
+
+        assert res["new_count"] == 1
+        mock_dl.assert_awaited_once_with("https://example.com/movie_poster.jpg")
+        await db_session.refresh(movie)
+        assert movie.poster_url == "/posters/movie123.jpg"
+
+    async def test_poster_download_movie_local_url_skipped(self, db_session, channel, fake_queue):
+        """When movie poster_url is already local, no download is attempted."""
+        from app.models.movie import Movie
+
+        movie = Movie(
+            id=_uuid(), title_cn="Test Movie", title_en="Test Movie",
+            poster_url="/posters/local_movie.jpg"
+        )
+        db_session.add(movie)
+        await db_session.flush()
+
+        async def _link_metadata(db, resource, ch):
+            resource.movie_id = movie.id
+
+        entries = [
+            _entry("g1", "[Group] Movie Title [1080p]", enclosures=[
+                {"url": "magnet:?xt=urn:btih:aaa"}
+            ])
+        ]
+        feed = _mock_feed(entries)
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+             patch("app.services.fetch_service.fetch_and_link_metadata",
+                   new_callable=AsyncMock, side_effect=_link_metadata), \
+             patch("app.services.metadata_service.download_and_cache_poster",
+                   new_callable=AsyncMock) as mock_dl:
+            res = await fs.fetch_channel_resources(channel, db_session)
+
+        assert res["new_count"] == 1
+        mock_dl.assert_not_awaited()
+
+    async def test_poster_download_movie_returns_none(self, db_session, channel, fake_queue):
+        """When download_and_cache_poster returns None for movie, poster_url unchanged."""
+        from app.models.movie import Movie
+
+        original_url = "https://example.com/movie_poster.jpg"
+        movie = Movie(
+            id=_uuid(), title_cn="Test Movie", title_en="Test Movie",
+            poster_url=original_url
+        )
+        db_session.add(movie)
+        await db_session.flush()
+
+        async def _link_metadata(db, resource, ch):
+            resource.movie_id = movie.id
+
+        entries = [
+            _entry("g1", "[Group] Movie Title [1080p]", enclosures=[
+                {"url": "magnet:?xt=urn:btih:aaa"}
+            ])
+        ]
+        feed = _mock_feed(entries)
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+             patch("app.services.fetch_service.fetch_and_link_metadata",
+                   new_callable=AsyncMock, side_effect=_link_metadata), \
+             patch("app.services.metadata_service.download_and_cache_poster",
+                   new_callable=AsyncMock, return_value=None):
+            res = await fs.fetch_channel_resources(channel, db_session)
+
+        assert res["new_count"] == 1
+        await db_session.refresh(movie)
+        assert movie.poster_url == original_url
+
+    # ------------------------------------------------------------------
+    # Task queue enqueue failure (lines 200-201)
+    # ------------------------------------------------------------------
+    async def test_enqueue_failure_logged_but_does_not_raise(self, db_session, channel, downloader):
+        """When task_queue.enqueue raises, the error is logged but fetch still succeeds."""
+        q = MagicMock()
+        q.enqueue = AsyncMock(side_effect=Exception("queue full"))
+        import app.services.task_queue as tq_mod_real
+        # Patch at the module level where it's imported inside the function
+        with patch.object(tq_mod_real, "task_queue", q):
+            agent = Agent(
+                id=_uuid(), name="a", channel_id=channel.id,
+                downloader_id=downloader.id, status="active",
+                scope_channel_wide=True,
+            )
+            db_session.add(agent)
+            await db_session.commit()
+            await db_session.refresh(channel, attribute_names=["agents", "file_resources"])
+
+            entries = [_entry("g1", "[G] S - 01", enclosures=[
+                {"url": "magnet:?xt=urn:btih:aaa"}
+            ])]
+            feed = _mock_feed(entries)
+            with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+                 patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
+                # Should NOT raise despite enqueue failure
+                res = await fs.fetch_channel_resources(channel, db_session)
+
+        assert res["new_count"] == 1
+        assert channel.last_fetch_status == "success"
+
+
+# ---------------------------------------------------------------------------
+# Metadata backfill: retry-eligibility + fetch-time re-processing of existing
+# unmatched resources.
+# ---------------------------------------------------------------------------
+
+
+def _res(**over):
+    from types import SimpleNamespace
+    base = dict(
+        metadata_attempts=0, metadata_failure_type=None,
+        last_metadata_attempt_at=None,
+    )
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
+def test_is_retry_eligible_never_tried():
+    from app.services.fetch_service import _is_retry_eligible
+    from app.utils.time import utcnow
+    assert _is_retry_eligible(_res(), utcnow()) is True
+
+
+def test_is_retry_eligible_non_work_never():
+    from datetime import timedelta
+
+    from app.services.fetch_service import _is_retry_eligible
+    from app.utils.time import utcnow
+    now = utcnow()
+    r = _res(metadata_attempts=3, metadata_failure_type="non_work",
+             last_metadata_attempt_at=now - timedelta(days=400))
+    assert _is_retry_eligible(r, now) is False
+
+
+def test_is_retry_eligible_transient_backoff():
+    from datetime import timedelta
+
+    from app.services.fetch_service import _is_retry_eligible
+    from app.utils.time import utcnow
+    now = utcnow()
+    # attempts=1 → 1h backoff; 30min ago → not yet
+    r = _res(metadata_attempts=1, metadata_failure_type="transient",
+             last_metadata_attempt_at=now - timedelta(minutes=30))
+    assert _is_retry_eligible(r, now) is False
+    # 2h ago → eligible
+    r2 = _res(metadata_attempts=1, metadata_failure_type="transient",
+              last_metadata_attempt_at=now - timedelta(hours=2))
+    assert _is_retry_eligible(r2, now) is True
+
+
+def test_is_retry_eligible_not_found_ttl():
+    from datetime import timedelta
+
+    from app.services.fetch_service import NOT_FOUND_RETRY_DAYS, _is_retry_eligible
+    from app.utils.time import utcnow
+    now = utcnow()
+    r = _res(metadata_attempts=1, metadata_failure_type="not_found",
+             last_metadata_attempt_at=now - timedelta(days=NOT_FOUND_RETRY_DAYS - 1))
+    assert _is_retry_eligible(r, now) is False
+    r2 = _res(metadata_attempts=1, metadata_failure_type="not_found",
+              last_metadata_attempt_at=now - timedelta(days=NOT_FOUND_RETRY_DAYS + 1))
+    assert _is_retry_eligible(r2, now) is True
+
+
+class TestMetadataBackfill:
+    async def test_backfill_caps_and_records_attempts(self, db_session, channel, fake_queue, monkeypatch):
+        """40 never-tried unmatched resources → exactly MAX_BACKFILL_PER_FETCH
+        re-processed, each stamped with a not_found attempt."""
+        import asyncio
+
+        from sqlalchemy import select
+
+        # This exercises concurrent real transactions and publication-counter
+        # contention. The global fast-sleep stub removes real retry backoff and
+        # can exhaust retries while another transaction is still committing.
+        monkeypatch.setattr(asyncio, "sleep", asyncio.tasks.sleep)
+        for i in range(40):
+            db_session.add(FileResource(
+                id=_uuid(), channel_id=channel.id, guid=f"g{i}",
+                title_raw=f"[G] Show{i} - 01 [1080p]",
+                torrent_url=f"magnet:?xt=urn:btih:{i}",
+            ))
+        await db_session.flush()
+        from app.services.publication_migration import bootstrap_publications
+
+        await bootstrap_publications(db_session, writers_stopped=True)
+        await db_session.commit()
+
+        feed = _mock_feed([])  # empty feed: no new entries, backfill still runs
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed):
+            res = await fs.fetch_channel_resources(channel, db_session)
+
+        assert res["backfilled_count"] == 30
+        rows = (await db_session.execute(
+            select(FileResource).where(FileResource.channel_id == channel.id)
+        )).scalars().all()
+        attempted = [r for r in rows if r.metadata_attempts == 1]
+        untouched = [r for r in rows if r.metadata_attempts == 0]
+        assert len(attempted) == 30
+        assert len(untouched) == 10
+        assert all(r.metadata_failure_type == "not_found" for r in attempted)
+        assert all(r.last_metadata_attempt_at is not None for r in attempted)
+
+    async def test_backfill_skips_non_work(self, db_session, channel, fake_queue):
+        """A correctly-identified non-work resource is never auto-retried."""
+        from datetime import timedelta
+
+        from sqlalchemy import select
+
+        from app.utils.time import utcnow
+        db_session.add(FileResource(
+            id=_uuid(), channel_id=channel.id, guid="nw",
+            title_raw="[ASMR] something", torrent_url="magnet:?xt=urn:btih:nw",
+            metadata_attempts=1, metadata_failure_type="non_work",
+            last_metadata_attempt_at=utcnow() - timedelta(days=400),
+        ))
+        await db_session.commit()
+
+        feed = _mock_feed([])
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed):
+            res = await fs.fetch_channel_resources(channel, db_session)
+
+        assert res["backfilled_count"] == 0
+        row = (await db_session.execute(
+            select(FileResource).where(FileResource.guid == "nw")
+        )).scalar_one()
+        assert row.metadata_attempts == 1  # untouched
+
+
+async def test_backfill_runs_even_when_feed_fetch_fails(db_session, channel, fake_queue):
+    """A feed outage must not block repair: the backfill still re-runs
+    retry-eligible unmatched resources even though the RSS fetch failed."""
+    from sqlalchemy import select
+    for i in range(5):
+        db_session.add(FileResource(
+            id=_uuid(), channel_id=channel.id, guid=f"g{i}",
+            title_raw=f"[G] Show{i} - 01 [1080p]",
+            torrent_url=f"magnet:?xt=urn:btih:{i}",
+        ))
+    await db_session.flush()
+    from app.services.publication_migration import bootstrap_publications
+
+    await bootstrap_publications(db_session, writers_stopped=True)
+    await db_session.commit()
+
+    with patch("app.services.fetch_service._parse_feed_sync",
+               side_effect=Exception("network error")):
+        res = await fs.fetch_channel_resources(channel, db_session)
+
+    assert res["status"] == "error"
+    assert res["new_count"] == 0
+    assert res["backfilled_count"] == 5  # backfill ran despite the feed failure
+    assert channel.last_fetch_status == "failed"
+    rows = (await db_session.execute(
+        select(FileResource).where(FileResource.channel_id == channel.id)
+    )).scalars().all()
+    assert all(r.metadata_attempts == 1 for r in rows)
+
+
+async def test_backfill_force_bypasses_cooldown(db_session, channel, fake_queue):
+    """force=True (manual fetch) bypasses the not_found cooldown; force=False
+    (automatic) respects it."""
+    import asyncio
+    from datetime import timedelta
+
+    from app.utils.time import utcnow
+
+    # not_found, attempted 1h ago - well within the 7-day cooldown.
+    db_session.add(FileResource(
+        id=_uuid(), channel_id=channel.id, guid="nf",
+        title_raw="[G] Show - 01 [1080p]", torrent_url="magnet:?xt=urn:btih:nf",
+        metadata_attempts=1, metadata_failure_type="not_found",
+        last_metadata_attempt_at=utcnow() - timedelta(hours=1),
+    ))
+    await db_session.commit()
+
+    sem = asyncio.Semaphore(4)
+    # Automatic: in cooldown -> not eligible -> 0 processed.
+    assert await fs._backfill_unmatched_resources(channel, db_session, sem, force=False) == 0
+    # Manual (force): bypasses cooldown -> 1 processed.
+    assert await fs._backfill_unmatched_resources(channel, db_session, sem, force=True) == 1
+
+
+async def test_backfill_force_reprocesses_all_linked_resource_shapes(
+    db_session, channel, fake_queue
+):
+    """Explicit re-fetch includes linked non-batch resources so missing work
+    metadata and file assignments can be repaired."""
+    import asyncio
+
+    from app.models.movie import Movie
+    from app.models.series import TVSeries
+
+    series = TVSeries(id=_uuid(), title_cn="Series without year")
+    movie = Movie(id=_uuid(), title_cn="Movie without year")
+    db_session.add_all([series, movie])
+    resources = [
+        FileResource(
+            id=_uuid(), channel_id=channel.id, guid="linked-series",
+            title_raw="Series - 01", torrent_url="magnet:?xt=urn:btih:series",
+            series_id=series.id, is_batch=False,
+        ),
+        FileResource(
+            id=_uuid(), channel_id=channel.id, guid="linked-movie",
+            title_raw="Movie", torrent_url="magnet:?xt=urn:btih:movie",
+            movie_id=movie.id, is_batch=False,
+        ),
+    ]
+    db_session.add_all(resources)
+    await db_session.commit()
+
+    sem = asyncio.Semaphore(4)
+    with patch(
+        "app.services.fetch_service._process_resource_metadata",
+        new_callable=AsyncMock,
+    ) as process:
+        count = await fs._backfill_unmatched_resources(
+            channel, db_session, sem, force=True
+        )
+
+    assert count == 2
+    assert {call.args[0] for call in process.await_args_list} == {
+        resources[0].id,
+        resources[1].id,
+    }
+    assert all(call.kwargs["force_refresh"] is True for call in process.await_args_list)
+
+
+# ---------------------------------------------------------------------------
+# Standalone global metadata backfill (scheduler-driven, cross-channel)
+# ---------------------------------------------------------------------------
+
+
+def test_not_found_retry_days_shortened_to_seven():
+    """not_found TTL lowered 14d -> 7d so LLM finalization misses (agent
+    identified the work but finalized found=false) get another chance sooner
+    without hammering genuinely-nonexistent works too hard."""
+    from app.services.fetch_service import NOT_FOUND_RETRY_DAYS
+    assert NOT_FOUND_RETRY_DAYS == 7
+
+
+async def _agent_channel(db_session, *, name):
+    ch = Channel(
+        id=_uuid(), name=name, type="rss_feed", url=f"https://{name}.example/rss",
+        field_mapping=TEST_FIELD_MAPPING, metadata_agent_enabled=True, status="active",
+    )
+    db_session.add(ch)
+    await db_session.flush()
+    return ch
+
+
+def _stamp_process():
+    """An async stand-in for UnifiedMetadataAgent.process that records a
+    not_found attempt on the resource."""
+    from app.utils.time import utcnow
+
+    async def _process(resource, channel, db, force_refresh=False):
+        resource.metadata_attempts = int(getattr(resource, "metadata_attempts", 0) or 0) + 1
+        resource.metadata_failure_type = "not_found"
+        resource.last_metadata_attempt_at = utcnow()
+    return _process
+
+
+async def test_global_backfill_processes_agent_enabled_channels_only(db_session):
+    """Global backfill re-runs unmatched resources across ALL agent-enabled
+    channels and skips agent-disabled channels."""
+    from unittest.mock import MagicMock, patch
+
+    ch_on = await _agent_channel(db_session, name="on")
+    ch_off = Channel(
+        id=_uuid(), name="off", type="rss_feed", url="https://off.example/rss",
+        field_mapping=TEST_FIELD_MAPPING, metadata_agent_enabled=False, status="active",
+    )
+    db_session.add(ch_off)
+    for ch, n in ((ch_on, 3), (ch_off, 2)):
+        for i in range(n):
+            db_session.add(FileResource(
+                id=_uuid(), channel_id=ch.id, guid=f"{ch.name}-{i}",
+                title_raw=f"[G] {ch.name}{i} - 01", torrent_url=f"magnet:?xt=urn:btih:{ch.name}{i}",
+            ))
+    await db_session.commit()
+
+    seen: list[str] = []
+    async def _process(resource, channel, db, force_refresh=False):
+        await _stamp_process()(resource, channel, db, force_refresh=force_refresh)
+        seen.append(resource.channel_id)
+
+    mock_agent = MagicMock()
+    mock_agent.process = _process
+    with patch("app.services.metadata_agent.get_agent", return_value=mock_agent):
+        count = await fs.backfill_unmatched_resources_global(db_session, limit=10)
+
+    assert count == 3  # only the 3 agent-enabled resources
+    assert all(cid == ch_on.id for cid in seen)
+    from sqlalchemy import select
+    off_rows = (await db_session.execute(
+        select(FileResource).where(FileResource.channel_id == ch_off.id)
+    )).scalars().all()
+    assert all(r.metadata_attempts == 0 for r in off_rows)
+
+
+async def test_global_backfill_reprocesses_linked_resources_with_missing_fields(db_session):
+    """A linked work with an incomplete Channel contract is eligible for the
+    same background pipeline; it is not hidden behind the unmatched-only
+    query."""
+    from unittest.mock import MagicMock, patch
+
+    from app.models.series import TVSeries
+
+    ch = await _agent_channel(db_session, name="linked-repair")
+    series = TVSeries(id=_uuid(), title_cn="Known work", is_anime=None)
+    db_session.add(series)
+    await db_session.flush()
+    resource = FileResource(
+        id=_uuid(), channel_id=ch.id, guid="linked-repair",
+        title_raw="Known work - 01", torrent_url="magnet:?xt=urn:btih:linked-repair",
+        series_id=series.id, is_batch=False, season=1, episode=1,
+    )
+    db_session.add(resource)
+    await db_session.commit()
+
+    mock_agent = MagicMock()
+    mock_agent.process = AsyncMock(side_effect=_stamp_process())
+    with patch("app.services.metadata_agent.get_agent", return_value=mock_agent):
+        count = await fs.backfill_unmatched_resources_global(db_session, limit=10)
+
+    assert count == 1
+    assert mock_agent.process.await_count == 1
+    assert mock_agent.process.await_args.kwargs["force_refresh"] is True
+
+
+async def test_global_backfill_respects_per_run_limit(db_session):
+    """The per-run limit caps how many resources are re-processed in one tick."""
+    from unittest.mock import MagicMock, patch
+
+    ch = await _agent_channel(db_session, name="lim")
+    for i in range(10):
+        db_session.add(FileResource(
+            id=_uuid(), channel_id=ch.id, guid=f"lim-{i}",
+            title_raw=f"[G] lim{i} - 01", torrent_url=f"magnet:?xt=urn:btih:lim{i}",
+        ))
+    await db_session.commit()
+
+    mock_agent = MagicMock()
+    mock_agent.process = _stamp_process()
+    with patch("app.services.metadata_agent.get_agent", return_value=mock_agent):
+        count = await fs.backfill_unmatched_resources_global(db_session, limit=4)
+
+    assert count == 4
+
+
+async def test_global_backfill_skips_non_work_and_respects_cooldown(db_session):
+    """non_work resources are never retried; a recently-attempted transient is
+    still within backoff and is skipped - only the never-tried resource runs."""
+    from datetime import timedelta
+    from unittest.mock import MagicMock, patch
+
+    from app.utils.time import utcnow
+
+    ch = await _agent_channel(db_session, name="elig")
+    now = utcnow()
+    db_session.add(FileResource(
+        id=_uuid(), channel_id=ch.id, guid="nw",
+        title_raw="[ASMR] x", torrent_url="magnet:?xt=urn:btih:nw",
+        metadata_attempts=2, metadata_failure_type="non_work",
+        last_metadata_attempt_at=now - timedelta(days=400),
+    ))
+    db_session.add(FileResource(
+        id=_uuid(), channel_id=ch.id, guid="recent",
+        title_raw="[G] recent - 01", torrent_url="magnet:?xt=urn:btih:recent",
+        metadata_attempts=1, metadata_failure_type="transient",
+        last_metadata_attempt_at=now - timedelta(minutes=10),  # 1h backoff not elapsed
+    ))
+    db_session.add(FileResource(
+        id=_uuid(), channel_id=ch.id, guid="ok",
+        title_raw="[G] ok - 01", torrent_url="magnet:?xt=urn:btih:ok",
+        # never tried -> eligible
+    ))
+    await db_session.commit()
+
+    mock_agent = MagicMock()
+    mock_agent.process = _stamp_process()
+    with patch("app.services.metadata_agent.get_agent", return_value=mock_agent):
+        count = await fs.backfill_unmatched_resources_global(db_session, limit=10)
+
+    assert count == 1  # only the never-tried "ok" resource
+
+
+async def test_reset_channel_metadata_for_source_change(db_session, channel, fake_queue):
+    """Switching a channel's source resets its not_found/transient unmatched
+    resources so the backfill reprocesses them under the new source."""
+    from datetime import timedelta
+
+    from sqlalchemy import select
+
+    # not_found (in cooldown), transient (in cooldown), already-matched, non_work
+    from app.models.series import TVSeries
+    from app.utils.time import utcnow
+    series = TVSeries(id=_uuid(), title_cn="Matched")
+    db_session.add(series)
+    await db_session.flush()
+    db_session.add(FileResource(
+        id=_uuid(), channel_id=channel.id, guid="nf",
+        title_raw="[G] nf", torrent_url="magnet:?xt=urn:btih:nf",
+        metadata_attempts=1, metadata_failure_type="not_found",
+        last_metadata_attempt_at=utcnow() - timedelta(days=1),
+    ))
+    db_session.add(FileResource(
+        id=_uuid(), channel_id=channel.id, guid="tr",
+        title_raw="[G] tr", torrent_url="magnet:?xt=urn:btih:tr",
+        metadata_attempts=2, metadata_failure_type="transient",
+        last_metadata_attempt_at=utcnow() - timedelta(minutes=10),
+    ))
+    db_session.add(FileResource(
+        id=_uuid(), channel_id=channel.id, guid="mt",
+        title_raw="[G] mt", torrent_url="magnet:?xt=urn:btih:mt",
+        series_id=series.id, metadata_attempts=1, metadata_failure_type=None,
+    ))
+    db_session.add(FileResource(
+        id=_uuid(), channel_id=channel.id, guid="nw",
+        title_raw="[ASMR] nw", torrent_url="magnet:?xt=urn:btih:nw",
+        metadata_attempts=1, metadata_failure_type="non_work",
+        last_metadata_attempt_at=utcnow() - timedelta(days=400),
+    ))
+    await db_session.commit()
+
+    reset = await fs.reset_channel_metadata_for_source_change(db_session, channel.id)
+    await db_session.commit()
+
+    assert reset == 2  # only not_found + transient (matched + non_work untouched)
+    rows = {r.guid: r for r in (await db_session.execute(
+        select(FileResource).where(FileResource.channel_id == channel.id)
+    )).scalars().all()}
+    assert rows["nf"].metadata_failure_type is None
+    assert rows["nf"].metadata_attempts == 0
+    assert rows["nf"].last_metadata_attempt_at is None
+    assert rows["tr"].metadata_failure_type is None
+    assert rows["mt"].metadata_failure_type is None  # untouched (matched)
+    assert rows["nw"].metadata_failure_type == "non_work"  # untouched
+
+
+async def test_reconcile_stale_raw_episodes(db_session, channel):
+    """Resources linked before the series' per-season data existed (still
+    ``raw`` with an absolute-looking episode) are reconciled once seasons
+    data is available; per-season-looking and manual rows are untouched."""
+    from app.models.series import TVSeries
+
+    series = TVSeries(
+        id=_uuid(), title_cn="Slime",
+        seasons=[
+            {"season_number": 1, "episode_count": 24},
+            {"season_number": 2, "episode_count": 24},
+            {"season_number": 3, "episode_count": 24},
+            {"season_number": 4, "episode_count": 24},
+        ],
+    )
+    no_map_series = TVSeries(id=_uuid(), title_cn="NoMap")
+    db_session.add_all([series, no_map_series])
+    await db_session.flush()
+
+    stale = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="stale",
+        title_raw="[ANi] Slime S4 - 90", torrent_url="magnet:?xt=urn:btih:s1",
+        series_id=series.id, season=4, episode=90, episode_confidence="raw",
+    )
+    per_season = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="per-season",
+        title_raw="[ANi] Slime S4 - 18", torrent_url="magnet:?xt=urn:btih:s2",
+        series_id=series.id, season=4, episode=18, episode_confidence="raw",
+    )
+    manual = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="manual",
+        title_raw="[ANi] Slime S4 - 89", torrent_url="magnet:?xt=urn:btih:s3",
+        series_id=series.id, season=4, episode=89, episode_confidence="manual",
+    )
+    no_map = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="no-map",
+        title_raw="[G] X - 90", torrent_url="magnet:?xt=urn:btih:s4",
+        series_id=no_map_series.id, season=1, episode=90, episode_confidence="raw",
+    )
+    db_session.add_all([stale, per_season, manual, no_map])
+    await db_session.flush()
+    from app.services.publication_migration import bootstrap_publications
+
+    await bootstrap_publications(db_session, writers_stopped=True)
+    await db_session.commit()
+
+    changed = await fs.reconcile_stale_raw_episodes(db_session)
+
+    assert changed == 1
+    await db_session.refresh(stale)
+    assert (stale.season, stale.episode) == (4, 18)
+    assert stale.episode_confidence == "reconciled"
+    assert stale.absolute_episode == 90
+    await db_session.refresh(per_season)
+    assert per_season.episode == 18 and per_season.episode_confidence == "raw"
+    await db_session.refresh(manual)
+    assert manual.episode == 89 and manual.episode_confidence == "manual"
+    await db_session.refresh(no_map)
+    assert no_map.episode == 90 and no_map.episode_confidence == "raw"
+
+    # Second run is a no-op (converted row no longer matches the filter).
+    assert await fs.reconcile_stale_raw_episodes(db_session) == 0
+
+
+# ---------------------------------------------------------------------------
+# _process_resource_metadata: torrent caching wiring
+# ---------------------------------------------------------------------------
+
+async def test_process_resource_metadata_caches_torrent_before_inspect(
+    db_session, sample_channel, monkeypatch,
+):
+    """Every resource gets its .torrent cached (ensure_torrent_cached) before
+    the batch-detection analysis (maybe_inspect_torrent) runs."""
+    import asyncio
+
+    import app.services.torrent_inspect as ti
+
+    res = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
+        title_raw="[G] Show - 01 [1080p]",
+        torrent_url="https://x/a.torrent", search_title="Show",
+    )
+    db_session.add(res)
+    await db_session.commit()
+
+    calls: list[str] = []
+
+    async def _ensure(resource):
+        calls.append("ensure")
+
+    async def _inspect(db, resource, channel):
+        calls.append("inspect")
+        return False
+
+    async def _link(db, resource, channel):
+        calls.append("link")
+
+    monkeypatch.setattr(ti, "ensure_torrent_cached", _ensure)
+    monkeypatch.setattr(ti, "maybe_inspect_torrent", _inspect)
+    monkeypatch.setattr(fs, "fetch_and_link_metadata", _link)
+
+    await fs._process_resource_metadata(
+        res.id, sample_channel.id, asyncio.Semaphore(1),
+    )
+    assert calls == ["ensure", "inspect", "link"]
+
+
+# ---------------------------------------------------------------------------
+# Small eligibility helpers + title cleanup gaps
+# ---------------------------------------------------------------------------
+
+
+def test_simple_title_clean_empty():
+    assert fs._simple_title_clean("") is None
+
+
+def test_is_retry_eligible_missing_timestamp_is_true():
+    from app.utils.time import utcnow
+    r = _res(metadata_attempts=2, metadata_failure_type="transient",
+             last_metadata_attempt_at=None)
+    assert fs._is_retry_eligible(r, utcnow()) is True
+
+
+def test_is_retry_eligible_unknown_failure_type_is_true():
+    from datetime import timedelta
+
+    from app.utils.time import utcnow
+    now = utcnow()
+    r = _res(metadata_attempts=3, metadata_failure_type="mystery",
+             last_metadata_attempt_at=now - timedelta(seconds=1))
+    assert fs._is_retry_eligible(r, now) is True
+
+
+def test_is_linked_enrichment_eligible_no_channel_is_false():
+    from app.utils.time import utcnow
+    r = SimpleNamespace(series_id="s", movie_id=None, audio_work_id=None,
+                        collection_id=None, channel=None)
+    assert fs._is_linked_enrichment_eligible(r, utcnow()) is False
+
+
+def test_is_linked_enrichment_eligible_contract_satisfied_is_false(monkeypatch):
+    from app.utils.time import utcnow
+    monkeypatch.setattr(
+        fs, "inspect_resource_confirmation",
+        lambda resource, required: SimpleNamespace(required=False),
+    )
+    r = SimpleNamespace(series_id="s", movie_id=None, audio_work_id=None,
+                        collection_id=None, channel=SimpleNamespace(
+                            required_metadata_fields=["x"]))
+    assert fs._is_linked_enrichment_eligible(r, utcnow()) is False
+
+
+# ---------------------------------------------------------------------------
+# _process_resource_metadata: early exit, invariant, error paths
+# ---------------------------------------------------------------------------
+
+
+async def test_process_resource_metadata_missing_resource_returns(db_engine, sample_channel):
+    import asyncio
+
+    await fs._process_resource_metadata(
+        "does-not-exist", sample_channel.id, asyncio.Semaphore(1),
+    )
+
+
+async def test_process_resource_metadata_restored_fk_is_cleared(
+    db_session, sample_channel, monkeypatch,
+):
+    import asyncio
+
+    res = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
+        title_raw="[G] Show - 01", torrent_url="https://x/a.torrent",
+        search_title="Show",
+    )
+    db_session.add(res)
+    await db_session.flush()
+    from app.services.publication_migration import bootstrap_publications
+
+    await bootstrap_publications(db_session, writers_stopped=True)
+    await db_session.commit()
+
+    async def _ensure(resource):
+        return None
+
+    async def _inspect(db, resource, channel):
+        return False
+
+    async def _link(db, resource, channel):
+        return None
+
+    monkeypatch.setattr("app.services.torrent_inspect.ensure_torrent_cached", _ensure)
+    monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", _inspect)
+    monkeypatch.setattr(fs, "fetch_and_link_metadata", _link)
+    monkeypatch.setattr(
+        "app.services.franchise_service.enforce_franchise_resource_invariant",
+        lambda resource: True,
+    )
+
+    await fs._process_resource_metadata(
+        res.id, sample_channel.id, asyncio.Semaphore(1),
+    )
+
+
+async def test_process_resource_metadata_outer_exception_is_swallowed(
+    db_session, sample_channel, monkeypatch,
+):
+    import asyncio
+
+    res = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
+        title_raw="[G] Show - 01", torrent_url="https://x/a.torrent",
+        search_title="Show",
+    )
+    db_session.add(res)
+    await db_session.commit()
+
+    async def _boom(resource):
+        raise RuntimeError("torrent cache exploded")
+
+    monkeypatch.setattr("app.services.torrent_inspect.ensure_torrent_cached", _boom)
+
+    # No exception should escape.
+    await fs._process_resource_metadata(
+        res.id, sample_channel.id, asyncio.Semaphore(1),
+    )
+
+
+async def test_process_resource_metadata_rollback_failure_is_swallowed(
+    db_engine, monkeypatch,
+):
+    import asyncio
+
+    class _FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def execute(self, *a, **kw):
+            raise RuntimeError("db down")
+
+        async def rollback(self):
+            raise RuntimeError("rollback also down")
+
+    monkeypatch.setattr(
+        "app.database.async_session_factory", MagicMock(return_value=_FakeSession())
+    )
+    # No exception escapes despite the failing rollback.
+    await fs._process_resource_metadata("r", "c", asyncio.Semaphore(1))
+
+
+async def test_process_resource_metadata_batch_enrichment_failures_are_swallowed(
+    db_session, sample_channel, monkeypatch,
+):
+    import asyncio
+
+    res = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
+        title_raw="[G] Pack", torrent_url="https://x/pack.torrent",
+        search_title="Pack", is_batch=True, batch_scope="franchise",
+    )
+    db_session.add(res)
+    await db_session.flush()
+    from app.services.publication_migration import bootstrap_publications
+
+    await bootstrap_publications(db_session, writers_stopped=True)
+    await db_session.commit()
+
+    async def _ensure(resource):
+        return None
+
+    async def _inspect(db, resource, channel):
+        return False
+
+    async def _link(db, resource, channel):
+        return None
+
+    def _raise(*a, **kw):
+        raise RuntimeError("enrichment down")
+
+    monkeypatch.setattr("app.services.torrent_inspect.ensure_torrent_cached", _ensure)
+    monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", _inspect)
+    monkeypatch.setattr(fs, "fetch_and_link_metadata", _link)
+    monkeypatch.setattr(
+        "app.services.bangumi_relations.expand_bangumi_series_graph", _raise,
+    )
+    monkeypatch.setattr("app.services.cluster_work_binding.bind_hint_clusters", _raise)
+    monkeypatch.setattr("app.services.franchise_service.dedupe_resource_movies", _raise)
+
+    await fs._process_resource_metadata(
+        res.id, sample_channel.id, asyncio.Semaphore(1),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Parsing sub-paths inside the new-entry loop
+# ---------------------------------------------------------------------------
+
+
+async def test_entry_with_subtitle_groups_sets_legacy_scalar(
+    db_session, channel, fake_queue, monkeypatch,
+):
+    entries = [_entry("gsub", "Show - 01 1080p", enclosures=[
+        {"url": "magnet:?xt=urn:btih:sub"},
+    ])]
+    feed = _mock_feed(entries)
+
+    monkeypatch.setattr(fs, "parse_entry", lambda *a, **kw: {"subtitle_groups": ["A", "B"]})
+    from sqlalchemy import select
+    with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+         patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
+        await fs.fetch_channel_resources(channel, db_session)
+
+    row = (await db_session.execute(
+        select(FileResource).where(FileResource.guid == "gsub")
+    )).scalar_one()
+    assert row.subtitle_group == "A&B"
+
+
+async def test_compilation_title_marks_batch_and_sets_search_title(
+    db_session, channel, fake_queue,
+):
+    entries = [_entry(
+        "gcomp",
+        "[整理搬运] 猫眼三姐妹／猫之眼：TV动画+剧场版+漫画+CD",
+        enclosures=[{"url": "magnet:?xt=urn:btih:comp"}],
+    )]
+    feed = _mock_feed(entries)
+    from sqlalchemy import select
+    with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+         patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
+        await fs.fetch_channel_resources(channel, db_session)
+
+    row = (await db_session.execute(
+        select(FileResource).where(FileResource.guid == "gcomp")
+    )).scalar_one()
+    assert row.is_batch is True
+    assert row.search_title == "猫眼三姐妹"
+
+
+async def test_nn_mm_title_records_absolute_episode(
+    db_session, channel, fake_queue,
+):
+    entries = [_entry("gnnmm", "[G] Show - 13(85) [1080p]", enclosures=[
+        {"url": "magnet:?xt=urn:btih:nnmm"},
+    ])]
+    feed = _mock_feed(entries)
+    from sqlalchemy import select
+    with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+         patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
+        await fs.fetch_channel_resources(channel, db_session)
+
+    row = (await db_session.execute(
+        select(FileResource).where(FileResource.guid == "gnnmm")
+    )).scalar_one()
+    assert row.episode == 13
+    assert row.absolute_episode == 85
+    assert row.episode_confidence == "reconciled"
+
+
+async def test_backfill_phase_exception_is_swallowed(db_session, channel, fake_queue):
+    feed = _mock_feed([])
+    with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+         patch("app.services.fetch_service._backfill_unmatched_resources",
+               new_callable=AsyncMock, side_effect=RuntimeError("backfill down")):
+        res = await fs.fetch_channel_resources(channel, db_session)
+    assert res["backfilled_count"] == 0
+    assert channel.last_fetch_status == "success"
+
+
+async def test_global_backfill_empty_returns_zero(db_session):
+    assert await fs.backfill_unmatched_resources_global(db_session) == 0
+
+
+async def test_reconcile_stale_raw_episodes_empty_returns_zero(db_session):
+    assert await fs.reconcile_stale_raw_episodes(db_session) == 0
+    assert await fs.reconcile_stale_raw_episodes(db_session, return_resource_ids=True) == []
+
+
+@pytest.mark.parametrize("phase", ["entry", "published"])
+async def test_reconcile_loss_preserves_episode_and_publications(db_session, channel, monkeypatch, phase):
+    from sqlalchemy import func, select
+
+    from app.database import async_session_factory, committed_session
+    from app.models.resource_publication import ResourcePublication
+    from app.models.series import TVSeries
+    from app.models.work_collection import WorkCollection
+    from app.services import resource_publication, task_queue
+    from app.services.publication_migration import bootstrap_publications
+
+    collection = WorkCollection(title_cn="Synthetic history")
+    db_session.add(collection)
+    await db_session.flush()
+    series = TVSeries(title_cn="Synthetic history", collection_id=collection.id,
+                      season_number=4, number_of_episodes=24)
+    db_session.add(series)
+    await db_session.flush()
+    for guid, absolute, confidence in (("anchor", 89, "manual"), ("target", 90, "raw")):
+        row = FileResource(channel_id=channel.id, guid=guid, title_raw="[G] Synthetic S4 - 18",
+                           torrent_url="magnet:?xt=synthetic", series_id=series.id, season=4,
+                           episode=18, absolute_episode=absolute, episode_confidence=confidence,
+                           subtitle_group="GROUP")
+        db_session.add(row)
+    await db_session.flush()
+    target_id = row.id
+    await bootstrap_publications(db_session, writers_stopped=True)
+    await db_session.commit()
+    before = await db_session.scalar(select(func.count()).select_from(ResourcePublication))
+    expired = phase == "entry"
+    original = resource_publication.publish_resource
+
+    async def publish(*args, **kwargs):
+        nonlocal expired
+        result = await original(*args, **kwargs)
+        expired = True
+        return result
+
+    async def guard():
+        if expired:
+            raise task_queue.ExecutionOwnershipLostError("reconciliation expired")
+
+    monkeypatch.setattr(resource_publication, "publish_resource", publish)
+    monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
+    with pytest.raises(task_queue.ExecutionOwnershipLostError):
+        async with committed_session() as working:
+            await fs.reconcile_stale_raw_episodes(working)
+    async with async_session_factory() as observer:
+        saved = await observer.get(FileResource, target_id)
+        assert (saved.episode, saved.episode_confidence, saved.absolute_episode) == (18, "raw", 90)
+        assert await observer.scalar(select(func.count()).select_from(ResourcePublication)) == before
+
+
+async def test_reconcile_stale_history_backed_path(db_session, channel):
+    """A manual same-group sibling anchors the numbering convention: the
+    stale target is reconciled via history (not arithmetic)."""
+    from app.models.series import TVSeries
+
+    series = TVSeries(
+        id=_uuid(), title_cn="History Show",
+        seasons=[{"season_number": 4, "episode_count": 24}],
+    )
+    db_session.add(series)
+    await db_session.flush()
+
+    manual = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="hist-manual",
+        title_raw="[G] History S4 - 18", torrent_url="magnet:?xt=urn:btih:h1",
+        series_id=series.id, season=4, episode=18, absolute_episode=89,
+        episode_confidence="manual", subtitle_group="GROUP",
+    )
+    target = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="hist-target",
+        title_raw="[G] History S4 - 18", torrent_url="magnet:?xt=urn:btih:h2",
+        series_id=series.id, season=4, episode=18, absolute_episode=90,
+        episode_confidence="raw", subtitle_group="GROUP",
+    )
+    db_session.add_all([manual, target])
+    await db_session.flush()
+    from app.services.publication_migration import bootstrap_publications
+
+    await bootstrap_publications(db_session, writers_stopped=True)
+    await db_session.commit()
+
+    changed = await fs.reconcile_stale_raw_episodes(db_session, return_resource_ids=True)
+    assert target.id in changed
+    await db_session.refresh(target)
+    assert target.episode_confidence == "reconciled"

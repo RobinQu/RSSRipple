@@ -1,0 +1,14 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v25-dedup-vdloqrh0",
+  "log": "/tmp/rssripple-v25-dedup-z.log",
+  "junit": "/tmp/rssripple-v25-dedup-z.xml",
+  "y_exit_codes": [
+    0,
+    0,
+    0
+  ],
+  "change": "Only the concurrent backfill test restores asyncio.tasks.sleep using monkeypatch; all 30/10 persistence assertions unchanged. Runtime matches w archive.",
+  "remaining": "Await z expanded regression; remaining V25 review requirements and full gates still required.",
+  "session_id": 67651
+}

@@ -75,3 +75,5 @@ r 调用真实 fetch → repository/franchise → publication/commit，外部发
 v 正式双库集成 **19 passed，18.83 秒**，包含实际 caller 成功/失败事务和既有并发、录制 24 文件回放；w 补保存点内外失权/agent 与旧链接路径，两后端 **8 passed、8 deselected，8.80 秒**。唯一项目 `rssripple-v25-callers-v` 的 scratch 库为空，清理退出 0，容器/网络/卷均无残留。24 文件候选、原始 r–w JUnit/日志及哈希见 `probes/dedup-preservation-w-*`，未合入运行代码。
 
 下一步：先区分全局快速 sleep 对真实退避的影响，x 用原断言和真实计时诊断已通过（1 passed，6.32 秒，退出 0）；y 正在重复三次确认（`/tmp/rssripple-v25-dedup-y.log`），尚不能据一次通过删除 u 失败；再补剩余并发边界、重基已验收 B8，完成两道完整门禁。专项通过不能替代 u 的失败和未完成的全量验收。
+
+计时对照续验：y 三次真实退避运行均退出 0（原 30/10 持久化断言不变）。仅对实际并发回填测试用 monkeypatch 恢复 `asyncio.tasks.sleep`，退出测试自动恢复；未增加重试次数或降低断言。z 已启动原 136 项扩大回归，结果待定，见 `probes/dedup-preservation-z-running.json`；运行代码与 w 存档相同，候选新增第 25 个有效文件 `tests/unit/test_fetch_service.py`。
