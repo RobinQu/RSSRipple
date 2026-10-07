@@ -25,7 +25,7 @@
 
 ### 从 P2 提升
 
-- [ ] dedup survivor 取最旧行，忽略数据完整度与人工保护（`metadata_dedup.py`）。V25 的录制身份、真实双库事务及逐字段矩阵已确认必要性。az 完整单元 4170 passed/1 failed、96.97%，实际回填重试耗尽仅提交 29/30；保留失败并已清理。新频道准入补修通过同一录制竞争回放（旧实现 29，新实现 30）及 bl 双库/完整 fetch 等 75 项。新 48 文件候选已冻结，需重新完成 bm/bn 两道完整门禁；旧 av 的集成通过不能沿用。未合入，不得关闭。入口见 [V25](V25-DEDUP-METADATA-PRESERVATION.md) 与 [新候选](probes/dedup-preservation-bm-source.json)。
+- [ ] dedup survivor 取最旧行，忽略数据完整度与人工保护（`metadata_dedup.py`）。V25 必要性及字段/双库事务证据已建立，准入补修解决录制回填 29/30。完整 bn 3646 passed/2 failed、89.35%，真实重解析 handler 漏用新接口导致未处理即确认，失败已归档并清理；独立补修 bp 72 项（含双库录制种子）通过。最新 49 文件候选正在执行 bq/br 两道完整门禁，原 bm 单元仍待终态审计；不得沿用旧版本通过结果。未合入，不得关闭。入口见 [V25](V25-DEDUP-METADATA-PRESERVATION.md) 与 [续接清单](probes/dedup-preservation-bq-br-running.json)。
 
 ### 数据模型 / 持久化
 
@@ -52,6 +52,7 @@
       `webhook_deliveries(status,next_attempt_at)` 等无 `index=True`（SQLite 不自动索引 FK）。
       **修复**：先对实际查询做 EXPLAIN/规模验证，再补缺失索引迁移，避免只据 `index=True` 判定。
       V28 已核对真实双库七表目录：episode 联合唯一前缀可用、pending 的 agent/key 仅为部分索引。16000 行明确合成规模、录制标题的 movie FK 查找在两库从全表扫描变为索引扫描，结果 16 个 ID 不变；测试项目已清理。尚未确定其余查询族和最终索引/迁移，未改运行代码，见 [V28](V28-HOT-FK-INDEXES.md)。
+      d 双库 15 类查询矩阵通过；扩展分布在 PostgreSQL 通过，但 Turso 暴露无索引宽行分页正确性问题（下列独立待办）。webhook 已比较少量 pending 与大量未来重试两种分布，索引选型仍需后续验证，不能将探针通过当作迁移验收。
 - [ ] **P1-D7 `lazy="selectin"` 过度加载**：`Channel.file_resources`（`app/models/channel.py:102-113`）、
       `Agent.*` 七大关系（`app/models/agent.py:75-117`）使列表/校验路径拉全量关联。
       **修复**：记录列表 SQL/关联规模，按需显式加载；异步 ORM 禁止靠隐式 `select` 懒加载兜底。
@@ -82,6 +83,7 @@
 
 ### 数据 / 持久化
 
+- [ ] **Turso 无索引宽行倒序分页结果错误**：本地锁定 `pyturso 0.8.0rc2` 的真实 ORM 表，8192 条较宽决策按 `created_at DESC LIMIT 20` 应返回已知序号 16–35，无索引及强制扫描却返回 7904–7923；升/降序索引对照均正确。64 行及 8192 行窄记录对照正常；输入显式合成，未证明生产发生，暂按 P2。需定位引擎/排序条件、补独立预期顺序回归，并验证受影响生产查询；不能只用索引前后集合相等或单一路径索引作为全局修复结论。失败与控制证据见 [V28](V28-HOT-FK-INDEXES.md) d–k，尚未修复。
 - [ ] 时间戳全为 naive `DateTime`，PG `func.now()` 受会话时区影响；与 Python `utcnow()` 混用（`app/database.py:199-203`）。
 - [ ] 轻量迁移 ~1100 行无版本跟踪/down path，`additions` 追加易漏（P1-D2 即此失效），表重建手抄列易漂移。
 - [ ] `search_text VARCHAR(4096)` 与无界别名拼接 writer 不一致（`app/services/work_search_events.py:64-72`）。

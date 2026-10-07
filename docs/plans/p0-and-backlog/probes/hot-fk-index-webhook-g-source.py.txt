@@ -1,0 +1,22 @@
+import asyncio,json,hashlib,os,time
+from pathlib import Path
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
+
+async def main():
+ source=Path('/tmp/rssripple-v28-matrix-e-postgres.json');prior=json.loads(source.read_bytes());baseline=prior['future_heavy_8192_pending_16_due']['none']['webhook_due'];engine=create_async_engine(os.environ['INDEX_PROBE_URL'])
+ try:
+  async with engine.begin() as c:
+   await c.execute(text('CREATE INDEX ix_probe_due_pair ON webhook_deliveries(status,next_attempt_at)'))
+   await c.execute(text('ANALYZE webhook_deliveries'))
+  async with engine.connect() as c:
+   plan=[list(r) for r in (await c.execute(text('EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) '+baseline['sql']))).all()];times=[]
+   for _ in range(3):
+    start=time.perf_counter();rows=(await c.execute(text(baseline['sql']))).mappings().all();times.append(time.perf_counter()-start)
+    digest=hashlib.sha256(json.dumps(sorted(r['id'] for r in rows)).encode()).hexdigest();assert digest==baseline['result_ids_sha256'] and len(rows)==16
+  result={'source_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),'plan':plan,'seconds':times,'count':len(rows),'result_ids_sha256':digest,'scope':'Same existing PostgreSQL future-heavy database; compare two-column index with three-column prior result.'}
+  Path('/tmp/rssripple-v28-webhook-g-postgres.json').write_text(json.dumps(result,indent=2)+'\n')
+ finally:
+  async with engine.begin() as c:await c.execute(text('DROP INDEX IF EXISTS ix_probe_due_pair'))
+  await engine.dispose()
+asyncio.run(main())

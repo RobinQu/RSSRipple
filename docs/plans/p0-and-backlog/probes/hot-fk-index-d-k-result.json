@@ -1,0 +1,100 @@
+{
+  "accepted": false,
+  "runtime_changed": false,
+  "runs": {
+    "d_turso": {
+      "exit_code": 0,
+      "artifacts": {
+        "hot-fk-index-matrix-d-turso.log.gz": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+        "hot-fk-index-matrix-d-turso.json.gz": "60d624fa521c625e6b4f52471efd928596c6d0fb575c3c5ae753f85b3bdbb5ce"
+      }
+    },
+    "d_postgres": {
+      "exit_code": 0,
+      "artifacts": {
+        "hot-fk-index-matrix-d-postgres.log.gz": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+        "hot-fk-index-matrix-d-postgres.json.gz": "981fd2e435b1e64cc31ea7ed921dd88f11a5062b97b840c7516ebf10fba40a3a"
+      }
+    },
+    "e_turso": {
+      "exit_code": 1,
+      "artifacts": {
+        "hot-fk-index-matrix-e-turso.log.gz": "dd25300ca77e50d39e7b1b4c9b8d6d14d5c26cf2bc3ac2aac7ce354e5328fadb"
+      }
+    },
+    "e_postgres": {
+      "exit_code": 0,
+      "artifacts": {
+        "hot-fk-index-matrix-e-postgres.log.gz": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+        "hot-fk-index-matrix-e-postgres.json.gz": "732599b1445a0be55e85b1cfd9fb2a3697dd1244c2053362050b97ec26fa98db"
+      }
+    },
+    "f_turso": {
+      "exit_code": 1,
+      "artifacts": {
+        "hot-fk-index-matrix-f-turso.log.gz": "2e058e73b49f9c7f41ad83fd256f34cc7fd01ef6b78ea3bdeabaee92e36255ea",
+        "hot-fk-index-matrix-f-turso.json.gz": "3f1efba301a69753adef37b4ddf634d46c3fe8c762086916d46e0dfa534feb29"
+      }
+    },
+    "j_turso": {
+      "exit_code": 1,
+      "artifacts": {
+        "hot-fk-index-matrix-j-turso.log.gz": "2e058e73b49f9c7f41ad83fd256f34cc7fd01ef6b78ea3bdeabaee92e36255ea",
+        "hot-fk-index-matrix-j-turso.json.gz": "26d8780d9d60426a94075d57b14e20d5526432e7409711fff99aa76009a711e1"
+      }
+    },
+    "order_h": {
+      "exit_code": 0,
+      "artifacts": {
+        "hot-fk-index-order-h-turso.log.gz": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+        "hot-fk-index-order-h-turso.json.gz": "61d81483dd41acbf1876887162799de6e06df46439d09029a9abd1e3dd588709"
+      }
+    },
+    "order_i": {
+      "exit_code": 0,
+      "artifacts": {
+        "hot-fk-index-order-i-turso.log.gz": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+        "hot-fk-index-order-i-turso.json.gz": "9aba3da24e293d589c582dbee1a9ba3f24a1e67a0f764dfdcb7f13e7ce07ff76"
+      }
+    },
+    "order_k": {
+      "exit_code": 1,
+      "artifacts": {
+        "hot-fk-index-order-k-turso.log.gz": "8db0d2ddd55bf21b1c1c9e12e85c56790438860fb90f8f6e79c7bb4c9a7ca046",
+        "hot-fk-index-order-k-turso.json.gz": "01bb10a994cf3673f76002cc0cbb9f023393e177df7889e9cb4ddedb5bb7837d"
+      }
+    }
+  },
+  "webhook_g_exit": 0,
+  "artifacts": {
+    "hot-fk-index-webhook-g-postgres.log.gz": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+    "hot-fk-index-webhook-g-postgres.json.gz": "bc319f0eda998e8016f0d96d20158d2c6dd2a5de84e6f4350dd1f46a98a35c78",
+    "hot-fk-index-matrix-d-source.py.txt": "9d8c8d309ec7fb70acc8a4ff88a966e8cae0ef804885e70a33700c47965cac67",
+    "hot-fk-index-matrix-e-source.py.txt": "a8027a23bd135d3582f78f35dd1e87e599e3e5e4e0fc9000001a027418d31523",
+    "hot-fk-index-matrix-f-source.py.txt": "2163ccb546b9f26c5529b519ee994e13f753335d3ebf9cfb784413703d939a7e",
+    "hot-fk-index-matrix-j-source.py.txt": "de7ab44bfb070d727eccf5f7c06ee82d58ebfba825c5ad0c25f37ef33c6c5b69",
+    "hot-fk-index-order-h-source.py.txt": "22c720b044c8672c316b6786e2bd4efe7ce66fd631bd1c1fff800269555f615b",
+    "hot-fk-index-order-i-source.py.txt": "e75951234156f826aa863d16c2c748d8bb92d88b8ed8f32ff9208eb7de75ccee",
+    "hot-fk-index-order-k-source.py.txt": "2f3f1c32e7c4b75dac4ec9025d445968214fafcf56feec7e1df91f67fa444334",
+    "hot-fk-index-webhook-g-source.py.txt": "9a64dc3a9d54c582e979eeaa638cdbb159e1c3f9af29b4ca11b144fdfb4a25aa"
+  },
+  "cleanup": {
+    "project": "rssripple-v28-matrix-d",
+    "exit_code": 0,
+    "containers": [],
+    "networks": [],
+    "volumes": [],
+    "turso": "All temporary engines disposed and directories removed"
+  },
+  "versions": {
+    "pyturso": "0.8.0rc2",
+    "sqlalchemy": "2.0.51"
+  },
+  "findings": [
+    "15-case d matrix preserves result sets on both backends. Existing pending-only unique index already serves pending decisions.",
+    "Extended e PostgreSQL passes. Turso e/f/j fail result equality on large-agent decision history.",
+    "j samples show baseline returning older rows 6690..6709 while added index returns expected 16..35.",
+    "64-row h and 8192-row narrow i controls pass. 8192-row wide k fails known expected oracle on no-index and forced-scan paths, but both ascending/descending indexes return expected rows. Sorter root cause not established.",
+    "PostgreSQL future-heavy due scan uses BitmapOr with status/next; third created column unnecessary in g. No final production index selection or migration yet."
+  ]
+}

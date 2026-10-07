@@ -1,0 +1,45 @@
+"""Minimal actual-schema reproduction of ordering changes after index creation."""
+import asyncio,json,tempfile,uuid
+from datetime import datetime,timedelta
+from pathlib import Path
+from sqlalchemy import Index,insert,select,text
+from sqlalchemy.ext.asyncio import create_async_engine
+import app.models  # noqa: F401
+from app.database import Base,apply_db_pragmas,normalize_database_url
+from app.models.channel import Channel
+from app.models.downloader import DownloaderInstance
+from app.models.agent import Agent
+from app.models.pending_decision import PendingDecision
+from app.api.v1.decisions import _choice_decision_filter
+
+async def main():
+ with tempfile.TemporaryDirectory(prefix='rssripple-v28-order-') as folder:
+  engine=create_async_engine(normalize_database_url(f'sqlite+aioturso:///{folder}/order.db'));apply_db_pragmas(engine)
+  try:
+   async with engine.begin() as c:
+    await c.run_sync(Base.metadata.create_all);await c.execute(text('PRAGMA journal_mode=mvcc'))
+   channel,downloader,a,b=[str(uuid.uuid4()) for _ in range(4)];now=datetime(2026,9,4,12)
+   rows=[{'id':str(uuid.uuid4()),'agent_id':a if i<16 else b,'decision_key':f'probe:{i}','reason':'Synthetic ordering reproduction','candidates':[],'status':'pending' if i%2 else 'decided','created_at':now-timedelta(seconds=i)} for i in range(64)]
+   async with engine.begin() as c:
+    await c.execute(insert(Channel),{'id':channel,'name':'Order probe','url':'https://example.invalid','type':'rss_feed','field_mapping':{}})
+    await c.execute(insert(DownloaderInstance),{'id':downloader,'name':'Probe','type':'mock','url':'https://example.invalid','download_dir':'/synthetic'})
+    await c.execute(insert(Agent),[{'id':v,'name':'Probe','channel_id':channel,'downloader_id':downloader} for v in [a,b]])
+    await c.execute(insert(PendingDecision),rows)
+   query=select(PendingDecision.__table__).where(PendingDecision.agent_id==b,_choice_decision_filter()).order_by(PendingDecision.created_at.desc()).limit(20)
+   sql=str(query.compile(dialect=engine.dialect,compile_kwargs={'literal_binds':True}));expected=[r['id'] for r in rows[16:36]];result={'sql':sql,'expected_ids':expected,'phases':{}}
+   async def observe(label,query_sql):
+    async with engine.begin() as c:await c.execute(text('ANALYZE'))
+    async with engine.connect() as c:
+     plan=[list(r) for r in (await c.execute(text('EXPLAIN QUERY PLAN '+query_sql))).all()];actual=(await c.execute(text(query_sql))).mappings().all()
+     result['phases'][label]={'plan':plan,'rows':[{'id':r['id'],'created_at':str(r['created_at']),'decision_key':r['decision_key']} for r in actual],'matches_expected':[r['id'] for r in actual]==expected}
+   await observe('no_added_index',sql)
+   for label,column in [('ascending',PendingDecision.__table__.c.created_at),('descending',PendingDecision.__table__.c.created_at.desc())]:
+    ix=Index('ix_probe_order_'+label,PendingDecision.__table__.c.agent_id,column)
+    async with engine.begin() as c:await c.run_sync(ix.create)
+    await observe(label,sql)
+    await observe(label+'_forced_scan',sql.replace('FROM pending_decisions','FROM pending_decisions NOT INDEXED'))
+    async with engine.begin() as c:await c.run_sync(ix.drop)
+   Path('/tmp/rssripple-v28-order-h-turso.json').write_text(json.dumps(result,indent=2)+'\n')
+   assert all(x['matches_expected'] for x in result['phases'].values()),{k:v['matches_expected'] for k,v in result['phases'].items()}
+  finally:await engine.dispose()
+asyncio.run(main())

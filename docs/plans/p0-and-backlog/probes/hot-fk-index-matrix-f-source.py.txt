@@ -1,0 +1,138 @@
+"""Disposable real-schema query-plan matrix; synthetic scale, captured titles."""
+import asyncio,hashlib,json,os,tempfile,time,uuid
+from datetime import datetime,timedelta
+from pathlib import Path
+from sqlalchemy import Index,case,insert,select,text,update
+from sqlalchemy.ext.asyncio import create_async_engine
+import app.models  # noqa: F401
+from app.database import Base,apply_db_pragmas,normalize_database_url
+from app.models.channel import Channel
+from app.models.movie import Movie
+from app.models.series import TVSeries
+from app.models.work_collection import WorkCollection
+from app.models.file_resource import FileResource
+from app.models.downloader import DownloaderInstance
+from app.models.agent import Agent
+from app.models.agent_work import AgentWork
+from app.models.pending_decision import PendingDecision
+from app.models.agent_run import AgentRun
+from app.models.download_task import DownloadTask
+from app.models.download_notification import DownloadNotification
+from app.models.agent_webhook import AgentWebhook
+from app.models.webhook_delivery import WebhookDelivery
+from app.api.v1.decisions import _choice_decision_filter
+from app.services.notify_service import _DELIVERY_BATCH
+
+N=8192
+M=N//8
+NOW=datetime(2026,9,4,12)
+uid=lambda:str(uuid.uuid4())
+sha=lambda b:hashlib.sha256(b).hexdigest()
+
+async def seed(engine):
+ raw=Path('tests/fixtures/prod_works_v1.json').read_bytes();assert sha(raw)=='d11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32'
+ corpus=json.loads(raw)['tables'];channel,downloader=uid(),uid();agents=[uid() for _ in range(M)];movies=[uid() for _ in range(M)];series=[uid() for _ in range(M)];collections=[uid() for _ in range(M)];resources=[uid() for _ in range(N)];tasks=[uid() for _ in range(N)];notifications=[uid() for _ in range(N)];hooks=[uid(),uid()]
+ rows={Channel:[{'id':channel,'name':'Synthetic query-plan matrix','url':'https://example.invalid/rss','type':'rss_feed','field_mapping':{}}],DownloaderInstance:[{'id':downloader,'name':'Synthetic downloader','url':'https://example.invalid/rpc','type':'mock','download_dir':'/synthetic'}],Movie:[{'id':movies[i],'title_en':corpus['movies'][i%len(corpus['movies'])].get('title_en')} for i in range(M)],WorkCollection:[{'id':collections[i],'title_cn':corpus['work_collections'][i%len(corpus['work_collections'])]['title_cn']} for i in range(M)],TVSeries:[{'id':series[i],'collection_id':collections[i],'season_number':1,'title_cn':corpus['tv_series'][i%len(corpus['tv_series'])].get('title_cn')} for i in range(M)],Agent:[{'id':a,'name':'Synthetic agent','channel_id':channel,'downloader_id':downloader} for a in agents],AgentWebhook:[{'id':hooks[i],'agent_id':agents[i],'url':'https://example.invalid/webhook','mock':True} for i in range(2)]}
+ rows[AgentWork]=[{'id':uid(),'agent_id':agents[i//8],'content_type':'movie' if i%2 else 'tv','movie_id':movies[(i//8+i%8)%M] if i%2 else None,'series_id':series[(i//8+i%8)%M] if not i%2 else None} for i in range(N)]
+ rows[FileResource]=[{'id':resources[i],'channel_id':channel,'guid':f'synthetic-index:{i}','title_raw':corpus['file_resources'][i%len(corpus['file_resources'])]['title_raw'],'torrent_url':f'https://example.invalid/{i}.torrent','movie_id':movies[0 if i<32 else 1] if i%2 else None,'series_id':series[0 if i<32 else 1] if not i%2 else None,'collection_id':collections[0 if i<16 else 1],'created_at':NOW-timedelta(seconds=i)} for i in range(N)]
+ rows[PendingDecision]=[{'id':uid(),'agent_id':agents[0 if i<16 else 1],'movie_id':movies[0 if i<32 else 1] if i%2 else None,'series_id':series[0 if i<32 else 1] if not i%2 else None,'decision_key':f'movie:synthetic:{i}','reason':'Synthetic query-plan choice','candidates':[resources[(0 if i<32 else 32)+i%2],resources[(0 if i<32 else 32)+i%2+2]],'status':'pending' if i%2 else 'decided','created_at':NOW-timedelta(seconds=i)} for i in range(N)]
+ rows[AgentRun]=[{'id':uid(),'agent_id':agents[0 if i<16 else 1],'started_at':NOW-timedelta(seconds=i),'status':'success','dispatched':i%2} for i in range(N)]
+ rows[DownloadTask]=[{'id':tasks[i],'agent_id':agents[0 if i<16 else 1],'file_resource_id':resources[0 if i<16 else 1],'downloader_id':downloader,'download_dir':'/synthetic','status':'completed' if i%2 else 'pending'} for i in range(N)]
+ rows[DownloadNotification]=[{'id':notifications[i],'download_task_id':tasks[i],'agent_id':agents[0 if i<16 else 1],'payload':{'version':2,'synthetic_query_only':True}} for i in range(N)]
+ rows[WebhookDelivery]=[{'id':uid(),'notification_id':notifications[i],'webhook_id':hooks[0 if i<16 else 1],'status':'pending' if i<32 else 'done','next_attempt_at':None if i%3==0 else NOW+timedelta(days=1 if i>=16 else -1),'created_at':NOW-timedelta(seconds=i)} for i in range(N)]
+ async with engine.begin() as conn:
+  for model,data in rows.items():
+   required={c.name for c in model.__table__.columns if not c.nullable and c.default is None and c.server_default is None}
+   assert all(required<=set(row) for row in data),(model.__name__,required-set(data[0]))
+   for offset in range(0,len(data),256):await conn.execute(insert(model),data[offset:offset+256])
+ return {'agents':agents,'movies':movies,'series':series,'collections':collections,'resources':resources,'corpus_sha256':sha(raw)}
+
+def queries(ids):
+ a,m,s,c,r=[ids[k][0] for k in ['agents','movies','series','collections','resources']]
+ # Core table projections preserve service predicates/order/limit while excluding
+ # ORM eager-loading side queries (separate P1-D7 investigation).
+ def q(model):return select(model.__table__)
+ return {
+ 'resource_movie':q(FileResource).where(FileResource.movie_id==m),
+ 'resource_series':q(FileResource).where(FileResource.series_id==s),
+ 'resource_collection':q(FileResource).where(FileResource.collection_id==c),
+ 'subscriptions_agent':q(AgentWork).where(AgentWork.agent_id==a).order_by(AgentWork.created_at.asc()),
+ 'subscriptions_movie':q(AgentWork).where(AgentWork.movie_id==m),
+ 'subscriptions_series':q(AgentWork).where(AgentWork.series_id==s),
+ 'decisions_agent_history':q(PendingDecision).where(PendingDecision.agent_id==a,_choice_decision_filter()).order_by(PendingDecision.created_at.desc()).limit(20),
+ 'decisions_agent_pending':q(PendingDecision).where(PendingDecision.agent_id==a,PendingDecision.status=='pending',_choice_decision_filter()).order_by(PendingDecision.created_at.desc()).limit(20),
+ 'decisions_movie':q(PendingDecision).where(PendingDecision.movie_id==m),
+ 'decisions_series':q(PendingDecision).where(PendingDecision.series_id==s),
+ 'downloads_resource':q(DownloadTask).where(DownloadTask.file_resource_id==r),
+ 'downloads_agent':q(DownloadTask).where(DownloadTask.agent_id==a),
+ 'runs_history':q(AgentRun).where(AgentRun.agent_id==a).order_by(AgentRun.started_at.desc()).limit(20),
+ 'runs_nonempty':q(AgentRun).where(AgentRun.agent_id==a,(AgentRun.dispatched>0)|(AgentRun.pending_decisions>0)|(AgentRun.status.in_(['running','failed']))).order_by(AgentRun.started_at.desc()).limit(20),
+ 'resource_movie_high_fraction':q(FileResource).where(FileResource.movie_id==ids['movies'][1]),
+ 'resource_movie_missing':q(FileResource).where(FileResource.movie_id=='00000000-0000-4000-8000-000000000000'),
+ 'decisions_history_large_agent':q(PendingDecision).where(PendingDecision.agent_id==ids['agents'][1],_choice_decision_filter()).order_by(PendingDecision.created_at.desc()).limit(20),
+ 'runs_missing_agent':q(AgentRun).where(AgentRun.agent_id=='00000000-0000-4000-8000-000000000000').order_by(AgentRun.started_at.desc()).limit(20),
+ 'webhook_due':q(WebhookDelivery).where(WebhookDelivery.status=='pending',(WebhookDelivery.next_attempt_at.is_(None))|(WebhookDelivery.next_attempt_at<=NOW)).order_by(WebhookDelivery.created_at.asc()).limit(_DELIVERY_BATCH),
+ }
+
+async def measure(engine,qs):
+ async with engine.begin() as conn:await conn.execute(text('ANALYZE'))
+ result={}
+ async with engine.connect() as conn:
+  for name,query in qs.items():
+   sql=str(query.compile(dialect=engine.dialect,compile_kwargs={'literal_binds':True}))
+   prefix='EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ' if engine.dialect.name=='postgresql' else 'EXPLAIN QUERY PLAN '
+   plan=[list(row) for row in (await conn.execute(text(prefix+sql))).all()]
+   readings=[];identities=[]
+   for _ in range(3):
+    start=time.perf_counter();rows=(await conn.execute(query)).mappings().all();readings.append(time.perf_counter()-start)
+    current=sorted(row['id'] for row in rows)
+    if identities:assert current==identities
+    identities=current
+   result[name]={'sql':sql,'plan':plan,'seconds':readings,'count':len(identities),'result_ids_sha256':sha(json.dumps(identities).encode()),'result_ids':identities}
+ return result
+
+async def probe(url):
+ engine=create_async_engine(url);apply_db_pragmas(engine)
+ try:
+  async with engine.begin() as conn:
+   await conn.run_sync(Base.metadata.create_all)
+   if engine.dialect.name=='sqlite':await conn.execute(text('PRAGMA journal_mode=mvcc'))
+  ids=await seed(engine);qs=queries(ids);before=await measure(engine,qs)
+  specs=[(FileResource,('movie_id',)),(FileResource,('series_id',)),(FileResource,('collection_id',)),(AgentWork,('agent_id',)),(AgentWork,('movie_id',)),(AgentWork,('series_id',)),(PendingDecision,('agent_id','created_at')),(PendingDecision,('movie_id',)),(PendingDecision,('series_id',)),(DownloadTask,('file_resource_id',)),(DownloadTask,('agent_id',)),(AgentRun,('agent_id','started_at')),(WebhookDelivery,('status','next_attempt_at','created_at'))]
+  indexes=[]
+  async with engine.begin() as conn:
+   for model,columns in specs:
+    index=Index('ix_probe_'+model.__tablename__+'_'+'_'.join(columns),*[model.__table__.c[col] for col in columns]);await conn.run_sync(index.create);indexes.append(index)
+  after=await measure(engine,qs)
+  mismatches=[k for k in qs if before[k]['result_ids_sha256']!=after[k]['result_ids_sha256']]
+  Path(os.environ['INDEX_PROBE_REPORT']).write_text(json.dumps({'before':before,'after':after,'mismatches':mismatches},ensure_ascii=False,indent=2,default=str)+'\n')
+  assert not mismatches,mismatches
+  # Compare alternative delivery order index independently, not with both
+  # present and a planner choice mistaken for isolated evidence.
+  async with engine.begin() as conn:
+   await conn.run_sync(indexes[-1].drop)
+   index=Index('ix_probe_webhook_status_created',WebhookDelivery.__table__.c.status,WebhookDelivery.__table__.c.created_at);await conn.run_sync(index.create)
+  alternative=await measure(engine,{'webhook_due':qs['webhook_due']})
+  assert alternative['webhook_due']['result_ids_sha256']==before['webhook_due']['result_ids_sha256']
+  async with engine.begin() as conn:
+   await conn.run_sync(index.drop)
+   await conn.execute(update(WebhookDelivery).values(status='pending',next_attempt_at=case(
+    (WebhookDelivery.created_at<=NOW-timedelta(seconds=N-8),None),
+    (WebhookDelivery.created_at<=NOW-timedelta(seconds=N-16),NOW-timedelta(days=1)),
+    else_=NOW+timedelta(days=1))))
+  future_heavy={'none':await measure(engine,{'webhook_due':qs['webhook_due']})}
+  for name,cols in [('status_next_created',('status','next_attempt_at','created_at')),('status_created',('status','created_at'))]:
+   ix=Index('ix_probe_future_'+name,*[WebhookDelivery.__table__.c[col] for col in cols])
+   async with engine.begin() as conn:await conn.run_sync(ix.create)
+   future_heavy[name]=await measure(engine,{'webhook_due':qs['webhook_due']})
+   async with engine.begin() as conn:await conn.run_sync(ix.drop)
+  expected=future_heavy['none']['webhook_due']['result_ids_sha256']
+  assert all(stage['webhook_due']['count']==16 and stage['webhook_due']['result_ids_sha256']==expected for stage in future_heavy.values())
+  return {'future_heavy_8192_pending_16_due':future_heavy,'backend':engine.dialect.name,'corpus_sha256':ids['corpus_sha256'],'rows_per_hot_table':N,'agents':M,'works_per_agent':8,'before':before,'after':after,'alternative_webhook_status_created':alternative,'scope':'Recorded titles; UUIDs, assignments, timestamps, payloads and distributions synthetic. Full ORM schema, Core SQL preserves query predicates/order/limit; excludes eager-load side queries and end-to-end service timings.'}
+ finally:await engine.dispose()
+
+async def main():
+ with tempfile.TemporaryDirectory(prefix='rssripple-v28-matrix-') as folder:
+  url=os.environ.get('INDEX_PROBE_URL') or normalize_database_url(f'sqlite+aioturso:///{folder}/matrix.db')
+  result=await probe(url);Path(os.environ['INDEX_PROBE_REPORT']).write_text(json.dumps(result,ensure_ascii=False,indent=2,default=str)+'\n')
+asyncio.run(main())

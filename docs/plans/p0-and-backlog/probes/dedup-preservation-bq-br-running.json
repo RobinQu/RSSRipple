@@ -1,0 +1,49 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v25-reparse-slyrpzqn",
+  "effective_files": 49,
+  "frozen_count": 5527,
+  "source": "dedup-preservation-bq-source.json",
+  "frozen": "dedup-preservation-bq-frozen.json",
+  "unit": {
+    "status": "running",
+    "session": 74297,
+    "log": "/tmp/rssripple-v25-unit-bq.log",
+    "junit": "/tmp/rssripple-v25-unit-bq.xml",
+    "coverage": "/tmp/rssripple-v25-unit-bq-coverage.xml",
+    "coverage_data": "/tmp/rssripple-v25-unit-bq.coverage",
+    "threshold": 95,
+    "postgres_project": "rssripple-v25-unit-bq",
+    "postgres_compose": "/tmp/rssripple-v25-compose.yml",
+    "postgres_port": 32872,
+    "startup_exit": 0,
+    "preflight_passed": 3,
+    "preflight_exit": 0,
+    "cleanup": "pending"
+  },
+  "integration": {
+    "status": "running",
+    "session": 19866,
+    "log": "/tmp/rssripple-v25-integration-br.log",
+    "project": "rssripple-v25-final-br",
+    "runner": "rssripple-v25-final-br-runner",
+    "compose": "/tmp/rssripple-v25-reparse-slyrpzqn/docker-compose.integration-isolated.yml",
+    "startup_exit": 0,
+    "threshold": 85,
+    "cleanup": "pending"
+  },
+  "image": "rssripple-v20-tests:local",
+  "previous_unit_bm": {
+    "session": 80553,
+    "status": "running",
+    "note": "Do not infer final exit from progress; retain terminal audit then clean rssripple-v25-unit-bm."
+  },
+  "specialty_bp": {
+    "passed": 72,
+    "exit": 0,
+    "project": "rssripple-v25-reparse-bo",
+    "cleanup_exit": 0,
+    "labels_empty": true
+  },
+  "warning": "Immutable candidate; require both full zero-failure gates, skips/hashes/actual exit/coverage/export/cleanup audit. bn failed and is fully cleaned; no candidate runtime merged."
+}

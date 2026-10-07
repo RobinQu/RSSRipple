@@ -22,7 +22,7 @@
     "cleanup": "pending"
   },
   "integration": {
-    "status": "running",
+    "status": "failed",
     "session": 52058,
     "log": "/tmp/rssripple-v25-integration-bn.log",
     "project": "rssripple-v25-final-bn",
@@ -30,7 +30,16 @@
     "compose": "/tmp/rssripple-v25-contention-75o4oqkh/docker-compose.integration-isolated.yml",
     "startup_exit": 0,
     "threshold": 85,
-    "cleanup": "pending"
+    "cleanup": "complete",
+    "runner_exit": 1,
+    "audit": "dedup-preservation-bn-audit.json",
+    "apps_exit": [
+      0,
+      0
+    ],
+    "coverage_exit": 0,
+    "export_exit": 0,
+    "cleanup_exit": 0
   },
   "image": "rssripple-v20-tests:local",
   "previous": {
@@ -38,5 +47,5 @@
     "av": "passed old runtime; cannot validate current runtime",
     "bg": "specialty passed; cleaned; labels empty"
   },
-  "warning": "Do not edit frozen candidate; await actual terminal exits, audit full reports/skips/hashes, stop only own app/app-llm for coverage, export artifacts before cleaning projects. No runtime code merged."
+  "warning": "bm remains live; bn terminal 2 failed (legacy Semaphore in production reparse handler), archived and cleaned. Corrected bq/br candidate is a separate frozen copy; both full gates must be repeated."
 }

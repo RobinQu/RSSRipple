@@ -167,3 +167,14 @@ az 完整单元/API 最终 **1 failed、4170 passed、12 skipped、14 warnings�
 专项：be 38 passed；bf 11 passed；bg 双库调用/身份/发布/准入 90 passed；bh 诊断首版错误使用 fixture 替换前的 factory，失败记录保留，bi 修正后 1 passed；bj 1 passed；bl 完整 fetch 文件、调度取消、录制竞争及双库正式入口 **75 passed、4 warnings、48.40 秒、退出 0**。证据见 `probes/dedup-preservation-be-bl-result.json`。bg 专用 PostgreSQL 已关闭。
 
 新候选 `/tmp/rssripple-v25-contention-75o4oqkh` 已冻结：**48 有效文件、5527 输入**，`probes/dedup-preservation-bm-source.json`、`bm-frozen.json`、`bm-candidate.tar.gz` 可恢复。新独立 PG 三项预检 **3 passed、2.15 秒、退出 0**。必须重新完成 bm 单元/API（≥95%）及 bn 完整隔离集成（≥85%）、零失败、跳过/哈希/退出/清理审计；仍不批准运行代码合入。
+
+
+## bn 终态及重解析生产调用补修（2026-10-07）
+
+bn 完整集成 **2 failed、3646 passed、17 skipped、24 warnings，2400.91 秒，runner 退出 1**；覆盖率 **89.35%（21633/24211）**，两应用退出 0/0，覆盖率命令/导出/清理退出 0，5527 冻结输入及 48 个主干基线哈希未变，全部跳过与 av 相同。日志、JUnit、五份原始覆盖率和语料报告见 `probes/dedup-preservation-bn-audit.json`。Compose down 后命名 runner 及 gate-data 卷仍残留，已显式移除，最终标签查询容器/网络/卷全部为空。bm 单元仍须保留自己的真实终态，不以 bn 终态推断。
+
+两项失败均为 `resources/test_reparse_captured.py` 的 PostgreSQL/Turso 录制重解析入口。真实 handler 仍向 `_process_resource_metadata` 传 `asyncio.Semaphore(1)`；新准入接口调用 `.resource()` 报错，包装器记录失败后返回，导致任务被确认而实际元数据管线未执行。bo 在冻结候选单独重现 **1 failed、2.43 秒、退出 1**。这不是测试旧断言，也不是主干既有 B8 回归；是 V25 候选漏迁移的生产调用点，必须补修才能验收。
+
+独立副本将该调用改为 `MetadataConcurrency(1)`，更新业务说明；不修改录制种子断言，也不增加兼容旧参数的静默回退。搜索 app/scripts 的全部调用点：handler 一处、fetch 三处均使用同一接口。bp 双库录制种子、完整 handler 单元、失权及实际准入回归 **72 passed、10 warnings、122.40 秒、退出 0**；录制 torrent 的缓存复用、12 文件持久化、身份处理与请求确认仍全部断言。专项项目已清理，标签为空。
+
+新候选 `/tmp/rssripple-v25-reparse-slyrpzqn`：**49 有效文件、5527 输入**。对比 bm 仅 `app/job_handlers.py` 和业务文档变化；源与 tar 为 `probes/dedup-preservation-bq-*`。无缓存 Ruff 通过，独立 PostgreSQL 三项预检 **3 passed、2.21 秒、退出 0**。完整 bq 单元/API 与 br 隔离集成已启动，最新续接清单为 `probes/dedup-preservation-bq-br-running.json`。运行代码改变，两道完整门禁都必须重跑，不复用 bm/bn 为新版本验收。V26/V27 的旧父预组合证据保留，正式合入前必须在最终接受的父提交上重基。

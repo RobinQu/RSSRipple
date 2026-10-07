@@ -1,0 +1,17 @@
+{
+  "exit_code": 0,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "72",
+    "time": "122.363",
+    "timestamp": "2026-10-07T07:14:25.112068+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "artifacts": {
+    "dedup-preservation-bp.log.gz": "4162b682dd05fecc351a3aa69de20a32e1542bac2c3e302ea1786da7e5b688ac",
+    "dedup-preservation-bp.xml.gz": "e34a223f546436cb1346ff1611572fea27561e004a05785bdd25bc9925d75ac3"
+  }
+}
