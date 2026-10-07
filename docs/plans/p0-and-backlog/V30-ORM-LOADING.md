@@ -1,6 +1,6 @@
 # V30 列表与校验路径的 ORM 加载边界
 
-状态：o 已正式重基至 V29 验收后的 `07633cd`，14 文件/6454 输入冻结，重基后双库预检 16 项通过、零跳过、34.04 秒、退出 0，预检项目已清理。p/q 完整单元/API 与隔离集成现已启动，结果未定，未关闭 P1-D7（当前 P2），未合入本批运行代码。当前入口：[运行记录](probes/orm-loading-p-q-running.json)。以下保留早期阶段记录。
+状态：o 已重基至 V29 验收后的 `07633cd`，14 文件/6454 输入冻结。p/q 完整门禁均退出 0：单元/API 4183 passed、12 skipped、96.86%；集成 3861 passed、17 skipped、89.41%。跳过与 V29 基线一致，冻结输入核验、报告归档和两个隔离项目清理完成。仍待最终五轴审查及合入，未关闭 P1-D7（当前 P2）。入口：[单元审计](probes/orm-loading-p-audit.json)、[集成审计](probes/orm-loading-q-audit.json)、[门禁终态](probes/orm-loading-p-q-running.json)。以下保留早期阶段记录。
 
 ## 必要性与优先级复核
 

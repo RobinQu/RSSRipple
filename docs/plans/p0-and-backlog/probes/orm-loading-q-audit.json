@@ -1,0 +1,173 @@
+{
+  "accepted": false,
+  "integration_gate_passed": true,
+  "runner_exit": 0,
+  "passed": 3861,
+  "failed": 0,
+  "skipped": 17,
+  "warnings": 29,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "17",
+    "tests": "3878",
+    "time": "2643.261",
+    "timestamp": "2026-10-07T14:13:04.225320+00:00",
+    "hostname": "929d50babd18"
+  },
+  "seconds": 2643.68,
+  "coverage_exit": 0,
+  "coverage": {
+    "lines-covered": "21815",
+    "lines-valid": "24399",
+    "line-rate": "0.8941"
+  },
+  "skips": [
+    [
+      "tests.integration.http.test_api_coverage2.TestMagnetResolve",
+      "test_terminal_retry_flow",
+      "no magnet resolution reached a terminal state in time",
+      "/app/tests/integration/http/test_api_coverage2.py:819: no magnet resolution reached a terminal state in time"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_mapping_structure",
+      "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:227: LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_mapping_has_torrent_url",
+      "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:232: LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_mapping_has_title_field",
+      "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:238: LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_all_rules_have_source_key",
+      "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:243: LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_confidence_not_low",
+      "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:248: LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_fetch_succeeded",
+      "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:257: LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_fetch_created_resources",
+      "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:263: LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_resources_have_torrent_url",
+      "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:269: LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_resources_have_title_raw",
+      "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:275: LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_channel_stream_analyze_also_works",
+      "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:281: LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_no_duplicates_on_refetch",
+      "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:290: LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_metadata_api.TestMetadataLink",
+      "test_link_metadata_creates_series",
+      "No metadata API keys configured \u2014 cannot perform search+link",
+      "/app/tests/integration/http/test_metadata_api.py:189: No metadata API keys configured \u2014 cannot perform search+link"
+    ],
+    [
+      "tests.integration.http.test_task_queue.TestRedisDistributedDedup",
+      "test_status_key_shared_after_enqueue",
+      "No distinct Redis-backed app instance configured",
+      "/app/tests/integration/http/test_task_queue.py:365: No distinct Redis-backed app instance configured"
+    ],
+    [
+      "tests.integration.http.test_task_queue.TestRedisDistributedDedup",
+      "test_redis_job_state_persists_after_done",
+      "No distinct Redis-backed app instance configured",
+      "/app/tests/integration/http/test_task_queue.py:383: No distinct Redis-backed app instance configured"
+    ],
+    [
+      "tests.integration.magnet.test_magnet_resolve_e2e",
+      "test_live_magnet_resolution",
+      "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)",
+      "/app/tests/integration/magnet/test_magnet_resolve_e2e.py:376: live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)"
+    ],
+    [
+      "tests.integration.magnet.test_magnet_resolve_e2e",
+      "test_live_fetch_to_resolve_end_to_end",
+      "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)",
+      "/app/tests/integration/magnet/test_magnet_resolve_e2e.py:387: live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)"
+    ]
+  ],
+  "skips_match_accepted_baseline": "turso-pagination-u-audit.json",
+  "frozen_inputs_verified": 6454,
+  "independently_derived_effective_files": [
+    "app/api/v1/agents.py",
+    "app/api/v1/channels.py",
+    "app/job_handlers.py",
+    "app/models/agent.py",
+    "app/models/channel.py",
+    "app/schemas/agent.py",
+    "app/services/agent_service.py",
+    "app/services/fetch_service.py",
+    "docs/design/api-endpoints.md",
+    "docs/design/business-logic.md",
+    "docs/design/data-models.md",
+    "docs/testing/integration-inventory.md",
+    "tests/integration/loading/conftest.py",
+    "tests/integration/loading/test_list_boundaries.py"
+  ],
+  "app_exits": [
+    {
+      "service": "app",
+      "container": "3d68ac1a05b5",
+      "exit_code": 0
+    },
+    {
+      "service": "app-llm",
+      "container": "4e48594625fa",
+      "exit_code": 0
+    }
+  ],
+  "export_exit": 0,
+  "raw_coverage_files": 5,
+  "corpus_reports": 4,
+  "cleanup_exit": 0,
+  "cleanup_labels": {
+    "containers": [],
+    "networks": [],
+    "volumes": []
+  },
+  "unit_pending": false,
+  "final_review_pending": true,
+  "runtime_main_changed": false,
+  "unit_audit": "orm-loading-p-audit.json"
+}

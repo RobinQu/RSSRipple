@@ -1,0 +1,35 @@
+{
+  "accepted": false,
+  "actual_exit": 0,
+  "source": "agent-run-lifecycle-n-source.json",
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "60",
+    "time": "107.271",
+    "timestamp": "2026-10-07T15:02:26.912397+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "passed": 60,
+  "duration_seconds": 107.29,
+  "warnings": 1,
+  "cleanup": {
+    "project": "rssripple-v34-shutdown-m",
+    "labels": {
+      "containers": [],
+      "networks": [],
+      "volumes": []
+    }
+  },
+  "red_evidence": "agent-run-lifecycle-m-result.json",
+  "verified": "Real in-flight renewal transaction completes before normal shutdown, single cancellation or repeated cancellation returns, on both databases; no captured event loop errors.",
+  "limitations": "Controlled transaction boundary, not arbitrary driver/network stalls.",
+  "pending": [
+    "real Redis worker recovery and ownership/network failures",
+    "legacy upgrade and offline review tool",
+    "rebase, full gates and final review"
+  ],
+  "runtime_main_changed": false
+}

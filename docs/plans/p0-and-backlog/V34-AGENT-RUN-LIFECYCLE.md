@@ -1,6 +1,6 @@
 # V34 AgentRun 异常与崩溃后的终态
 
-> 最新：已重基至 `ad71542` 的独立候选 `/tmp/rssripple-v34-integrated-m5mdm6bz`（指针 `/tmp/rssripple-v34-integrated-path`），18 个有效文件已接入 handler、Agent 归属与有界调度回收。k 同组合 131 项通过，l 双库四个普通异常/真实强退自然过期恢复场景通过，测试项目已清理。真实 Redis 接管、明确在途驱动停止用例、旧库/离线审核和完整门禁仍未完成，未合入运行代码。[当前源码](probes/agent-run-lifecycle-k-source.json)、[候选归档](probes/agent-run-lifecycle-k-candidate.tar.gz)、[k/l 证据](probes/agent-run-lifecycle-k-l-result.json)。此前 h 九文件原语候选为历史阶段。
+> 最新：独立候选 `/tmp/rssripple-v34-integrated-m5mdm6bz` 现为 19 个有效文件。m 在双库复现重复取消导致清理提前返回（2 failed、4 passed，退出 1）；修正为等待真实续租事务完成再传播取消，n 生命周期及 B9/B7 回归 60 passed、零跳过、107.29 秒、退出 0。测试项目清理完毕。受控在途事务停止已验证，不代表任意驱动/网络阻塞已覆盖。真实 Redis worker 接管、旧库/离线审核和完整门禁仍未完成，未合入运行代码。[最新源码](probes/agent-run-lifecycle-n-source.json)、[候选归档](probes/agent-run-lifecycle-n-candidate.tar.gz)、[n 结果](probes/agent-run-lifecycle-n-result.json)。此前 k/l 与 h 记录保留为历史阶段。
 
 ## 必要性与分级
 
@@ -96,3 +96,7 @@ i 新专项 32 passed、43.41 秒、退出 0：双库实际 handler 普通异常
 l [进程恢复探针](probes/agent_run_recovery_probe.py) 复用原 a 探针的固定录制资源 setup 和故障边界：两库普通异常立即 failed；两库实际 os._exit(73) 后独立进程观察 running/一条租约，等待数据库时钟自然达到三秒测试租约截止，再由真实回收函数终结。替代实际 handler 成功后均为 failed + success、finished 均非空、无残余租约；成功运行 total=unrecognized=1、dispatched=0。四场景及 28 个子进程退出/输出保留，父探针退出 0。不使用年龄直接修改状态，不冒充 Redis/真实 scheduler worker 接管。临时 PG 数据库与 Turso 目录已清理；共用专用测试项目 rssripple-v34-handler-i（32897）在 k/l 实际结束后 down，容器/网络/卷标签为空。
 
 最终 18 文件由候选与 Git 全输入比较推导，含新增 Python 文件；本批仍为独立候选，没有借用 V30 在跑完整门禁。下一轮优先补真实 Redis/worker、网络未知时拒绝继续、停止交错和旧库审核路径，再正式重基/冻结/完整门禁。不得从 TODO 移除此问题。
+
+## m/n 在途续租与重复取消
+
+六个双库用例在真实续租 SQL 执行后、提交前用事件控制事务边界，覆盖正常结束、一次取消、重复取消。旧实现仅 shield 一次，第二次取消会让调用方提前返回；m 两项失败已保留。候选新增有界于心跳任务生命周期的等待循环，记录取消并等待任务结束后重新抛出，避免把未完成事务遗留为后台清理。n 的 60 项回归通过，测试捕获的事件循环异常为空。此实验没有模拟任意原生驱动或网络永久阻塞，不能外推为全部停止路径已验收。下一步为真实 Redis worker 恢复、旧库审核工具，随后重基到已验收主干并执行完整门禁。

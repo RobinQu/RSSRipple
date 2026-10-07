@@ -9,7 +9,7 @@
   "image": "rssripple-v29-tests:local",
   "image_id": "sha256:9f79b2a0d7b37b8e52545b7d0582df5474ecbf3ff93ebdbd2633fa6cbacf3985",
   "unit": {
-    "status": "running",
+    "status": "passed_audited",
     "session": 30903,
     "venv": "/workspace/dropbox/github/robinqu/RSSRipple/.venv",
     "log": "/tmp/rssripple-v30-unit-p.log",
@@ -21,10 +21,23 @@
     "postgres_port": 32896,
     "startup_exit": 0,
     "threshold": 95,
-    "cleanup": "pending"
+    "cleanup": "complete",
+    "actual_exit": 0,
+    "passed": 4183,
+    "skipped": 12,
+    "warnings": 15,
+    "duration_seconds": 3368.82,
+    "coverage_percent": 96.86,
+    "cleanup_evidence": {
+      "down_exit": 0,
+      "containers": [],
+      "networks": [],
+      "volumes": []
+    },
+    "audit": "orm-loading-p-audit.json"
   },
   "integration": {
-    "status": "running",
+    "status": "passed_audited",
     "session": 79513,
     "project": "rssripple-v30-final-q",
     "compose": "/tmp/rssripple-v30-rebased-sznr_fn7/docker-compose.integration-isolated.yml",
@@ -32,7 +45,10 @@
     "log": "/tmp/rssripple-v30-integration-q.log",
     "startup_exit": 0,
     "threshold": 85,
-    "cleanup": "pending"
+    "cleanup": "complete",
+    "runner_exit": 0,
+    "coverage_exit": 0,
+    "audit": "orm-loading-q-audit.json"
   },
   "actual_app_images": {
     "app": {

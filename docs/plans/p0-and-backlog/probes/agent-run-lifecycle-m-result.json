@@ -1,0 +1,10 @@
+{
+  "actual_exit": 1,
+  "passed": 4,
+  "failed": 2,
+  "seconds": 7.24,
+  "parent_source": "agent-run-lifecycle-k-source.json",
+  "test_sha256": "afc5ee0cc1d3f3bbbcb36778ba561413096f42b3e6398a96b197e29336b9a39e",
+  "execution_sha256": "a6f98c8e93d10dc23d76ff2974a60d92eda11bc50118200970746cb6b5ebff07",
+  "failure": "second cancellation returned before the real open renewal transaction completed; normal and single cancellation passed"
+}
