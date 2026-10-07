@@ -1,0 +1,7 @@
+{
+  "cors_accepted_commit": "69e931d",
+  "source": "agent-work-limit-q-source.json",
+  "base_file_count": 11,
+  "main_base_hash_mismatches": [],
+  "combined_gate_status": "unit r and integration s still running; not accepted"
+}

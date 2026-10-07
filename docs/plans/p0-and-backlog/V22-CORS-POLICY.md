@@ -72,3 +72,9 @@ k 新增重复头、代理、GZip 与 poster 专项，30 passed / 1 failed，证
 ## r 完整集成验收（2026-10-07）
 
 r runner 已退出 0：**3352 passed、17 skipped、8 warnings，2102.91 秒**。两个 coverage app 经 SIGINT 退出 0/0，最终覆盖率门禁退出 0：**21150/23892，88.52%**；原始 JUnit、日志、五份 coverage 数据及语料审计已归档。17 个跳过与 V21 w 的身份/原因逐项一致，3247 个冻结输入哈希无变化。导出及 down 均退出 0，独立项目 rssripple-v22-final-r 的容器/网络/卷查询为空。审计见 [r audit](probes/cors-policy-r-audit.json)。q 单元/API 尚未终态，因此仍未接受或合入 CORS；B6 组合候选继续等待此前置验收。
+
+## q/r 最终验收合入
+
+q 单元/API 已退出 0：**4089 passed、12 skipped、3 warnings，3018.13 秒**，覆盖 **23167/23892（96.97%）**。规范化临时目录前缀后，跳过身份/原因与 V21 v 完全一致；3247 冻结输入未变。专用 PG 退出 0 并已自动删除。结合 r 集成审计及最终五维审查，十四个冻结有效文件已逐字节提交本地 main：**`69e931d`**；全仓 Ruff 与 diff-check 通过。P1-S4（现 P2）从 pending TODO 删除，未推送远端。
+
+B6 组合候选的所有基线文件已与该 main 对比，无漂移；前置 CORS 通过不代表 B6 已验收。B6 两套完整门禁仍须完成各自退出、覆盖率、跳过、哈希与清理审计。

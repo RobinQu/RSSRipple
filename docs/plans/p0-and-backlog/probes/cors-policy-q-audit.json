@@ -1,0 +1,17 @@
+{
+  "exit": 0,
+  "passed": 4089,
+  "skipped": 12,
+  "warnings": 3,
+  "seconds": 3018.13,
+  "coverage": {
+    "lines-covered": "23167",
+    "lines-valid": "23892",
+    "line-rate": "0.9697"
+  },
+  "frozen_count": 3247,
+  "frozen_changes": [],
+  "skip_same_as_V21_v_after_candidate_root_normalization": true,
+  "postgres_cleanup_exit": 0,
+  "postgres_container_absent": true
+}

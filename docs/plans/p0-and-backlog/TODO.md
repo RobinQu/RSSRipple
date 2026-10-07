@@ -42,9 +42,7 @@
 
 - [x] `resource_cleanup._stale_unresolved_where` 权威关联保护：已验收合入本地 main `938a7fb`。保留合集、作品链接和人工/已绑定文件指派，补 PG 锁重查及 Turso 父行版本屏障；真实录制数据、双库并发、升级回滚通过。完整 v 单元/API 4078 项、97.05%；w 集成 3319 项、88.49%，零失败，跳过/哈希/退出/清理审计完成，见 [V21](V21-CLEANUP-ASSOCIATIONS.md)。
 
-- [ ] **P1-S4 CORS 通配 + 凭证且中间件顺序错**：`app/main.py:220-226` `allow_origins=["*"]` +
-      `allow_credentials=True`，Starlette 反射 Origin 携带 Cookie；Auth 中间件先于 CORS 执行，预检被 401、
-      401 无 CORS 头。**修复**：拆分 P2 跨域配置（Origin 白名单/中间件顺序）与 CSRF 验证；Cookie 已为 SameSite=Lax，不能直接推导任意跨站读凭证数据。V22 已用实际 ASGI 栈复现三项响应缺陷，保留 P2；真实 Chromium 又确认未授权同站来源仍能触发 logout 清 Cookie，独立原型已补来源防护，扩大后 78 项专项与 Chromium logout 回归通过，已对齐 V21，r 完整集成 3352 项通过、88.52%，退出/哈希/跳过/清理审计通过；q 单元/API 仍运行，不能仅靠 CORS 白名单关闭；方案与证据见 [V22](V22-CORS-POLICY.md)。
+
 
 
 ### 从 P1 调整（原编号保留）
@@ -59,7 +57,7 @@
 - [ ] **P1-B5 队列无重试/退避/死信**：失败即终态（`app/services/task_queue.py:264-271,610-654`），队列 API 只读。
       **修复**：先补副作用幂等，再按任务类型加有限重试/退避；DLQ 为增强，不是所有任务的修复前提。
 - [ ] **P1-B6 `PUT /agents/{id}` 绕过 AgentWork ≤10 上限**：`app/api/v1/agents.py:426-439` 无计数校验。
-      **修复**：按更新后的有效 scope/works 检查，保留全范围例外；V23 真实 API/Turso 已复现两条更新路径持久化 11 条，合法对照通过。顺序原型 7 项通过；又复现 Turso 双请求从 9 增至 11，需补父行冲突保护与真实重试；写屏障验证又发现现有 HTTP 重试无法重读已消费请求体，独立限时探针已证实；原型改为 ASGI 重放后真实并发得到 201/400、总数 10，17 项重放边界通过，双库 add/replace/scope 并发已通过，拒绝更新的字段/订阅/消费进度及回填入队无副作用也已验证，已建立 CORS+B6 组合候选并启动 r/s 完整门禁，仍须先验收 CORS 前置及最终哈希审计，详见 V23。并发及无副作用验收方案见 [V23](V23-AGENT-WORK-LIMIT.md)。
+      **修复**：按更新后的有效 scope/works 检查，保留全范围例外；V23 真实 API/Turso 已复现两条更新路径持久化 11 条，合法对照通过。顺序原型 7 项通过；又复现 Turso 双请求从 9 增至 11，需补父行冲突保护与真实重试；写屏障验证又发现现有 HTTP 重试无法重读已消费请求体，独立限时探针已证实；原型改为 ASGI 重放后真实并发得到 201/400、总数 10，17 项重放边界通过，双库 add/replace/scope 并发已通过，拒绝更新的字段/订阅/消费进度及回填入队无副作用也已验证，已建立 CORS+B6 组合候选并启动 r/s 完整门禁，CORS 前置已合入 `69e931d`，B6 基线哈希一致；仍待组合完整门禁及最终审计，详见 V23。并发及无副作用验收方案见 [V23](V23-AGENT-WORK-LIMIT.md)。
 - [ ] **P1-B8 reparse 409 卡住 `confirmation_ignored_at`**：`app/api/v1/resources.py:1023-1037` 先 commit
       标记再入队，入队失败返回 409 但标记不清；仅 job `finally` 清除。**修复**：区分已有任务（通常会 finally 清理）、入队异常及崩溃恢复；按任务所有权清标记，禁止先入队后提交。V24 已复现明确入队异常后标记残留，成功对照通过；真实 Memory/Redis 四例确认接受后响应丢失及 409 仍保留任务，另两例复现 handler 清掉人工忽略。独立持久请求候选已通过 45 项扩大回归，仍待真实 Redis worker、双库并发、迁移与完整门禁；共用字段与崩溃窗口的方案复核见 [V24](V24-REPARSE-SUBMISSION.md)。
 - [ ] **P1-F1 `WorkMetadataRefreshModal` 未国际化**：整个 modal 硬编码中文
