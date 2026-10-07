@@ -1,0 +1,51 @@
+import asyncio
+import json
+import os
+from datetime import datetime
+
+import httpx
+from fastapi import FastAPI
+from sqlalchemy import text
+
+import app.models
+from app import database
+from app.api.v1.resources import router
+from app.models.channel import Channel
+from app.models.file_resource import FileResource
+
+RID = "6c0796d2-09ad-4c56-8a23-54fa5f56f897"
+CID = "d7521f56-9f7f-4ca8-8561-40e6c0e27913"
+MARKER = datetime(2026, 1, 2, 3, 4, 5)
+
+
+async def main():
+    await database.create_tables()
+    if os.environ["COMPAT_PHASE"] == "new":
+        from app.services.resource_reparse_requests import create_request, finish_request
+        async with database.async_session_factory() as db:
+            db.add(Channel(id=CID, name="Synthetic rollback", type="rss_feed", url="https://example.invalid", field_mapping={}))
+            await db.flush()
+            db.add(FileResource(id=RID, channel_id=CID, guid=RID, title_raw="Synthetic rollback", torrent_url="https://example.invalid/file.torrent", confirmation_ignored_at=MARKER))
+            await db.flush()
+            request = await create_request(db, RID, CID)
+            await db.commit()
+            await finish_request(db, request.id, RID)
+            await db.commit()
+    else:
+        assert "resource_reparse_requests" not in database.Base.metadata.tables
+    async with database.async_session_factory() as db:
+        assert await db.scalar(text("SELECT COUNT(*) FROM resource_reparse_requests")) == 0
+        assert (await db.get(FileResource, RID)).confirmation_ignored_at == MARKER
+    app = FastAPI()
+    app.include_router(router, prefix="/api/v1")
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://synthetic") as client:
+        response = await client.get(f"/api/v1/channels/{CID}/resources")
+    assert response.status_code == 200, response.text
+    assert RID in response.text
+    print(json.dumps({"phase":os.environ["COMPAT_PHASE"], "database_module":database.__file__, "startup_and_http_read":True, "request_table_preserved_empty":True, "manual_marker_preserved":True}))
+    from app.services import fts
+    if fts._FTS_ENGINE is not None:
+        await fts._FTS_ENGINE.dispose()
+    await database.engine.dispose()
+
+asyncio.run(main())

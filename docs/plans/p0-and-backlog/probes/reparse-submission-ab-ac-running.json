@@ -1,0 +1,31 @@
+{
+  "accepted": false,
+  "prototype": "/tmp/rssripple-v24-rebased-nqrx1t3y",
+  "base_runtime_commit": "accd024",
+  "source": "reparse-submission-ab-source.json",
+  "freeze": "reparse-submission-ab-frozen.json",
+  "frozen_count": 5332,
+  "image": "rssripple-v20-tests:local",
+  "image_id": "sha256:82b848a7ced66ed29f4556606eb97da654fa9332edb34c9d01cffcbb2e5c1a12",
+  "unit": {
+    "status": "running",
+    "session": 88062,
+    "log": "/tmp/rssripple-v24-unit-ab.log",
+    "junit": "/tmp/rssripple-v24-unit-ab.xml",
+    "coverage": "/tmp/rssripple-v24-unit-ab-coverage.xml",
+    "coverage_data": "/tmp/rssripple-v24-unit-ab.coverage",
+    "threshold": 95,
+    "database_url": "sqlite+aioturso:///:memory:",
+    "postgres_container": null
+  },
+  "integration": {
+    "status": "running",
+    "session": 1432,
+    "project": "rssripple-v24-final-ac",
+    "startup_exit": 0,
+    "log": "/tmp/rssripple-v24-integration-ac.log",
+    "threshold": 85,
+    "cleanup": "pending"
+  },
+  "warning": "Frozen candidate: do not edit or restart. Poll actual handles. After runner terminal SIGINT app/app-llm, verify exits, final coverage-report, export before down --volumes --remove-orphans for this unique project only."
+}

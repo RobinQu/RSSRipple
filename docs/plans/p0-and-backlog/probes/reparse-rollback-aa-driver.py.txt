@@ -1,0 +1,33 @@
+import asyncio
+import json
+import os
+import subprocess
+import tempfile
+import uuid
+from pathlib import Path
+
+import asyncpg
+
+async def main():
+    new=Path('/tmp/rssripple-v24-rebased-nqrx1t3y')
+    old=Path('/tmp/rssripple-v24-rollback-old-path').read_text().strip()
+    python=str(new/'.venv/bin/python')
+    admin=await asyncpg.connect('postgresql://probe:probe@127.0.0.1:32866/reparse_probe')
+    name='reparse_rollback_'+uuid.uuid4().hex
+    reports=[]
+    try:
+        await admin.execute(f'CREATE DATABASE "{name}"')
+        with tempfile.TemporaryDirectory(prefix='rssripple-v24-rollback-data-') as temp:
+            for backend,url in [('postgres',f'postgresql+asyncpg://probe:probe@127.0.0.1:32866/{name}'),('turso',f'sqlite+aioturso:///{temp}/compat.db')]:
+                for phase,root in [('new',str(new)),('old',old)]:
+                    env=dict(os.environ, PYTHONPATH=root, DATABASE_URL=url, COMPAT_PHASE=phase, LLM_API_KEY='', TMDB_API_KEY='', BANGUMI_API_KEY='', WIGOLO_API_TOKEN='', AUTH_ENABLED='false', SCHEDULER_ENABLED='false', POSTER_CACHE_DIR=temp)
+                    completed=await asyncio.to_thread(subprocess.run,[python,'/tmp/rssripple-v24-rollback-compat.py'],cwd=root,env=env,capture_output=True,text=True,timeout=60)
+                    print(backend,phase,completed.returncode,completed.stdout,completed.stderr,flush=True)
+                    assert completed.returncode==0
+                    reports.append({'backend':backend,'phase':phase,'exit':0,'result':json.loads(completed.stdout.strip().splitlines()[-1])})
+    finally:
+        await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+        await admin.close()
+    Path('/tmp/rssripple-v24-rollback-aa-result.json').write_text(json.dumps({'old_commit':'accd024','reports':reports,'scope':'Drained schema startup and ASGI read compatibility; no rolling deployment or active-job downgrade claim','scratch_database_removed':True},indent=2)+'\n')
+
+asyncio.run(main())

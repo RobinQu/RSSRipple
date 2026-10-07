@@ -80,3 +80,13 @@ t 对整个正式目录重跑，**8 passed，8.23 秒，零跳过、退出 0**�
 u 首轮双库均失败：夹具没有写入创建 publication，生产事务按不变量回滚；失败断言检出持久字段未更新，不能只看 handler 返回 done。v 补齐规范创建发布后 **2 passed，2.64 秒**：12 文件路径、集数、大小及原种子哈希保持，season batch 范围 1–12，任务确认后未匹配资源重新进入待确认。w 连同升级/只读历史标记游标盘点共 **4 passed，5.01 秒**。只读报告不把人工忽略或未知旧任务标记误判为可清理。专用 PG u/w 及其 scratch DB 已清理。结果见 [u–w](probes/reparse-submission-u-w-result.json)，24 文件候选见 [w source](probes/reparse-submission-w-source.json)。
 
 候选迁移文档已补保守历史盘点 SQL 和回退前提：先停止新提交，排空持久请求及活跃队列，再停新 worker；回退保留新表、不批量清除忽略。该 runbook 尚不等于实际部署回退验收。下一轮将候选对齐已合入 CORS `69e931d` 与 B6 `accd024`，完成回退兼容验证、最终审查与完整双门禁。
+
+## x–aa：重基、取消修复与排空后旧代码兼容
+
+候选已对齐 B6/CORS 主干，目录 `/tmp/rssripple-v24-rebased-nqrx1t3y`。生产文件自动合并；business-logic 与 integration-inventory 两处末尾追加冲突保留双方。无缓存 lint 发现并单独修正主干历史探针排序（见 b323bf5），候选同步，生产代码未因此改变。
+
+审查发现并用 x 真实 RedisQueue.stop 复现新问题：取消触发 finally 删除请求，但队列随后重排描述符，任务会被误判 superseded。**1 failed，0.88 秒**。候选改为仅成功/普通 Exception 终态确认，取消/BaseException 保留请求。y 整组正式集成 **11 passed，9.70 秒**；z 扩大单元/API、调度和新 CORS/B6 请求重放组合 **147 passed、1 warning，56.62 秒**，均退出 0。
+
+aa 以 `git archive accd024 app` 提取实际旧代码，在独立 PG/Turso 中先运行新代码、创建并确认请求，再由旧代码执行 create_tables 和 HTTP 资源列表读取；四个子进程均退出 0，空的新表与人工忽略保持。仅证明请求排空后的模式/读路径兼容，不宣称滚动部署或在途任务回退安全。脚本、日志与结果见 probes/reparse-rollback-aa-*。x/y/z 与旧代码兼容的测试服务均已清理。
+
+最终预审见 [V24-REVIEW](V24-REVIEW.md)。24 文件候选与 5332 冻结输入见 probes/reparse-submission-ab-*；开始完整 ab/ac 门禁，测试期间禁止修改候选。

@@ -57,7 +57,7 @@
 - [ ] **P1-B5 队列无重试/退避/死信**：失败即终态（`app/services/task_queue.py:264-271,610-654`），队列 API 只读。
       **修复**：先补副作用幂等，再按任务类型加有限重试/退避；DLQ 为增强，不是所有任务的修复前提。
 - [ ] **P1-B8 reparse 409 卡住 `confirmation_ignored_at`**：`app/api/v1/resources.py:1023-1037` 先 commit
-      标记再入队，入队失败返回 409 但标记不清；仅 job `finally` 清除。**修复**：区分已有任务（通常会 finally 清理）、入队异常及崩溃恢复；按任务所有权清标记，禁止先入队后提交。V24 已复现明确入队异常后标记残留，成功对照通过；真实 Memory/Redis 四例确认接受后响应丢失及 409 仍保留任务，另两例复现 handler 清掉人工忽略。独立持久请求候选已通过 45 项扩大回归，已补正式集成八例（真实 Redis worker、双库并发、实际崩溃恢复及双库升级），已补真实录制标题/12 文件种子管线回放与历史标记只读盘点，仍待对齐新主干、部署回退兼容及完整门禁；共用字段与崩溃窗口的方案复核见 [V24](V24-REPARSE-SUBMISSION.md)。
+      标记再入队，入队失败返回 409 但标记不清；仅 job `finally` 清除。**修复**：区分已有任务（通常会 finally 清理）、入队异常及崩溃恢复；按任务所有权清标记，禁止先入队后提交。V24 已复现明确入队异常后标记残留，成功对照通过；真实 Memory/Redis 四例确认接受后响应丢失及 409 仍保留任务，另两例复现 handler 清掉人工忽略。独立持久请求候选已通过 45 项扩大回归，已补正式集成八例（真实 Redis worker、双库并发、实际崩溃恢复及双库升级），已补真实录制标题/12 文件种子管线回放与历史标记只读盘点，已对齐 CORS/B6 并验证排空后的旧代码兼容，审查补修真实取消导致请求丢失；5332 输入冻结后启动 ab/ac 完整门禁，仍未验收合入；共用字段与崩溃窗口的方案复核见 [V24](V24-REPARSE-SUBMISSION.md)。
 - [ ] **P1-F1 `WorkMetadataRefreshModal` 未国际化**：整个 modal 硬编码中文
       （`frontend/src/components/WorkMetadataRefreshModal.tsx`，被 `SeriesDetail`/`MovieDetail` 使用），
       en-US 用户看到中文。**修复**：接入 `useTranslation` 并补 locale key。

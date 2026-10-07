@@ -1,0 +1,55 @@
+{
+  "old_commit": "accd024",
+  "reports": [
+    {
+      "backend": "postgres",
+      "phase": "new",
+      "exit": 0,
+      "result": {
+        "phase": "new",
+        "database_module": "/tmp/rssripple-v24-rebased-nqrx1t3y/app/database.py",
+        "startup_and_http_read": true,
+        "request_table_preserved_empty": true,
+        "manual_marker_preserved": true
+      }
+    },
+    {
+      "backend": "postgres",
+      "phase": "old",
+      "exit": 0,
+      "result": {
+        "phase": "old",
+        "database_module": "/tmp/rssripple-v24-rollback-old-zawhs0a0/app/database.py",
+        "startup_and_http_read": true,
+        "request_table_preserved_empty": true,
+        "manual_marker_preserved": true
+      }
+    },
+    {
+      "backend": "turso",
+      "phase": "new",
+      "exit": 0,
+      "result": {
+        "phase": "new",
+        "database_module": "/tmp/rssripple-v24-rebased-nqrx1t3y/app/database.py",
+        "startup_and_http_read": true,
+        "request_table_preserved_empty": true,
+        "manual_marker_preserved": true
+      }
+    },
+    {
+      "backend": "turso",
+      "phase": "old",
+      "exit": 0,
+      "result": {
+        "phase": "old",
+        "database_module": "/tmp/rssripple-v24-rollback-old-zawhs0a0/app/database.py",
+        "startup_and_http_read": true,
+        "request_table_preserved_empty": true,
+        "manual_marker_preserved": true
+      }
+    }
+  ],
+  "scope": "Drained schema startup and ASGI read compatibility; no rolling deployment or active-job downgrade claim",
+  "scratch_database_removed": true
+}
