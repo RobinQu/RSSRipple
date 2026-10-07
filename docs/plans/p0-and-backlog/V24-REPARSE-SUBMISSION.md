@@ -50,3 +50,13 @@ handler 只确认 payload 的 request_id，旧请求直接 superseded；配置�
 g 九项真实 API/Turso 生命周期回归全部通过（19.33 秒）；h 加入既有资源 API、遗留载荷及失权回归，**45 passed、1 warning，78.90 秒，退出 0**。h 前 lint 指出一处 import 排序，结束后仅修正排序；此后候选哈希以 [h source](probes/reparse-submission-h-source.json) 为准。源码归档 [h candidate](probes/reparse-submission-h-candidate.tar.gz)。
 
 这些结果不证明进程崩溃、真实 Redis worker 或双库并发已经验证。下一轮先补这些边界、迁移/回滚和历史标记只读盘点，再加入录制元数据回放、完整门禁与最终五维审查。当前原型未合入，TODO 继续保留。
+
+## i–o：真实 Redis worker、双库重叠提交与补发边界
+
+i 首轮真实 Redis 消费者 1 pass、2 timeout；API conftest 会把 ≥1 秒 sleep 直接跳过，导致心跳高速更新参与 WATCH 的租约键。j 在该探针中恢复正常 asyncio sleep 后，**3 passed，6.10 秒**。独立真实 producer/worker 跑生产 handler 和实际 Redis token/active/consumer 租约检查，成功、合成元数据失败及真实接受后注入响应丢失三例均确认自身请求并保留处理期间人工忽略。不是进程崩溃或真实网络断开的验收。专用 Redis i/j 均已停止并自动删除。
+
+k 原并发探针强求数据库立即抛冲突异常，遇到唯一插入等待后超时；不把该超时计作产品缺陷。l 改为观察两个实际写入重叠，**1 passed，2.38 秒**：Turso API 返回 200/409，仅一行请求、一次入队。m 的 PostgreSQL 探针遗漏必填 torrent_url，属夹具错误；n 补齐后 **1 passed，0.76 秒**，实际 pg_blocking_pids 证明第二请求在数据库等待，提交后同样为 200/409、一行、一次入队。每测独立 PG 库已删除，专用 PostgreSQL 容器退出并自动删除。
+
+o 扩大生命周期验收 **12 passed，25.32 秒**，新增每批最多 50 项且下批处理余项、认领提交先于投递、故障退避 30→1800 秒封顶、不持久化异常中的凭证、成功清错误、完成确认早于入队响应时不复活请求。所有结果与失败尝试见 [i–o 审计](probes/reparse-submission-i-o-result.json)，19 文件候选见 [o source](probes/reparse-submission-o-source.json)。
+
+下一轮须将当前位于 API 测试目录的 Redis 探针整理为完整集成默认收集的专用 harness（避免全局 sleep 补丁影响消费者），补实际失权/进程崩溃恢复、升级回滚及历史标记盘点、录制元数据回放，再执行完整双门禁。当前仅独立候选，仍不可关闭 B8。

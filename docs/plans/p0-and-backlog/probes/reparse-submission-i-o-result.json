@@ -1,0 +1,150 @@
+{
+  "i": {
+    "tests": 3,
+    "failures": 2,
+    "errors": 0,
+    "note": "One pass, two timeouts while API fixture short-circuited heartbeat sleeps; not accepted.",
+    "properties": [
+      {
+        "name": "actual_redis_execution_ownership",
+        "value": "True"
+      },
+      {
+        "name": "metadata_provider",
+        "value": "synthetic blocked coroutine"
+      },
+      {
+        "name": "response_loss",
+        "value": "none"
+      },
+      {
+        "name": "queue_terminal_status",
+        "value": "done"
+      }
+    ]
+  },
+  "j": {
+    "tests": 3,
+    "failures": 0,
+    "errors": 0,
+    "note": "Real producer/consumer with normal heartbeat timing; three pass. Metadata provider synthetic; response loss injected after actual enqueue.",
+    "properties": [
+      {
+        "name": "actual_redis_execution_ownership",
+        "value": "True"
+      },
+      {
+        "name": "metadata_provider",
+        "value": "synthetic blocked coroutine"
+      },
+      {
+        "name": "response_loss",
+        "value": "none"
+      },
+      {
+        "name": "queue_terminal_status",
+        "value": "done"
+      },
+      {
+        "name": "actual_redis_execution_ownership",
+        "value": "True"
+      },
+      {
+        "name": "metadata_provider",
+        "value": "synthetic blocked coroutine"
+      },
+      {
+        "name": "response_loss",
+        "value": "injected after real enqueue"
+      },
+      {
+        "name": "queue_terminal_status",
+        "value": "done"
+      },
+      {
+        "name": "actual_redis_execution_ownership",
+        "value": "True"
+      },
+      {
+        "name": "metadata_provider",
+        "value": "synthetic blocked coroutine"
+      },
+      {
+        "name": "response_loss",
+        "value": "none"
+      },
+      {
+        "name": "queue_terminal_status",
+        "value": "failed"
+      }
+    ]
+  },
+  "k": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "note": "Probe required an immediate database exception; it timed out because unique insert may wait. Not product failure evidence.",
+    "properties": []
+  },
+  "l": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "note": "Overlapping real Turso API requests return 200/409, one durable request and one enqueue.",
+    "properties": [
+      {
+        "name": "overlapping_insert_attempts",
+        "value": "3"
+      },
+      {
+        "name": "actual_turso_write_conflicts",
+        "value": "0"
+      },
+      {
+        "name": "responses",
+        "value": "200,409"
+      },
+      {
+        "name": "durable_requests",
+        "value": "1"
+      }
+    ]
+  },
+  "m": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "note": "Probe omitted required torrent_url; setup failed before concurrency. Not product failure evidence.",
+    "properties": []
+  },
+  "n": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "note": "Actual PostgreSQL pg_blocking_pids observed; responses 200/409, one request and one enqueue.",
+    "properties": [
+      {
+        "name": "actual_postgres_blocking_observed",
+        "value": "True"
+      },
+      {
+        "name": "responses",
+        "value": "200,409"
+      }
+    ]
+  },
+  "o": {
+    "tests": 12,
+    "failures": 0,
+    "errors": 0,
+    "note": "Twelve real Turso/API lifecycle cases pass, including 50-item sweep bound/fairness, capped backoff and late response after acknowledgement.",
+    "properties": []
+  },
+  "cleanup": {
+    "redis_i_stop_exit": 0,
+    "redis_j_stop_exit": 0,
+    "postgres_m_scratch_databases_remaining": [],
+    "postgres_m_stop_exit": 0,
+    "all_containers_auto_remove": true
+  }
+}
