@@ -303,6 +303,11 @@ async def create_tables() -> None:
             await conn.run_sync(Base.metadata.create_all)
             await _apply_light_migrations(conn)
 
+    # The PostgreSQL branch returned above. Embedded schema DDL must own
+    # an ordinary transaction; implicit CONCURRENT writes cannot host DDL.
+    from app.services.resource_work_schema import upgrade_sqlite_resource_work_fk
+
+    await upgrade_sqlite_resource_work_fk(engine)
     if is_turso_url(settings.database_url):
         from app.services.schema_foreign_keys import repair_turso_foreign_keys
 
@@ -617,6 +622,12 @@ async def _apply_light_migrations(conn) -> None:
         async with _best_effort(conn, f"add column {table}.{column}"):
             await conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} {ddl}'))
             logger.info("[migrate] added column %s.%s", table, column)
+
+    # Required row invariant after legacy work-FK columns have been added.
+    from app.services.resource_work_schema import ensure_resource_work_fk_guard
+
+    if is_postgres:
+        await ensure_resource_work_fk_guard(conn)
 
     # Match fresh-schema uniqueness on upgraded tables. Do not silently
     # continue without this invariant or guess which legacy row to discard:

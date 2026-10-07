@@ -7,6 +7,7 @@ from sqlalchemy import (
     JSON,
     BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -20,10 +21,18 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
+RESOURCE_WORK_FK_CONSTRAINT = "ck_file_resources_work_fk"
+RESOURCE_WORK_FK_CHECK = (
+    "(CASE WHEN series_id IS NOT NULL THEN 1 ELSE 0 END + "
+    "CASE WHEN movie_id IS NOT NULL THEN 1 ELSE 0 END + "
+    "CASE WHEN audio_work_id IS NOT NULL THEN 1 ELSE 0 END) <= 1"
+)
+
 
 class FileResource(Base):
     __tablename__ = "file_resources"
     __table_args__ = (
+        CheckConstraint(RESOURCE_WORK_FK_CHECK, name=RESOURCE_WORK_FK_CONSTRAINT),
         UniqueConstraint("channel_id", "guid", name="uq_file_resources_channel_guid"),
         Index(
             "ix_file_resources_confirmation_created",
@@ -152,11 +161,9 @@ class FileResource(Base):
     audio_work_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("audio_works.id", ondelete="SET NULL"), nullable=True
     )
-    # Franchise-pack link (WorkCollection): only set when ``batch_scope ==
-    # "franchise"``. FK-exclusivity invariant extended: when this is non-null,
-    # ``series_id`` / ``movie_id`` / ``audio_work_id`` must all be NULL (same
-    # convention-only discipline as the existing work-FK exclusivity — no
-    # CheckConstraint).
+    # Collection identity may coexist with a flat work link (for example a
+    # season resource). Only the three flat work FKs are mutually exclusive;
+    # franchise-specific clearing remains a service-level shape rule.
     collection_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("work_collections.id"), nullable=True
     )

@@ -155,25 +155,36 @@ class TestResolveAudioWork:
         assert out is None
         assert res.audio_work_id is None
 
-    async def test_local_match_links_without_search(self, db_session, monkeypatch):
+    @pytest.mark.parametrize("previous_type", ["series", "movie"])
+    async def test_local_match_links_without_search(self, db_session, monkeypatch, previous_type):
         from app.models.movie import Movie
         from app.models.series import TVSeries
+        from app.models.work_collection import WorkCollection
 
         audio = AudioWork(
             id=str(uuid.uuid4()), title_cn="Test ASMR Work",
             external_id="wikipedia:en:1", external_source="wikipedia",
             content_type="asmr",
         )
-        series = TVSeries(id=str(uuid.uuid4()), title_cn="剧集", content_type="tv")
+        collection = WorkCollection(id=str(uuid.uuid4()), title_cn="合成测试合集")
+        series = TVSeries(id=str(uuid.uuid4()), title_cn="剧集", content_type="tv",
+                          season_number=1, collection_id=collection.id)
         movie = Movie(id=str(uuid.uuid4()), title_cn="电影", content_type="movie")
-        db_session.add_all([audio, series, movie])
-        res = await _make_resource(db_session, series_id=series.id, movie_id=movie.id)
+        db_session.add_all([audio, collection, series, movie])
+        res = await _make_resource(
+            db_session,
+            series_id=series.id if previous_type == "series" else None,
+            movie_id=movie.id if previous_type == "movie" else None,
+        )
 
         async def _search_boom(q, lang):
             raise AssertionError("local match must not hit Wikipedia")
 
         monkeypatch.setattr(mar, "_execute_search_wikipedia", _search_boom)
         out = await mar._resolve_audio_work(res, None, db_session, "asmr", False)
+        # Check the committed row, not only transient in-memory FK changes.
+        await db_session.commit()
+        await db_session.refresh(res)
         assert out is not None and out.found is True
         assert out.content_type == "asmr"
         assert res.audio_work_id == audio.id

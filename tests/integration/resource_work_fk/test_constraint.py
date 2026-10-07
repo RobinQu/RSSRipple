@@ -1,0 +1,89 @@
+"""Recorded resource identity; explicit synthetic work-FK combinations."""
+import hashlib
+import itertools
+import json
+import uuid
+from pathlib import Path
+
+import pytest
+from sqlalchemy import insert, select, update
+from sqlalchemy.exc import DBAPIError
+
+from app.models.audio_work import AudioWork
+from app.models.channel import Channel
+from app.models.file_resource import FileResource
+from app.models.movie import Movie
+from app.models.series import TVSeries
+from app.models.work_collection import WorkCollection
+
+COLUMNS = ('series_id', 'movie_id', 'audio_work_id')
+COMBINATIONS = list(itertools.product([False, True], repeat=3))
+CORPUS = Path(__file__).parents[2] / 'fixtures/prod_works_v1.json'
+
+
+async def _seed(engine, has_collection=True):
+    raw = CORPUS.read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == 'd11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32'
+    tables = json.loads(raw)['tables']
+    recorded = next(row for row in tables['file_resources'] if row.get('series_id') and row.get('collection_id'))
+    series = next(row for row in tables['tv_series'] if row['id'] == recorded['series_id'])
+    collection = next(row for row in tables['work_collections'] if row['id'] == recorded['collection_id'])
+    movie = tables['movies'][0]
+    channel_id, audio_id = str(uuid.uuid4()), str(uuid.uuid4())
+    base = {'id': recorded['id'], 'channel_id': channel_id, 'guid': recorded['guid'],
+            'title_raw': recorded['title_raw'], 'torrent_url': recorded['torrent_url'], 'collection_id': collection['id'] if has_collection else None}
+    identities = (series['id'], movie['id'], audio_id)
+    async with engine.begin() as conn:
+        await conn.execute(insert(Channel.__table__).values(id=channel_id, name='Synthetic FK matrix',
+                                                          url='https://example.invalid/feed', field_mapping={}))
+        await conn.execute(insert(WorkCollection.__table__).values(id=collection['id'], title_cn=collection['title_cn']))
+        await conn.execute(insert(TVSeries.__table__).values(id=series['id'], title_cn=series['title_cn'],
+                                                           collection_id=collection['id'], season_number=1))
+        await conn.execute(insert(Movie.__table__).values(id=movie['id'], title_cn=movie['title_cn']))
+        await conn.execute(insert(AudioWork.__table__).values(id=audio_id, title_en='Synthetic audio parent'))
+    return base, identities
+
+
+async def _case(engine, bits, has_collection, operation):
+    base, identities = await _seed(engine, has_collection)
+    refs = {column: value if enabled else None for column, value, enabled in zip(COLUMNS, identities, bits)}
+    if operation == 'update':
+        async with engine.begin() as conn:
+            await conn.execute(insert(FileResource.__table__).values(**base))
+    # SQLAlchemy Core bypasses ORM/service validation; values are bound and
+    # each attempt actually commits or rolls back at the database boundary.
+    async def write():
+        async with engine.begin() as conn:
+            statement = (insert(FileResource.__table__).values(**base, **refs) if operation == 'insert'
+                         else update(FileResource.__table__).where(FileResource.id == base['id']).values(**refs))
+            await conn.execute(statement)
+    if sum(bits) > 1:
+        with pytest.raises(DBAPIError, match='ck_file_resources_work_fk'):
+            await write()
+    else:
+        await write()
+    async with engine.connect() as conn:
+        row = (await conn.execute(select(FileResource.__table__).where(FileResource.id == base['id']))).mappings().one_or_none()
+    if sum(bits) > 1 and operation == 'insert':
+        assert row is None
+    else:
+        expected = dict.fromkeys(COLUMNS) if sum(bits) > 1 else refs
+        assert {key: row[key] for key in COLUMNS} == expected
+        assert row['collection_id'] == base['collection_id']
+        assert row['title_raw'] == base['title_raw'] and row['guid'] == base['guid']
+
+
+@pytest.mark.parametrize('bits', COMBINATIONS)
+@pytest.mark.parametrize('has_collection', [False, True])
+@pytest.mark.parametrize('operation', ['insert', 'update'])
+async def test_work_fk_postgres(work_fk_postgres, bits, has_collection, operation):
+    engine, _ = work_fk_postgres
+    await _case(engine, bits, has_collection, operation)
+
+
+@pytest.mark.parametrize('bits', COMBINATIONS)
+@pytest.mark.parametrize('has_collection', [False, True])
+@pytest.mark.parametrize('operation', ['insert', 'update'])
+async def test_work_fk_turso(work_fk_turso, bits, has_collection, operation):
+    engine, _ = work_fk_turso
+    await _case(engine, bits, has_collection, operation)

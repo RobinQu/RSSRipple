@@ -1,0 +1,14 @@
+{
+  "accepted": true,
+  "source": "resource-work-fk-aa-source.json",
+  "unit_audit": "resource-work-fk-ab-audit.json",
+  "integration_audit": "resource-work-fk-ac-audit.json",
+  "effective_files": 16,
+  "frozen_inputs": 6297,
+  "non_plan_inputs_verified_after_copy": 3299,
+  "main_worktree_applied": true,
+  "code_commit": null,
+  "remote_pushed": false,
+  "production_deployed": false,
+  "review": "V27-REVIEW.md"
+}

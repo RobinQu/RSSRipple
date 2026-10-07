@@ -434,3 +434,12 @@ V25 准入补验：录制资源身份的实际事务测试扩至 1/4 槽、同/�
 `posters/test_cache_publication.py` 使用已录制 Bangumi JPEG（147157 字节，源语料和响应体固定 SHA-256），通过本地真实 HTTP 回放，覆盖成功/重复命中、部分磁盘写入、旧前缀截断、等长损坏、事件循环线程检查、收据写入及两次替换故障、两线程同时暂存。`test_cache_crash.py` 在实际子进程暂存/图片发布后执行 os._exit，验证重新下载及命中恢复；不删除另一个写入者留下的暂存文件。来源图片真实，服务 origin、故障与并发历史明确合成；不访问外部提供者或生产目录。
 
 海报扩展验收 `test_cache_contract.py` 覆盖缺失/非法/旧版本/错哈希收据重取、StaticFiles JPEG MIME/长度/哈希响应、两独立进程同时发布，以及新文件 umask 和既有权限保留；与崩溃及文件故障组合共 22 项。静态合同测试验证挂载服务响应，不将其称作额外的认证流程验证。
+
+### 资源工作 FK 直接写入矩阵（V27 原型）
+
+`tests/integration/resource_work_fk/test_constraint.py` 使用录制资源 ID/GUID/标题/torrent URL 与已录制 series/collection 身份，其余频道、音频父记录和关联冲突为显式合成。每后端覆盖全部 8 个三工作 FK 组合 × collection 有/无 × INSERT/UPDATE：合法状态提交，非法插入无残留、非法更新保留原值。两个后端共 64 项；当前只证明新库约束，不能代替旧库升级、服务调用和全套门禁。专用 PostgreSQL 必须以唯一 Compose 项目隔离，Turso 使用临时文件库。
+
+
+V27 候选 `test_legacy.py` 经实际 create_tables 连续两次升级验证相同全组合，另覆盖历史违规、同名保护漂移、第二段 DDL 失败回滚，以及缺失 audio_work_id 的补列/FK 表重建、跨类型单次更新与 ON DELETE SET NULL。`test_service_transitions.py` 使用录制作品身份及显式合成编辑/错分状态，通过实际 associations、metadata 持久化与 rehome 服务在新旧双库中提交和重读。上述阶段证据不代表 V27 已验收合入。
+
+`test_catalog_guards.py` 补同名原生 CHECK 阈值/括号语义漂移、PG NOT VALID 合法/违规历史和实际验证标记、PG 扫描至提交的写锁间隙，以及 Turso 旧物理快照在新保护提交后被 schema conflict 拒绝；失败必须保留录制资源和已有定义。

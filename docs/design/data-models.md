@@ -71,6 +71,8 @@ class Channel(Base):
 
 ### FileResource（RSS 资源条目）
 
+新建库使用命名 CHECK `ck_file_resources_work_fk`：`series_id/movie_id/audio_work_id` 至多一个非空，三个全空合法。`collection_id` 不参加该互斥约束，允许季资源同时关联所属合集；franchise 的三工作 FK 清空仍属于对应业务形态规则。旧表不会因 `create_all` 自动获得新约束，必须经过升级验证。
+
 ```python
 class FileResource(Base):
     __tablename__ = "file_resources"

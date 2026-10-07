@@ -1,5 +1,5 @@
 {
-  "accepted": false,
+  "accepted": true,
   "candidate": "/tmp/rssripple-v27-final-3qnte9ze",
   "main_base": "d90273b847c293a3210887f6cd8ecdeefe6a2882",
   "effective_files": 16,
@@ -18,7 +18,7 @@
     "resource-work-fk-y-z-result.json"
   ],
   "unit": {
-    "status": "running",
+    "status": "passed_audited",
     "session": 2626,
     "log": "/tmp/rssripple-v27-unit-ab.log",
     "junit": "/tmp/rssripple-v27-unit-ab.xml",
@@ -29,7 +29,9 @@
     "postgres_port": 32885,
     "startup_exit": 0,
     "threshold": 95,
-    "cleanup": "pending"
+    "cleanup": "complete",
+    "exit_code": 0,
+    "audit": "resource-work-fk-ab-audit.json"
   },
   "integration": {
     "status": "passed_audited",
@@ -51,5 +53,6 @@
     "resource-work-fk-ab-startup.log.gz": "d7f394e387a077957a542538dd87c77f11a128e764f652dd9c4c9b8a0a2a4238",
     "resource-work-fk-ac-startup.log.gz": "06427a627176506d37d027f6d960bd656d890eac84bd01b312638be4706870c8"
   },
-  "warning": "Both full gates must reach real terminal exits with zero failures, unchanged accepted baseline skips, verified full frozen and Git-derived effective scopes, coverage exits, clean app exits, artifact export before cleanup and empty labels. Prior failed r/s cannot be reused as acceptance."
+  "warning": "Both full gates must reach real terminal exits with zero failures, unchanged accepted baseline skips, verified full frozen and Git-derived effective scopes, coverage exits, clean app exits, artifact export before cleanup and empty labels. Prior failed r/s cannot be reused as acceptance.",
+  "acceptance": "resource-work-fk-ab-ac-accepted.json"
 }

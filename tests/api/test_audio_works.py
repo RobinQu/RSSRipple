@@ -25,13 +25,21 @@ async def test_audio_work_detail_all_null_fields(client, db_session):
 
 
 @pytest.mark.asyncio
-async def test_audio_work_detail_with_linked_resources(client, db_session, sample_channel, sample_series):
-    """Regression: linked resources whose series/movie relations are not in the
-    session used to 500 (MissingGreenlet on FileResourceResponse.series)."""
+@pytest.mark.parametrize("with_collection", [False, True])
+async def test_audio_work_detail_with_linked_resources(client, db_session, sample_channel, with_collection):
+    """Cold-session serialization must load legal resource relationships.
+
+    The optional collection is not preloaded by the audio detail query; it
+    retains the MissingGreenlet regression without a forbidden second work FK.
+    """
     from app.models.audio_work import AudioWork
     from app.models.file_resource import FileResource
+    from app.models.work_collection import WorkCollection
 
     a = AudioWork(id=str(uuid.uuid4()), title_cn="测试音频", content_type="music")
+    collection = WorkCollection(id=str(uuid.uuid4()), title_cn="合成资源合集") if with_collection else None
+    if collection is not None:
+        db_session.add(collection)
     res = FileResource(
         id=str(uuid.uuid4()),
         channel_id=sample_channel.id,
@@ -39,7 +47,7 @@ async def test_audio_work_detail_with_linked_resources(client, db_session, sampl
         title_raw="[G] Test - 01",
         torrent_url="https://example.com/t.torrent",
         audio_work_id=a.id,
-        series_id=sample_series.id,
+        collection_id=collection.id if collection else None,
     )
     db_session.add_all([a, res])
     await db_session.commit()
@@ -50,7 +58,11 @@ async def test_audio_work_detail_with_linked_resources(client, db_session, sampl
     assert body["success"] is True
     assert body["data"]["resource_count"] == 1
     assert body["data"]["resources"][0]["id"] == res.id
-    assert body["data"]["resources"][0]["series_id"] == sample_series.id
+    item = body["data"]["resources"][0]
+    assert item["audio_work_id"] == a.id
+    assert item["series_id"] is None and item["movie_id"] is None
+    assert item["collection_id"] == (collection.id if collection else None)
+    assert item["collection_name"] == (collection.title_cn if collection else None)
 
 
 @pytest.mark.asyncio

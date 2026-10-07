@@ -1308,7 +1308,13 @@ async def test_light_migrations_postgres_branches_fake_conn(monkeypatch):
         ),
     ]
     conn = _FakePGConn(rows)
+    # This branch walker has no SQLAlchemy-inspectable catalog. Real startup
+    # guard installation/failure/rollback is covered by resource_work_fk's
+    # PostgreSQL integration tests, not emulated by this query recorder.
+    guard = AsyncMock()
+    monkeypatch.setattr("app.services.resource_work_schema.ensure_resource_work_fk_guard", guard)
     await db_mod._apply_light_migrations(conn)
+    guard.assert_awaited_once_with(conn)
     # Spot-check the queries actually ran.
     assert any("pg_advisory" not in q for q in conn.executed)
     assert any("ALTER TABLE libraries ALTER COLUMN root_path DROP NOT NULL" in q

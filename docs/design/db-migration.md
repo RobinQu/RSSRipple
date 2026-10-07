@@ -353,3 +353,9 @@ LIMIT 100;
 Turso CONCURRENT 的外键引用写入不提供 PostgreSQL 的父行 KEY SHARE 锁。去重持有旧快照时，新人工关联可以先提交，随后作品删除仍成功，造成关联指向已删除作品；真实编辑向导入口已复现。复用已有资源父行触发器安装入口，对 ORM 声明的指向 `movies.id` / `tv_series.id` 的外键建立 INSERT/UPDATE 屏障，在同一事务内等值更新父行 ID，使该交错产生可重试写冲突。原资源父行屏障保持覆盖。
 
 新建库 after_create 与既有轻迁移入口幂等安装；只处理数据库中已存在的表和列。修复 `file_resources`、`movies` 或 `tv_series` 外键所需的原子表重建先移除所有这些屏障，完成后恢复，失败则由同一 DDL 事务回滚。父行 ID、元数据和更新时间不变；PostgreSQL 不安装此触发器，继续使用原生行锁。该保护只覆盖实际声明的外键，不将多态身份袋误称为外键引用。
+
+### 资源平面工作 FK 检查
+
+新建表的 `ck_file_resources_work_fk` CHECK 限制 series/movie/audio 三个 FK 至多一个非空，collection 不在互斥集合。`Base.metadata.create_all` 不会替现存表添加 CHECK；实际启动在列补齐后升级保护。PostgreSQL 在启动 advisory lock 与事务中取得表锁，审阅历史违规及同名 CHECK 定义，再安装并 VALIDATE（含既有 NOT VALID 约束）。Turso/SQLite 独立开启普通 BEGIN 的 DDL 事务；无原生 CHECK 时安装 `ck_file_resources_work_fk_insert/update` 两个拒绝触发器，安装失败一起回滚。不能用隐式 CONCURRENT DML 开启这段 DDL 事务，也不能提交调用方的业务事务来切换模式。后续 FK 表重建保留已安装触发器。
+
+已有违规行或同名保护定义漂移会阻止启动，错误仅报告采样资源 ID，不自动清空、删除或猜测工作身份。先备份数据库、停写并逐条审阅来源证据，人工修正关联后再运行启动升级。此阶段不改写历史资源值；此前独立提交的轻量列迁移可能已生效，不宣称整个启动流程原子回滚。原生 CHECK 已存在时无需重复安装触发器。每次启动的历史扫描/表锁成本尚无生产规模测量；V27 候选的专项测试不替代最终完整门禁或生产迁移验收。

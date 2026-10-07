@@ -13,6 +13,7 @@ import uuid
 from datetime import date
 from types import SimpleNamespace
 
+import pytest
 from sqlalchemy import select
 
 import app.services.bangumi_relations as br
@@ -303,7 +304,8 @@ async def test_work_subject_id_none_when_unknown(db_session):
     assert await br._work_subject_id(db_session, "series", work) is None
 
 
-async def test_seed_subjects_from_all_sources(db_session):
+@pytest.mark.parametrize("primary_type", ["series", "movie"])
+async def test_seed_subjects_from_all_sources(db_session, primary_type):
     collection = _collection("头文字D")
     s1 = _series("头文字D", season=1, subj=1, collection_id=collection.id,
                  start_date=date(1998, 4, 18))
@@ -324,17 +326,24 @@ async def test_seed_subjects_from_all_sources(db_session):
     ])
     resource = await _make_resource(
         db_session, is_batch=True, batch_scope="franchise",
-        series_id=s1.id, movie_id=m1.id, collection_id=collection.id,
+        series_id=s1.id if primary_type == "series" else None,
+        movie_id=m1.id if primary_type == "movie" else None,
+        collection_id=collection.id,
     )
     db_session.add_all([
         ResourceWorkLink(resource_id=resource.id, series_id=s1.id, source="auto"),
         ResourceWorkLink(resource_id=resource.id, series_id=s3.id, source="auto"),
     ])
+    if primary_type == "series":
+        db_session.add(ResourceWorkLink(resource_id=resource.id, movie_id=m1.id, source="auto"))
     await db_session.flush()
 
     seeds = await br._seed_subjects(db_session, resource)
     by_sid = {s["sid"]: s for s in seeds}
-    # Primary column, movie FK, bag-only identity, and collection movie member.
+    # The movie-primary case has no alternate link or collection membership
+    # for m1, so losing that primary-FK path cannot be masked by another source.
+    # Repeated series/link/collection membership must not duplicate seeds.
+    assert len(seeds) == 4
     assert set(by_sid) == {1, 3, 5, 7}
     assert by_sid[1]["work_type"] == "series"
     assert by_sid[1]["date"] == "1998-04-18"

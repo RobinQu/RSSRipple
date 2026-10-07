@@ -1,0 +1,136 @@
+{
+  "accepted": false,
+  "unit_gate_passed": true,
+  "exit_code": 0,
+  "passed": 4183,
+  "failed": 0,
+  "skipped": 12,
+  "seconds": 3287.73,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "12",
+    "tests": "4195",
+    "time": "3287.577",
+    "timestamp": "2026-10-07T11:52:45.031604+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "coverage": {
+    "lines-covered": "23601",
+    "lines-valid": "24356",
+    "line-rate": "0.969"
+  },
+  "skips": [
+    [
+      "tests.unit.test_decision_migration",
+      "test_postgres_startup_rejects_unreviewed_then_accepts_review",
+      "PostgreSQL startup DDL branch; embedded startup tested through CLI subprocess",
+      "<candidate>/tests/unit/test_decision_migration.py:351: PostgreSQL startup DDL branch; embedded startup tested through CLI subprocess"
+    ],
+    [
+      "tests.api.test_api_coverage3.TestResourcesMore",
+      "test_search_metadata_via_manual",
+      "resource-scoped metadata search replaced by /api/v1/metadata/search",
+      "<candidate>/tests/api/test_api_coverage3.py:136: resource-scoped metadata search replaced by /api/v1/metadata/search"
+    ],
+    [
+      "tests.api.test_api_coverage3.TestResourcesMore",
+      "test_link_metadata_error_path",
+      "resource-scoped metadata link replaced by work metadata apply/associations",
+      "<candidate>/tests/api/test_api_coverage3.py:151: resource-scoped metadata link replaced by work metadata apply/associations"
+    ],
+    [
+      "tests.api.test_api_coverage3.TestResourcesMore",
+      "test_link_metadata_movie",
+      "resource-scoped metadata link replaced by work metadata apply/associations",
+      "<candidate>/tests/api/test_api_coverage3.py:162: resource-scoped metadata link replaced by work metadata apply/associations"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_search_404",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:368: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_search_returns_results",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:373: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_search_result_none_genre_coerced",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:387: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_search_forwards_source_and_fallback_sites",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:400: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_search_llm_error_returns_502",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:425: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_link_creates_series",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:435: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_link_404",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:451: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_link_movie_clears_ambiguous",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:456: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ]
+  ],
+  "skips_vs_v26_q": {
+    "added": [],
+    "removed": []
+  },
+  "frozen_count": 6297,
+  "frozen_mismatch": [],
+  "main_base_mismatch": [],
+  "git_derived_effective_files": [
+    "app/database.py",
+    "app/models/file_resource.py",
+    "app/services/resource_work_schema.py",
+    "docs/design/data-models.md",
+    "docs/design/db-migration.md",
+    "docs/testing/integration-inventory.md",
+    "tests/api/test_audio_works.py",
+    "tests/integration/metadata/test_metadata_audio_resolver_coverage.py",
+    "tests/integration/resource_work_fk/conftest.py",
+    "tests/integration/resource_work_fk/test_catalog_guards.py",
+    "tests/integration/resource_work_fk/test_constraint.py",
+    "tests/integration/resource_work_fk/test_legacy.py",
+    "tests/integration/resource_work_fk/test_parent_guard_interaction.py",
+    "tests/integration/resource_work_fk/test_service_transitions.py",
+    "tests/unit/test_bangumi_relations.py",
+    "tests/unit/test_database_migrations.py"
+  ],
+  "cleanup_exit": 0,
+  "labels": {
+    "containers": [],
+    "networks": [],
+    "volumes": []
+  },
+  "artifacts": {
+    "resource-work-fk-ab-unit.xml.gz": "921b7b74759726ccd4b518f2a089b8c642cf0a04194294f7ed9c64ce81c66560",
+    "resource-work-fk-ab-coverage.xml.gz": "d6cb39ca25b5c41e4f7b57e275c96c96ba725c847c8ed8b86b8b887cf95a92b3",
+    "resource-work-fk-ab-run.log.gz": "a43eaa1c9327e58b17deae8084d38cf69b483a75d54db438ec0a5db96357e408",
+    "resource-work-fk-ab-coverage-data.gz": "0d3ce7daa590e9a698eba7cd0e8b31572fcddd33460bcd822eb7a7e1de803d34",
+    "resource-work-fk-unit-ab-cleanup.log.gz": "b12bef95059e0776322f06834d4165dc5d0bda5abc1b6ce6abde55438f220af0"
+  }
+}
