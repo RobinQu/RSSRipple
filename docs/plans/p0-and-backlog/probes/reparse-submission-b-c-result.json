@@ -1,0 +1,63 @@
+{
+  "runtime_changed": false,
+  "baseline": "938a7fb",
+  "results": {
+    "b": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "test_sha256": "0bb303ec88c685b7610d2ebd9291cec19504fe14cbec436285ef6e55c10ba866",
+      "properties": [
+        {
+          "backend": "memory",
+          "lost_response_after_real_acceptance": "False",
+          "same_job_retained_on_409": "True"
+        },
+        {
+          "backend": "redis",
+          "lost_response_after_real_acceptance": "False",
+          "same_job_retained_on_409": "True"
+        },
+        {
+          "backend": "memory",
+          "lost_response_after_real_acceptance": "True",
+          "same_job_retained_on_409": "True"
+        },
+        {
+          "backend": "redis",
+          "lost_response_after_real_acceptance": "True",
+          "same_job_retained_on_409": "True"
+        }
+      ],
+      "scope": "Actual MemoryQueue/isolated Redis acceptance; lost response is injected after successful actual enqueue. No real network outage or worker consumption."
+    },
+    "c": {
+      "tests": 3,
+      "failures": 2,
+      "errors": 0,
+      "skipped": 0,
+      "test_sha256": "9544c354fd9efd1a5c4841d4b54a1ab88a32461eb35f5598c515c0e0392e34a2",
+      "properties": [
+        {
+          "manual_timing": "before",
+          "ignored_after_actual_handler_finally": "False"
+        },
+        {
+          "manual_timing": "during",
+          "ignored_after_actual_handler_finally": "False"
+        },
+        {
+          "manual_timing": "none",
+          "ignored_after_actual_handler_finally": "False"
+        }
+      ],
+      "scope": "Actual Turso/router/handler-finally; metadata pipeline, runtime config and ownership check injected. Manual ignore before and during reparse both cleared unexpectedly; no-manual control passes."
+    }
+  },
+  "redis_cleanup": {
+    "container": "rssripple-v24-redis-b",
+    "stop_exit_code": 0,
+    "auto_remove": true
+  }
+}

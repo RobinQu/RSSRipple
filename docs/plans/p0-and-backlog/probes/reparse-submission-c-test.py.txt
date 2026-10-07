@@ -1,0 +1,43 @@
+"""Real API and handler finalization; metadata work and ownership are injected."""
+
+from unittest.mock import AsyncMock
+
+import pytest
+
+from app.models.file_resource import FileResource
+from tests.api.test_resources import _make_resource
+
+
+@pytest.mark.parametrize("manual_timing", ["before", "during", "none"])
+async def test_reparse_completion_preserves_explicit_manual_ignore(
+    client, sample_channel, db_session_factory, monkeypatch, manual_timing, record_property,
+):
+    from app.job_handlers import _handle_reprocess_resource_metadata
+
+    rid = await _make_resource(db_session_factory, sample_channel.id)
+    monkeypatch.setattr("app.database.async_session_factory", db_session_factory)
+    monkeypatch.setattr("app.job_handlers._refresh_runtime_config", AsyncMock())
+    monkeypatch.setattr("app.services.task_queue.require_execution_ownership", AsyncMock())
+    monkeypatch.setattr("app.services.task_queue.task_queue.enqueue", AsyncMock(return_value={"job_id": "synthetic"}))
+
+    async def ignore():
+        response = await client.post("/api/v1/dashboard/todos/ignore", json={"kind": "confirmation", "ids": [rid]})
+        assert response.status_code == 200
+
+    if manual_timing == "before":
+        await ignore()
+    response = await client.post(f"/api/v1/resources/{rid}/reparse-metadata")
+    assert response.status_code == 200
+
+    async def metadata_pipeline(*args, **kwargs):
+        if manual_timing == "during":
+            await ignore()
+
+    monkeypatch.setattr("app.services.fetch_service._process_resource_metadata", metadata_pipeline)
+    result = await _handle_reprocess_resource_metadata({"resource_id": rid, "channel_id": sample_channel.id})
+    assert result == {"status": "done"}
+    async with db_session_factory() as db:
+        ignored = (await db.get(FileResource, rid)).confirmation_ignored_at is not None
+    record_property("manual_timing", manual_timing)
+    record_property("ignored_after_actual_handler_finally", ignored)
+    assert ignored == (manual_timing != "none")

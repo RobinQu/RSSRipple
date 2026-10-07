@@ -1,0 +1,61 @@
+"""Actual queue acceptance; response loss is explicitly injected after enqueue."""
+
+import os
+
+import pytest
+
+from app.models.file_resource import FileResource
+from app.services.task_queue import MemoryQueue, RedisQueue
+from tests.api.test_resources import _make_resource
+
+
+@pytest.mark.parametrize("backend", ["memory", "redis"])
+@pytest.mark.parametrize("lose_response", [False, True])
+async def test_accepted_reparse_must_not_be_treated_as_unsubmitted(client, sample_channel, db_session_factory, monkeypatch, backend, lose_response, record_property):
+    if backend == "redis":
+        url = os.environ.get("REPARSE_TEST_REDIS_URL")
+        if not url:
+            pytest.skip("Dedicated Redis required for acceptance probe")
+        assert url.startswith("redis://127.0.0.1:32864/"), "Use dedicated probe instance only"
+        queue = RedisQueue(redis_url=url)
+    else:
+        queue = MemoryQueue()
+    await queue.start(consume=False)
+    try:
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        key = f"reprocess-resource:{rid}"
+        monkeypatch.setattr("app.services.task_queue.task_queue", queue)
+        original_enqueue = queue.enqueue
+        observed = []
+
+        async def enqueue_then_lose_response(*args, **kwargs):
+            result = await original_enqueue(*args, **kwargs)
+            observed.append(result["job_id"] if result else None)
+            if lose_response and result:
+                raise ConnectionError("Synthetic lost response AFTER actual acceptance")
+            return result
+
+        monkeypatch.setattr(queue, "enqueue", enqueue_then_lose_response)
+        try:
+            response = await client.post(f"/api/v1/resources/{rid}/reparse-metadata")
+        except ConnectionError:
+            assert lose_response
+        else:
+            assert response.status_code == 200
+        state = await queue.status(key)
+        assert state["job_id"] == observed[0]
+        assert state["status"] == "queued"
+        async with db_session_factory() as db:
+            assert (await db.get(FileResource, rid)).confirmation_ignored_at is not None
+        # A duplicate is a live existing job, not proof of failed acceptance.
+        response = await client.post(f"/api/v1/resources/{rid}/reparse-metadata")
+        assert response.status_code == 409
+        repeated = await queue.status(key)
+        assert repeated["job_id"] == state["job_id"]
+        assert repeated["status"] == "queued"
+        assert observed == [state["job_id"], None]
+        record_property("backend", backend)
+        record_property("lost_response_after_real_acceptance", lose_response)
+        record_property("same_job_retained_on_409", True)
+    finally:
+        await queue.stop()

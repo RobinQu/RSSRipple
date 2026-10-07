@@ -1,0 +1,47 @@
+"""Actual loopback TCP refusal and Redis client; no synthetic enqueue exception."""
+
+import socket
+
+import pytest
+from redis.asyncio import Redis
+from redis.exceptions import ConnectionError
+
+from app.api.v1.dashboard import _page_pending_confirmations
+from app.models.file_resource import FileResource
+from app.services.task_queue import RedisQueue
+from tests.api.test_resources import _make_resource
+
+
+async def test_refused_redis_submission_does_not_permanently_hide_confirmation(
+    client, sample_channel, db_session_factory, monkeypatch, record_property,
+):
+    rid = await _make_resource(db_session_factory, sample_channel.id)
+
+    async def visible():
+        async with db_session_factory() as db:
+            items, _ = await _page_pending_confirmations(db, 1, 100)
+            return any(item["resource"]["id"] == rid for item in items)
+
+    assert await visible(), "Control must actually be a dashboard confirmation"
+    # Reserve an ephemeral port without listen(): no Redis can accept this
+    # request and no existing service is stopped or contacted.
+    with socket.socket() as reserved:
+        reserved.bind(("127.0.0.1", 0))
+        redis = Redis(host="127.0.0.1", port=reserved.getsockname()[1], socket_connect_timeout=0.2)
+        queue = RedisQueue(redis_client=redis)
+        await queue.start(consume=False)
+        monkeypatch.setattr("app.services.task_queue.task_queue", queue)
+        try:
+            with pytest.raises(ConnectionError):
+                await client.post(f"/api/v1/resources/{rid}/reparse-metadata")
+        finally:
+            # consume=False creates no workers/lease; unavailable backend
+            # cannot accept stop()'s DELETE, so close the client directly.
+            await redis.aclose()
+    async with db_session_factory() as db:
+        hidden = (await db.get(FileResource, rid)).confirmation_ignored_at is not None
+    after = await visible()
+    record_property("transport", "actual TCP connection refused at reserved non-listening loopback port")
+    record_property("hidden_after_refusal", hidden)
+    record_property("dashboard_visible_after_refusal", after)
+    assert after

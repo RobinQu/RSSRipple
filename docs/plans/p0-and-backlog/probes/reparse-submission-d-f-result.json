@@ -1,0 +1,34 @@
+{
+  "d": {
+    "exit_code": 1,
+    "failures": 1,
+    "properties": [],
+    "interpretation": "Probe field-access error; not defect evidence"
+  },
+  "e": {
+    "exit_code": 1,
+    "failures": 1,
+    "properties": [],
+    "interpretation": "Probe field-access error; not defect evidence"
+  },
+  "f": {
+    "exit_code": 1,
+    "failures": 1,
+    "properties": [
+      {
+        "name": "transport",
+        "value": "actual TCP connection refused at reserved non-listening loopback port"
+      },
+      {
+        "name": "hidden_after_refusal",
+        "value": "True"
+      },
+      {
+        "name": "dashboard_visible_after_refusal",
+        "value": "False"
+      }
+    ],
+    "interpretation": "Real TCP refusal before acceptance; previously visible dashboard confirmation becomes hidden and stays hidden after rejected request"
+  },
+  "final_test_sha256": "b579ad94ebd636180bce92a2be8efe438fc39d02b6c9e15ed3376c983f55ec4c"
+}
