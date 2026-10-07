@@ -48,3 +48,9 @@ h 三项因下载器夹具缺 download_dir 失败，非产品缺陷。修正后 
 k 对应扩大 Turso 三种场景：第一请求取得父行写屏障后暂停，第二请求真实可重试 DatabaseError 触发放行，再由生产 HTTP 层重放；add/add、replace/add、scope/add 均保持 10 条，分别 [201,400]/[200,400]/[200,400]。连同顺序边界共 10 passed，16.92 秒；finally 取消并收拢所有未完成测试任务。两种数据库都未伪造 SQL 输出或锁异常。Ruff 通过。
 
 十文件候选/基线和原始 h–k 证据见 `probes/agent-work-limit-k-*`、`-pg-*`。继续检查拒绝操作的完整副作用、既有决策确认兼容；待 CORS 验收后将本候选三方对齐新 main（当前仍基于 S1），执行五维审查及完整双门禁，尚未合入。
+
+## 超限拒绝无副作用与决策范围回归（l/m）
+
+l 同跑作品上限和既有 decision_scope，40 passed / 2 failed，73.32 秒；两失败均发生在夹具读取 DB 生成 updated_at，未 await refresh 导致 MissingGreenlet，尚未发送待验证拒绝请求。修正夹具后仅重跑受影响两项 m，2 passed / 10 deselected，3.51 秒。运行实现未为这次夹具修正变化。
+
+新场景提交超限作品同时变更 name/channel/status 并携带空或非空 dispatch_resource_ids，真实 API 返回 422；重新查数据库确认字段、updated_at、last_consumed_at、原订阅 ID、publication generation/baseline/cursor 均保留，没有 DownloadTask。回填入口使用会抛 AssertionError 的 spy，既有 API fixture 的 queue mock 均未调用；不将这两项 mock 断言描述为真实下载器或队列端到端证据。五维原型审查见 [V23-REVIEW](V23-REVIEW.md)。当前十文件 m 候选归档尚未完整验收，待对齐 CORS 验收主干。
