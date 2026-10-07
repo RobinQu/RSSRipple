@@ -25,7 +25,7 @@
     "cleanup": "pending"
   },
   "integration": {
-    "status": "running",
+    "status": "complete",
     "session": 10204,
     "project": "rssripple-v26-final-r",
     "compose": "/tmp/rssripple-v26-rebased-773gfii3/docker-compose.integration-isolated.yml",
@@ -33,7 +33,11 @@
     "log": "/tmp/rssripple-v26-integration-r.log",
     "startup_exit": 0,
     "threshold": 85,
-    "cleanup": "pending"
+    "cleanup": "complete",
+    "exit_code": 0,
+    "passed": 3675,
+    "coverage": "89.39%",
+    "audit": "poster-publication-r-audit.json"
   },
   "image": "rssripple-v20-tests:local",
   "prior_failed_round": "m/n/o: n exit1 two offline repair failures; all prior projects cleaned",

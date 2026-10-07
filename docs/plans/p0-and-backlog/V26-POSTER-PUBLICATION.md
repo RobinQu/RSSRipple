@@ -83,3 +83,10 @@ n 实际退出 1：4179 passed、2 failed、12 skipped、3598.93 秒；覆盖率
 V25 漏项已以 `cf1c785` 补合入，已确认提交对象与原 bq/br 完整通过副本一致。重新建立独立 V26 候选 `/tmp/rssripple-v26-rebased-773gfii3`，10 个有效文件、6084 个冻结输入。由完整 Git 输入范围独立推导差异，确认与有效清单完全相等；继承的离线脚本也验证为正确版本。m/n/o 冻结副本不改动，n 失败不撤销。
 
 无缓存 Ruff 通过；实际隔离 PostgreSQL 迁移与离线脚本预检 **11 passed、42 deselected、3.95 秒、退出 0**。q 完整单元/API（≥95%）和 r 完整隔离集成（≥85%）均已启动，尚未验收。新续接入口 [q/r 运行记录](probes/poster-publication-q-r-running.json)；必须核对实际退出、零失败、跳过、完整输入/合入范围、应用正常退出、原始报告导出和唯一项目清理。
+
+
+## r 完整集成终态与清理
+
+r 实际退出 0：**3675 passed、17 skipped、24 warnings、2482.28 秒**；汇总覆盖率 **89.39%（21704/24279）**，85% 门禁退出 0。两应用 SIGINT 后实际退出 0/0；五份覆盖率、JUnit、语料报告在删除 runner 前成功导出。跳过与 V25 br 完全一致，6084 冻结输入及 10 文件 main 基线无变化。compose down 后补删已停止命名 runner 和专用卷，容器/网络/卷标签均为空。详见 [r 审计](probes/poster-publication-r-audit.json)。
+
+q 单元/API 仍运行，继续以 [q/r](probes/poster-publication-q-r-running.json) 续接，不再轮询已终态 r。尚未批准 V26 合入；旧 n 失败证据不撤销，当前仅 r 门禁通过。
