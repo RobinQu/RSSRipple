@@ -66,7 +66,7 @@
 
 ### 后台
 
-- [ ] `AgentRun(status=running)` 崩溃后无回收/reaper。 V34 双库真实 handler/独立子进程已复现普通异常与 os._exit(73) 四场景：后续成功运行后旧记录仍 running，探针按不变量退出 1。录制资源标题/GUID/URL，身份和故障明确合成；未宣称 Redis worker 接管。需同时修正异常收尾、持久执行归属和安全回收，禁止只按运行年龄判死。b–e 最小表事务实验确认两版 Turso 在已有写事务时同一行心跳会导致旧事务收尾冲突；最新 19 文件候选已接入 handler/摘要归属/有界调度回收；扩大 j 的 5 个失败已保留并修正，同组合 k 为 131 项通过，l 双库四个异常/真实强退自然过期恢复场景通过。m 双库重复取消红测 2 项失败后已修复等待续租事务结束，n 生命周期及 B9/B7 回归 60 项通过。受控在途事务停止已验证，任意驱动/网络阻塞不在本轮证明范围。仍缺 Redis worker 接管、旧库审核及完整门禁，未合入。项目已清理，方案、证据边界与严格矩阵见 [V34](V34-AGENT-RUN-LIFECYCLE.md)。
+- [ ] `AgentRun(status=running)` 崩溃后无回收/reaper。 V34 双库真实 handler/独立子进程已复现普通异常与 os._exit(73) 四场景：后续成功运行后旧记录仍 running，探针按不变量退出 1。录制资源标题/GUID/URL，身份和故障明确合成；未宣称 Redis worker 接管。需同时修正异常收尾、持久执行归属和安全回收，禁止只按运行年龄判死。b–e 最小表事务实验确认两版 Turso 在已有写事务时同一行心跳会导致旧事务收尾冲突；最新 21 文件候选已接入 handler/摘要归属/有界调度回收；扩大 j 的 5 个失败已保留并修正，同组合 k 为 131 项通过，l 双库四个异常/真实强退自然过期恢复场景通过。m 双库重复取消红测 2 项失败后已修复等待续租事务结束，n 生命周期及 B9/B7 回归 60 项通过。受控在途事务停止已验证，任意驱动/网络阻塞不在本轮证明范围。p 新增真实 RedisQueue 独立进程强杀/暂停恢复两项通过（默认租约），旧历史终结且旧执行者不覆盖新摘要；这不等同完整 worker/scheduler 启动。仍缺网络未知故障、实际 scheduler、旧库审核及完整门禁，未合入。项目已清理，方案、证据边界与严格矩阵见 [V34](V34-AGENT-RUN-LIFECYCLE.md)。
 - [ ] 失败 dispatch 累积重复 error `DownloadTask`（`app/services/agent_service.py:61-72,928-941`）。
 - [ ] 周期任务先消费 throttle 再入队，入队失败丢整个周期（daily ~24h，`app/services/scheduler.py:274-296`）。
 - [ ] interval job 仅 1s `misfire_grace_time` （实际默认 coalesce=True），事件循环阻塞即跳过 tick（`app/services/scheduler.py:43-131`）。

@@ -1,0 +1,177 @@
+{
+  "accepted": false,
+  "actual_exit": 0,
+  "source": "agent-run-lifecycle-p-source.json",
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "2",
+    "time": "62.288",
+    "timestamp": "2026-10-07T15:31:05.177593+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "passed": 2,
+  "deselected": 11,
+  "seconds": 62.33,
+  "worker_reports": {
+    "agent_lifecycle_pause": {
+      "backend": "postgresql",
+      "mode": "agent_lifecycle_pause",
+      "before": {
+        "summary": {
+          "status": null,
+          "at": "None",
+          "token": "04a279d2-7002-4511-a5b5-32d33feccd0a",
+          "watermark": "None"
+        },
+        "runs": [
+          {
+            "id": "3161bb28-b1bf-437f-9c9c-30832b1382ce",
+            "status": "running",
+            "finished": false,
+            "total": 0,
+            "unrecognized": 0,
+            "dispatched": 0,
+            "errors": []
+          }
+        ],
+        "leases": [
+          {
+            "run_id": "3161bb28-b1bf-437f-9c9c-30832b1382ce",
+            "token": "04a279d2-7002-4511-a5b5-32d33feccd0a"
+          }
+        ]
+      },
+      "after": {
+        "summary": {
+          "status": "success",
+          "at": "2026-10-07 15:31:53.521094",
+          "token": "fd27d1ea-967b-45ea-bd94-ddf53ac0801a",
+          "watermark": "None"
+        },
+        "runs": [
+          {
+            "id": "3161bb28-b1bf-437f-9c9c-30832b1382ce",
+            "status": "failed",
+            "finished": true,
+            "total": 0,
+            "unrecognized": 0,
+            "dispatched": 0,
+            "errors": [
+              "Execution lease expired; run interrupted. Counters may be incomplete."
+            ]
+          },
+          {
+            "id": "db85f828-f29b-4b38-9b0f-f4665d9be218",
+            "status": "success",
+            "finished": true,
+            "total": 1,
+            "unrecognized": 1,
+            "dispatched": 0,
+            "errors": []
+          }
+        ],
+        "leases": []
+      },
+      "first_worker_exit": 0,
+      "second_worker_exit": 0,
+      "same_job_id": true,
+      "distinct_queue_tokens": true,
+      "late_snapshot_unchanged": true,
+      "default_agent_lease_seconds": 30,
+      "default_queue_lease_seconds": 15,
+      "scope": "Independent production RedisQueue consumers and real Agent handler; controlled processing boundary; observer invokes real reaper, not scheduler boot."
+    },
+    "agent_lifecycle_kill": {
+      "backend": "postgresql",
+      "mode": "agent_lifecycle_kill",
+      "before": {
+        "summary": {
+          "status": null,
+          "at": "None",
+          "token": "ce5957b4-080f-4609-ab53-bfbe782035fe",
+          "watermark": "None"
+        },
+        "runs": [
+          {
+            "id": "25034972-e256-4686-9443-14059174b88e",
+            "status": "running",
+            "finished": false,
+            "total": 0,
+            "unrecognized": 0,
+            "dispatched": 0,
+            "errors": []
+          }
+        ],
+        "leases": [
+          {
+            "run_id": "25034972-e256-4686-9443-14059174b88e",
+            "token": "ce5957b4-080f-4609-ab53-bfbe782035fe"
+          }
+        ]
+      },
+      "after": {
+        "summary": {
+          "status": "success",
+          "at": "2026-10-07 15:31:22.396540",
+          "token": "b3b39cfb-cf9a-4588-98c0-5808d18cc5c4",
+          "watermark": "None"
+        },
+        "runs": [
+          {
+            "id": "25034972-e256-4686-9443-14059174b88e",
+            "status": "failed",
+            "finished": true,
+            "total": 0,
+            "unrecognized": 0,
+            "dispatched": 0,
+            "errors": [
+              "Execution lease expired; run interrupted. Counters may be incomplete."
+            ]
+          },
+          {
+            "id": "30cf190b-9f5a-416f-aefb-cf6c380d2571",
+            "status": "success",
+            "finished": true,
+            "total": 1,
+            "unrecognized": 1,
+            "dispatched": 0,
+            "errors": []
+          }
+        ],
+        "leases": []
+      },
+      "first_worker_exit": -9,
+      "second_worker_exit": 0,
+      "same_job_id": true,
+      "distinct_queue_tokens": true,
+      "late_snapshot_unchanged": true,
+      "default_agent_lease_seconds": 30,
+      "default_queue_lease_seconds": 15,
+      "scope": "Independent production RedisQueue consumers and real Agent handler; controlled processing boundary; observer invokes real reaper, not scheduler boot."
+    }
+  },
+  "cleanup": {
+    "project": "rssripple-v34-redis-o",
+    "startup_exit": 0,
+    "down_exit": 0,
+    "containers": [],
+    "networks": [],
+    "volumes": []
+  },
+  "scope": "Real default RedisQueue leases, separate worker processes, actual Agent handler and natural DB expiry; observer invokes production reaper. PostgreSQL only, matching distributed deployment.",
+  "remaining": [
+    "real network/unknown-ownership faults",
+    "actual scheduler startup recovery",
+    "legacy upgrade/offline review tool",
+    "rebase and full gates/final review"
+  ],
+  "documented_candidate": "agent-run-lifecycle-q-source.json",
+  "documented_candidate_ruff_exit": 0,
+  "post_test_changes": [
+    "integration inventory documentation",
+    "Ruff import ordering only"
+  ]
+}

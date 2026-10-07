@@ -1,6 +1,6 @@
 # V34 AgentRun 异常与崩溃后的终态
 
-> 最新：独立候选 `/tmp/rssripple-v34-integrated-m5mdm6bz` 现为 19 个有效文件。m 在双库复现重复取消导致清理提前返回（2 failed、4 passed，退出 1）；修正为等待真实续租事务完成再传播取消，n 生命周期及 B9/B7 回归 60 passed、零跳过、107.29 秒、退出 0。测试项目清理完毕。受控在途事务停止已验证，不代表任意驱动/网络阻塞已覆盖。真实 Redis worker 接管、旧库/离线审核和完整门禁仍未完成，未合入运行代码。[最新源码](probes/agent-run-lifecycle-n-source.json)、[候选归档](probes/agent-run-lifecycle-n-candidate.tar.gz)、[n 结果](probes/agent-run-lifecycle-n-result.json)。此前 k/l 与 h 记录保留为历史阶段。
+> 最新：独立候选 `/tmp/rssripple-v34-integrated-m5mdm6bz` 现为 21 个有效文件。p 两个真实 PostgreSQL＋Redis 独立 consumer 进程场景通过（强杀、暂停后恢复；62.33 秒、退出 0），默认租约自然接管和历史回收、旧执行者不覆盖新摘要均通过。专用项目已清理。o 首轮测试错误保留；q 仅补集成清单并整理 import 顺序。此前 n 的 60 项回归与受控在途事务停止证据保留。网络未知故障、完整 scheduler 启动、旧库/离线审核与完整门禁仍待完成，未合入运行代码。[源码](probes/agent-run-lifecycle-q-source.json)、[候选](probes/agent-run-lifecycle-q-candidate.tar.gz)、[p 证据](probes/agent-run-lifecycle-p-result.json)。
 
 ## 必要性与分级
 
@@ -100,3 +100,11 @@ l [进程恢复探针](probes/agent_run_recovery_probe.py) 复用原 a 探针的
 ## m/n 在途续租与重复取消
 
 六个双库用例在真实续租 SQL 执行后、提交前用事件控制事务边界，覆盖正常结束、一次取消、重复取消。旧实现仅 shield 一次，第二次取消会让调用方提前返回；m 两项失败已保留。候选新增有界于心跳任务生命周期的等待循环，记录取消并等待任务结束后重新抛出，避免把未完成事务遗留为后台清理。n 的 60 项回归通过，测试捕获的事件循环异常为空。此实验没有模拟任意原生驱动或网络永久阻塞，不能外推为全部停止路径已验收。下一步为真实 Redis worker 恢复、旧库审核工具，随后重基到已验收主干并执行完整门禁。
+
+## o–q：真实 Redis consumer 进程恢复
+
+必要性复核：原 agent_driver 仅在真实 PG 上注入执行权丢失，通知恢复用例也不检查 AgentRun 历史，均不足以证明本批业务终态。新增两个模式调用实际 `_handle_run_agent`，A 在真正第一阶段提交后停在受控处理边界，父进程 SIGKILL 或 SIGSTOP；B 为独立生产 RedisQueue consumer。测试不覆盖应用完整 worker 入口，未访问录制 torrent URL。Turso 的单进程文件锁部署不适用共享文件多 worker，因此本矩阵针对默认分布式 PostgreSQL。
+
+o 首轮两项失败（32.32 秒、退出 1）：测试错误地从公开 status 读取内部 execution_token，在 handler 开始前失败并等待 ready 超时，不属于运行修复的红测。改为测试观察者读取真实 Redis 内部状态，捕获 A/B 在 running 阶段的非空 token，避免把终态清空 token 当作换权证据。p 同两项通过（62.33 秒、退出 0，11 个非本专项模式 deselected）。同一个 job_id 被默认 15 秒 Redis 租约自然恢复，token 不同；默认 30 秒数据库租约过期后观察者调用生产 reaper，最终 failed+success、finished 均非空、无残留租约，成功运行 total=unrecognized=1、dispatched=0。暂停的 A 恢复后发生真实所有权拒绝，历史和摘要的完整读回与恢复前一致。
+
+录制资源固定 SHA，身份和时序明确合成。两个父测试及四个 worker 的终态与逐场景 JSON/worker 日志已存档，p 执行源码哈希验证通过。专用 rssripple-v34-redis-o 项目启动/清理退出 0，容器/网络/卷标签为空；V31 的完整门禁栈未修改。q 只在 p 源码上追加集成清单并按 Ruff 整理 import 顺序，未改变测试行为。五轴复核支持保留这些测试：断言目标和来源明确、复用现有隔离恢复入口、真实外部所有权读取、子进程/数据库有 finally 清理，所有等待有超时；尚不批准整批运行候选合入。后续仍需网络未知时拒绝继续、实际 scheduler 启动回收及旧库审核/升级，再重基与完整门禁。
