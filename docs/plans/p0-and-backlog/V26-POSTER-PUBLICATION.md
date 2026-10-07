@@ -32,3 +32,9 @@ V25 剩余 P1 去重仍在冻结完整门禁中。本批选择已有复现的 P2
 e 已零失败。f 补损坏收据、静态 MIME/完整内容合同与两个真实子进程并发，**20 passed，12.45 秒**。审查修正暂存默认权限：改为独占 os.open 且遵循进程 umask，替换时保留已有普通文件权限；g 含两项权限验证和所有海报集成，**22 passed，13.89 秒，退出 0**。e 早于权限修正，不能当作最新代码的完整回归。继续复核短写、失败恢复边界及兼容性；明确不混称字节完整性与图片解码。V25 验收后重基本候选，进行五维审查、冻结输入，再跑完整单元/API ≥95% 与隔离集成 ≥85%，零失败，逐项审计 skips/hash/exit/cleanup 后才可关闭 TODO。原始失败和成功报告、源快照保留在 `probes/poster-publication-*`。
 
 最新候选补验 h：既有海报单元 **11 passed、157 deselected、1 warning，1.90 秒，退出 0**；与 g 的 22 项真实集成共同覆盖权限修正后的当前运行代码。无缓存全仓 Ruff 通过。9 文件有效候选、补丁、双方哈希和 a–h 原始报告见 `probes/poster-publication-g-result.json` 及相邻存档。当前无 V26 后台测试或 Compose 资源；后续先等待 V25 完整门禁，重基后继续严格验收。
+
+补验 i：真实 HTTP 503、Content-Length 与实际传输不符、文件短写、fsync 失败及权限复制失败均验证旧文件保留、临时文件清理和下一次恢复。海报集成 **27 passed，16.42 秒**，无失败/跳过；原始工具句柄已不可恢复，未将日志摘要推断为进程退出码。进程核查未发现剩余海报测试或子进程。最新 10 文件候选、哈希及报告保存为 `probes/poster-publication-i-*`。专项无缓存 Ruff 退出 0。
+
+为完成最新权限改动后的扩大回归，j 正在运行 `tests/unit/test_metadata_service.py tests/integration/posters`，句柄 `36985`，日志 `/tmp/rssripple-v26-poster-j.log`，JUnit `/tmp/rssripple-v26-poster-j.xml`。仍未启动本批完整门禁，不得据专项结果关闭 TODO；V25 候选保持冻结。
+
+扩大回归 j 已终止且退出 0：**195 passed、1 warning，195.34 秒**，覆盖完整既有 metadata service 单元与海报集成。10 个有效文件与 i 归档哈希一致，报告及退出证据见 `probes/poster-publication-j-result.json`。权限改动后的扩大回归要求已满足；重基及两道完整门禁仍待完成，运行代码未合入。

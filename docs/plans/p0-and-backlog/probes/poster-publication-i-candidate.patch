@@ -1,0 +1,792 @@
+--- /dev/null
++++ b/app/services/poster_cache.py
+@@ -0,0 +1,122 @@
++"""Atomic poster publication with receipts for complete downloaded bytes.
++
++A receipt proves byte-for-byte persistence of an HTTP response, not successful
++image decoding. Format recognition remains the caller's existing policy.
++All functions run in the caller's filesystem/download worker thread.
++"""
++import hashlib
++import json
++import logging
++import os
++import stat
++import uuid
++from collections.abc import Callable
++from pathlib import Path
++from typing import BinaryIO
++
++logger = logging.getLogger(__name__)
++_EXTENSIONS = ("jpg", "jpeg", "png", "webp", "gif", "svg")
++
++
++def _receipt_path(path: Path) -> Path:
++    return path.with_name("." + path.name + ".json")
++
++
++def _cached_path(directory: Path, digest: str) -> str | None:
++    for extension in _EXTENSIONS:
++        path = directory / f"{digest}.{extension}"
++        try:
++            receipt = json.loads(_receipt_path(path).read_text())
++            if not isinstance(receipt, dict) or receipt.get("version") != 1:
++                continue
++            with path.open("rb") as cached:
++                if os.fstat(cached.fileno()).st_size != receipt.get("size"):
++                    continue
++                if hashlib.file_digest(cached, "sha256").hexdigest() != receipt.get("sha256"):
++                    continue
++            return f"/posters/{path.name}"
++        except (OSError, ValueError, UnicodeError):
++            # Legacy, incomplete, missing or damaged entries are cache misses.
++            # Keep their bytes until a successful replacement is available.
++            continue
++    return None
++
++
++def _write_bytes(handle: BinaryIO, content: bytes) -> None:
++    if handle.write(content) != len(content):
++        raise OSError("Incomplete poster staging write")
++    handle.flush()
++    os.fsync(handle.fileno())
++
++
++def _stage(directory: Path, digest: str, content: bytes) -> Path:
++    path = None
++    try:
++        candidate = directory / f".{digest}.{uuid.uuid4().hex}.part"
++        # O_EXCL never follows an existing symlink, and 0666 respects the
++        # process umask just like the historical final-file write did.
++        descriptor = os.open(candidate, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
++        path = candidate
++        with os.fdopen(descriptor, "wb") as handle:
++            _write_bytes(handle, content)
++        return path
++    except BaseException:
++        if path is not None:
++            path.unlink(missing_ok=True)
++        raise
++
++
++def _preserve_mode(staged: Path, target: Path) -> None:
++    try:
++        previous = target.stat(follow_symlinks=False)
++    except FileNotFoundError:
++        return
++    if stat.S_ISREG(previous.st_mode):
++        staged.chmod(stat.S_IMODE(previous.st_mode))
++
++
++def _publish(path: Path, content: bytes) -> None:
++    receipt = json.dumps({
++        "version": 1, "size": len(content), "sha256": hashlib.sha256(content).hexdigest(),
++    }, sort_keys=True).encode()
++    staged = []
++    try:
++        data = _stage(path.parent, path.stem, content)
++        staged.append(data)
++        proof = _stage(path.parent, path.stem, receipt)
++        staged.append(proof)
++        _preserve_mode(data, path)
++        _preserve_mode(proof, _receipt_path(path))
++        # Readers can see only complete response bytes. If interrupted between
++        # these two renames, a missing/mismatched receipt forces a later miss.
++        os.replace(data, path)
++        os.replace(proof, _receipt_path(path))
++    finally:
++        for temporary in staged:
++            temporary.unlink(missing_ok=True)
++
++
++def cache_poster(
++    directory: Path,
++    remote_url: str,
++    download: Callable[[], bytes | None],
++    sniff: Callable[[bytes], str | None],
++) -> str | None:
++    digest = hashlib.sha256(remote_url.encode("utf-8")).hexdigest()[:16]
++    try:
++        directory.mkdir(parents=True, exist_ok=True)
++        cached = _cached_path(directory, digest)
++        if cached is not None:
++            return cached
++        content = download()
++        if not content:
++            return None
++        extension = sniff(content)
++        if extension not in _EXTENSIONS:
++            return None
++        path = directory / f"{digest}.{extension}"
++        _publish(path, content)
++        return _cached_path(directory, digest)
++    except Exception as error:
++        logger.warning("[poster] cache failed %s: %s", digest, error)
++        return None
+--- a/app/services/metadata_service.py
++++ b/app/services/metadata_service.py
+@@ -15,7 +15,6 @@
+ from __future__ import annotations
+ 
+ import asyncio
+-import hashlib
+ import logging
+ import re
+ from datetime import date, datetime
+@@ -316,6 +315,8 @@
+     downloaded bytes (:func:`_sniff_image_ext`), never from the URL. Returns
+     the local URL path ``/posters/<filename>`` on success, or None on failure
+     (including unrecognized/non-image content, which is not cached).
++    Cache hits require an integrity receipt; legacy entries are re-fetched.
++    All disk work and HTTP run off the event loop, with atomic file publication.
+     Skips URLs that are already local (``/posters/...``).
+     """
+     if not remote_url:
+@@ -326,15 +327,6 @@
+         return None
+     if not settings.poster_cache_dir:
+         return None
+-
+-    cache_dir = Path(settings.poster_cache_dir)
+-    cache_dir.mkdir(parents=True, exist_ok=True)
+-
+-    digest = hashlib.sha256(remote_url.encode("utf-8")).hexdigest()[:16]
+-    # Already cached under any known extension.
+-    for ext in ("jpg", "jpeg", "png", "webp", "gif", "svg"):
+-        if (cache_dir / f"{digest}.{ext}").exists():
+-            return f"/posters/{digest}.{ext}"
+ 
+     def _download() -> bytes | None:
+         try:
+@@ -354,21 +346,11 @@
+             logger.warning("[poster] download failed %s: %s", remote_url[:80], e)
+             return None
+ 
+-    content = await asyncio.to_thread(_download)
+-    if not content:
+-        return None
+-    ext = _sniff_image_ext(content)
+-    if ext is None:
+-        logger.warning("[poster] unrecognized image content %s", remote_url[:80])
+-        return None
+-    filename = f"{digest}.{ext}"
+-    local_path = cache_dir / filename
+-    try:
+-        local_path.write_bytes(content)
+-        return f"/posters/{filename}"
+-    except Exception as e:
+-        logger.warning("[poster] write failed %s: %s", filename, e)
+-        return None
++    from app.services.poster_cache import cache_poster
++
++    return await asyncio.to_thread(
++        cache_poster, Path(settings.poster_cache_dir), remote_url, _download, _sniff_image_ext,
++    )
+ 
+ 
+ # ---------------------------------------------------------------------------
+--- a/tests/unit/test_metadata_service.py
++++ b/tests/unit/test_metadata_service.py
+@@ -256,7 +256,7 @@
+     """Non-image bytes (e.g. an HTML error page) must not be cached as .jpg."""
+     ms.settings.poster_cache_dir = str(tmp_path)
+     async def _fake_to_thread(fn, *a, **kw):
+-        return fn()
++        return fn(*a, **kw)
+     import asyncio
+     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
+     class _Resp:
+@@ -277,7 +277,7 @@
+ def _patch_poster_download(monkeypatch, tmp_path, content: bytes):
+     ms.settings.poster_cache_dir = str(tmp_path)
+     async def _fake_to_thread(fn, *a, **kw):
+-        return fn()
++        return fn(*a, **kw)
+     import asyncio
+     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
+     class _Resp:
+@@ -316,7 +316,7 @@
+ async def test_download_poster_download_failure_returns_none(tmp_path, monkeypatch):
+     ms.settings.poster_cache_dir = str(tmp_path)
+     async def _fake_to_thread(fn, *a, **kw):
+-        return fn()
++        return fn(*a, **kw)
+     import asyncio
+     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
+     class _Client:
+@@ -331,14 +331,17 @@
+     assert url is None
+ 
+ 
+-async def test_download_poster_existing_file_returns_cached(tmp_path):
+-    ms.settings.poster_cache_dir = str(tmp_path)
+-    import hashlib
++async def test_download_poster_existing_file_returns_cached(tmp_path, monkeypatch):
++    # Only a completed publication with its receipt is a cache hit. Legacy
++    # partial-file misses are covered by the real HTTP/filesystem suite.
++    content = b"\xff\xd8\xff\xe0" + b"\x00" * 32
++    _patch_poster_download(monkeypatch, tmp_path, content)
+     remote = "https://example.com/existing.jpg"
+-    digest = hashlib.sha256(remote.encode()).hexdigest()[:16]
+-    (tmp_path / f"{digest}.jpg").write_bytes(b"x")
+-    out = await ms.download_and_cache_poster(remote)
+-    assert out == f"/posters/{digest}.jpg"
++    expected = await ms.download_and_cache_poster(remote)
++    assert expected is not None
++    with patch.object(ms.outbound_http, "client") as download:
++        assert await ms.download_and_cache_poster(remote) == expected
++        download.assert_not_called()
+ 
+ 
+ async def test_search_metadata_via_llm_delegates_to_agent(monkeypatch):
+@@ -533,7 +536,7 @@
+         return b"\xff\xd8\xff\xe0fakedata"
+ 
+     async def _fake_to_thread(fn, *a, **kw):
+-        return fn()
++        return fn(*a, **kw)
+ 
+     # Patch asyncio.to_thread to run synchronously in tests
+     import asyncio
+@@ -1608,10 +1611,9 @@
+     ms.settings.poster_cache_dir = str(tmp_path)
+ 
+     async def _fake_to_thread(fn, *a, **kw):
+-        return fn()
++        return fn(*a, **kw)
+ 
+     import asyncio
+-    import hashlib
+ 
+     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
+ 
+@@ -1636,17 +1638,12 @@
+ 
+     import httpx
+     monkeypatch.setattr(httpx, "Client", _Client)
+-    digest = hashlib.sha256(b"https://x/fail.jpg").hexdigest()[:16]
+-    from pathlib import Path
+-
+-    real_write = Path.write_bytes
+-
+-    def _fail_write(self, data):
+-        if self.name == f"{digest}.jpg":
+-            raise OSError("disk full")
+-        return real_write(self, data)
+-
+-    monkeypatch.setattr(Path, "write_bytes", _fail_write)
++    from app.services import poster_cache
++
++    def _fail_write(handle, data):
++        raise OSError("disk full")
++
++    monkeypatch.setattr(poster_cache, "_write_bytes", _fail_write)
+     assert await ms.download_and_cache_poster("https://x/fail.jpg") is None
+ 
+ 
+--- /dev/null
++++ b/tests/integration/posters/test_cache_publication.py
+@@ -0,0 +1,197 @@
++"""Recorded JPEG replay over real HTTP and actual filesystem fault injection.
++
++The source response is a recorded Bangumi poster. The local HTTP origin,
++corruption and write failures are synthetic; no provider network is contacted.
++"""
++import base64
++import gzip
++import hashlib
++import json
++import threading
++from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
++from pathlib import Path
++from types import SimpleNamespace
++
++import pytest
++
++from app.config import settings
++from app.services import poster_cache
++from app.services.metadata_service import download_and_cache_poster
++
++CORPUS = Path(__file__).parents[2] / "fixtures/metadata_corpus_v1/http/bangumi_complete.json.gz"
++CORPUS_SHA = "ab204d0b0c086097e9cafcd7e0bcd22b95ac5247678499fb60bcc28f22b8a716"
++BODY_SHA = "d2ae689b0ab871c4167009392a301ba2034dcbe813b24642fa7b46da76da25aa"
++KEY = "1353e89e67e0f849c5884738df5fd8bbfc2210ee1d54107b1ed1baf8e6bcf2b3"
++
++
++@pytest.fixture
++def recorded_poster(tmp_path, monkeypatch):
++    assert hashlib.sha256(CORPUS.read_bytes()).hexdigest() == CORPUS_SHA
++    response = json.loads(gzip.decompress(CORPUS.read_bytes()))["requests"][KEY]
++    body = base64.b64decode(response["body"])
++    assert len(body) == 147157 and hashlib.sha256(body).hexdigest() == BODY_SHA
++    state = SimpleNamespace(hits=0, body=body, cache=tmp_path / "cache", origin=response["request"]["url"])
++
++    class Handler(BaseHTTPRequestHandler):
++        def do_GET(self):
++            state.hits += 1
++            self.send_response(getattr(state, "status", 200))
++            self.send_header("Content-Type", "image/jpeg")
++            self.send_header("Content-Length", str(len(body)))
++            self.end_headers()
++            barrier = getattr(state, "barrier", None)
++            if barrier is not None:
++                barrier.wait(timeout=10)
++            self.wfile.write(body[:getattr(state, "send_size", len(body))])
++
++        def log_message(self, *args):
++            pass
++
++    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
++    worker = threading.Thread(target=server.serve_forever, daemon=True)
++    worker.start()
++    origin = f"http://127.0.0.1:{server.server_port}"
++    state.url = origin + "/recorded-poster"
++    state.digest = hashlib.sha256(state.url.encode()).hexdigest()[:16]
++    state.final = state.cache / (state.digest + ".jpg")
++    monkeypatch.setattr(settings, "poster_cache_dir", str(state.cache))
++    monkeypatch.setattr(settings, "outbound_private_origins", [origin])
++    try:
++        yield state
++    finally:
++        server.shutdown()
++        worker.join(timeout=5)
++        server.server_close()
++        assert not worker.is_alive()
++
++
++async def test_recorded_success_and_verified_hit(recorded_poster):
++    state = recorded_poster
++    url = await download_and_cache_poster(state.url)
++    assert url == f"/posters/{state.digest}.jpg"
++    assert hashlib.sha256(state.final.read_bytes()).hexdigest() == BODY_SHA
++    assert await download_and_cache_poster(state.url) == url
++    assert state.hits == 1
++
++
++async def test_partial_disk_write_is_not_published(recorded_poster, monkeypatch):
++    state = recorded_poster
++    def interrupted(handle, data):
++        handle.write(data[:4])
++        raise OSError("synthetic interrupted filesystem write")
++
++    with monkeypatch.context() as fault:
++        fault.setattr(poster_cache, "_write_bytes", interrupted)
++        assert await download_and_cache_poster(state.url) is None
++    assert not state.final.exists(), "Failed writes must never publish a final poster"
++    assert not list(state.cache.iterdir()), "Remove only this operation's failed staging files"
++    assert await download_and_cache_poster(state.url) == f"/posters/{state.digest}.jpg"
++    assert hashlib.sha256(state.final.read_bytes()).hexdigest() == BODY_SHA and state.hits == 2
++
++
++@pytest.mark.parametrize("prefix", [4, 4096])
++async def test_unverified_partial_legacy_cache_is_refetched(recorded_poster, prefix):
++    state = recorded_poster
++    state.cache.mkdir()
++    state.final.write_bytes(state.body[:prefix])
++    assert await download_and_cache_poster(state.url) == f"/posters/{state.digest}.jpg"
++    assert hashlib.sha256(state.final.read_bytes()).hexdigest() == BODY_SHA
++    assert state.hits == 1
++
++
++async def test_cache_disk_writes_leave_event_loop(recorded_poster, monkeypatch):
++    state = recorded_poster
++    event_loop_thread = threading.get_ident()
++    writes = []
++    original = poster_cache._write_bytes
++
++    def track(handle, data):
++        writes.append(threading.get_ident())
++        return original(handle, data)
++
++    monkeypatch.setattr(poster_cache, "_write_bytes", track)
++    assert await download_and_cache_poster(state.url)
++    assert writes and all(thread != event_loop_thread for thread in writes)
++
++
++async def test_same_size_corrupted_cache_is_not_a_hit(recorded_poster):
++    state = recorded_poster
++    assert await download_and_cache_poster(state.url)
++    damaged = bytearray(state.body)
++    damaged[len(damaged) // 2] ^= 1
++    state.final.write_bytes(damaged)
++    assert await download_and_cache_poster(state.url)
++    assert hashlib.sha256(state.final.read_bytes()).hexdigest() == BODY_SHA and state.hits == 2
++
++
++async def test_cache_directory_failure_returns_none(recorded_poster):
++    state = recorded_poster
++    state.cache.write_bytes(b"not a directory")
++    assert await download_and_cache_poster(state.url) is None
++
++
++@pytest.mark.parametrize("phase", ["receipt_write", "data_replace", "receipt_replace"])
++async def test_publication_failure_never_accepts_partial_data(recorded_poster, monkeypatch, phase):
++    state = recorded_poster
++    original_write = poster_cache._write_bytes
++    original_replace = poster_cache.os.replace
++    writes = replaces = 0
++
++    def write(handle, data):
++        nonlocal writes
++        writes += 1
++        if phase == "receipt_write" and writes == 2:
++            handle.write(data[:4])
++            raise OSError("synthetic receipt disk failure")
++        original_write(handle, data)
++
++    def replace(source, destination):
++        nonlocal replaces
++        replaces += 1
++        fail_at = 1 if phase == "data_replace" else 2
++        if phase != "receipt_write" and replaces == fail_at:
++            raise OSError("synthetic atomic replacement failure")
++        return original_replace(source, destination)
++
++    with monkeypatch.context() as fault:
++        fault.setattr(poster_cache, "_write_bytes", write)
++        fault.setattr(poster_cache.os, "replace", replace)
++        assert await download_and_cache_poster(state.url) is None
++    assert not list(state.cache.glob("*.part"))
++    if state.final.exists():
++        assert hashlib.sha256(state.final.read_bytes()).hexdigest() == BODY_SHA
++    assert await download_and_cache_poster(state.url) == f"/posters/{state.digest}.jpg"
++    assert hashlib.sha256(state.final.read_bytes()).hexdigest() == BODY_SHA
++    assert state.hits == 2
++
++
++async def test_concurrent_writers_only_expose_complete_recorded_images(recorded_poster, monkeypatch):
++    import asyncio
++
++    state = recorded_poster
++    original = poster_cache._write_bytes
++    staged = threading.Barrier(2)
++
++    def simultaneous(handle, data):
++        if data == state.body:
++            # Both HTTP responses arrive before either image is published.
++            handle.write(data[:4])
++            handle.flush()
++            staged.wait(timeout=10)
++            assert not state.final.exists()
++            staged.wait(timeout=10)  # Both readers checked before either writer proceeds.
++            handle.write(data[4:])
++            handle.flush()
++            return
++        original(handle, data)
++
++    monkeypatch.setattr(poster_cache, "_write_bytes", simultaneous)
++    results = await asyncio.wait_for(asyncio.gather(
++        download_and_cache_poster(state.url), download_and_cache_poster(state.url),
++    ), timeout=15)
++    assert results == [f"/posters/{state.digest}.jpg"] * 2
++    assert state.hits == 2
++    assert hashlib.sha256(state.final.read_bytes()).hexdigest() == BODY_SHA
++    assert not list(state.cache.glob("*.part"))
++    assert await download_and_cache_poster(state.url) == results[0]
++    assert state.hits == 2
+--- /dev/null
++++ b/tests/integration/posters/test_cache_crash.py
+@@ -0,0 +1,42 @@
++"""Actual process termination cannot turn a staged JPEG into a cache hit."""
++import asyncio
++import hashlib
++import sys
++from pathlib import Path
++
++import pytest
++
++from app.services.metadata_service import download_and_cache_poster
++from tests.integration.posters.test_cache_publication import BODY_SHA
++from tests.integration.posters.test_cache_publication import recorded_poster as recorded_poster
++
++
++@pytest.mark.parametrize("phase,code", [("stage", 97), ("published", 98)])
++async def test_actual_process_crash_recovers_complete_poster(recorded_poster, phase, code):
++    state = recorded_poster
++    process = await asyncio.create_subprocess_exec(
++        sys.executable, "-m", "tests.integration.posters.poster_crash_driver",
++        phase, state.url, str(state.cache),
++        cwd=Path(__file__).parents[3],
++        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
++    )
++    try:
++        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=20)
++        assert process.returncode == code, (stdout, stderr)
++    finally:
++        if process.returncode is None:
++            process.kill()
++            await process.wait()
++    if phase == "stage":
++        assert not state.final.exists()
++    else:
++        assert hashlib.sha256(state.final.read_bytes()).hexdigest() == BODY_SHA
++    abandoned = {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in state.cache.glob("*.part")}
++    assert abandoned, "A terminated writer really left staging data"
++    assert await download_and_cache_poster(state.url) == f"/posters/{state.digest}.jpg"
++    assert hashlib.sha256(state.final.read_bytes()).hexdigest() == BODY_SHA
++    assert state.hits == 2
++    # Recovery must never delete another writer's staging files by a glob.
++    assert {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in state.cache.glob("*.part")} == abandoned
++    assert await download_and_cache_poster(state.url) == f"/posters/{state.digest}.jpg"
++    assert state.hits == 2
+--- /dev/null
++++ b/tests/integration/posters/poster_crash_driver.py
+@@ -0,0 +1,51 @@
++"""Terminate the actual poster pipeline at controlled filesystem boundaries."""
++import argparse
++import asyncio
++import os
++from urllib.parse import urlsplit
++
++from app.config import settings
++from app.services import poster_cache
++from app.services.metadata_service import download_and_cache_poster
++
++
++def main():
++    parser = argparse.ArgumentParser()
++    parser.add_argument("phase", choices=["stage", "published", "success"])
++    parser.add_argument("url")
++    parser.add_argument("directory")
++    parser.add_argument("--umask")
++    args = parser.parse_args()
++    if args.umask is not None:
++        os.umask(int(args.umask, 8))
++    parts = urlsplit(args.url)
++    assert parts.hostname == "127.0.0.1"
++    settings.poster_cache_dir = args.directory
++    settings.outbound_private_origins = [f"{parts.scheme}://{parts.netloc}"]
++    original_write = poster_cache._write_bytes
++    original_replace = poster_cache.os.replace
++
++    def write(handle, content):
++        if args.phase == "stage" and content.startswith(b"\xff\xd8\xff"):
++            handle.write(content[:4096])
++            handle.flush()
++            os._exit(97)
++        original_write(handle, content)
++
++    def replace(source, destination):
++        original_replace(source, destination)
++        if args.phase == "published":
++            os._exit(98)
++
++    poster_cache._write_bytes = write
++    poster_cache.os.replace = replace
++    result = asyncio.run(download_and_cache_poster(args.url))
++    if args.phase == "success":
++        assert result is not None
++        print(result)
++    else:
++        raise AssertionError("Crash injection was not reached")
++
++
++if __name__ == "__main__":
++    main()
+--- /dev/null
++++ b/tests/integration/posters/test_cache_contract.py
+@@ -0,0 +1,102 @@
++"""Public static-file contract, damaged receipts and real process concurrency."""
++import asyncio
++import hashlib
++import json
++import sys
++import threading
++from pathlib import Path
++
++import httpx
++import pytest
++from fastapi import FastAPI
++from starlette.staticfiles import StaticFiles
++
++from app.services.metadata_service import download_and_cache_poster
++from tests.integration.posters.test_cache_publication import BODY_SHA
++from tests.integration.posters.test_cache_publication import recorded_poster as recorded_poster
++
++
++@pytest.mark.parametrize("receipt", [None, "not-json", "[]", '{"version":2}', '{"version":1,"size":147157,"sha256":"bad"}'])
++async def test_damaged_receipt_forces_refetch(recorded_poster, receipt):
++    state = recorded_poster
++    assert await download_and_cache_poster(state.url)
++    proof = state.cache / f".{state.digest}.jpg.json"
++    if receipt is None:
++        proof.unlink()
++    else:
++        proof.write_text(receipt)
++    assert await download_and_cache_poster(state.url)
++    assert state.hits == 2
++    assert hashlib.sha256(state.final.read_bytes()).hexdigest() == BODY_SHA
++    assert json.loads(proof.read_text())["sha256"] == BODY_SHA
++
++
++async def test_static_response_serves_complete_jpeg_with_matching_mime(recorded_poster):
++    state = recorded_poster
++    url = await download_and_cache_poster(state.url)
++    app = FastAPI()
++    app.mount("/posters", StaticFiles(directory=state.cache), name="posters")
++    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://synthetic") as client:
++        response = await client.get(url)
++    assert response.status_code == 200
++    assert response.headers["content-type"] == "image/jpeg"
++    assert int(response.headers["content-length"]) == len(state.body)
++    assert hashlib.sha256(response.content).hexdigest() == BODY_SHA
++    proof = (state.cache / f".{state.digest}.jpg.json").read_text()
++    assert state.url not in proof and state.origin not in proof
++
++
++async def test_two_real_processes_publish_one_complete_cache(recorded_poster):
++    state = recorded_poster
++    state.barrier = threading.Barrier(2)
++    processes = []
++    try:
++        for _ in range(2):
++            processes.append(await asyncio.create_subprocess_exec(
++                sys.executable, "-m", "tests.integration.posters.poster_crash_driver",
++                "success", state.url, str(state.cache), cwd=Path(__file__).parents[3],
++                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
++            ))
++        results = await asyncio.wait_for(asyncio.gather(*(p.communicate() for p in processes)), timeout=30)
++        for process, (stdout, stderr) in zip(processes, results, strict=True):
++            assert process.returncode == 0, (stdout, stderr)
++            assert stdout.decode().strip() == f"/posters/{state.digest}.jpg"
++    finally:
++        for process in processes:
++            if process.returncode is None:
++                process.kill()
++        await asyncio.gather(*(p.wait() for p in processes))
++    assert state.hits == 2
++    assert hashlib.sha256(state.final.read_bytes()).hexdigest() == BODY_SHA
++    assert not list(state.cache.glob("*.part"))
++    assert await download_and_cache_poster(state.url) == f"/posters/{state.digest}.jpg"
++    assert state.hits == 2
++
++
++async def test_replacement_preserves_existing_file_permissions(recorded_poster):
++    state = recorded_poster
++    state.cache.mkdir()
++    state.final.write_bytes(state.body[:4])
++    state.final.chmod(0o600)
++    assert await download_and_cache_poster(state.url)
++    assert state.final.stat().st_mode & 0o777 == 0o600
++    assert hashlib.sha256(state.final.read_bytes()).hexdigest() == BODY_SHA
++
++
++async def test_new_publication_respects_process_umask(recorded_poster):
++    state = recorded_poster
++    process = await asyncio.create_subprocess_exec(
++        sys.executable, "-m", "tests.integration.posters.poster_crash_driver",
++        "success", state.url, str(state.cache), "--umask", "027",
++        cwd=Path(__file__).parents[3],
++        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
++    )
++    try:
++        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=20)
++        assert process.returncode == 0, (stdout, stderr)
++    finally:
++        if process.returncode is None:
++            process.kill()
++            await process.wait()
++    assert state.final.stat().st_mode & 0o777 == 0o640
++    assert hashlib.sha256(state.final.read_bytes()).hexdigest() == BODY_SHA
+--- a/docs/design/conventions.md
++++ b/docs/design/conventions.md
+@@ -86,3 +86,13 @@
+ 拒绝返回 403 `FORBIDDEN`、统一响应结构，不执行登录/退出或业务写入，不发送清 Cookie 头。CORS 仍决定浏览器是否可读该响应；不可信来源一般只能观察 fetch 失败。反向代理需正确传递并由受信代理配置还原外部 scheme/Host；不得把任意外部 Forwarded 头直接当可信 origin。
+ 
+ 来源防护对 Origin 和备用 Referer 均要求单值，重复来源头按 403 拒绝。
++
++### 海报缓存的完整写入与恢复
++
++海报缓存的文件名与内容嗅探策略保持不变。下载、目录/文件读写和缓存校验都在线程中执行。新文件先写同目录独占暂存文件并 flush/fsync，再原子替换最终图片；同时发布隐藏的完整性收据 `.{filename}.json`（version=1、字节数及 SHA-256，不保存原始 URL 或凭证）。只有收据与打开文件的长度/哈希一致才算缓存命中。此校验证明收到的 HTTP 响应字节被完整保存，不代表完整图片解码或内容安全审核。
++
++没有收据的旧缓存、收据损坏/缺失或文件长度/哈希不符都需要重新下载；新内容成功发布前保留旧文件。网络/磁盘失败返回 None，不能把残缺文件作为新成功返回。图片与收据间退出只会导致下一次缓存未命中，最终图片路径不会暴露本次半写内容。已有 `/posters/...` 本地 URL 仍按原契约直接返回；没有远端 URL 的历史本地记录需要通过元数据刷新重新获得来源，不宣称本次升级能从 URL 哈希还原来源。
++
++普通失败只清理本次创建的暂存文件；真实进程崩溃可能遗留隐藏 `.part`，恢复时不通过通配符删除未知写入者文件。这些暂存文件不会成为缓存命中。并发发布可能使图片/收据短暂不一致，校验失败按未命中处理，不能降低为仅检查存在。
++
++暂存使用 O_CREAT|O_EXCL 独占创建，新文件权限遵循进程 umask；替换既有普通文件时保留其权限，不让原子发布意外扩大访问范围或导致 web/worker 间可读性回归。图片和收据都遵守该规则。
+--- a/docs/testing/integration-inventory.md
++++ b/docs/testing/integration-inventory.md
+@@ -404,3 +404,9 @@
+ 覆盖真实 PostgreSQL 锁等待下重复 HTTP 提交；实际 Redis producer/worker 所有权与成败收尾；子进程 DB commit 后 os._exit(97)、处理中 SIGKILL(-9) 的补发/同一 Redis job 恢复；生产 create_tables 双库两次升级、历史标记保留、唯一约束、请求事务回滚和资源 FK 级联。元数据提供者为明确合成替身，这些测试不等于真实元数据管线回放；没有将请求事务回滚宣称为应用版本回滚验证。
+ 
+ 录制输入重解析覆盖：`test_reparse_captured.py` 在 PG/Turso 使用语料 `affd5114-f61d-40b6-95f1-0d0b937495ab` 原始已录制标题与 SHA-256 为 `6936d731675641e065b7af4c3780b3c36c27b2782e65fc3989a6557b0cff75c3` 的原始 torrent。完整生产 `_process_resource_metadata` 执行缓存读取、合集识别、12 条文件指派、metadata publication 和提交，任务确认后因身份仍未知恢复待确认。身份提供者明确替换为离线未匹配结果，队列投递使用替身；未下载媒体，不宣称 RSS 原文存在或实际外部元数据搜索通过。
++
++### 海报缓存发布
++
++`posters/test_cache_publication.py` 使用已录制 Bangumi JPEG（147157 字节，源语料和响应体固定 SHA-256），通过本地真实 HTTP 回放，覆盖成功/重复命中、部分磁盘写入、旧前缀截断、等长损坏、事件循环线程检查、收据写入及两次替换故障、两线程同时暂存。`test_cache_crash.py` 在实际子进程暂存/图片发布后执行 os._exit，验证重新下载及命中恢复；不删除另一个写入者留下的暂存文件。来源图片真实，服务 origin、故障与并发历史明确合成；不访问外部提供者或生产目录。
++
++海报扩展验收 `test_cache_contract.py` 覆盖缺失/非法/旧版本/错哈希收据重取、StaticFiles JPEG MIME/长度/哈希响应、两独立进程同时发布，以及新文件 umask 和既有权限保留；与崩溃及文件故障组合共 22 项。静态合同测试验证挂载服务响应，不将其称作额外的认证流程验证。
+--- /dev/null
++++ b/tests/integration/posters/test_cache_io_failures.py
+@@ -0,0 +1,71 @@
++"""Real HTTP failures and filesystem short writes preserve previous cache bytes."""
++import hashlib
++
++import pytest
++
++from app.services import poster_cache
++from app.services.metadata_service import download_and_cache_poster
++from tests.integration.posters.test_cache_publication import BODY_SHA
++from tests.integration.posters.test_cache_publication import recorded_poster as recorded_poster
++
++
++@pytest.mark.parametrize("failure", ["http_error", "truncated_transport"])
++async def test_legacy_cache_survives_failed_refetch(recorded_poster, failure):
++    state = recorded_poster
++    state.cache.mkdir()
++    old = state.body[:4096]
++    state.final.write_bytes(old)
++    if failure == "http_error":
++        state.status = 503
++    else:
++        state.send_size = 4096  # Content-Length still advertises the complete recorded response.
++    assert await download_and_cache_poster(state.url) is None
++    assert state.final.read_bytes() == old
++    assert not list(state.cache.glob("*.part"))
++    state.status = 200
++    state.send_size = len(state.body)
++    assert await download_and_cache_poster(state.url)
++    assert hashlib.sha256(state.final.read_bytes()).hexdigest() == BODY_SHA
++    assert state.hits == 2
++
++
++@pytest.mark.parametrize("failure", ["short_write", "fsync", "permissions"])
++async def test_filesystem_failure_preserves_legacy_file(recorded_poster, monkeypatch, failure):
++    state = recorded_poster
++    state.cache.mkdir()
++    old = state.body[:4096]
++    state.final.write_bytes(old)
++    real_fdopen = poster_cache.os.fdopen
++
++    class ShortWriter:
++        def __init__(self, handle):
++            self.handle = handle
++
++        def __enter__(self):
++            self.handle.__enter__()
++            return self
++
++        def __exit__(self, *args):
++            return self.handle.__exit__(*args)
++
++        def write(self, content):
++            return self.handle.write(content[:17])
++
++    def short_fdopen(*args, **kwargs):
++        return ShortWriter(real_fdopen(*args, **kwargs))
++
++    def failed(*args, **kwargs):
++        raise OSError("synthetic filesystem failure")
++
++    with monkeypatch.context() as fault:
++        if failure == "short_write":
++            fault.setattr(poster_cache.os, "fdopen", short_fdopen)
++        elif failure == "fsync":
++            fault.setattr(poster_cache.os, "fsync", failed)
++        else:
++            fault.setattr(poster_cache, "_preserve_mode", failed)
++        assert await download_and_cache_poster(state.url) is None
++    assert state.final.read_bytes() == old
++    assert not list(state.cache.glob("*.part"))
++    assert await download_and_cache_poster(state.url)
++    assert hashlib.sha256(state.final.read_bytes()).hexdigest() == BODY_SHA
