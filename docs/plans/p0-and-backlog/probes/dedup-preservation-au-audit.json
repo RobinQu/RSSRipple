@@ -1,0 +1,134 @@
+{
+  "accepted": false,
+  "unit_gate_passed": false,
+  "exit_code": 1,
+  "passed": 4170,
+  "failed": 1,
+  "skipped": 12,
+  "seconds": 3263.07,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "1",
+    "skipped": "12",
+    "tests": "4183",
+    "time": "3262.835",
+    "timestamp": "2026-10-07T04:36:09.380490+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "coverage": {
+    "lines-covered": "23435",
+    "lines-valid": "24168",
+    "line-rate": "0.9697"
+  },
+  "skips": [
+    [
+      "tests.unit.test_decision_migration",
+      "test_postgres_startup_rejects_unreviewed_then_accepts_review",
+      "PostgreSQL startup DDL branch; embedded startup tested through CLI subprocess",
+      "<candidate>/tests/unit/test_decision_migration.py:351: PostgreSQL startup DDL branch; embedded startup tested through CLI subprocess"
+    ],
+    [
+      "tests.api.test_api_coverage3.TestResourcesMore",
+      "test_search_metadata_via_manual",
+      "resource-scoped metadata search replaced by /api/v1/metadata/search",
+      "<candidate>/tests/api/test_api_coverage3.py:136: resource-scoped metadata search replaced by /api/v1/metadata/search"
+    ],
+    [
+      "tests.api.test_api_coverage3.TestResourcesMore",
+      "test_link_metadata_error_path",
+      "resource-scoped metadata link replaced by work metadata apply/associations",
+      "<candidate>/tests/api/test_api_coverage3.py:151: resource-scoped metadata link replaced by work metadata apply/associations"
+    ],
+    [
+      "tests.api.test_api_coverage3.TestResourcesMore",
+      "test_link_metadata_movie",
+      "resource-scoped metadata link replaced by work metadata apply/associations",
+      "<candidate>/tests/api/test_api_coverage3.py:162: resource-scoped metadata link replaced by work metadata apply/associations"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_search_404",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:368: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_search_returns_results",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:373: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_search_result_none_genre_coerced",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:387: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_search_forwards_source_and_fallback_sites",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:400: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_search_llm_error_returns_502",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:425: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_link_creates_series",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:435: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_link_404",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:451: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_link_movie_clears_ambiguous",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:456: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ]
+  ],
+  "skips_vs_B8": {
+    "added": [],
+    "removed": []
+  },
+  "failures": [
+    {
+      "class": "tests.unit.test_franchise_service",
+      "name": "test_dedupe_resource_movies_merges_same_date_rows",
+      "failure": "tests/unit/test_franchise_service.py:620: in test_dedupe_resource_movies_merges_same_date_rows\n    assert {b.external_id for b in bag} == {\"mal:19613\"}\nE   AssertionError: assert {'mal:19613', 'bangumi:78796'} == {'mal:19613'}\nE     \nE     Extra items in the left set:\nE     'bangumi:78796'\nE     \nE     Full diff:\nE       {\nE     +     'bangumi:78796',\nE           'mal:19613',\nE       }"
+    }
+  ],
+  "artifacts": {
+    "dedup-preservation-au-run.log.gz": "8c228a12939a5c5c232ded0aae07266f80b7e5320660d747e3fcf6b44e186110",
+    "dedup-preservation-au-unit.xml.gz": "6fd9a2579fe5bb57b7dcfe41ebb915594ae34c2007dacf6f2e9910e22d44a40e",
+    "dedup-preservation-au-coverage.xml.gz": "7769021bc0d0f73fb07651c714b6f9d6cd4726cae7628af84512bf04a4a0eed6",
+    "dedup-preservation-au-coverage.gz": "0b1c192650b6bc7880e629758f3ddb929a77636a6a64ddc5da47c94387bbd8b3",
+    "dedup-preservation-au-cleanup.log.gz": "0f4140e619d5c7ab385fc874cf89c49505bfcfd454a0dd6ab91ba6f48a31d237"
+  },
+  "cleanup_exit": 0,
+  "labels": {
+    "containers": {
+      "exit_code": 0,
+      "remaining": []
+    },
+    "networks": {
+      "exit_code": 0,
+      "remaining": []
+    },
+    "volumes": {
+      "exit_code": 0,
+      "remaining": []
+    }
+  },
+  "frozen_count": 5523,
+  "frozen_mismatch": [],
+  "next": "az candidate changes only tests/unit/test_franchise_service.py; av integration inputs unchanged."
+}

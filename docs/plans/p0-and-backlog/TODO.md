@@ -25,7 +25,7 @@
 
 ### 从 P2 提升
 
-- [ ] dedup survivor 取最旧行，忽略数据完整度与人工保护（`metadata_dedup.py:430-440,557-565`）。 V25 已用录制作品身份＋合成编辑历史在真实 Turso 复现人工值、人工空值及三态字段丢失（6 failed、2 passed）；保护原型已补跨类型/409 API，身份配对及锁后分组重查已补；扩大回归 126 项和双库并发/真实 24 文件子图 11 项通过；调用方保存点与真实退避补验 136 项通过；另复现 Turso 迟到人工关联在去重后悬空，已扩展既有父行屏障，最新双库 38 项、升级/清理等 73 项、旧库启动 2 项通过；逐字段双库矩阵 218 项通过；已重基 B8 `c642911`，组合回归 86 项通过，首轮 ak 完整集成 5 failed、3617 passed，已归档并清理；修正旧保留对象夹具和共用内存连接的观察会话后，25 项专项通过，35 文件重新冻结并启动完整集成 an，aj 单元随后以 2 failed、4166 passed 结束；已补每资源重试期间持有并发槽位、保留对象主身份入袋，双库 20 项、扩大 142 项、身份 34 项及五轮原 30/10 回填通过。42 文件新候选冻结并启动完整单元 au；旧 an 被新运行版本取代，最新完整集成 av 已启动，两道门禁进行中，未验收合入，见 [V25](V25-DEDUP-METADATA-PRESERVATION.md)。
+- [ ] dedup survivor 取最旧行，忽略数据完整度与人工保护（`metadata_dedup.py`）。V25 已以录制身份、真实双库事务/并发和逐字段矩阵确认必要性并实现候选。完整 av 集成 3634 passed、17 skipped、89.35%，runner/应用/覆盖率/导出/清理均通过；au 单元 4170 passed/1 个旧身份袋断言失败、96.97%，失败原样保留。独立修正仅一份单元测试，精确身份袋及反查三项通过；43 文件候选与 av 的运行/集成输入一致，完整单元/API az 正在重跑（句柄 64498），不得提前关闭。最新入口见 [V25](V25-DEDUP-METADATA-PRESERVATION.md) 与 [az/av 清单](probes/dedup-preservation-az-av-running.json)。
 
 ### 数据模型 / 持久化
 
@@ -70,7 +70,7 @@
 
 - [ ] 为 `series_id/movie_id/audio_work_id` 至多一非空增加 DB 约束（原评审快照 0 违规；实施前重新检查，不代表无需 DDL 迁移）。
       2026-10-07 重新扫描既有录制子集 559 条：工作 FK 违规 0，工作与 collection 合法共存 1 条；三工作 FK 字段均完整。该数据导出于 2026-09-04，不代表当前生产状态，仍按 P2 约束硬化处理。证据见 [录制预检](probes/resource-work-fk-recorded-preflight.json)。
-      V27 双库直接 SQL 全组合基线 32 failed/32 passed，确认无约束；新库 CHECK 原型 64 项通过。旧库升级与真实服务调用尚未验证，未合入，见 [V27](V27-RESOURCE-WORK-FK.md)。
+      V27 双库直接 SQL 全组合基线 32 failed/32 passed，确认无约束；新旧库全组合及故障回滚 134 项、缺列升级/表重建 2 项、真实服务路径 12 项通过。扩大 i 225 通过/1 个假连接失败，修正后 j 全迁移文件 50 项通过；已清理专用项目，仍待原生约束边界、重基与最终完整门禁，未合入，见 [V27](V27-RESOURCE-WORK-FK.md)。
       **不要**包含 `collection_id` 互斥（见 [PLAN.md](PLAN.md) §3，`sync_resource_collection` 刻意共存）。
       **实现**：`app/models/file_resource.py` 加 `CheckConstraint`；PostgreSQL 用
       `ALTER TABLE ... ADD CONSTRAINT`（幂等查 `pg_constraint`）；SQLite/Turso 用

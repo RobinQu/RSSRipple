@@ -1,0 +1,177 @@
+{
+  "accepted": false,
+  "integration_gate_passed": true,
+  "unit_gate": "au still running with observed franchise identity-bag assertion failure; batch not accepted",
+  "project": "rssripple-v25-final-av",
+  "runner_exit": 0,
+  "passed": 3634,
+  "failed": 0,
+  "skipped": 17,
+  "seconds": 2384.74,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "17",
+    "tests": "3651",
+    "time": "2384.345",
+    "timestamp": "2026-10-07T04:41:48.280166+00:00",
+    "hostname": "7ba3a2b69e4f"
+  },
+  "coverage_exit": 0,
+  "coverage": {
+    "lines-covered": "21594",
+    "lines-valid": "24168",
+    "line-rate": "0.8935"
+  },
+  "apps_exit": [
+    0,
+    0
+  ],
+  "export_exit": 0,
+  "cleanup_exit": 0,
+  "labels": {
+    "containers": {
+      "exit_code": 0,
+      "remaining": []
+    },
+    "networks": {
+      "exit_code": 0,
+      "remaining": []
+    },
+    "volumes": {
+      "exit_code": 0,
+      "remaining": []
+    }
+  },
+  "skips_vs_B8": {
+    "added": [],
+    "removed": []
+  },
+  "skips": [
+    [
+      "tests.integration.http.test_api_coverage2.TestMagnetResolve",
+      "test_terminal_retry_flow",
+      "no magnet resolution reached a terminal state in time",
+      "/app/tests/integration/http/test_api_coverage2.py:819: no magnet resolution reached a terminal state in time"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_mapping_structure",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:227: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_mapping_has_torrent_url",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:232: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_mapping_has_title_field",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:238: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_all_rules_have_source_key",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:243: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_confidence_not_low",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:248: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_fetch_succeeded",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:257: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_fetch_created_resources",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:263: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_resources_have_torrent_url",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:269: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_resources_have_title_raw",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:275: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_channel_stream_analyze_also_works",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:281: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_no_duplicates_on_refetch",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:290: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_metadata_api.TestMetadataLink",
+      "test_link_metadata_creates_series",
+      "No metadata API keys configured — cannot perform search+link",
+      "/app/tests/integration/http/test_metadata_api.py:189: No metadata API keys configured — cannot perform search+link"
+    ],
+    [
+      "tests.integration.http.test_task_queue.TestRedisDistributedDedup",
+      "test_status_key_shared_after_enqueue",
+      "No distinct Redis-backed app instance configured",
+      "/app/tests/integration/http/test_task_queue.py:365: No distinct Redis-backed app instance configured"
+    ],
+    [
+      "tests.integration.http.test_task_queue.TestRedisDistributedDedup",
+      "test_redis_job_state_persists_after_done",
+      "No distinct Redis-backed app instance configured",
+      "/app/tests/integration/http/test_task_queue.py:383: No distinct Redis-backed app instance configured"
+    ],
+    [
+      "tests.integration.magnet.test_magnet_resolve_e2e",
+      "test_live_magnet_resolution",
+      "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)",
+      "/app/tests/integration/magnet/test_magnet_resolve_e2e.py:376: live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)"
+    ],
+    [
+      "tests.integration.magnet.test_magnet_resolve_e2e",
+      "test_live_fetch_to_resolve_end_to_end",
+      "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)",
+      "/app/tests/integration/magnet/test_magnet_resolve_e2e.py:387: live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)"
+    ]
+  ],
+  "failures": [],
+  "frozen_count": 5523,
+  "frozen_mismatch": [],
+  "main_base_mismatch": [],
+  "artifacts": {
+    "dedup-preservation-av-integration.xml.gz": "9fc78a4ef619564967e8b29c22238c95fec3740c5a47fcff512d17e306f53a51",
+    "dedup-preservation-av-coverage.xml.gz": "a2363ca3cd9c5751aaecb36e15afcba8da5c1fca2b8c9ec506d5283e08239bbd",
+    "dedup-preservation-av-run.log.gz": "ee2b14dfcc79889fc1a8d49f0723d892a5de73038420a67d4ed28a9e5c029578",
+    "dedup-preservation-av-coverage.log.gz": "22ca48542e679a4217dd0c40a5996e32787fd0ea260b213f26e1598d9080f008",
+    "dedup-preservation-av-shutdown.log.gz": "fc8325e6d6c71286690da869ddd19d5c020bbfe51d2cdeb06eb0063238d7158e",
+    "dedup-preservation-av-cleanup.log.gz": "a217b0ae5477c3b945afecf2df8476d30c07248b2183b0f2d3766e50d8ada26d",
+    "dedup-preservation-av-export.log.gz": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+    "dedup-preservation-av-coverage.combined.gz": "bc42af6bcc775071aac76e6c3e40b4c51bb2abdd74452ac986e2f8cdf0a0e927",
+    "dedup-preservation-av-coverage.integration.gz": "ecd0dc81f9c01cdf3c047780b8db1762fb878864fef9a930e4242a7774736a81",
+    "dedup-preservation-av-coverage.integration-llm.gz": "8eff4af90621820891745e4597d9d4bd09137400f1d85cc11683a4dcd4d2d00a",
+    "dedup-preservation-av-coverage.scripts.gz": "9339f34d2b19050ed1afc18da57e16a7286770277ac0cb769a128a87f08a8b4a",
+    "dedup-preservation-av-coverage.test-runner.gz": "3a5486c999b65cc58dd21dc08f856970f844281e00aa6bc79b68348a754009d5",
+    "dedup-preservation-av-corpus-audit.json.gz": "8fcbf563b6f6cb06ca9835affc415cdb02a7d4fb864631ab7bdfc6a99276c431",
+    "dedup-preservation-av-corpus-deepsearch-audit.json.gz": "ca6fecce5f60d498555db9c166806536fa5c1f4600092f7c9caf2e956df81cbc",
+    "dedup-preservation-av-corpus-scenario-71bf5def93704363.json.gz": "c30d60b7aa8c91a319e9b342580315d0633b515adf5bdc725e694249cb1aa7a4",
+    "dedup-preservation-av-corpus-scenario-db811b734d386cbc.json.gz": "2095563b87a82699ef0be80cc6ae6f2d754e343ab38f5faec1e506e88d9e58cf"
+  }
+}

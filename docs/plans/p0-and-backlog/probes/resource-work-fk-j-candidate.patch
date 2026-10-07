@@ -1,0 +1,670 @@
+--- a/app/models/file_resource.py
++++ b/app/models/file_resource.py
+@@ -7,6 +7,7 @@
+     JSON,
+     BigInteger,
+     Boolean,
++    CheckConstraint,
+     DateTime,
+     ForeignKey,
+     Index,
+@@ -20,10 +21,18 @@
+ 
+ from app.database import Base
+ 
++RESOURCE_WORK_FK_CONSTRAINT = "ck_file_resources_work_fk"
++RESOURCE_WORK_FK_CHECK = (
++    "(CASE WHEN series_id IS NOT NULL THEN 1 ELSE 0 END + "
++    "CASE WHEN movie_id IS NOT NULL THEN 1 ELSE 0 END + "
++    "CASE WHEN audio_work_id IS NOT NULL THEN 1 ELSE 0 END) <= 1"
++)
++
+ 
+ class FileResource(Base):
+     __tablename__ = "file_resources"
+     __table_args__ = (
++        CheckConstraint(RESOURCE_WORK_FK_CHECK, name=RESOURCE_WORK_FK_CONSTRAINT),
+         UniqueConstraint("channel_id", "guid", name="uq_file_resources_channel_guid"),
+         Index(
+             "ix_file_resources_confirmation_created",
+@@ -152,11 +161,9 @@
+     audio_work_id: Mapped[str | None] = mapped_column(
+         String(36), ForeignKey("audio_works.id", ondelete="SET NULL"), nullable=True
+     )
+-    # Franchise-pack link (WorkCollection): only set when ``batch_scope ==
+-    # "franchise"``. FK-exclusivity invariant extended: when this is non-null,
+-    # ``series_id`` / ``movie_id`` / ``audio_work_id`` must all be NULL (same
+-    # convention-only discipline as the existing work-FK exclusivity — no
+-    # CheckConstraint).
++    # Collection identity may coexist with a flat work link (for example a
++    # season resource). Only the three flat work FKs are mutually exclusive;
++    # franchise-specific clearing remains a service-level shape rule.
+     collection_id: Mapped[str | None] = mapped_column(
+         String(36), ForeignKey("work_collections.id"), nullable=True
+     )
+--- /dev/null
++++ b/tests/integration/resource_work_fk/conftest.py
+@@ -0,0 +1,88 @@
++"""Scratch PostgreSQL databases on an explicitly isolated test server."""
++import os
++import uuid
++from urllib.parse import urlsplit, urlunsplit
++
++import asyncpg
++import pytest
++from sqlalchemy import MetaData
++from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
++
++import app.models  # noqa: F401
++from app.database import Base
++
++
++def _schema(request):
++    if getattr(request, "param", None) not in {"legacy", "legacy_no_audio"}:
++        return Base.metadata
++    legacy = MetaData()
++    for table in Base.metadata.sorted_tables:
++        table.to_metadata(legacy)
++    table = legacy.tables["file_resources"]
++    constraint = next(item for item in table.constraints if item.name == "ck_file_resources_work_fk")
++    table.constraints.remove(constraint)
++    if request.param == "legacy_no_audio":
++        column = table.c.audio_work_id
++        for constraint in list(table.foreign_key_constraints):
++            if column.name in constraint.column_keys:
++                table.constraints.remove(constraint)
++                table.foreign_keys.difference_update(constraint.elements)
++        # Only fixture metadata is changed; Base.metadata remains intact.
++        table._columns.remove(column)
++    return legacy
++
++
++@pytest.fixture
++async def work_fk_postgres(monkeypatch, request):
++    url = os.environ.get("WORK_FK_TEST_POSTGRES_URL") or os.environ.get("QUEUE_RECOVERY_POSTGRES_URL")
++    if not url:
++        if os.environ.get("QUEUE_RECOVERY_REQUIRED") == "1":
++            pytest.fail("Work FK tests require isolated PostgreSQL")
++        pytest.skip("Set WORK_FK_TEST_POSTGRES_URL to isolated PostgreSQL")
++    parts = urlsplit(url)
++    assert parts.path in {"/work_fk_probe", "/queue_recovery"}
++    name = "work_fk_" + uuid.uuid4().hex
++    admin = await asyncpg.connect(url)
++    engine = None
++    try:
++        await admin.execute(f'CREATE DATABASE "{name}"')
++        engine = create_async_engine(urlunsplit(parts._replace(scheme="postgresql+asyncpg", path="/" + name)))
++        async with engine.begin() as connection:
++            await connection.run_sync(_schema(request).create_all)
++        factory = async_sessionmaker(engine, expire_on_commit=False)
++        monkeypatch.setattr("app.database.async_session_factory", factory)
++        yield engine, factory
++    finally:
++        if engine is not None:
++            await engine.dispose()
++        await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
++        await admin.close()
++
++
++@pytest.fixture
++async def work_fk_turso(tmp_path, monkeypatch, request):
++    from sqlalchemy import text
++
++    from app.config import settings
++    from app.database import apply_db_pragmas, normalize_database_url
++    from app.services import fts
++
++    url = normalize_database_url(f"sqlite+aioturso:///{tmp_path / 'work_fk.db'}")
++    engine = create_async_engine(url)
++    apply_db_pragmas(engine)
++    factory = async_sessionmaker(engine, expire_on_commit=False)
++    monkeypatch.setattr("app.database.async_session_factory", factory)
++    monkeypatch.setattr(settings, "database_url", url)
++    sidecar = create_async_engine(
++        f"sqlite+aioturso:///{tmp_path / 'work_fk_fts.db'}?experimental_features=index_method",
++        pool_size=1, max_overflow=0,
++    )
++    monkeypatch.setattr(fts, "_FTS_ENGINE", sidecar)
++    try:
++        async with engine.begin() as connection:
++            await connection.run_sync(_schema(request).create_all)
++            await connection.execute(text("PRAGMA journal_mode='mvcc'"))
++        yield engine, factory
++    finally:
++        await sidecar.dispose()
++        await engine.dispose()
+--- /dev/null
++++ b/tests/integration/resource_work_fk/test_constraint.py
+@@ -0,0 +1,89 @@
++"""Recorded resource identity; explicit synthetic work-FK combinations."""
++import hashlib
++import itertools
++import json
++import uuid
++from pathlib import Path
++
++import pytest
++from sqlalchemy import insert, select, update
++from sqlalchemy.exc import DBAPIError
++
++from app.models.audio_work import AudioWork
++from app.models.channel import Channel
++from app.models.file_resource import FileResource
++from app.models.movie import Movie
++from app.models.series import TVSeries
++from app.models.work_collection import WorkCollection
++
++COLUMNS = ('series_id', 'movie_id', 'audio_work_id')
++COMBINATIONS = list(itertools.product([False, True], repeat=3))
++CORPUS = Path(__file__).parents[2] / 'fixtures/prod_works_v1.json'
++
++
++async def _seed(engine, has_collection=True):
++    raw = CORPUS.read_bytes()
++    assert hashlib.sha256(raw).hexdigest() == 'd11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32'
++    tables = json.loads(raw)['tables']
++    recorded = next(row for row in tables['file_resources'] if row.get('series_id') and row.get('collection_id'))
++    series = next(row for row in tables['tv_series'] if row['id'] == recorded['series_id'])
++    collection = next(row for row in tables['work_collections'] if row['id'] == recorded['collection_id'])
++    movie = tables['movies'][0]
++    channel_id, audio_id = str(uuid.uuid4()), str(uuid.uuid4())
++    base = {'id': recorded['id'], 'channel_id': channel_id, 'guid': recorded['guid'],
++            'title_raw': recorded['title_raw'], 'torrent_url': recorded['torrent_url'], 'collection_id': collection['id'] if has_collection else None}
++    identities = (series['id'], movie['id'], audio_id)
++    async with engine.begin() as conn:
++        await conn.execute(insert(Channel.__table__).values(id=channel_id, name='Synthetic FK matrix',
++                                                          url='https://example.invalid/feed', field_mapping={}))
++        await conn.execute(insert(WorkCollection.__table__).values(id=collection['id'], title_cn=collection['title_cn']))
++        await conn.execute(insert(TVSeries.__table__).values(id=series['id'], title_cn=series['title_cn'],
++                                                           collection_id=collection['id'], season_number=1))
++        await conn.execute(insert(Movie.__table__).values(id=movie['id'], title_cn=movie['title_cn']))
++        await conn.execute(insert(AudioWork.__table__).values(id=audio_id, title_en='Synthetic audio parent'))
++    return base, identities
++
++
++async def _case(engine, bits, has_collection, operation):
++    base, identities = await _seed(engine, has_collection)
++    refs = {column: value if enabled else None for column, value, enabled in zip(COLUMNS, identities, bits)}
++    if operation == 'update':
++        async with engine.begin() as conn:
++            await conn.execute(insert(FileResource.__table__).values(**base))
++    # SQLAlchemy Core bypasses ORM/service validation; values are bound and
++    # each attempt actually commits or rolls back at the database boundary.
++    async def write():
++        async with engine.begin() as conn:
++            statement = (insert(FileResource.__table__).values(**base, **refs) if operation == 'insert'
++                         else update(FileResource.__table__).where(FileResource.id == base['id']).values(**refs))
++            await conn.execute(statement)
++    if sum(bits) > 1:
++        with pytest.raises(DBAPIError, match='ck_file_resources_work_fk'):
++            await write()
++    else:
++        await write()
++    async with engine.connect() as conn:
++        row = (await conn.execute(select(FileResource.__table__).where(FileResource.id == base['id']))).mappings().one_or_none()
++    if sum(bits) > 1 and operation == 'insert':
++        assert row is None
++    else:
++        expected = dict.fromkeys(COLUMNS) if sum(bits) > 1 else refs
++        assert {key: row[key] for key in COLUMNS} == expected
++        assert row['collection_id'] == base['collection_id']
++        assert row['title_raw'] == base['title_raw'] and row['guid'] == base['guid']
++
++
++@pytest.mark.parametrize('bits', COMBINATIONS)
++@pytest.mark.parametrize('has_collection', [False, True])
++@pytest.mark.parametrize('operation', ['insert', 'update'])
++async def test_work_fk_postgres(work_fk_postgres, bits, has_collection, operation):
++    engine, _ = work_fk_postgres
++    await _case(engine, bits, has_collection, operation)
++
++
++@pytest.mark.parametrize('bits', COMBINATIONS)
++@pytest.mark.parametrize('has_collection', [False, True])
++@pytest.mark.parametrize('operation', ['insert', 'update'])
++async def test_work_fk_turso(work_fk_turso, bits, has_collection, operation):
++    engine, _ = work_fk_turso
++    await _case(engine, bits, has_collection, operation)
+--- a/docs/design/data-models.md
++++ b/docs/design/data-models.md
+@@ -70,6 +70,8 @@
+ ```
+ 
+ ### FileResource（RSS 资源条目）
++
++新建库使用命名 CHECK `ck_file_resources_work_fk`：`series_id/movie_id/audio_work_id` 至多一个非空，三个全空合法。`collection_id` 不参加该互斥约束，允许季资源同时关联所属合集；franchise 的三工作 FK 清空仍属于对应业务形态规则。旧表不会因 `create_all` 自动获得新约束，必须经过升级验证。
+ 
+ ```python
+ class FileResource(Base):
+--- a/docs/design/db-migration.md
++++ b/docs/design/db-migration.md
+@@ -347,3 +347,9 @@
+ 该结果仅表示已隐藏，不证明是孤立任务。是否恢复待确认须结合原用户意图或可验证任务历史逐条决定；缺少证据时保留，不以队列状态过期或无记录推断可清理。新请求 UUID 不追认旧标记归属。
+ 
+ 应用回退须先停止新重解析提交，保持新 worker/scheduler 运行至持久请求数为零，并确认原 Redis key 没有 queued/running 遗留任务，再停止新 worker。以 `SELECT COUNT(*) FROM resource_reparse_requests` 检查数据库侧；不能仅根据表为空推断队列已清空。回退应用时保留新表，不执行 DROP TABLE，不删除历史忽略数据；存在未完成请求时禁止直接回退到不认识该表的旧 worker。回退旧版本也会恢复其已知人工忽略收尾缺陷，因此应优先前滚修复。专项还以提交 accd024 的实际旧代码，在排空请求的 PG/Turso 数据库上运行 create_tables 和旧 HTTP 资源读取，验证新表和人工标记保留。这只证明排空后的模式/读路径兼容，不证明滚动部署或带活跃任务回退安全。
++
++### 资源平面工作 FK 检查
++
++新建表的 `ck_file_resources_work_fk` CHECK 限制 series/movie/audio 三个 FK 至多一个非空，collection 不在互斥集合。`Base.metadata.create_all` 不会替现存表添加 CHECK；实际启动在列补齐后升级保护。PostgreSQL 在启动 advisory lock 与事务中取得表锁，审阅历史违规及同名 CHECK 定义，再安装并 VALIDATE（含既有 NOT VALID 约束）。Turso/SQLite 独立开启普通 BEGIN 的 DDL 事务；无原生 CHECK 时安装 `ck_file_resources_work_fk_insert/update` 两个拒绝触发器，安装失败一起回滚。不能用隐式 CONCURRENT DML 开启这段 DDL 事务，也不能提交调用方的业务事务来切换模式。后续 FK 表重建保留已安装触发器。
++
++已有违规行或同名保护定义漂移会阻止启动，错误仅报告采样资源 ID，不自动清空、删除或猜测工作身份。先备份数据库、停写并逐条审阅来源证据，人工修正关联后再运行启动升级。此阶段不改写历史资源值；此前独立提交的轻量列迁移可能已生效，不宣称整个启动流程原子回滚。原生 CHECK 已存在时无需重复安装触发器。每次启动的历史扫描/表锁成本尚无生产规模测量；V27 候选的专项测试不替代最终完整门禁或生产迁移验收。
+--- a/docs/testing/integration-inventory.md
++++ b/docs/testing/integration-inventory.md
+@@ -404,3 +404,10 @@
+ 覆盖真实 PostgreSQL 锁等待下重复 HTTP 提交；实际 Redis producer/worker 所有权与成败收尾；子进程 DB commit 后 os._exit(97)、处理中 SIGKILL(-9) 的补发/同一 Redis job 恢复；生产 create_tables 双库两次升级、历史标记保留、唯一约束、请求事务回滚和资源 FK 级联。元数据提供者为明确合成替身，这些测试不等于真实元数据管线回放；没有将请求事务回滚宣称为应用版本回滚验证。
+ 
+ 录制输入重解析覆盖：`test_reparse_captured.py` 在 PG/Turso 使用语料 `affd5114-f61d-40b6-95f1-0d0b937495ab` 原始已录制标题与 SHA-256 为 `6936d731675641e065b7af4c3780b3c36c27b2782e65fc3989a6557b0cff75c3` 的原始 torrent。完整生产 `_process_resource_metadata` 执行缓存读取、合集识别、12 条文件指派、metadata publication 和提交，任务确认后因身份仍未知恢复待确认。身份提供者明确替换为离线未匹配结果，队列投递使用替身；未下载媒体，不宣称 RSS 原文存在或实际外部元数据搜索通过。
++
++### 资源工作 FK 直接写入矩阵（V27 原型）
++
++`tests/integration/resource_work_fk/test_constraint.py` 使用录制资源 ID/GUID/标题/torrent URL 与已录制 series/collection 身份，其余频道、音频父记录和关联冲突为显式合成。每后端覆盖全部 8 个三工作 FK 组合 × collection 有/无 × INSERT/UPDATE：合法状态提交，非法插入无残留、非法更新保留原值。两个后端共 64 项；当前只证明新库约束，不能代替旧库升级、服务调用和全套门禁。专用 PostgreSQL 必须以唯一 Compose 项目隔离，Turso 使用临时文件库。
++
++
++V27 候选 `test_legacy.py` 经实际 create_tables 连续两次升级验证相同全组合，另覆盖历史违规、同名保护漂移、第二段 DDL 失败回滚，以及缺失 audio_work_id 的补列/FK 表重建、跨类型单次更新与 ON DELETE SET NULL。`test_service_transitions.py` 使用录制作品身份及显式合成编辑/错分状态，通过实际 associations、metadata 持久化与 rehome 服务在新旧双库中提交和重读。上述阶段证据不代表 V27 已验收合入。
+--- a/app/database.py
++++ b/app/database.py
+@@ -303,6 +303,11 @@
+             await conn.run_sync(Base.metadata.create_all)
+             await _apply_light_migrations(conn)
+ 
++    # The PostgreSQL branch returned above. Embedded schema DDL must own
++    # an ordinary transaction; implicit CONCURRENT writes cannot host DDL.
++    from app.services.resource_work_schema import upgrade_sqlite_resource_work_fk
++
++    await upgrade_sqlite_resource_work_fk(engine)
+     if is_turso_url(settings.database_url):
+         from app.services.schema_foreign_keys import repair_turso_foreign_keys
+ 
+@@ -618,6 +623,12 @@
+             await conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} {ddl}'))
+             logger.info("[migrate] added column %s.%s", table, column)
+ 
++    # Required row invariant after legacy work-FK columns have been added.
++    from app.services.resource_work_schema import ensure_resource_work_fk_guard
++
++    if is_postgres:
++        await ensure_resource_work_fk_guard(conn)
++
+     # Match fresh-schema uniqueness on upgraded tables. Do not silently
+     # continue without this invariant or guess which legacy row to discard:
+     # conflicting databases must finish the season-split migration first.
+--- /dev/null
++++ b/app/services/resource_work_schema.py
+@@ -0,0 +1,111 @@
++"""Upgrade existing FileResource tables without guessing conflicting work IDs."""
++import re
++
++from sqlalchemy import inspect, text
++from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
++
++from app.models.file_resource import RESOURCE_WORK_FK_CHECK, RESOURCE_WORK_FK_CONSTRAINT
++
++_COLUMNS = {'series_id', 'movie_id', 'audio_work_id'}
++
++
++def _normalized(sql: str) -> str:
++    return re.sub(r'\s+', '', sql.lower()).replace('ifnotexists', '')
++
++
++def _unwrap(sql: str) -> str:
++    """Remove only parentheses enclosing the entire expression."""
++    while sql.startswith('(') and sql.endswith(')'):
++        depth = 0
++        for index, token in enumerate(sql):
++            depth += (token == '(') - (token == ')')
++            if depth == 0:
++                break
++        if index != len(sql) - 1:
++            break
++        sql = sql[1:-1]
++    return sql
++
++
++def _check_signature(sql: str) -> str | None:
++    # PostgreSQL adds parentheses around associative sums. Ignore those only
++    # when <= remains the outer operator, never A + (B + C <= 1).
++    sql = _unwrap(_normalized(sql).replace('"', ''))
++    parts = sql.split('<=')
++    if len(parts) != 2 or _unwrap(parts[1]) != '1':
++        return None
++    depth = 0
++    for token in parts[0]:
++        depth += (token == '(') - (token == ')')
++        if depth < 0:
++            return None
++    if depth:
++        return None
++    return parts[0].replace('(', '').replace(')', '')
++
++
++def _trigger_sql(operation: str) -> str:
++    expression = re.sub(r'\b(series_id|movie_id|audio_work_id)\b', r'NEW.\1', RESOURCE_WORK_FK_CHECK)
++    return (
++        f'CREATE TRIGGER IF NOT EXISTS {RESOURCE_WORK_FK_CONSTRAINT}_{operation.lower()} '
++        f'BEFORE {operation} ON file_resources WHEN NOT ({expression}) '
++        f"BEGIN SELECT RAISE(ABORT, '{RESOURCE_WORK_FK_CONSTRAINT}'); END"
++    )
++
++
++async def ensure_resource_work_fk_guard(conn: AsyncConnection) -> None:
++    """Validate existing rows and atomically install owned write guards.
++
++    The caller owns the transaction. Invalid history and changed definitions
++    fail migration; no reference is silently discarded to make DDL succeed.
++    """
++    backend = conn.dialect.name
++    if backend not in {'sqlite', 'postgresql'}:
++        raise ValueError('Unsupported resource work FK backend')
++    if backend == 'postgresql':
++        # Close the gap between inspecting old rows and installing protection.
++        # Schema migration is an offline operation; release at caller commit.
++        await conn.execute(text('LOCK TABLE file_resources IN ACCESS EXCLUSIVE MODE'))
++    columns = await conn.run_sync(lambda sync: {c['name'] for c in inspect(sync).get_columns('file_resources')})
++    missing = sorted(_COLUMNS - columns)
++    if missing:
++        raise ValueError('Missing required resource work FK columns: ' + ', '.join(missing))
++    constraints = await conn.run_sync(lambda sync: inspect(sync).get_check_constraints('file_resources'))
++    present = False
++    for constraint in constraints:
++        if constraint['name'] == RESOURCE_WORK_FK_CONSTRAINT:
++            if _check_signature(constraint['sqltext']) != _check_signature(RESOURCE_WORK_FK_CHECK):
++                raise ValueError('Unexpected resource work FK CHECK definition')
++            present = True
++    if backend == 'sqlite':
++        for operation in ('INSERT', 'UPDATE'):
++            existing = await conn.scalar(text(
++                "SELECT sql FROM sqlite_master WHERE type='trigger' AND name=:name"
++            ), {'name': f'{RESOURCE_WORK_FK_CONSTRAINT}_{operation.lower()}'})
++            if existing and _normalized(existing) != _normalized(_trigger_sql(operation)):
++                raise ValueError('Unexpected resource work FK trigger definition')
++    invalid = list((await conn.execute(text(
++        f'SELECT id FROM file_resources WHERE NOT ({RESOURCE_WORK_FK_CHECK}) ORDER BY id LIMIT 20'
++    ))).scalars())
++    if invalid:
++        raise ValueError('Resource work FKs require reviewed migration; sample IDs: ' + ', '.join(invalid))
++    if backend == 'postgresql':
++        if not present:
++            await conn.execute(text(
++                f'ALTER TABLE file_resources ADD CONSTRAINT {RESOURCE_WORK_FK_CONSTRAINT} '
++                f'CHECK ({RESOURCE_WORK_FK_CHECK})'
++            ))
++        # A matching NOT VALID constraint is not proof that history is valid.
++        await conn.execute(text(
++            f'ALTER TABLE file_resources VALIDATE CONSTRAINT {RESOURCE_WORK_FK_CONSTRAINT}'
++        ))
++    elif not present:
++        for operation in ('INSERT', 'UPDATE'):
++            await conn.execute(text(_trigger_sql(operation)))
++
++
++async def upgrade_sqlite_resource_work_fk(engine: AsyncEngine) -> None:
++    """Own ordinary startup DDL transaction after legacy columns are added."""
++    async with engine.begin() as conn:
++        await conn.execute(text("BEGIN"))
++        await ensure_resource_work_fk_guard(conn)
+--- /dev/null
++++ b/tests/integration/resource_work_fk/test_legacy.py
+@@ -0,0 +1,160 @@
++"""Real startup upgrades, historical conflicts, drift, and atomic DDL rollback."""
++import pytest
++from sqlalchemy import event, inspect, select, text, update
++
++from app.config import settings
++from app.database import create_tables
++from app.models.file_resource import RESOURCE_WORK_FK_CONSTRAINT, FileResource
++from app.models.movie import Movie
++from app.models.series import TVSeries
++from tests.integration.resource_work_fk.test_constraint import COMBINATIONS, _case
++
++
++async def _upgrade(engine, monkeypatch):
++    monkeypatch.setattr("app.database.engine", engine)
++    monkeypatch.setattr(settings, "database_url", engine.url.render_as_string(hide_password=False))
++    await create_tables()
++
++
++async def _guards(engine):
++    async with engine.connect() as conn:
++        if engine.dialect.name == 'postgresql':
++            constraints = await conn.run_sync(lambda sync: inspect(sync).get_check_constraints('file_resources'))
++            return [item for item in constraints if item['name'] == RESOURCE_WORK_FK_CONSTRAINT]
++        return list((await conn.execute(text(
++            "SELECT name, sql FROM sqlite_master WHERE type='trigger' AND name LIKE 'ck_file_resources_work_fk_%' ORDER BY name"
++        ))).all())
++
++
++async def _negative(engine, monkeypatch, failure):
++    await _case(engine, (False, False, False), True, 'insert')
++    async with engine.begin() as conn:
++        if engine.dialect.name == 'sqlite':
++            await conn.execute(text('BEGIN'))
++        if failure == 'dirty':
++            series = await conn.scalar(select(TVSeries.id))
++            movie = await conn.scalar(select(Movie.id))
++            await conn.execute(update(FileResource).values(series_id=series, movie_id=movie))
++        elif failure == 'drift':
++            ddl = (f'ALTER TABLE file_resources ADD CONSTRAINT {RESOURCE_WORK_FK_CONSTRAINT} CHECK (1=1)'
++                   if engine.dialect.name == 'postgresql' else
++                   f"CREATE TRIGGER {RESOURCE_WORK_FK_CONSTRAINT}_insert BEFORE INSERT ON file_resources BEGIN SELECT 1; END")
++            await conn.execute(text(ddl))
++    async with engine.connect() as conn:
++        before = (await conn.execute(select(FileResource.__table__))).mappings().one()
++    guards_before = await _guards(engine)
++    installed = []
++
++    def completed(conn, cursor, statement, parameters, context, executemany):
++        if RESOURCE_WORK_FK_CONSTRAINT in statement and ('ADD CONSTRAINT' in statement or 'CREATE TRIGGER' in statement):
++            installed.append(statement)
++
++    def inject(conn, cursor, statement, parameters, context, executemany):
++        if failure == 'interrupt' and RESOURCE_WORK_FK_CONSTRAINT in statement:
++            if 'VALIDATE CONSTRAINT' in statement or ('CREATE TRIGGER' in statement and 'BEFORE UPDATE' in statement):
++                assert installed, 'First guard DDL must actually complete before the injected failure'
++                raise RuntimeError('Injected second guard installation failure')
++
++    event.listen(engine.sync_engine, 'after_cursor_execute', completed)
++    event.listen(engine.sync_engine, 'before_cursor_execute', inject)
++    try:
++        error = RuntimeError if failure == 'interrupt' else ValueError
++        match = {'interrupt':'Injected second guard', 'dirty':'sample IDs: ' + before['id'], 'drift':'Unexpected resource work FK'}[failure]
++        with pytest.raises(error, match=match):
++            await _upgrade(engine, monkeypatch)
++    finally:
++        event.remove(engine.sync_engine, 'after_cursor_execute', completed)
++        event.remove(engine.sync_engine, 'before_cursor_execute', inject)
++    async with engine.connect() as conn:
++        after = (await conn.execute(select(FileResource.__table__))).mappings().one()
++    assert dict(after) == dict(before), 'Migration failure must preserve historical resource values'
++    assert await _guards(engine) == guards_before
++    if failure == 'interrupt':
++        assert len(installed) == 1
++        await _upgrade(engine, monkeypatch)
++        assert await _guards(engine)
++
++
++@pytest.mark.parametrize('work_fk_postgres', ['legacy'], indirect=True)
++@pytest.mark.parametrize('bits', COMBINATIONS)
++@pytest.mark.parametrize('has_collection', [False, True])
++@pytest.mark.parametrize('operation', ['insert', 'update'])
++async def test_legacy_postgres_upgrade(work_fk_postgres, monkeypatch, bits, has_collection, operation):
++    engine, _ = work_fk_postgres
++    await _upgrade(engine, monkeypatch)
++    await _upgrade(engine, monkeypatch)
++    await _case(engine, bits, has_collection, operation)
++
++
++@pytest.mark.parametrize('work_fk_turso', ['legacy'], indirect=True)
++@pytest.mark.parametrize('bits', COMBINATIONS)
++@pytest.mark.parametrize('has_collection', [False, True])
++@pytest.mark.parametrize('operation', ['insert', 'update'])
++async def test_legacy_turso_upgrade(work_fk_turso, monkeypatch, bits, has_collection, operation):
++    engine, _ = work_fk_turso
++    await _upgrade(engine, monkeypatch)
++    await _upgrade(engine, monkeypatch)
++    await _case(engine, bits, has_collection, operation)
++
++
++@pytest.mark.parametrize('work_fk_postgres', ['legacy'], indirect=True)
++@pytest.mark.parametrize('failure', ['dirty', 'drift', 'interrupt'])
++async def test_legacy_postgres_failure(work_fk_postgres, monkeypatch, failure):
++    await _negative(work_fk_postgres[0], monkeypatch, failure)
++
++
++@pytest.mark.parametrize('work_fk_turso', ['legacy'], indirect=True)
++@pytest.mark.parametrize('failure', ['dirty', 'drift', 'interrupt'])
++async def test_legacy_turso_failure(work_fk_turso, monkeypatch, failure):
++    await _negative(work_fk_turso[0], monkeypatch, failure)
++
++
++async def _missing_audio(engine, monkeypatch):
++    from sqlalchemy import delete, insert
++    from sqlalchemy.exc import DBAPIError
++
++    from app.models.audio_work import AudioWork
++    from tests.integration.resource_work_fk.test_constraint import _seed
++
++    base, identities = await _seed(engine)
++    async with engine.begin() as conn:
++        columns = await conn.run_sync(lambda sync: {c['name'] for c in inspect(sync).get_columns('file_resources')})
++        assert 'audio_work_id' not in columns
++        await conn.execute(insert(FileResource.__table__).values(**base, series_id=identities[0]))
++        before = (await conn.execute(text('SELECT id, guid, title_raw, series_id, movie_id, collection_id FROM file_resources'))).mappings().one()
++    await _upgrade(engine, monkeypatch)
++    await _upgrade(engine, monkeypatch)
++    async with engine.connect() as conn:
++        after = (await conn.execute(select(FileResource.__table__))).mappings().one()
++        foreign_keys = await conn.run_sync(lambda sync: inspect(sync).get_foreign_keys('file_resources'))
++    assert {key: after[key] for key in before} == dict(before)
++    assert after['audio_work_id'] is None
++    assert any(fk['constrained_columns'] == ['audio_work_id'] and fk['referred_table'] == 'audio_works'
++               and fk['options']['ondelete'] == 'SET NULL' for fk in foreign_keys)
++    assert await _guards(engine), 'Turso table rebuild must retain the write guards'
++    # Cross-type change is one UPDATE; parent deletion must still clear its FK.
++    async with engine.begin() as conn:
++        await conn.execute(update(FileResource).values(series_id=None, audio_work_id=identities[2]))
++    async with engine.connect() as conn:
++        assert await conn.scalar(select(FileResource.audio_work_id)) == identities[2]
++    async with engine.begin() as conn:
++        await conn.execute(delete(AudioWork).where(AudioWork.id == identities[2]))
++    async with engine.connect() as conn:
++        assert await conn.scalar(select(FileResource.audio_work_id)) is None
++    with pytest.raises(DBAPIError, match='ck_file_resources_work_fk'):
++        async with engine.begin() as conn:
++            await conn.execute(update(FileResource).values(series_id=identities[0], movie_id=identities[1]))
++    async with engine.connect() as conn:
++        row = (await conn.execute(select(FileResource.__table__))).mappings().one()
++    assert row['series_id'] is None and row['movie_id'] is None and row['audio_work_id'] is None
++    assert row['collection_id'] == base['collection_id'] and row['title_raw'] == base['title_raw']
++
++
++@pytest.mark.parametrize('work_fk_postgres', ['legacy_no_audio'], indirect=True)
++async def test_legacy_postgres_missing_audio(work_fk_postgres, monkeypatch):
++    await _missing_audio(work_fk_postgres[0], monkeypatch)
++
++
++@pytest.mark.parametrize('work_fk_turso', ['legacy_no_audio'], indirect=True)
++async def test_legacy_turso_missing_audio(work_fk_turso, monkeypatch):
++    await _missing_audio(work_fk_turso[0], monkeypatch)
+--- /dev/null
++++ b/tests/integration/resource_work_fk/test_service_transitions.py
+@@ -0,0 +1,84 @@
++"""Recorded identities with synthetic edits through real persistence services."""
++import json
++
++import pytest
++from sqlalchemy import insert, select, update
++
++from app.models.channel import Channel
++from app.models.file_resource import FileResource
++from app.models.movie import Movie
++from app.models.series import TVSeries
++from app.schemas.file_resource import ResourceAssociationUpdateRequest
++from app.services.metadata_dedup import rehome_series_as_movie
++from app.services.metadata_repository import _apply_to_resource
++from app.services.metadata_resource_meta import ResourceMetadata
++from app.services.resource_association import apply_association_update
++from tests.integration.resource_work_fk.test_constraint import CORPUS, _seed
++from tests.integration.resource_work_fk.test_legacy import _upgrade
++
++
++async def _exercise(pair, monkeypatch, flow):
++    engine, factory = pair
++    await _upgrade(engine, monkeypatch)
++    base, identities = await _seed(engine)
++    series_id, movie_id, audio_id = identities
++    async with engine.begin() as conn:
++        refs = {'audio_work_id': audio_id} if flow == 'metadata' else {'series_id': series_id}
++        await conn.execute(insert(FileResource).values(**base, **refs))
++    if flow == 'associations':
++        for work_type, work_id, batch in [('movie', movie_id, False), ('series', series_id, False), ('series', series_id, True)]:
++            async with factory() as db:
++                resource = await db.get(FileResource, base['id'])
++                body = ResourceAssociationUpdateRequest(
++                    is_batch=batch, works=[{'work_type':work_type, 'work_id':work_id}],
++                    collection_id=base['collection_id'] if batch else None,
++                    season=1 if work_type == 'series' else None,
++                )
++                await apply_association_update(db, resource, body)
++                await db.commit()
++            async with engine.connect() as conn:
++                row = (await conn.execute(select(FileResource.__table__))).mappings().one()
++            assert row[f'{work_type}_id'] == work_id and row['audio_work_id'] is None
++            assert sum(row[key] is not None for key in ('series_id', 'movie_id', 'audio_work_id')) == 1
++            assert row['collection_id'] == (base['collection_id'] if batch else None)
++    elif flow == 'metadata':
++        recorded = json.loads(CORPUS.read_bytes())['tables']['movies'][0]
++        entity = {key:recorded[key] for key in ('external_id', 'external_source', 'title_cn', 'title_en')}
++        async with engine.begin() as conn:
++            await conn.execute(update(Movie).where(Movie.id == movie_id).values(**entity))
++        async with factory() as db:
++            resource = await db.get(FileResource, base['id'])
++            channel = await db.get(Channel, base['channel_id'])
++            meta = ResourceMetadata(clean_title=recorded['title_cn'], content_type='movie', matched_entity=entity)
++            await _apply_to_resource(meta, resource, channel, db)
++            await db.commit()
++        async with engine.connect() as conn:
++            row = (await conn.execute(select(FileResource.__table__))).mappings().one()
++        assert row['movie_id'] == movie_id and row['series_id'] is None and row['audio_work_id'] is None
++    else:
++        # Synthetic wrong-table classification; the recorded work is not
++        # claimed to have been misclassified in production.
++        async with factory() as db:
++            series = await db.get(TVSeries, series_id)
++            movie = await db.get(Movie, movie_id)
++            series.content_type = 'movie'
++            await rehome_series_as_movie(db, series, movie)
++            await db.commit()
++        async with engine.connect() as conn:
++            row = (await conn.execute(select(FileResource.__table__))).mappings().one()
++            assert await conn.scalar(select(TVSeries.id).where(TVSeries.id == series_id)) is None
++        assert row['series_id'] is None and row['movie_id'] == movie_id and row['audio_work_id'] is None
++        assert row['collection_id'] == base['collection_id']
++    assert row['guid'] == base['guid'] and row['title_raw'] == base['title_raw']
++
++
++@pytest.mark.parametrize('work_fk_postgres', [None, 'legacy'], indirect=True, ids=['fresh', 'upgraded'])
++@pytest.mark.parametrize('flow', ['associations', 'metadata', 'rehome'])
++async def test_postgres_service_transitions(work_fk_postgres, monkeypatch, flow):
++    await _exercise(work_fk_postgres, monkeypatch, flow)
++
++
++@pytest.mark.parametrize('work_fk_turso', [None, 'legacy'], indirect=True, ids=['fresh', 'upgraded'])
++@pytest.mark.parametrize('flow', ['associations', 'metadata', 'rehome'])
++async def test_turso_service_transitions(work_fk_turso, monkeypatch, flow):
++    await _exercise(work_fk_turso, monkeypatch, flow)
+--- a/tests/unit/test_database_migrations.py
++++ b/tests/unit/test_database_migrations.py
+@@ -1308,7 +1308,13 @@
+         ),
+     ]
+     conn = _FakePGConn(rows)
++    # This branch walker has no SQLAlchemy-inspectable catalog. Real startup
++    # guard installation/failure/rollback is covered by resource_work_fk's
++    # PostgreSQL integration tests, not emulated by this query recorder.
++    guard = AsyncMock()
++    monkeypatch.setattr("app.services.resource_work_schema.ensure_resource_work_fk_guard", guard)
+     await db_mod._apply_light_migrations(conn)
++    guard.assert_awaited_once_with(conn)
+     # Spot-check the queries actually ran.
+     assert any("pg_advisory" not in q for q in conn.executed)
+     assert any("ALTER TABLE libraries ALTER COLUMN root_path DROP NOT NULL" in q

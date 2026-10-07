@@ -1,0 +1,7 @@
+{
+  "exit_code": 0,
+  "passed": 2,
+  "seconds": 3.07,
+  "accepted": false,
+  "scope": "missing audio column, rebuild and FK actions"
+}

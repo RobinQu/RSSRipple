@@ -1,0 +1,19 @@
+{
+  "exit_code": 0,
+  "passed": 134,
+  "skipped": 0,
+  "seconds": 153.62,
+  "accepted": false,
+  "files": {
+    "app/models/file_resource.py": "b4f984e4ddff49ddb1a0f01d7d0358b78bb6fe0c4247463ec29f48a06e44ea16",
+    "tests/integration/resource_work_fk/conftest.py": "41afe2d5f8227e2df540238f1f4cc5e5d6e6493980adcd05326796a919957ace",
+    "tests/integration/resource_work_fk/test_constraint.py": "245b87197b9582e8356317808756fe54a8323b377205c568786fea8a8d2fe8a7",
+    "docs/design/data-models.md": "1e2f3bd1c2dc34239ee1b382d6bf1e4ad9fcaffd145e602e337a21bde40eb11d",
+    "docs/design/db-migration.md": "260266bf8dd9c4823ab47c16cc7663e24565a57c56ba5478fa2097e74615c197",
+    "docs/testing/integration-inventory.md": "8ac45333ea8d62e04768db6c291a18458657150f76ed75223a4a3b15a575450e",
+    "app/database.py": "0dea69d05c66be21eca97f5b20d30645b32eed9545e9450af64a20be72a1d2c2",
+    "app/services/resource_work_schema.py": "32578b91b2676fc1b213f295b14213bef7e4a8f300b576c1f02659cedc381f04",
+    "tests/integration/resource_work_fk/test_legacy.py": "5998b13109dcc105848bed56e878f71e38b1612b19fca48cf2c2fe887f1ec763"
+  },
+  "scope": "new and upgraded database full matrix; actual startup twice; dirty history, drift, second DDL failure rollback both databases"
+}

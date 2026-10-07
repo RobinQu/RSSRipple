@@ -1,0 +1,7 @@
+{
+  "exit_code": 0,
+  "passed": 12,
+  "seconds": 15.59,
+  "accepted": false,
+  "scope": "real associations, metadata persistence, rehome; fresh/upgraded on both databases"
+}

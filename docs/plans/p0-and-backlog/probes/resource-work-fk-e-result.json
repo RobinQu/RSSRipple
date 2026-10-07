@@ -1,0 +1,7 @@
+{
+  "exit_code": 0,
+  "passed": 2,
+  "seconds": 2.61,
+  "accepted": false,
+  "scope": "PG actual light migration twice and Turso actual create_tables twice; excludes expanded failure matrix"
+}

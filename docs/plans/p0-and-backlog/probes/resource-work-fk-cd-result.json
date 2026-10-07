@@ -1,0 +1,16 @@
+{
+  "c": {
+    "exit_code": 1,
+    "failed": 2,
+    "seconds": 2.56,
+    "scope": "actual light migration twice still permits two work FKs"
+  },
+  "d": {
+    "exit_code": 1,
+    "failed": 1,
+    "passed": 1,
+    "seconds": 2.57,
+    "scope": "PG upgrade passes; Turso trigger DDL rejected in implicit CONCURRENT transaction"
+  },
+  "accepted": false
+}

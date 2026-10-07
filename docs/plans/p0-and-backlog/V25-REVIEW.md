@@ -64,3 +64,12 @@ aq 双库重试/取消/失权/调用方事务 **20 passed，11.59 秒**；ar 扩
 旧 an 收尾完成：部分覆盖率 **62.27%（15048/24167）**、覆盖率命令退出 2，明确不满足完整门禁；两应用退出 0/0，导出/清理退出 0，项目容器/网络/卷全部为空。部分 JUnit/五份原始覆盖率/语料报告完整保存于 `probes/dedup-preservation-an-*`，取代原因见 `an-superseded.json`。最新 au/av 才是待验收门禁，实时续接清单为 `probes/dedup-preservation-au-av-running.json`。
 
 最新 av 栈健康启动退出 0，完整 runner 已启动，句柄 **67684**；au 单元句柄 **85820**。启动后复核 5523 冻结输入和 42 文件主干基线均无变化。当前仅保留 au 专用 PG 与 av 集成栈；两道门禁完成前不得合入运行代码。
+
+
+## au/av 终态与 az 单元重跑（2026-10-07）
+
+au 完整单元/API **1 failed、4170 passed、12 skipped、14 warnings，3263.07 秒，退出 1**，覆盖率 **96.97%（23435/24168）**。唯一失败是 franchise 旧身份袋断言只期待合并来的 MAL 身份，未包含现修复已保存的 Bangumi 主身份。aw 独立单例原样重现一失败；补精确 source/id 二元组、被删对象无身份残留和反查后，ax 为 59 passed/1 failed，原因是新增测试误用了只查主列的 helper 查询副身份。改为既有身份袋反查 helper 后 ay 三项 **3 passed、1 warning、6.06 秒、退出 0**。所有失败保留，未弱化原作品、主身份、链接和文件指派断言。
+
+av 完整集成 **3634 passed、17 skipped、22 warnings，2384.74 秒，runner 退出 0**；两应用正常退出 0/0，覆盖率 **89.35%（21594/24168）**，覆盖率、导出、清理均退出 0。两轮跳过逐项与 B8 基线一致，5523 冻结输入未变。au/av 项目容器、网络和卷标签均为空；日志/JUnit/原始覆盖率/语料报告和审计见 `probes/dedup-preservation-au-audit.json`、`av-audit.json`。单元失败不能以集成通过或覆盖率达标抵消，本批仍未批准合入。
+
+最新独立候选 `/tmp/rssripple-v25-bag-70qppf5f` **43 有效文件、5523 冻结输入**。对比 av 全部输入只变更 `tests/unit/test_franchise_service.py`；运行代码、共享 fixture、集成测试、依赖与配置无变化，集成入口不收集/引用该单元模块。因此保留 av 的完整集成证据，必须重新完成单元/API az ≥95%、零失败。无缓存全仓 Ruff 通过，新专用 PG 三项预检 **3 passed、1 warning、2.27 秒、退出 0**；完整 az 已启动，句柄 **64498**，唯一项目 `rssripple-v25-unit-az`，端口 32864。原 au/av 终态不再轮询，最新续接清单见 `probes/dedup-preservation-az-av-running.json`。禁止修改该冻结副本；完整单元实际退出后仍须审计报告、跳过、哈希、清理和最终五维复核。

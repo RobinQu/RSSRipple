@@ -4,7 +4,7 @@
   "effective_files": 42,
   "frozen_count": 5523,
   "unit": {
-    "status": "running",
+    "status": "failed",
     "session": 85820,
     "log": "/tmp/rssripple-v25-unit-au.log",
     "junit": "/tmp/rssripple-v25-unit-au.xml",
@@ -15,19 +15,26 @@
     "postgres_compose": "/tmp/rssripple-v25-compose.yml",
     "postgres_port": 32861,
     "preflight_passed": 3,
-    "preflight_exit": 0
+    "preflight_exit": 0,
+    "observed_failure": "test_franchise_service::test_dedupe_resource_movies_merges_same_date_rows (full report pending)",
+    "exit_code": 1,
+    "cleanup": "complete",
+    "audit": "dedup-preservation-au-audit.json"
   },
   "integration": {
-    "status": "running",
+    "status": "complete",
     "project": "rssripple-v25-final-av",
     "threshold": 85,
-    "cleanup": "pending",
+    "cleanup": "complete",
     "startup_session": 28227,
     "startup_log": "/tmp/rssripple-v25-integration-av-startup.log",
     "startup_exit": 0,
     "session": 67684,
-    "log": "/tmp/rssripple-v25-integration-av.log"
+    "log": "/tmp/rssripple-v25-integration-av.log",
+    "runner_exit": 0,
+    "coverage_exit": 0,
+    "audit": "dedup-preservation-av-audit.json"
   },
   "image": "rssripple-v20-tests:local",
-  "warning": "Do not edit frozen au/av candidate. Poll unit 85820 and integration 67684. Runner terminal -> SIGINT app/app-llm -> wait exits -> coverage-report -> export -> down only av. Keep unit PG au until unit terminal. All older test projects cleaned."
+  "warning": "au and av are terminal, all their resources cleaned. au failed one outdated identity-bag assertion; corrected 43-file candidate at /tmp/rssripple-v25-bag-70qppf5f, pending full unit az. av integration can cover it because only one unit test changed; compare all 5523 inputs."
 }

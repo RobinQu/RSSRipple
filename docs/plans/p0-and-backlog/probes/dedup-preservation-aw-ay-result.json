@@ -1,0 +1,28 @@
+{
+  "aw": {
+    "failed": 1,
+    "exit_code": 1,
+    "seconds": 2.75,
+    "reason": "Old assertion excludes newly retained primary identity from bag."
+  },
+  "ax": {
+    "failed": 1,
+    "passed": 59,
+    "exit_code": 1,
+    "seconds": 99.64,
+    "reason": "New assertion mistakenly called primary-column lookup for a secondary identity."
+  },
+  "ay": {
+    "passed": 3,
+    "exit_code": 0,
+    "seconds": 6.06,
+    "reason": "Exact bag tuples, deleted owner cleanup, and proper bag reverse lookup all pass."
+  },
+  "runtime_changed_since_av": false,
+  "changes_since_av": [
+    "tests/unit/test_franchise_service.py"
+  ],
+  "effective_files": 43,
+  "frozen_count": 5523,
+  "accepted": false
+}
