@@ -1,0 +1,287 @@
+{
+  "cases": [
+    {
+      "backend": "turso",
+      "failure": "exception",
+      "before": [
+        {
+          "id": "bef8cdcb-5872-419a-85f1-d0c9d7ea2f7f",
+          "status": "running",
+          "finished": false,
+          "total_resources": 0,
+          "dispatched": 0,
+          "unrecognized": 0,
+          "errors": []
+        }
+      ],
+      "after": [
+        {
+          "id": "bef8cdcb-5872-419a-85f1-d0c9d7ea2f7f",
+          "status": "running",
+          "finished": false,
+          "total_resources": 0,
+          "dispatched": 0,
+          "unrecognized": 0,
+          "errors": []
+        },
+        {
+          "id": "da0e3d5e-2e96-46c3-9879-3a1717ff54b3",
+          "status": "success",
+          "finished": true,
+          "total_resources": 1,
+          "dispatched": 0,
+          "unrecognized": 1,
+          "errors": []
+        }
+      ],
+      "orphan_remains": true
+    },
+    {
+      "backend": "turso",
+      "failure": "exit",
+      "before": [
+        {
+          "id": "1590ba40-7925-4929-919c-dd35b3e5271b",
+          "status": "running",
+          "finished": false,
+          "total_resources": 0,
+          "dispatched": 0,
+          "unrecognized": 0,
+          "errors": []
+        }
+      ],
+      "after": [
+        {
+          "id": "1590ba40-7925-4929-919c-dd35b3e5271b",
+          "status": "running",
+          "finished": false,
+          "total_resources": 0,
+          "dispatched": 0,
+          "unrecognized": 0,
+          "errors": []
+        },
+        {
+          "id": "a718647f-6220-4596-9187-1aa3ee33b468",
+          "status": "success",
+          "finished": true,
+          "total_resources": 1,
+          "dispatched": 0,
+          "unrecognized": 1,
+          "errors": []
+        }
+      ],
+      "orphan_remains": true
+    },
+    {
+      "backend": "postgresql",
+      "failure": "exception",
+      "before": [
+        {
+          "id": "1b73b775-6223-4389-afe3-bcdbb511384c",
+          "status": "running",
+          "finished": false,
+          "total_resources": 0,
+          "dispatched": 0,
+          "unrecognized": 0,
+          "errors": []
+        }
+      ],
+      "after": [
+        {
+          "id": "1b73b775-6223-4389-afe3-bcdbb511384c",
+          "status": "running",
+          "finished": false,
+          "total_resources": 0,
+          "dispatched": 0,
+          "unrecognized": 0,
+          "errors": []
+        },
+        {
+          "id": "27b3771e-83fc-4594-bd05-9320b5449743",
+          "status": "success",
+          "finished": true,
+          "total_resources": 1,
+          "dispatched": 0,
+          "unrecognized": 1,
+          "errors": []
+        }
+      ],
+      "orphan_remains": true
+    },
+    {
+      "backend": "postgresql",
+      "failure": "exit",
+      "before": [
+        {
+          "id": "0bfdeb62-6108-49fb-b269-7eb84eb5d24d",
+          "status": "running",
+          "finished": false,
+          "total_resources": 0,
+          "dispatched": 0,
+          "unrecognized": 0,
+          "errors": []
+        }
+      ],
+      "after": [
+        {
+          "id": "0bfdeb62-6108-49fb-b269-7eb84eb5d24d",
+          "status": "running",
+          "finished": false,
+          "total_resources": 0,
+          "dispatched": 0,
+          "unrecognized": 0,
+          "errors": []
+        },
+        {
+          "id": "28bf7961-3c27-4cda-845c-1d208159297d",
+          "status": "success",
+          "finished": true,
+          "total_resources": 1,
+          "dispatched": 0,
+          "unrecognized": 1,
+          "errors": []
+        }
+      ],
+      "orphan_remains": true
+    }
+  ],
+  "logs": [
+    {
+      "phase": "setup",
+      "exit": 0,
+      "stdout": "{\"setup\": true}\n",
+      "stderr": ""
+    },
+    {
+      "phase": "fail",
+      "exit": 1,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/agent_run_orphan_probe.py\", line 180, in <module>\n    print(json.dumps(asyncio.run(phase(args.phase))))\n                     ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^\n  File \"/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py\", line 195, in run\n    return runner.run(main)\n           ~~~~~~~~~~^^^^^^\n  File \"/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py\", line 118, in run\n    return self._loop.run_until_complete(task)\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^\n  File \"/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py\", line 719, in run_until_complete\n    return future.result()\n           ~~~~~~~~~~~~~^^\n  File \"/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/agent_run_orphan_probe.py\", line 109, in phase\n    return await _handle_run_agent({\"agent_id\": ids[\"agent\"], \"resource_ids\": [ids[\"resource\"]]})\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/workspace/dropbox/github/robinqu/RSSRipple/app/job_handlers.py\", line 214, in _handle_run_agent\n    run_result = await process_resources(\n                 ^^^^^^^^^^^^^^^^^^^^^^^^\n    ...<8 lines>...\n    )\n    ^\n  File \"/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/agent_run_orphan_probe.py\", line 106, in injected_failure\n    raise RuntimeError(\"synthetic unexpected processing failure\")\nRuntimeError: synthetic unexpected processing failure\n"
+    },
+    {
+      "phase": "inspect",
+      "exit": 0,
+      "stdout": "[{\"id\": \"bef8cdcb-5872-419a-85f1-d0c9d7ea2f7f\", \"status\": \"running\", \"finished\": false, \"total_resources\": 0, \"dispatched\": 0, \"unrecognized\": 0, \"errors\": []}]\n",
+      "stderr": ""
+    },
+    {
+      "phase": "recover",
+      "exit": 0,
+      "stdout": "{\"agent_id\": \"99500fd5-8308-4146-bb3d-cbf604b7d821\", \"run_id\": \"da0e3d5e-2e96-46c3-9879-3a1717ff54b3\", \"total_resources\": 1, \"matched\": 0, \"dispatched\": 0, \"pending_decisions\": 0, \"filter_failed\": 0, \"duplicates_skipped\": 0, \"unrecognized\": 1, \"errors\": []}\n",
+      "stderr": ""
+    },
+    {
+      "phase": "inspect",
+      "exit": 0,
+      "stdout": "[{\"id\": \"bef8cdcb-5872-419a-85f1-d0c9d7ea2f7f\", \"status\": \"running\", \"finished\": false, \"total_resources\": 0, \"dispatched\": 0, \"unrecognized\": 0, \"errors\": []}, {\"id\": \"da0e3d5e-2e96-46c3-9879-3a1717ff54b3\", \"status\": \"success\", \"finished\": true, \"total_resources\": 1, \"dispatched\": 0, \"unrecognized\": 1, \"errors\": []}]\n",
+      "stderr": ""
+    },
+    {
+      "phase": "setup",
+      "exit": 0,
+      "stdout": "{\"setup\": true}\n",
+      "stderr": ""
+    },
+    {
+      "phase": "fail",
+      "exit": 73,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "phase": "inspect",
+      "exit": 0,
+      "stdout": "[{\"id\": \"1590ba40-7925-4929-919c-dd35b3e5271b\", \"status\": \"running\", \"finished\": false, \"total_resources\": 0, \"dispatched\": 0, \"unrecognized\": 0, \"errors\": []}]\n",
+      "stderr": ""
+    },
+    {
+      "phase": "recover",
+      "exit": 0,
+      "stdout": "{\"agent_id\": \"af9baf95-7030-4adb-80d1-ed8493ccfa62\", \"run_id\": \"a718647f-6220-4596-9187-1aa3ee33b468\", \"total_resources\": 1, \"matched\": 0, \"dispatched\": 0, \"pending_decisions\": 0, \"filter_failed\": 0, \"duplicates_skipped\": 0, \"unrecognized\": 1, \"errors\": []}\n",
+      "stderr": ""
+    },
+    {
+      "phase": "inspect",
+      "exit": 0,
+      "stdout": "[{\"id\": \"1590ba40-7925-4929-919c-dd35b3e5271b\", \"status\": \"running\", \"finished\": false, \"total_resources\": 0, \"dispatched\": 0, \"unrecognized\": 0, \"errors\": []}, {\"id\": \"a718647f-6220-4596-9187-1aa3ee33b468\", \"status\": \"success\", \"finished\": true, \"total_resources\": 1, \"dispatched\": 0, \"unrecognized\": 1, \"errors\": []}]\n",
+      "stderr": ""
+    },
+    {
+      "phase": "setup",
+      "exit": 0,
+      "stdout": "{\"setup\": true}\n",
+      "stderr": ""
+    },
+    {
+      "phase": "fail",
+      "exit": 1,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/agent_run_orphan_probe.py\", line 180, in <module>\n    print(json.dumps(asyncio.run(phase(args.phase))))\n                     ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^\n  File \"/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py\", line 195, in run\n    return runner.run(main)\n           ~~~~~~~~~~^^^^^^\n  File \"/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py\", line 118, in run\n    return self._loop.run_until_complete(task)\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^\n  File \"/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py\", line 719, in run_until_complete\n    return future.result()\n           ~~~~~~~~~~~~~^^\n  File \"/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/agent_run_orphan_probe.py\", line 109, in phase\n    return await _handle_run_agent({\"agent_id\": ids[\"agent\"], \"resource_ids\": [ids[\"resource\"]]})\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/workspace/dropbox/github/robinqu/RSSRipple/app/job_handlers.py\", line 214, in _handle_run_agent\n    run_result = await process_resources(\n                 ^^^^^^^^^^^^^^^^^^^^^^^^\n    ...<8 lines>...\n    )\n    ^\n  File \"/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/agent_run_orphan_probe.py\", line 106, in injected_failure\n    raise RuntimeError(\"synthetic unexpected processing failure\")\nRuntimeError: synthetic unexpected processing failure\n"
+    },
+    {
+      "phase": "inspect",
+      "exit": 0,
+      "stdout": "[{\"id\": \"1b73b775-6223-4389-afe3-bcdbb511384c\", \"status\": \"running\", \"finished\": false, \"total_resources\": 0, \"dispatched\": 0, \"unrecognized\": 0, \"errors\": []}]\n",
+      "stderr": ""
+    },
+    {
+      "phase": "recover",
+      "exit": 0,
+      "stdout": "{\"agent_id\": \"4dde9a17-cfe8-4e39-af3a-6b6066c62f04\", \"run_id\": \"27b3771e-83fc-4594-bd05-9320b5449743\", \"total_resources\": 1, \"matched\": 0, \"dispatched\": 0, \"pending_decisions\": 0, \"filter_failed\": 0, \"duplicates_skipped\": 0, \"unrecognized\": 1, \"errors\": []}\n",
+      "stderr": ""
+    },
+    {
+      "phase": "inspect",
+      "exit": 0,
+      "stdout": "[{\"id\": \"1b73b775-6223-4389-afe3-bcdbb511384c\", \"status\": \"running\", \"finished\": false, \"total_resources\": 0, \"dispatched\": 0, \"unrecognized\": 0, \"errors\": []}, {\"id\": \"27b3771e-83fc-4594-bd05-9320b5449743\", \"status\": \"success\", \"finished\": true, \"total_resources\": 1, \"dispatched\": 0, \"unrecognized\": 1, \"errors\": []}]\n",
+      "stderr": ""
+    },
+    {
+      "phase": "setup",
+      "exit": 0,
+      "stdout": "{\"setup\": true}\n",
+      "stderr": ""
+    },
+    {
+      "phase": "fail",
+      "exit": 73,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "phase": "inspect",
+      "exit": 0,
+      "stdout": "[{\"id\": \"0bfdeb62-6108-49fb-b269-7eb84eb5d24d\", \"status\": \"running\", \"finished\": false, \"total_resources\": 0, \"dispatched\": 0, \"unrecognized\": 0, \"errors\": []}]\n",
+      "stderr": ""
+    },
+    {
+      "phase": "recover",
+      "exit": 0,
+      "stdout": "{\"agent_id\": \"235ff1ed-afc9-4e48-b7c5-2d04b0f2b873\", \"run_id\": \"28bf7961-3c27-4cda-845c-1d208159297d\", \"total_resources\": 1, \"matched\": 0, \"dispatched\": 0, \"pending_decisions\": 0, \"filter_failed\": 0, \"duplicates_skipped\": 0, \"unrecognized\": 1, \"errors\": []}\n",
+      "stderr": ""
+    },
+    {
+      "phase": "inspect",
+      "exit": 0,
+      "stdout": "[{\"id\": \"0bfdeb62-6108-49fb-b269-7eb84eb5d24d\", \"status\": \"running\", \"finished\": false, \"total_resources\": 0, \"dispatched\": 0, \"unrecognized\": 0, \"errors\": []}, {\"id\": \"28bf7961-3c27-4cda-845c-1d208159297d\", \"status\": \"success\", \"finished\": true, \"total_resources\": 1, \"dispatched\": 0, \"unrecognized\": 1, \"errors\": []}]\n",
+      "stderr": ""
+    }
+  ],
+  "scope": "Real handler and DB commits; process_resources fault boundary; no broker/worker lease recovery; recorded title/GUID/URL with synthetic identity and unlinked resource",
+  "actual_probe_exit": 1,
+  "classification": "four expected invariant failures; actual replacement handlers all succeeded",
+  "baseline": "7a8c434",
+  "source_sha256": "012b63b1f6ac8958e94277eeadfa7f69ae31f155930c1d01cafd3ff744ad112a",
+  "runtime_main_changed": false,
+  "cleanup": {
+    "project": "rssripple-v34-agent-run-a",
+    "startup_exit": 0,
+    "down_exit": 0,
+    "labels": {
+      "containers": [],
+      "networks": [],
+      "volumes": []
+    },
+    "turso": "TemporaryDirectory closed after all child processes terminated"
+  }
+}
