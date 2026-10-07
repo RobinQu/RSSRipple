@@ -1,0 +1,28 @@
+{
+  "date": "2026-10-07",
+  "baseline": "f5a2d9e732f06f609e210631ebb577adcfe68b16",
+  "branch": "main",
+  "commits": {
+    "4c804ed": {
+      "scope": "P0-1/2/3/7/8/9 and B9",
+      "commit": "4c804edf79083a2e5ab82d9ccd21b728a33f0023",
+      "ancestor_exit_code": 0
+    },
+    "7fd8121": {
+      "scope": "former P0-4",
+      "commit": "7fd81217029b4b35dd3d20aaa1af1c7973d29484",
+      "ancestor_exit_code": 0
+    },
+    "e535e1f": {
+      "scope": "former P0-6",
+      "commit": "e535e1f775a24c2e0c7082b9a1240f5f579f5e6f",
+      "ancestor_exit_code": 0
+    }
+  },
+  "working_tree_before_audit": "",
+  "ahead_of_local_origin_main": 71,
+  "remote_fetched": false,
+  "pushed": false,
+  "exception": "Former P0-5 remains open at P2; not claimed fixed.",
+  "validation": "Commit ancestry and existing acceptance records reviewed; no new runtime tests."
+}
