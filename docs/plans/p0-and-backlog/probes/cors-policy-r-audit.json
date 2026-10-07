@@ -1,0 +1,24 @@
+{
+  "exit": 0,
+  "passed": 3352,
+  "skipped": 17,
+  "warnings": 8,
+  "seconds": 2102.91,
+  "coverage_exit": 0,
+  "coverage": {
+    "lines-covered": "21150",
+    "lines-valid": "23892",
+    "line-rate": "0.8852"
+  },
+  "app_exits": [
+    0,
+    0
+  ],
+  "export_exit": 0,
+  "skip_same_as_V21_w": true,
+  "frozen_inputs": 3247,
+  "changed_inputs": [],
+  "cleanup_exit": 0,
+  "cleanup": "complete; containers/networks/volumes absent",
+  "unit_gate": "still running; CORS not yet accepted"
+}

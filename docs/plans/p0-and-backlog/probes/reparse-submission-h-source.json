@@ -1,0 +1,54 @@
+{
+  "prototype": "/tmp/rssripple-v24-reparse-54_450v_",
+  "base_runtime_commit": "938a7fb",
+  "accepted": false,
+  "files": {
+    "app/models/resource_reparse_request.py": "07661b8666eb28cf30cd9768592e47ab89194aaf1ce5deaf5f71a6886509f967",
+    "app/models/__init__.py": "4f6d75732cd786b6a220003e6771d84ccfe5d68e4e0e52c6cb1a1e7abea1972e",
+    "app/services/resource_reparse_requests.py": "f4407b51ce0db4adf96e26f074d3440c4a06ef92ecd65f3a88f0e1590a69a478",
+    "app/api/v1/resources.py": "ff0fede645634ab81eb130784a10cfb1f3ea1466cbfc5ca78f3ccf89e95f89cc",
+    "app/api/v1/dashboard.py": "39de8dbbabec64ae4a442bbcdeffd120708413681699aeb4dadc5f7e5360ca83",
+    "app/job_handlers.py": "b382ea204aaa8500924e962f9e039bb2256aec6daec1d3bbf08d6e754ca46662",
+    "app/services/scheduler.py": "1423403f2fb48d06ce24b44fa1ec2a622a66586f313b3e284afd510c10a496b6",
+    "tests/api/test_reparse_durability.py": "75cbf1c6778afe70b1a36c00a047ac6a934d8b67184ff169091bbc24ae7203fa",
+    "tests/api/test_resources.py": "ebac496bfafc66276fb8ec3dbeacd3ff15d22d0eb8824cdad3f455878b7327b5",
+    "tests/unit/test_reprocess_resource_metadata.py": "f1812c3f759be8febbca0f13946d2c26250062596099f405260e2e728e3bc90e",
+    "tests/unit/test_queue_metadata_ownership.py": "de69d9b56bbfbb21be8859f711ab2eb1ebcbfa91445aaf880c4374f64a91d9ce",
+    "docs/design/data-models.md": "f0f1f9dc0faf923dbae3a539f2ddd2191e053cc1317acae0843295a7a225e18e",
+    "docs/design/api-endpoints.md": "4c0681f84846ddd418015fed26376f5eae745a224f79f247e540f09e91804847",
+    "docs/design/business-logic.md": "8b557e4e26eb24bfe24a137823d1430917a3c6160b983dc143680c2628fad82f",
+    "docs/design/db-migration.md": "c133942e14a9afaa871fffe252ffc94c93865a5ec0ac536ecc089928f3df0882",
+    "docs/testing/integration-inventory.md": "e7fde6f7a1ccc8c9a2711fba03f4060f6d602d2a41c515f5da0aae828205fa8b"
+  },
+  "base_hashes": {
+    "app/models/resource_reparse_request.py": null,
+    "app/models/__init__.py": "eeb29fcfa15391c6a11161e338bac17586363ff7cf6d1d1755f38232fac03e1f",
+    "app/services/resource_reparse_requests.py": null,
+    "app/api/v1/resources.py": "4914eb91296d91864acc400280ae5ab045edff84d4311a58b55976d47bc2abde",
+    "app/api/v1/dashboard.py": "14d2c81966cc1d49ebc85044322b66de2062a82eb9a2a95a269f61dcbe542db1",
+    "app/job_handlers.py": "5cce9677871c9379a42dc7410334b6db57526ba733f369033bb806471e5da252",
+    "app/services/scheduler.py": "f122647ed4d7a6a37ae8f1fc294a36b2f4458472bcb02904341c68705aaac3f2",
+    "tests/api/test_reparse_durability.py": null,
+    "tests/api/test_resources.py": "f18f3e0618849929f7dafe5ab67b623668ebe8f594a0fce9e6d7f24c614d913c",
+    "tests/unit/test_reprocess_resource_metadata.py": "a658b50ba431cb7686b0d68cc1e143f3e2568a22a7cf7c7991bd2b7cb45d39d2",
+    "tests/unit/test_queue_metadata_ownership.py": "e8cef7314f196556a363fc9a5342f15ecefd2a4ea302dfd8dc5bc16b632ce1b3",
+    "docs/design/data-models.md": "5b36d512815192c2fdb8f9de50cb9b6ca996efcb7fc690796805c9e7bd977558",
+    "docs/design/api-endpoints.md": "3138ff4d75fce89fe8606a3aaad92174116f1bef4a7b22d8fae9ea72fe7f1d11",
+    "docs/design/business-logic.md": "91f17c6d8b284b8dbf8827eeb7bdafc6e751e5b478e1942c84e76b0a448e06b5",
+    "docs/design/db-migration.md": "23fb5ebf67367f9c5fb46dc3ba7e1bdf47fe4cd160c2909b21611037d020c0f0",
+    "docs/testing/integration-inventory.md": "ae8b9381e497e98be3bbce86c9d0aa567272ca5ccb27b7f9e9134e27f941174a"
+  },
+  "verification": {
+    "g": "9 passed in 19.33s; exit 0",
+    "h": "45 passed, 1 warning in 78.90s; exit 0; import sorting fixed afterward"
+  },
+  "remaining": [
+    "real Redis worker and ownership recovery",
+    "PostgreSQL concurrent create and sweep",
+    "migration/rollback and legacy marker audit",
+    "bounded sweep/backoff/error persistence coverage",
+    "recorded metadata input integration",
+    "full unit/API and isolated integration gates",
+    "five-axis final review"
+  ]
+}

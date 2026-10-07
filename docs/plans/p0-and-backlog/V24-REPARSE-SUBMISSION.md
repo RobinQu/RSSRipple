@@ -1,6 +1,6 @@
 # V24：重新解析入队与确认隐藏状态
 
-状态：必要性复核与红测完成，尚未修改运行代码。独立副本 `/tmp/rssripple-v24-reparse-54_450v_`，运行基线已验收 V21 `938a7fb`，不含未验收 CORS/B6。
+状态：必要性复核、红测及独立持久请求候选已完成首轮专项；main 运行代码未改。独立副本 `/tmp/rssripple-v24-reparse-54_450v_`，运行基线已验收 V21 `938a7fb`，不含未验收 CORS/B6。
 
 ## 必要性与优先级
 
@@ -40,3 +40,13 @@ c 使用真实 API、Turso 和生产 handler 的 finally，替换元数据处理
 为避免仅凭异常注入推断实际 Redis 故障，探针在回环地址绑定临时端口但不监听，由真实 Redis 客户端与生产 enqueue 发起连接，内核返回 ECONNREFUSED。未连接、停止或修改现有 Redis 服务。提交前生产 dashboard 分页函数确认资源可见；调用重解析实际发生连接拒绝后，数据库忽略标记保留、同一 dashboard 查询看不到该资源。**1 failed，3.40 秒，退出 1**，失败断言为“失败后应仍可见”，不是连接异常未捕获。该测试使用合成资源，仅证明实际连接拒绝，不涵盖接受后网络断开或 Redis 重启。
 
 之前 d/e 两次探针误读 dashboard 返回结构（实际是 resource.id）导致 KeyError，均保留日志但不计作缺陷证据。f 已修正结构并通过前置可见性断言，结果、原始日志和源码见 [d–f 审计](probes/reparse-submission-d-f-result.json)。这补强了 a 的合成异常结果；上述持久请求/人工状态分离方案仍需实现及完整验收，B8 保留未完成。
+
+## g/h：独立持久请求候选
+
+候选引入独立 resource_reparse_requests 表，单资源唯一、UUID 请求身份、UTC 请求/补发时间、故障次数及固定脱敏错误类别。API 先提交请求，再唤醒稳定 resource key；重复请求保持原 ID 并返回 409。响应 pending 表示数据库已接受请求，队列不可达时仍保留可恢复意图，同时恢复待确认展示（人工忽略仍有效），而不是返回请求失败却永久隐藏。
+
+handler 只确认 payload 的 request_id，旧请求直接 superseded；配置刷新纳入普通失败收尾，失权时保留请求。人工忽略始终不被后台清理。每 5 秒有界认领最多 50 项，认领事务先结束再入队；异常退避 30 秒至 1800 秒，未知队列结果不删除请求。遗留无 ID 载荷继续运行但不猜测旧忽略字段归属。权威子文档在候选内同步，尚未合入 main。
+
+g 九项真实 API/Turso 生命周期回归全部通过（19.33 秒）；h 加入既有资源 API、遗留载荷及失权回归，**45 passed、1 warning，78.90 秒，退出 0**。h 前 lint 指出一处 import 排序，结束后仅修正排序；此后候选哈希以 [h source](probes/reparse-submission-h-source.json) 为准。源码归档 [h candidate](probes/reparse-submission-h-candidate.tar.gz)。
+
+这些结果不证明进程崩溃、真实 Redis worker 或双库并发已经验证。下一轮先补这些边界、迁移/回滚和历史标记只读盘点，再加入录制元数据回放、完整门禁与最终五维审查。当前原型未合入，TODO 继续保留。

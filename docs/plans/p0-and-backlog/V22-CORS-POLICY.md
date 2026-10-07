@@ -68,3 +68,7 @@ k 新增重复头、代理、GZip 与 poster 专项，30 passed / 1 failed，证
 最新冻结目录 `/tmp/rssripple-v22-rebased-iamb_8_1`，基于已验收 V21 `938a7fb`。三方合并保留全部清理改动；仅测试清单两段末尾追加冲突，已保留双方并更正旧阶段文字。p 78 passed、1 warning、8.97 秒，真实 Chromium p 通过，临时服务 SIGINT 退出 130。十四有效文件、3247 输入冻结，原始证据和清单见 cors-policy-p/q-*。
 
 完整单元/API q 会话 92328，专用 PG rssripple-v22-unit-pg-q（32858）；完整集成 r 会话 63998，项目 rssripple-v22-final-r，依赖 startup 退出 0。复用镜像 sha256:82b848…（依赖未变）。实时句柄/路径和收尾要求见 `probes/cors-policy-q-r-running.json`。不得修改冻结目录或启动重复测试，未验收前保持 TODO。
+
+## r 完整集成验收（2026-10-07）
+
+r runner 已退出 0：**3352 passed、17 skipped、8 warnings，2102.91 秒**。两个 coverage app 经 SIGINT 退出 0/0，最终覆盖率门禁退出 0：**21150/23892，88.52%**；原始 JUnit、日志、五份 coverage 数据及语料审计已归档。17 个跳过与 V21 w 的身份/原因逐项一致，3247 个冻结输入哈希无变化。导出及 down 均退出 0，独立项目 rssripple-v22-final-r 的容器/网络/卷查询为空。审计见 [r audit](probes/cors-policy-r-audit.json)。q 单元/API 尚未终态，因此仍未接受或合入 CORS；B6 组合候选继续等待此前置验收。
