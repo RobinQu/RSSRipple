@@ -1,0 +1,49 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v31-rebased-0j9cdjc0",
+  "main_base": "6548bcca1b77e52b3f13b3592dfbc2b9a3aea01b",
+  "source": "metadata-refresh-i18n-i-source.json",
+  "frozen": "metadata-refresh-i18n-i-frozen.json",
+  "preflight": "metadata-refresh-i18n-i-result.json",
+  "image": "rssripple-v29-tests:local",
+  "lock_sha256": "40eb42674db4b72aedaecc7f7fc3ded572e50d51d3f440cb663a7bc2cacaa6c2",
+  "unit": {
+    "status": "running",
+    "session": 70705,
+    "startup_exit": 0,
+    "project": "rssripple-v31-unit-j",
+    "compose": "/tmp/rssripple-v27-compose.yml",
+    "postgres_port": 32899,
+    "venv": "/workspace/dropbox/github/robinqu/RSSRipple/.venv",
+    "log": "/tmp/rssripple-v31-unit-j.log",
+    "junit": "/tmp/rssripple-v31-unit-j.xml",
+    "coverage_xml": "/tmp/rssripple-v31-unit-j-coverage.xml",
+    "coverage_data": "/tmp/rssripple-v31-unit-j.coverage",
+    "threshold": 95,
+    "cleanup": "pending"
+  },
+  "integration": {
+    "status": "running",
+    "session": 58719,
+    "startup_exit": 0,
+    "project": "rssripple-v31-final-k",
+    "compose": "/tmp/rssripple-v31-rebased-0j9cdjc0/docker-compose.integration-isolated.yml",
+    "runner": "rssripple-v31-final-k-runner",
+    "log": "/tmp/rssripple-v31-integration-k.log",
+    "threshold": 85,
+    "cleanup": "pending"
+  },
+  "required": "Poll existing handles to actual termination. Compare skips to V30 p/q; verify zero failures, frozen scope, app exits, coverage/export, empty project labels and final review before merge.",
+  "actual_app_images": {
+    "app": {
+      "container": "c81606f34d4a34c21219b1330ebb67c74436923115d1383f72b238474c6d4116",
+      "image": "sha256:9f79b2a0d7b37b8e52545b7d0582df5474ecbf3ff93ebdbd2633fa6cbacf3985",
+      "healthy": true
+    },
+    "app-llm": {
+      "container": "2d34d8d7023f0dff9c6f7191c1b9be9a7120b450de2755e14560fdddb541c012",
+      "image": "sha256:9f79b2a0d7b37b8e52545b7d0582df5474ecbf3ff93ebdbd2633fa6cbacf3985",
+      "healthy": true
+    }
+  }
+}

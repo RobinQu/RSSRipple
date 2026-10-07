@@ -1,0 +1,30 @@
+{
+  "accepted": false,
+  "source": "metadata-refresh-i18n-i-source.json",
+  "browser_exit": 0,
+  "passed_flows": 6,
+  "tsc_exit": 0,
+  "vite_build_exit": 0,
+  "eslint_exit": 0,
+  "initial_pnpm_commands_exit": 127,
+  "environment_note": "pnpm not on PATH; used the installed TypeScript/Vite/ESLint Node entrypoints without dependency changes.",
+  "vite_stop_exit": 1,
+  "vite_stop_reason": "intentional SIGINT after browser completion; actual PTY exit 1 recorded, not a test failure",
+  "effective_files": [
+    "docs/design/frontend.md",
+    "docs/testing/integration-inventory.md",
+    "frontend/src/components/WorkMetadataRefreshModal.tsx",
+    "frontend/src/i18n/locales/en-US.json",
+    "frontend/src/i18n/locales/zh-CN.json",
+    "frontend/tests/metadata-refresh.cjs",
+    "frontend/tests/metadata-refresh.html",
+    "frontend/tests/metadata-refresh.tsx"
+  ],
+  "frozen_count": 6519,
+  "non_plan_inputs": 3309,
+  "static_restored_to_base": true,
+  "remaining": [
+    "full unit/API and isolated integration",
+    "final audit/review/merge"
+  ]
+}

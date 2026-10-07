@@ -1,0 +1,51 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v31-rebased-0j9cdjc0",
+  "main_base": "6548bcca1b77e52b3f13b3592dfbc2b9a3aea01b",
+  "parent_source": "metadata-refresh-i18n-h-source.json",
+  "effective_files": 8,
+  "files": {
+    "frontend/src/components/WorkMetadataRefreshModal.tsx": {
+      "base": "b11241cdcab3e9e135ddc704da305deffe419638e210f768e9ce8d45766899fd",
+      "candidate": "7aad6d998eacf2c8de8afcb7084259a4af630e0420c6ebce6a9c4ead05579cde"
+    },
+    "frontend/src/i18n/locales/en-US.json": {
+      "base": "44eb30b4d3114b3fd0d947065fb71336d5a647f3a539f86a7abc7a224f87acbf",
+      "candidate": "45f5d4430b84a623ecd20d92c3eb5bacbe0e650e835a40f9121fb2174364d66f"
+    },
+    "frontend/src/i18n/locales/zh-CN.json": {
+      "base": "45372e23b7836ce4222a3c42bd894452c712e9dc7ca08c48c7a7158378e58221",
+      "candidate": "e15aaedc654a3dd344a48f9ec9f0f0b7ee76df991ab11a1f20619b0ddd895d0a"
+    },
+    "frontend/tests/metadata-refresh.html": {
+      "base": null,
+      "candidate": "3b886221d3ceca3b2f2920f258c65db69e209366e347b91383e7ba7149fd232b"
+    },
+    "frontend/tests/metadata-refresh.tsx": {
+      "base": null,
+      "candidate": "68db7045cfda5a85970100cb86279de0e28d5d822d85d9142824036b90032a29"
+    },
+    "frontend/tests/metadata-refresh.cjs": {
+      "base": null,
+      "candidate": "964578fec67e0a2176c9673d7905c7de2b02dd4cc89be41f9494096c5436fa0e"
+    },
+    "docs/design/frontend.md": {
+      "base": "21be73a75383e2bcd92adb9cd7adce8197126a8748e4437c6b09aa2325b9dd6f",
+      "candidate": "ab7a0b31acdfb54735051814e9b0a4f9b2f4ff3295908ca0b9773ff104807eb2"
+    },
+    "docs/testing/integration-inventory.md": {
+      "base": "658a1c556718419bb54f99684ff8afee577146d8876838a4927b88988080b09d",
+      "candidate": "a8abb381a74c73b2ff5730e593bb0a8ac45c090d2171f9c0cdd24a67a21875fa"
+    }
+  },
+  "rebase_resolution": {
+    "frontend/src/components/WorkMetadataRefreshModal.tsx": "base unchanged",
+    "frontend/src/i18n/locales/en-US.json": "base unchanged",
+    "frontend/src/i18n/locales/zh-CN.json": "base unchanged",
+    "frontend/tests/metadata-refresh.html": "base unchanged",
+    "frontend/tests/metadata-refresh.tsx": "base unchanged",
+    "frontend/tests/metadata-refresh.cjs": "base unchanged",
+    "docs/design/frontend.md": "base unchanged",
+    "docs/testing/integration-inventory.md": "retain current and append verified incoming suffix"
+  }
+}
