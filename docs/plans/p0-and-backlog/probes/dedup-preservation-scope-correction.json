@@ -1,0 +1,251 @@
+{
+  "accepted": true,
+  "reason": "Correct incomplete merge of previously fully tested V25 candidate; no new runtime edits",
+  "original_runtime_commit": "bad6742",
+  "original_manifest_count": 49,
+  "derived_effective_count": 50,
+  "omitted": [
+    "scripts/post_split_leftover_repair.py"
+  ],
+  "files": {
+    "app/api/v1/works.py": {
+      "base": "9cb21095511a98e32cb8bc39f8b56503f5effb63de351b6c43f91a545ee76822",
+      "candidate": "eb821b8d2a38feeecf8bac11f2df2bc2139e55538cf2f24ddc5440787631ff8b"
+    },
+    "app/job_handlers.py": {
+      "base": "8a5730238375829ba5df2c29afd46fce08c2b5b437c408385ce456cf4e9303b3",
+      "candidate": "a721846f2e09b9d6d45deb419e4bd97bfe539b4c88fa61b2e7375b3ce4b0a5f0"
+    },
+    "app/services/dedup_metadata_policy.py": {
+      "base": null,
+      "candidate": "da3f3e0a106f08e67875df05b02e905e603c69b6aab28c3df42e2f1b0ac91534"
+    },
+    "app/services/dedup_work_lock.py": {
+      "base": null,
+      "candidate": "ed9c293881ad0bfc98d04f93ba5ad0a1744f1cd3598a088cb363de1f822e6cd4"
+    },
+    "app/services/fetch_service.py": {
+      "base": "a3f31fcc2ac0ed40b07600bbaff28a2929dccd331074aad50e7349166f4938e0",
+      "candidate": "ff1ab4e16dc3a864c8b07effc80a08fe18bf89a4e15407d03b556c25a92bdbb7"
+    },
+    "app/services/franchise_service.py": {
+      "base": "b6dab236f59c07dc05c25c4ef1a878e6c845180e52791b88910185bb9c087308",
+      "candidate": "61b2fc45339ce80da8ecbf39fc9aa83d2b4ae76929632de072df0ce1b648ecf0"
+    },
+    "app/services/metadata_concurrency.py": {
+      "base": null,
+      "candidate": "d92e3b0610ea0f4883027aa3d1aee3d17a684bb09fdc834be599eb622390ad41"
+    },
+    "app/services/metadata_dedup.py": {
+      "base": "3b1a5e647c4c6f43e310c1015d02f45e4ab246b0a765df0b1edd82c620adec4a",
+      "candidate": "0179b9be5690cac6d08ac95b2608eb2b52e2915485e7cbf56d92d42e386f3328"
+    },
+    "app/services/resource_parent_guard.py": {
+      "base": "4aba54d2705432a6f755a180471b1710170033378be97c47c23d5f1d6879848e",
+      "candidate": "3b424c0b8ca914cc4c0f3edd68028d395d231f9c41b80d208bebc9862b566923"
+    },
+    "app/services/scheduler.py": {
+      "base": "1423403f2fb48d06ce24b44fa1ec2a622a66586f313b3e284afd510c10a496b6",
+      "candidate": "d81e59a91f14d4d29da2eabd06e5a7b4a434af85626c8e000abe3f7299b346b5"
+    },
+    "app/services/schema_foreign_keys.py": {
+      "base": "46f8e6fd111eb0866edd618b2598e4c7888e8c3fd47bac4f83e8b4ce23b12d82",
+      "candidate": "be1da3dae5c171d1edf422e60500f89b3c9ba05d753ddde5074ed814452f71a4"
+    },
+    "app/services/work_deletion.py": {
+      "base": "e2aa9bce182af9ddce868ac45ceb6bddcef7abceb0bd9a7502659303b026732a",
+      "candidate": "06a97bcf047e43101eaa09299ab0a7ee34ac8e2522eb62dd3c73b5e16ece9dba"
+    },
+    "docs/design/api-endpoints.md": {
+      "base": "729c0d9acb36364e0104bbe9bb144f290f497e01e31927ae6f732dd77511e387",
+      "candidate": "f960cc0d142c9340d7b3382264449c29029a1523b27446e26ec642af2a8a4472"
+    },
+    "docs/design/business-logic.md": {
+      "base": "29ca0c0106d3bb289d0d9feca183fa12bf614ecffa50a2d1bf3ef2ba98df68f8",
+      "candidate": "a849bf30d59fb22ee37b2930cd307786aa0a49c1319e3977e6f3500d76e3e1ff"
+    },
+    "docs/design/data-models.md": {
+      "base": "a9ac2403bb9e2d30b258d084d97da823172a2069b6f37f765df016a599011201",
+      "candidate": "8c75f8b1d2aa237d4006e27dc899c0a0f5f7305616d66a32eeaa7445b1a7b35c"
+    },
+    "docs/design/db-migration.md": {
+      "base": "1114cb53bdcdf1af0e7c9eebb3d368dbb88e819344c1c636c349eeac5e15a07b",
+      "candidate": "715066fc86703dd1f9889501a7942aa527be7107af178fdf55a472800ede3dd6"
+    },
+    "docs/testing/integration-inventory.md": {
+      "base": "cc1d4401ce19f2512aa3648b74e489523c2a838030c7ad712cb9221d6654321f",
+      "candidate": "4881f3d02c0ae9f94616bbdb22be8abe597f9a8f35c5a5725dc68994ef3b3954"
+    },
+    "scripts/post_split_leftover_repair.py": {
+      "base": "010d08eeccb286b3c3733ca2e73576c8a67e9856540b2d534946dd44917695af",
+      "candidate": "65d7386d26109f93e3ef190acd2fb69f8304f7cd6dc30f91178d950fea2efeb2"
+    },
+    "tests/api/test_merge_manual_conflict.py": {
+      "base": null,
+      "candidate": "20e91d8056e38ca4f752fbdcf7e77c9a3f1a2befe350a0fef32bf724f1e23305"
+    },
+    "tests/integration/dedup/conftest.py": {
+      "base": null,
+      "candidate": "b008cd22d8ee318f5b064653fa4f5b1e69e65cea4658d046754ee6b232f90ae7"
+    },
+    "tests/integration/dedup/test_caller_transactions.py": {
+      "base": null,
+      "candidate": "99d6aa081948a05f613f710c4cca110f1cc8df1b3648fe3e191932911f879ce5"
+    },
+    "tests/integration/dedup/test_captured_assignments.py": {
+      "base": null,
+      "candidate": "ddeee418c0836f0f3499ca98176a16834bfd9582272c8f92b45fadb7492224cf"
+    },
+    "tests/integration/dedup/test_concurrent_manual_edit.py": {
+      "base": null,
+      "candidate": "5fc79b2a71a15f2e12db4274faa004b33d6fcd6b8c287c22f577dfd5e31c8215"
+    },
+    "tests/integration/dedup/test_group_revalidation.py": {
+      "base": null,
+      "candidate": "c6b8876422579d938ed0ad9c20c7225fb49320a971631e461f92872c3d3b83c7"
+    },
+    "tests/integration/dedup/test_late_writers.py": {
+      "base": null,
+      "candidate": "35e76335eeed6aaa03bebd50bb01100cdd049440e82ec534fd7ca836d98dad80"
+    },
+    "tests/integration/dedup/test_manual_field_matrix.py": {
+      "base": null,
+      "candidate": "65d103d16fc9d956ccb0d66bc2d0dd3c1178d5ef384fbd608eaee2f132adf040"
+    },
+    "tests/integration/dedup/test_primary_identity_bag.py": {
+      "base": null,
+      "candidate": "2b775b435e5c5dd41095c4319415f1d5931909518ec5d1d6ec83f800cf04772f"
+    },
+    "tests/integration/dedup/test_retry_admission.py": {
+      "base": null,
+      "candidate": "8c02ecad5dc3abd099163cd5443af32822cb323fb9dd34e4f92e084dc452f707"
+    },
+    "tests/integration/dedup/test_retry_fairness.py": {
+      "base": null,
+      "candidate": "d2e59fd13b4e048a3873bfc4917aba04171e51a93cabc4fd227fa32da34c7e9f"
+    },
+    "tests/integration/metadata/test_fetch_service_coverage.py": {
+      "base": "f60d986dc8bc019f50a3099375ca76a2dd8324711f7ccf7678149ee90078e539",
+      "candidate": "7b37dd959475c77f10f0730ed93ff3e2968e1dcd9df9d73c63f40bc90ea8ffad"
+    },
+    "tests/integration/metadata/test_metadata_dedup_coverage.py": {
+      "base": "5c056399cac84f0bd1cbe451d6718fd0311dd2935a4c7ce683a883985b0fd18d",
+      "candidate": "536513d28d6acc957276590bf9fece5c8e954d1b67f4e175d8f63d1209eabe18"
+    },
+    "tests/integration/organize/publication_feed_driver.py": {
+      "base": "d17b18a4bc3ed1047e0621002c038f77a9d61b5973386deb1e80bcd49460f3b5",
+      "candidate": "56b26c8b2fc6aa57c64f88d6228bb4ebdafac0c5ab71106500e06721a05d2edc"
+    },
+    "tests/integration/organize/test_publication_feed.py": {
+      "base": "02264fcbbbfe52a12d987fb328b1ff44ecf12c23a2c514a739c3a4b26754bee9",
+      "candidate": "137c1dee3d62a0a3aa25c2f94c003a720d1e7e46b318b0d56fabea0c54f9a347"
+    },
+    "tests/unit/test_collection_member_season_evidence.py": {
+      "base": "c8b6747def0b4b11cea57146b6082090514159cd401a7dcd80f0bcc12ef2c2fe",
+      "candidate": "814de9eaed080563c7541a26055d3561d44b37929a23e3ae8618a5204bc44c6d"
+    },
+    "tests/unit/test_dedup_caller_transactions.py": {
+      "base": null,
+      "candidate": "302a7a3a3cb90fa5e91744e7550127308618873c291f693642140e4ed57f6a99"
+    },
+    "tests/unit/test_dedup_cross_manual.py": {
+      "base": null,
+      "candidate": "115662b20ee1ed7982297b5f26fdee467d84df38babc89d6c40558dfe79bffc7"
+    },
+    "tests/unit/test_dedup_identity_pair.py": {
+      "base": null,
+      "candidate": "ec2eddcdd44fe2bffbfb9a827010c63ecb845f763b1f9639005110690bc44718"
+    },
+    "tests/unit/test_dedup_manual_preservation.py": {
+      "base": null,
+      "candidate": "a6f7acd5aa7a0ad9b97804fb4b7460761a55d53795b73fd8313d4bb5c4941672"
+    },
+    "tests/unit/test_dedup_offline_repair.py": {
+      "base": null,
+      "candidate": "197b6c48178c7878254788ddd60b334d76bfe80b33fff890059f6a2eba7e3e4b"
+    },
+    "tests/unit/test_external_ids.py": {
+      "base": "7484798e01d6d03a8a0e98442b56bad996c57a26deec24056ad51433e42a35c5",
+      "candidate": "1461e808a50cc3cd9280faebe066d18175781392f840e5d8a48106a734e41b86"
+    },
+    "tests/unit/test_fetch_service.py": {
+      "base": "79ddc56fae1bfaf6abc871028d13f08b524a2e4c003298d5621f8f1ab268f0a5",
+      "candidate": "49e7147dead09294d934f47a973ced657992348cffab8ddad3a104a4c7b831c3"
+    },
+    "tests/unit/test_franchise_service.py": {
+      "base": "9b60452ddb7fefcc2b5dad8eaa4189918089c6408b7d23bc90454cd88b64dd2c",
+      "candidate": "6924f0a86248f2392f5f24ac1d189ba8ae87416c1bca9c5e04caded856a16e24"
+    },
+    "tests/unit/test_manual_mapping_batches.py": {
+      "base": "c54a0bc653553f82fb94e773f4f0671ff80a24d0d3543eb46235c51f410b3aa9",
+      "candidate": "dd524adc668fb3e99fbe83815c1fc6229232d739a2f9fb21693de11f00f92cbb"
+    },
+    "tests/unit/test_metadata_concurrency.py": {
+      "base": null,
+      "candidate": "59fbd6b75ad577bfe9c228659158a21f0f67eb6e94a5b6f06e9c4dca96686f43"
+    },
+    "tests/unit/test_metadata_dedup.py": {
+      "base": "b8a65ecf16e241b5863887bd08b4fe648c10995cf7748e19f46852c5cbb2a3ae",
+      "candidate": "54ad6b5e80493f75f67789babfc7c66154df90ebd98a50381005b52b7a100a26"
+    },
+    "tests/unit/test_metadata_retry_admission.py": {
+      "base": null,
+      "candidate": "067d2f5cf0c216eb408801ae9bd7c36324ed24a78493a23edc5dfaad74632107"
+    },
+    "tests/unit/test_metadata_retry_fairness.py": {
+      "base": null,
+      "candidate": "5a61d61f562379cacd351796377663378617602db3c2301a4f0287cb54d33bbe"
+    },
+    "tests/unit/test_queue_metadata_ownership.py": {
+      "base": "de69d9b56bbfbb21be8859f711ab2eb1ebcbfa91445aaf880c4374f64a91d9ce",
+      "candidate": "4ab77c71c5423ebe2ed16aaf9041be025dd6b3223f918a2d3dc636308d92843e"
+    },
+    "tests/unit/test_scheduler.py": {
+      "base": "57656613040d7d96fd3ff64d9cbbd97f0808ede005ecc228147d38b7b05eef56",
+      "candidate": "e31829e1c693ec80aae650a67d507b4407de8e0b0f608cda2bb2617ad6c2fa26"
+    },
+    "tests/unit/test_work_parent_guard_upgrade.py": {
+      "base": null,
+      "candidate": "31f1d337fb17f881e4bab7c2b5d25ed83ba6b4538eab8e70cfc27a397dc5f94b"
+    }
+  },
+  "frozen_verified": 5527,
+  "non_plan_files_verified": 3286,
+  "main_non_plan_mismatch_before": [
+    "scripts/post_split_leftover_repair.py"
+  ],
+  "main_non_plan_mismatch_after": [],
+  "extra_main_non_plan_files": [],
+  "full_gate_evidence": [
+    "dedup-preservation-bq-audit.json",
+    "dedup-preservation-br-audit.json"
+  ],
+  "focused": {
+    "sandbox_red": {
+      "exit": 143,
+      "status": "terminated while waiting for Turso setup; no assertion result"
+    },
+    "sandbox_green": {
+      "exit": 143,
+      "status": "terminated while waiting for Turso setup; no assertion result"
+    },
+    "red2": {
+      "exit": 1,
+      "passed": 1,
+      "failed": 2
+    },
+    "green2": {
+      "exit": 0,
+      "passed": 3,
+      "failed": 0
+    }
+  },
+  "artifacts": {
+    "dedup-preservation-scope-red.log.gz": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+    "dedup-preservation-scope-green.log.gz": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+    "dedup-preservation-scope-red2.log.gz": "b903620644008190a6e5d6f6113ff9c9787c509f5994791b30a088c121ce2804",
+    "dedup-preservation-scope-red2.xml.gz": "f612eef71a9192e64e49d1c0b04358c94563acb16e9d9e80af666fe08d1ecb19",
+    "dedup-preservation-scope-green2.log.gz": "b732134f0756e66e441896afab27be3cb4e93564dd9dc5c2ad848dcc102dab3c",
+    "dedup-preservation-scope-green2.xml.gz": "29d7e7268fddbbb43f6d8094b6032cd356cc81792c1e6594be0f3c737541760f"
+  }
+}

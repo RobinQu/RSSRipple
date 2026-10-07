@@ -54,6 +54,8 @@ from app.models.episode import Episode
 from app.models.series import TVSeries
 from app.models.work_external_id import WorkExternalId
 from app.services.bangumi_client import bangumi_configured, get_subject_episodes
+from app.services.dedup_metadata_policy import require_protected_values
+from app.services.dedup_work_lock import lock_merge_works
 from app.services.external_ids import add_external_id
 from app.services.metadata_bangumi import _episode_list_from
 from app.services.metadata_dedup import DedupReport, _merge_series_group
@@ -90,6 +92,8 @@ async def _case_a_oregairu(db, apply: bool) -> None:
         )
         if not apply:
             continue
+        await lock_merge_works(db, [survivor, shell])
+        require_protected_values([survivor, shell], survivor)
         # The shell's episode rows duplicate the same season's content (the
         # survivor already carries the authoritative bangumi-numbered rows);
         # drop them before the merge so no mixed-numbering rows survive.
@@ -99,7 +103,9 @@ async def _case_a_oregairu(db, apply: bool) -> None:
         for ep in shell_eps:
             await db.delete(ep)
         report = DedupReport()
-        await _merge_series_group(db, [survivor, shell], report, survivor=survivor)
+        await _merge_series_group(
+            db, [survivor, shell], report, survivor=survivor, allow_season_change=True,
+        )
         await db.flush()  # shell row gone → (collection, season) slot is free
         survivor.season_number = season
         for ep in (await db.execute(

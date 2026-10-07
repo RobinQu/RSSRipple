@@ -1,0 +1,37 @@
+from pathlib import Path
+import json,hashlib,subprocess,gzip,shutil
+root=Path('/workspace/dropbox/github/robinqu/RSSRipple');p=root/'docs/plans/p0-and-backlog/probes'
+s=json.loads((p/'dedup-preservation-bq-source.json').read_text());f=json.loads((p/'dedup-preservation-bq-frozen.json').read_text());c=Path(f['candidate']);sha=lambda b:hashlib.sha256(b).hexdigest()
+assert all(sha((c/n).read_bytes())==h for n,h in f['files'].items())
+# Derive the entire effective scope from the immutable full snapshot and Git
+# tree, never from the hand-maintained effective-file manifest under audit.
+base={}
+for line in subprocess.check_output(['git','ls-tree','-r',s['main_base']],cwd=root,text=True).splitlines():
+ meta,n=line.split('\t',1)
+ if n.startswith('docs/plans/'):continue
+ base[n]=meta.split()[2]
+all_names=set(base)|{n for n in f['files'] if not n.startswith('docs/plans/')}
+actual={}
+for n in sorted(all_names):
+ old=sha(subprocess.check_output(['git','cat-file','blob',base[n]],cwd=root)) if n in base else None
+ new=f['files'].get(n)
+ if old!=new:actual[n]={'base':old,'candidate':new}
+omitted=sorted(set(actual)-set(s['files']));assert omitted==['scripts/post_split_leftover_repair.py'],omitted
+assert all(actual[n]==h for n,h in s['files'].items())
+tracked=set(subprocess.check_output(['git','ls-files','-z'],cwd=root,text=True).split('\0'))-{''}
+extra=sorted(n for n in tracked-set(f['files']) if not n.startswith('docs/plans/'));assert not extra,extra
+before=[n for n,h in f['files'].items() if not n.startswith('docs/plans/') and (not (root/n).exists() or sha((root/n).read_bytes())!=h)]
+assert before==omitted,before
+# All non-plan inputs become byte-identical to the previously successful
+# bq/br candidate. No new behavior is substituted for the accepted patch.
+for n in omitted:shutil.copyfile(c/n,root/n)
+after=[n for n,h in f['files'].items() if not n.startswith('docs/plans/') and (not (root/n).exists() or sha((root/n).read_bytes())!=h)];assert not after
+artifacts={}
+for run in ['red','green','red2','green2']:
+ for ext in ['log','xml']:
+  path=Path(f'/tmp/rssripple-v25-omitted-script-{run}.{ext}')
+  if not path.exists():continue
+  t=p/f'dedup-preservation-scope-{run}.{ext}.gz';t.write_bytes(gzip.compress(path.read_bytes(),mtime=0));artifacts[t.name]=sha(t.read_bytes())
+r={'accepted':True,'reason':'Correct incomplete merge of previously fully tested V25 candidate; no new runtime edits','original_runtime_commit':'bad6742','original_manifest_count':len(s['files']),'derived_effective_count':len(actual),'omitted':omitted,'files':actual,'frozen_verified':len(f['files']),'non_plan_files_verified':sum(not n.startswith('docs/plans/') for n in f['files']),'main_non_plan_mismatch_before':before,'main_non_plan_mismatch_after':after,'extra_main_non_plan_files':extra,'full_gate_evidence':['dedup-preservation-bq-audit.json','dedup-preservation-br-audit.json'],'focused':{'sandbox_red':{'exit':143,'status':'terminated while waiting for Turso setup; no assertion result'},'sandbox_green':{'exit':143,'status':'terminated while waiting for Turso setup; no assertion result'},'red2':{'exit':1,'passed':1,'failed':2},'green2':{'exit':0,'passed':3,'failed':0}},'artifacts':artifacts}
+(p/'dedup-preservation-scope-correction.json').write_text(json.dumps(r,ensure_ascii=False,indent=2)+'\n')
+print('Scope corrected',len(actual),'files; all non-plan inputs match bq/br')
