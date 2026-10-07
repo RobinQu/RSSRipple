@@ -1,0 +1,57 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v27-combined-s3q1i1iz",
+  "parent": "V25 bm + V26 provisional l",
+  "v27_source": "resource-work-fk-n-result.json",
+  "merges": [
+    {
+      "file": "docs/design/data-models.md",
+      "resolution": "Clean three-way merge against verified original base."
+    },
+    {
+      "file": "docs/design/db-migration.md",
+      "resolution": "Both patches append to identical base; preserve both suffixes."
+    },
+    {
+      "file": "docs/testing/integration-inventory.md",
+      "resolution": "Both patches append to identical base; preserve both suffixes."
+    }
+  ],
+  "scope": "Migration interaction preflight only; requires accepted parents, formal rebase and complete gates.",
+  "status": "complete",
+  "session": 77691,
+  "log": "/tmp/rssripple-v27-combination-o.log",
+  "junit": "/tmp/rssripple-v27-combination-o.xml",
+  "postgres_project": "rssripple-v27-combination-o",
+  "postgres_port": 32868,
+  "postgres_compose": "/tmp/rssripple-v27-compose.yml",
+  "startup_exit": 0,
+  "ruff_no_cache_exit": 0,
+  "cleanup": "complete",
+  "new_test": "tests/integration/resource_work_fk/test_parent_guard_interaction.py",
+  "exit_code": 0,
+  "passed": 159,
+  "skipped": 0,
+  "seconds": 252.21,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "159",
+    "time": "252.202",
+    "timestamp": "2026-10-07T06:39:53.708234+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "artifacts": {
+    "resource-work-fk-o.log.gz": "0956c783e537a10cc93e7f2aac0c3e48844e4e9013f534f2425187bf8ab40075",
+    "resource-work-fk-o.xml.gz": "0cd218d544ab22b301944bd8b2f8fd851813250a8bac74550cfcce8165b2f768"
+  },
+  "cleanup_exit": 0,
+  "labels": {
+    "containers": [],
+    "networks": [],
+    "volumes": []
+  },
+  "candidate_mismatch": []
+}

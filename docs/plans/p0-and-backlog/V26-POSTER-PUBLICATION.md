@@ -52,3 +52,6 @@ e 已零失败。f 补损坏收据、静态 MIME/完整内容合同与两个真�
 ## 新 V25 bm 上的预组合（2026-10-07）
 
 V25 az 已确认实际回填重试耗尽，原 k 的父候选不能接受。V25 补修后冻结 bm（48 文件/5527 输入），其完整门禁尚在运行。为验证后续兼容性，独立复制全部 bm 冻结输入并逐项验证哈希，叠加 V26 原 10 文件；唯一重叠是测试清单的追加段，保留两方新增内容。新副本 `/tmp/rssripple-v26-bm-combined-mcizic1_`，无缓存 Ruff 通过。l 组合回归已启动，包含完整 metadata_service/franchise/external_ids 单元文件、录制资源准入测试及所有海报集成测试；句柄 74348，见 `probes/poster-publication-l-running.json`。这只是预组合，不能替代父候选验收、正式重基、V26 五维终审或完整双门禁，仍未合入。
+
+
+l 预组合完成：**264 passed、0 skipped、2 warnings，392.54 秒，退出 0**。新 V25 准入逻辑与 V26 海报发布在完整 metadata/franchise/external_ids 单元回归、录制资源竞争和全部海报集成中通过；57 文件组合源码哈希未变，日志/JUnit/源码存档见 `probes/poster-publication-l-result.json`、`l-source.json`。仍不能替代 V25 bm/bn 终态或 V26 自身完整门禁；父候选未接受前不正式合入。
