@@ -1,0 +1,58 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v29-rebased-z_y0t6x8",
+  "main_base": "1cd4775b09b7f48df0ba00f57cc703f68e631082",
+  "parent_source": "turso-pagination-n-source.json",
+  "files": {
+    "app/services/fts.py": {
+      "base": "a24b44cf2c17cf69a9ecf4f800fdcf288d79f6db05606aa707145c8b6507775f",
+      "candidate": "e2de3f44cd01984aaa43b5c0b82a4fec0e060999f93b58b0aa69415fa40f2a91"
+    },
+    "app/services/fts_index_upgrade.py": {
+      "base": null,
+      "candidate": "e383ec75b64b266e8b60ebeb0847136bbfd8f702e4f902f79c0bd75761971198"
+    },
+    "tests/integration/database/test_turso_decision_order.py": {
+      "base": null,
+      "candidate": "8e5a7a8a990fa44d1a49c27a2ae9d4b3108b629159b1b2add4bf7ba46d9edd15"
+    },
+    "tests/integration/database/test_turso_fts_upgrade.py": {
+      "base": null,
+      "candidate": "f977033232f5980107e18546cb1bbcc8dcaa926883a9b5d73e2869e84040da27"
+    },
+    "tests/fixtures/turso_080rc2_fts.db.gz": {
+      "base": null,
+      "candidate": "65433474cf5263f4d6b2207d6f7e1edc92f322c2cc665f1f980790dab91bfe2f"
+    },
+    "tests/fixtures/turso_080rc2_fts.json": {
+      "base": null,
+      "candidate": "5206be6c2a966949ccc18a361c6028959e8955c8be4c740ea486a9f1f9c52489"
+    },
+    "pyproject.toml": {
+      "base": "72bc99d170fac6d29ad07a64e9c756f7ea0c554839b79636608e5bbab181134f",
+      "candidate": "77bd9f8d68fcfae414d7b039f9156103b5ac8ee81bf92a9c3decfacd13eec2ac"
+    },
+    "uv.lock": {
+      "base": "205f1eb7c59206d22c359d690d6b4b7dd1d1c375ff6c4e47be51a09f4424d31f",
+      "candidate": "40eb42674db4b72aedaecc7f7fc3ded572e50d51d3f440cb663a7bc2cacaa6c2"
+    },
+    "docs/design/db-migration.md": {
+      "base": "ee26a306fec3f90ca427279f167e39d5a9eaea85fbcd64fba439bf4df9a79f98",
+      "candidate": "5199bd062e648e9104d3381c1bdadbcabd9a154121ee82b2fcae355403eacc30"
+    },
+    "docs/design/conventions.md": {
+      "base": "8b8e7323d42b3090b560bcd0ce329a99902594f44b9715a642ab170a27dedcd3",
+      "candidate": "b3e9c147ce4f19ba8cc57c05dceb0f80fa89abaef84ac9000326b43d2f67aba2"
+    },
+    "docs/testing/integration-inventory.md": {
+      "base": "bb0adadade512501baed0e708277c45f051ad2ed6404d4f6d042cccfbdc9e8cb",
+      "candidate": "01f2a51cfc83160d887af1fbc6ae3afc46423f56a9eafa7f4ff2e349deac2ef4"
+    }
+  },
+  "append_only_merges": [
+    "docs/design/db-migration.md",
+    "docs/design/conventions.md",
+    "docs/testing/integration-inventory.md"
+  ],
+  "initial_three_way_conflict": "db-migration.md: both branches append; retained complete main and candidate append after validating old-base prefix"
+}

@@ -1,0 +1,20 @@
+{
+  "candidate": "/tmp/rssripple-v29-rebased-z_y0t6x8",
+  "main_base": "1cd4775b09b7f48df0ba00f57cc703f68e631082",
+  "git_derived_effective_files": [
+    "app/services/fts.py",
+    "app/services/fts_index_upgrade.py",
+    "docs/design/conventions.md",
+    "docs/design/db-migration.md",
+    "docs/testing/integration-inventory.md",
+    "pyproject.toml",
+    "tests/fixtures/turso_080rc2_fts.db.gz",
+    "tests/fixtures/turso_080rc2_fts.json",
+    "tests/integration/database/test_turso_decision_order.py",
+    "tests/integration/database/test_turso_fts_upgrade.py",
+    "uv.lock"
+  ],
+  "frozen_count": 6384,
+  "non_plan_inputs": 3304,
+  "new_python_files_covered": true
+}

@@ -1,6 +1,6 @@
 # V29 Turso 分页正确性与升级兼容性
 
-状态：必要性已复现，依赖版本对照和旧文件兼容性探针完成；尚未形成可验收的运行修复。不得关闭 TODO，也不得修改 V25 bq/br 冻结输入。
+状态：已正式重基至 V27 验收后的 `1cd4775`，11 文件候选、6384 输入冻结，265 项组合预检通过；t/u 完整双门禁运行中，未批准合入。以下早期阶段记录保留为历史，当前入口见末节与 t-u-running.json。
 
 ## 必要性与优先级
 
@@ -51,3 +51,18 @@ m 新增的“普通 B-tree 会使 fts_match 报错”假设被真实执行推�
 ## o–q：独立锁定环境补验
 
 uv sync --locked 在 `/tmp/rssripple-v29-venv` 成功退出 0，pyturso 0.8.2 / SQLAlchemy 2.0.51。p 的迁移、FTS、分页和快照恢复专项 **127 passed、3 skipped、173.16 秒、退出 0**。三项跳过均因未提供 PostgreSQL，随后在独立 `rssripple-v29-migration-q` 补跑 PostgreSQL 子集：**8 passed、0 skipped、42 deselected、2.35 秒、退出 0**，逐节点确认覆盖全部三项原跳过。专用库清理退出 0，标签资源均空，11 个候选文件哈希不变。见 [p/q 结果](probes/turso-pagination-p-q-result.json)。仍为专项回归，不代替正式父批重基和完整门禁。
+
+
+## r–u：正式重基、依赖审计与完整门禁
+
+必要性仍成立：实际决策 API 旧驱动错误顺序没有其他主干修复替代，V28 的加索引不能作为全局引擎正确性修复。最新已接受父批为 V27；r 将原 11 文件候选重基到 `1cd4775`。三个文档同时追加导致初次三方合并冲突；逐文件确认 incoming 完整保留旧基线后，保留 main 全部内容再追加 V29 段，未覆盖 V26/V27 文档。运行差异无冲突。
+
+独立环境 `/tmp/rssripple-v29-venv` offline locked sync 退出 0；仅移除指向旧副本的项目 editable 安装，测试通过 PYTHONPATH 使用新候选，第三方版本未漂移。锁文件 97 个包中仅 pyturso 和根需求声明改变，其余 95 个包条目完全一致。r 无缓存全仓 Ruff 退出 0。
+
+镜像首次构建 r 退出 1：当前 docker-container builder 无法解析本地基础镜像。改用明确的 default Docker builder 后，s 构建退出 0，生成 `rssripple-v29-tests:local`（摘要 `sha256:9f79b2a0d7b37b8e52545b7d0582df5474ecbf3ff93ebdbd2633fa6cbacf3985`）。无网络临时容器逐包核验新旧镜像，唯一版本变化为 pyturso 0.8.0rc2→0.8.2；没有修改全局 builder 或推送镜像。实际两套集成应用的镜像摘要与此相同。
+
+r 组合预检：分页 API、旧 FTS 真实恢复、V27 全部双库工作 FK、数据库迁移、既有 FTS/outbox，共 **265 passed、零跳过、7 warnings，181.27 秒，退出 0**。警告为 record_property/xunit2、既有 event_loop_policy 弃用及旧迁移假连接未等待协程；未宣称零警告。专用项目 rssripple-v29-preflight-r 已清理，容器/网络/卷标签均为空。原始日志、JUnit、依赖/镜像审计见 [r/s 结果](probes/turso-pagination-r-s-result.json)。
+
+Git 基线独立推导有效范围恰好 11 文件，6384 输入冻结，全部新 Python 输入均在清单；源与有效文件归档为 r-source/s-candidate，冻结/范围见 s-frozen/s-scope。候选路径 `/tmp/rssripple-v29-rebased-z_y0t6x8`，禁止修改在跑输入。
+
+完整单元/API t 使用独立新驱动环境、专用 PG rssripple-v29-unit-t（32890），句柄 **52849**；完整隔离集成 u 使用新镜像、项目 rssripple-v29-final-u，句柄 **62185**，runner 保留供报告导出。两次 startup 均退出 0。完整门禁未结束，不关闭 TODO；后续必须审计实际退出、V27 ab/ac 跳过差异、6384 输入、覆盖率导出和全部资源清理。续接机器记录见 [t/u running](probes/turso-pagination-t-u-running.json)，阶段审查见 [V29-REVIEW](V29-REVIEW.md)。
