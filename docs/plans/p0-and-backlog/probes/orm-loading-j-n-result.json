@@ -1,0 +1,46 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v30-transactions-jl46u0f_",
+  "source": "orm-loading-l-source.json",
+  "source_unchanged": true,
+  "j": {
+    "exit": 0,
+    "passed": 338,
+    "seconds": 669.03,
+    "scope": "all agent_service/job_handlers/fetch_service unit files and agents/channels/agent_work_limit API files on prior explicit candidate"
+  },
+  "m": {
+    "exit": 0,
+    "passed": 92,
+    "seconds": 178.26,
+    "scope": "all fetch_service/job_handlers unit files on final transaction candidate"
+  },
+  "n": {
+    "exit": 1,
+    "failed": 4,
+    "deselected": 12,
+    "seconds": 6.62,
+    "candidate": "/tmp/rssripple-v30-baseline-y_5hpjtk",
+    "note": "Unmodified main runtime with identical final tests: both backends reject automatic history loading and full-scope override preloading"
+  },
+  "l_reference": "orm-loading-f-l-result.json",
+  "cleanup": {
+    "project": "rssripple-v30-tests-f",
+    "exit": 0,
+    "labels": {
+      "containers": [],
+      "networks": [],
+      "volumes": []
+    }
+  },
+  "artifacts": {
+    "orm-loading-j.xml.gz": "25d16e698d78953611ad7a95331049f0093e3cc5d9c56e11e3298c394e3dff0d",
+    "orm-loading-j.log.gz": "8f57766ef57ae0fa01d34e2de272a1a152c0b43d63248170d8b652a06a270687",
+    "orm-loading-m.xml.gz": "5461762a0b9c548ecab3f03b462189c98088a4dd64166b38416f6ecb1e73ea1d",
+    "orm-loading-m.log.gz": "529086965758e9432b9cbfe279e64693be1897087cefce5a739787367d44d597",
+    "orm-loading-n.xml.gz": "90555029761d8efe4a892d97583b9235d82be4bff591db89fc9730532a4577f6",
+    "orm-loading-n.log.gz": "53fb2f48de334c6b18d2a5463451e7b74043b440e567f80d7b35ab43b837b5e8",
+    "orm-loading-f-cleanup.log.gz": "f604a725a937238f904ef83a51edfd7036be71e3994f7407ffb0db10993ac54c"
+  },
+  "remaining": "formal parent rebase, complete unit/API >=95% and integration >=85%, all zero failures and final audit/review"
+}

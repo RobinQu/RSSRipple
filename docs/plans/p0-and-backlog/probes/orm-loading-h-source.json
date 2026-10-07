@@ -1,0 +1,39 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v30-loading-lq597tje",
+  "main_base": "23089d6d994e1004c3fc4dc4f60c39665ec99f69",
+  "files": {
+    "app/models/agent.py": {
+      "base": "2f40a1e0beba244855660b97aea8d5fa846f689598c0c4c42d6ec39f4674135e",
+      "candidate": "445642b3f51ba3cb62b2debed37fd719418244998469ac4323ec775bba58f96d"
+    },
+    "app/models/channel.py": {
+      "base": "7134cfe961d28967fd56ecf76381ad179f5f1cd1b04d86d99441407b7de89778",
+      "candidate": "0ee4bb77b4b8d292ad574efa4dd19f176681aed710f3db376230857dcad98b65"
+    },
+    "app/schemas/agent.py": {
+      "base": "f5a4656e6313d609390a6ce55c7ac2759cfbfba839c6b3991c4cf2b16e9af2a0",
+      "candidate": "64e51548a429fe31abffee98e15bdc32c38f774755b06f0539ce0e40b7fbbf3c"
+    },
+    "app/api/v1/agents.py": {
+      "base": "26c9e31424fdf9548f5d0f5cb28a6dd39465b971e570c434fdab07115924192f",
+      "candidate": "519091fe62774204ca404e40493ecd6cf98671e6390b5d3d3be50c10cf05fb31"
+    },
+    "app/api/v1/channels.py": {
+      "base": "702cd2997aaeaeac48e976f7f996ed0072f508eadcacb2868f117f0142adb9b6",
+      "candidate": "26c650e7cbd239de22b808d3bedd54519ede282928d2005f7c3416beaea38cdc"
+    },
+    "app/services/fetch_service.py": {
+      "base": "ff1ab4e16dc3a864c8b07effc80a08fe18bf89a4e15407d03b556c25a92bdbb7",
+      "candidate": "884833ce09a324e6f7754f4c1d6803d8564b5c0795b220b292c2601d14a463c5"
+    },
+    "tests/integration/loading/conftest.py": {
+      "base": null,
+      "candidate": "1af208bac415c346535b8a6d4704c5d734893d0e378fabf0e47b4e81efdeed6f"
+    },
+    "tests/integration/loading/test_list_boundaries.py": {
+      "base": null,
+      "candidate": "d7e2c670b0452f479900752aca407e2cf3dad594f62d0e245f646414f7e6d5fe"
+    }
+  }
+}

@@ -1,0 +1,154 @@
+"""Recorded titles on a labelled synthetic graph; actual list contracts and SQL budgets."""
+import hashlib
+import json
+import uuid
+from collections import Counter
+from datetime import datetime, timedelta
+from pathlib import Path
+
+import httpx
+import pytest
+from fastapi import FastAPI
+from sqlalchemy import event, insert, select
+from sqlalchemy.orm import selectinload
+
+from app.api.v1.agents import router as agent_router
+from app.api.v1.channels import router as channel_router
+from app.database import get_db
+from app.models.agent import Agent
+from app.models.agent_work import AgentWork
+from app.models.channel import Channel
+from app.models.download_task import DownloadTask
+from app.models.downloader import DownloaderInstance
+from app.models.file_resource import FileResource
+from app.models.movie import Movie
+from app.models.pending_decision import PendingDecision
+from app.models.series import TVSeries
+from app.models.work_collection import WorkCollection
+from app.schemas.channel import ChannelResponse
+from app.schemas.downloader import DownloaderResponse
+from app.schemas.movie import MovieResponse
+from app.schemas.series import TVSeriesResponse
+from app.services.decision_store import choice_identity
+
+CORPUS = Path(__file__).parents[2] / 'fixtures/prod_works_v1.json'
+CORPUS_SHA = 'd11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32'
+SECRET = 'synthetic-test-credential-never-return'
+
+
+async def seed(engine, scale):
+    raw = CORPUS.read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == CORPUS_SHA
+    corpus = json.loads(raw)['tables']
+    movie = corpus['movies'][0]
+    uid = lambda: str(uuid.uuid4())  # noqa: E731
+    downloader, series, collection = uid(), uid(), uid()
+    now = datetime(2026, 9, 4, 12)
+    channels = [dict(id=uid(), name=f'Synthetic channel {i}', type='rss_feed',
+                     url=f'https://example.invalid/{i}', field_mapping={}, created_at=now-timedelta(seconds=i)) for i in range(5)]
+    agents, resources, tasks, decisions, works = [], [], [], [], []
+    key, scope = choice_identity('movie', movie['id'], None, None)
+    for ci, channel in enumerate(channels[:4]):
+        rr = [dict(id=uid(), channel_id=channel['id'], guid=f'synthetic:{ci}:{j}',
+                   title_raw=corpus['file_resources'][j % len(corpus['file_resources'])]['title_raw'],
+                   torrent_url='https://example.invalid/torrent', movie_id=movie['id']) for j in range(scale)]
+        resources.extend(rr)
+        for ai in range(2):
+            agent = dict(id=uid(), name=f'Synthetic agent {ci}-{ai}', channel_id=channel['id'],
+                         downloader_id=downloader, created_at=now-timedelta(seconds=ci*2+ai))
+            agents.append(agent)
+            works.extend([dict(id=uid(), agent_id=agent['id'], movie_id=movie['id'], series_id=None, content_type='movie'),
+                          dict(id=uid(), agent_id=agent['id'], series_id=series, movie_id=None, content_type='tv')])
+            for j in range(scale):
+                tasks.append(dict(id=uid(), agent_id=agent['id'], file_resource_id=rr[j]['id'],
+                                  downloader_id=downloader, download_dir='/synthetic',
+                                  status='pending' if j < 2 else 'completed'))
+                decisions.append(dict(id=uid(), agent_id=agent['id'], movie_id=movie['id'], status='decided',
+                                      decision_key=key, decision_scope=scope, candidates=[rr[0]['id'], rr[1]['id']],
+                                      reason='Synthetic historical decision'))
+    async with engine.begin() as connection:
+        await connection.execute(insert(Channel), channels)
+        await connection.execute(insert(DownloaderInstance), dict(id=downloader, name='Synthetic downloader',
+                                 type='mock', url='https://example.invalid/rpc', download_dir='/synthetic', password=SECRET))
+        await connection.execute(insert(Movie), {k: movie[k] for k in ['id', 'title_cn', 'title_en']})
+        await connection.execute(insert(WorkCollection), dict(id=collection, title_cn='合成测试合集'))
+        # The recorded pre-season snapshot has no season evidence. This work and
+        # its explicit season are synthetic, not an inferred identity of that title.
+        await connection.execute(insert(TVSeries), dict(id=series, collection_id=collection, season_number=1,
+                                 title_cn='合成第一季', title_en='Synthetic season one'))
+        for model, rows in [(Agent, agents), (FileResource, resources), (AgentWork, works),
+                            (DownloadTask, tasks), (PendingDecision, decisions)]:
+            for offset in range(0, len(rows), 128):
+                await connection.execute(insert(model), rows[offset:offset+128])
+    return channels, agents, movie, series
+
+
+@pytest.mark.parametrize('backend', ['turso', 'postgres'])
+@pytest.mark.parametrize('scale', [0, 32, 512])
+@pytest.mark.parametrize('warm', [False, True])
+async def test_list_response_and_loading_bounds(request, backend, scale, warm):
+    engine, factory = await request.getfixturevalue('dedup_' + backend)
+    channels, agents, movie, series = await seed(engine, scale)
+    sql, loaded = [], Counter()
+    app = FastAPI()
+    app.include_router(channel_router, prefix='/api/v1')
+    app.include_router(agent_router, prefix='/api/v1')
+
+    async def database():
+        async with factory() as session:
+            retained = []
+            if warm:
+                retained.append(await session.scalar(select(Channel).where(Channel.id == channels[0]['id']).options(
+                    selectinload(Channel.file_resources),
+                    selectinload(Channel.agents).selectinload(Agent.pending_decisions),
+                    selectinload(Channel.agents).selectinload(Agent.download_tasks),
+                )))
+                retained.append(await session.scalar(select(Movie).where(Movie.id == movie['id']).options(
+                    selectinload(Movie.file_resources),
+                )))
+            # Warm-up is outside the measured request scope; keep references alive.
+            assert not warm or all(retained)
+            sql.clear()
+            loaded.clear()
+
+            def record(conn, cursor, statement, params, context, many):
+                sql.append(statement)
+
+            event.listen(engine.sync_engine, 'before_cursor_execute', record)
+            event.listen(session.sync_session, 'loaded_as_persistent', lambda db, obj: loaded.update([type(obj).__name__]))
+            try:
+                yield session
+            finally:
+                event.remove(engine.sync_engine, 'before_cursor_execute', record)
+
+    app.dependency_overrides[get_db] = database
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://synthetic') as client:
+        for endpoint, expected in [('channels', channels), ('agents', agents)]:
+            for size in [1, 4, 100]:
+                for page in [1, 2, 100]:
+                    response = await client.get('/api/v1/' + endpoint, params={'page': page, 'page_size': size})
+                    assert response.status_code == 200, response.text
+                    payload = response.json()
+                    wanted = expected[(page-1)*size:page*size]
+                    assert [row['id'] for row in payload['data']] == [row['id'] for row in wanted]
+                    assert payload['meta'] == {'page': page, 'page_size': size, 'total': len(expected)}
+                    assert not ({'FileResource', 'PendingDecision', 'DownloadTask'} & loaded.keys()), loaded
+                    assert len(sql) <= (4 if endpoint == 'channels' else 9), sql
+                    assert SECRET not in response.text
+                    for row in payload['data']:
+                        if endpoint == 'channels':
+                            empty = row['id'] == channels[-1]['id']
+                            assert (row['agent_count'], row['resource_count']) == ((0, 0) if empty else (2, scale))
+                            assert set(row) == set(ChannelResponse.model_fields) | {'agent_count', 'resource_count'}
+                        else:
+                            assert row['active_task_count'] == min(2, scale)
+                            assert row['downloader_name'] == 'Synthetic downloader'
+                            assert set(row['channel']) == set(ChannelResponse.model_fields)
+                            assert set(row['downloader']) == set(DownloaderResponse.model_fields)
+                            assert len(row['works']) == 2
+                            target_movie = next(w['movie'] for w in row['works'] if w['content_type'] == 'movie')
+                            target_series = next(w['series'] for w in row['works'] if w['content_type'] == 'tv')
+                            assert set(target_movie) == set(MovieResponse.model_fields)
+                            assert target_movie['id'] == movie['id'] and target_movie['title_cn'] == movie['title_cn']
+                            assert set(target_series) == set(TVSeriesResponse.model_fields)
+                            assert target_series['id'] == series and target_series['season_number'] == 1

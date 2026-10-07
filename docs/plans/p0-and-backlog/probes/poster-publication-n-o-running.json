@@ -24,7 +24,7 @@
     "cleanup": "pending"
   },
   "integration": {
-    "status": "running",
+    "status": "complete",
     "session": 79868,
     "project": "rssripple-v26-final-o",
     "compose": "/tmp/rssripple-v26-rebased-ocnef6py/docker-compose.integration-isolated.yml",
@@ -34,7 +34,11 @@
     "startup_first_error": "no such service: postgres; rejected before runner start",
     "startup_corrected_exit": 0,
     "threshold": 85,
-    "cleanup": "pending"
+    "cleanup": "complete",
+    "exit_code": 0,
+    "passed": 3675,
+    "coverage": "89.40%",
+    "audit": "poster-publication-o-audit.json"
   },
   "image": "rssripple-v20-tests:local",
   "warning": "Frozen input immutable. Require both zero-failure gates, hash/skip/coverage/actual-exit/export/cleanup audit. Named runner must be exported before removal."

@@ -1,0 +1,165 @@
+{
+  "accepted": false,
+  "integration_gate_passed": true,
+  "project": "rssripple-v26-final-o",
+  "runner_exit": 0,
+  "passed": 3675,
+  "failed": 0,
+  "skipped": 17,
+  "seconds": 2514.56,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "17",
+    "tests": "3692",
+    "time": "2514.168",
+    "timestamp": "2026-10-07T08:33:06.733776+00:00",
+    "hostname": "97a3d9f6ee67"
+  },
+  "coverage_exit": 0,
+  "coverage": {
+    "lines-covered": "21706",
+    "lines-valid": "24279",
+    "line-rate": "0.894"
+  },
+  "apps_exit": [
+    0,
+    0
+  ],
+  "export_exit": 0,
+  "cleanup_exit": 0,
+  "labels": {
+    "containers": [],
+    "networks": [],
+    "volumes": []
+  },
+  "skips": [
+    [
+      "tests.integration.http.test_api_coverage2.TestMagnetResolve",
+      "test_terminal_retry_flow",
+      "no magnet resolution reached a terminal state in time",
+      "/app/tests/integration/http/test_api_coverage2.py:819: no magnet resolution reached a terminal state in time"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_mapping_structure",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:227: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_mapping_has_torrent_url",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:232: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_mapping_has_title_field",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:238: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_all_rules_have_source_key",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:243: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_confidence_not_low",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:248: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_fetch_succeeded",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:257: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_fetch_created_resources",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:263: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_resources_have_torrent_url",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:269: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_resources_have_title_raw",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:275: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_channel_stream_analyze_also_works",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:281: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_no_duplicates_on_refetch",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:290: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_metadata_api.TestMetadataLink",
+      "test_link_metadata_creates_series",
+      "No metadata API keys configured — cannot perform search+link",
+      "/app/tests/integration/http/test_metadata_api.py:189: No metadata API keys configured — cannot perform search+link"
+    ],
+    [
+      "tests.integration.http.test_task_queue.TestRedisDistributedDedup",
+      "test_status_key_shared_after_enqueue",
+      "No distinct Redis-backed app instance configured",
+      "/app/tests/integration/http/test_task_queue.py:365: No distinct Redis-backed app instance configured"
+    ],
+    [
+      "tests.integration.http.test_task_queue.TestRedisDistributedDedup",
+      "test_redis_job_state_persists_after_done",
+      "No distinct Redis-backed app instance configured",
+      "/app/tests/integration/http/test_task_queue.py:383: No distinct Redis-backed app instance configured"
+    ],
+    [
+      "tests.integration.magnet.test_magnet_resolve_e2e",
+      "test_live_magnet_resolution",
+      "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)",
+      "/app/tests/integration/magnet/test_magnet_resolve_e2e.py:376: live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)"
+    ],
+    [
+      "tests.integration.magnet.test_magnet_resolve_e2e",
+      "test_live_fetch_to_resolve_end_to_end",
+      "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)",
+      "/app/tests/integration/magnet/test_magnet_resolve_e2e.py:387: live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)"
+    ]
+  ],
+  "skips_vs_v25_br": {
+    "added": [],
+    "removed": []
+  },
+  "frozen_count": 5987,
+  "frozen_mismatch": [],
+  "main_base_mismatch": [],
+  "artifacts": {
+    "poster-publication-o-integration.xml.gz": "7396d82669730d8c0c37f91ea0fdfe6b99f7919ecb8579c2e7479971d09ff544",
+    "poster-publication-o-coverage.xml.gz": "d7d494a2cd1d597812e0909e23ab774ab24e7f4b8bee139462e9c44dbbcb699e",
+    "poster-publication-o-run.log.gz": "7a19fe4dbf6bc9d2518857c8aa77922fbdf5cab9c7ecdac867f478de5660ef24",
+    "poster-publication-o-coverage.log.gz": "d76a1157116f74439b55bafaddf68db5b86a3e2e4913bd58870d3d52672f640f",
+    "poster-publication-o-cleanup.log.gz": "141d6d52def34c8abddfb6b0689426d84f9497fecab7e5c144c45d5a88a6eeda",
+    "poster-publication-o-coverage.integration.gz": "09a7faedc1c811ce437c5810a5f75589d0a287922a7740a8534a8068e309b2cc",
+    "poster-publication-o-coverage.integration-llm.gz": "d8eab5995524653e149842730939e75bae92579a81ed0779fe767cca04d534df",
+    "poster-publication-o-coverage.scripts.gz": "827c5b4a708e2929b8d0424edd502799966ed4b5f13fa011362bf295712fd115",
+    "poster-publication-o-coverage.combined.gz": "ab3e515e7d5a303ecf10ff72a74322a8090971dd58a8548bbe7409e76d94127d",
+    "poster-publication-o-coverage.test-runner.gz": "f8e7da7aa218f570976f630ebd589d66e4318de5bcb4007b872ac26355088d24",
+    "poster-publication-o-corpus-scenario-71bf5def93704363.json.gz": "8678b1f67670cc1bbcb05f3b8a02d387936351a7ea90ba99aba743e0bb20cc8e",
+    "poster-publication-o-corpus-scenario-db811b734d386cbc.json.gz": "35ff4280167c17cda8af21f0fe0ff9f31e461546dc5dece9ecf06e1bf418ce95",
+    "poster-publication-o-corpus-audit.json.gz": "8fcbf563b6f6cb06ca9835affc415cdb02a7d4fb864631ab7bdfc6a99276c431",
+    "poster-publication-o-corpus-deepsearch-audit.json.gz": "ca6fecce5f60d498555db9c166806536fa5c1f4600092f7c9caf2e956df81cbc"
+  },
+  "cleanup_note": "Named stopped runner and gate-data removed after compose down; label inventories empty. Unit n and final review pending."
+}

@@ -1,0 +1,56 @@
+{
+  "accepted": false,
+  "f": {
+    "exit": 1,
+    "failed": 12,
+    "reason": "async fixture requested inside running test event loop; no API assertion reached"
+  },
+  "g": {
+    "exit": 0,
+    "passed": 191,
+    "seconds": 420.25,
+    "candidate": "/tmp/rssripple-v30-loading-lq597tje",
+    "note": "older partial strategy retaining works selectin; cannot accept latest runtime"
+  },
+  "h": {
+    "exit": 0,
+    "passed": 12,
+    "seconds": 44.5
+  },
+  "i": {
+    "exit": 0,
+    "passed": 14,
+    "seconds": 47.3
+  },
+  "k": {
+    "exit": 1,
+    "failed": 2,
+    "reason": "candidate queried IDs after final commit and kept transaction open through enqueue"
+  },
+  "l": {
+    "exit": 0,
+    "passed": 16,
+    "seconds": 50.17
+  },
+  "ruff_exit": 0,
+  "artifacts": {
+    "orm-loading-f.log.gz": "efc7719a2f4d96a27856857b6726aabac7f9d3da1959da8d5f5109b9c81f906f",
+    "orm-loading-f.xml.gz": "9b585687e7025ab92ea103b4473581bc9b1ed2cdee014da74a2365eecadcf576",
+    "orm-loading-g.log.gz": "131b16eab3fb9750ee1675fba5dbf089bcb5f0a5ac16be72034ae45355c974ea",
+    "orm-loading-g.xml.gz": "0e9403a9786259b3c836dbf72affcfc77a7827aab37bda045961a70b94137a0d",
+    "orm-loading-h.log.gz": "4fd3b1615adde133ef23c84706bf7673bac09ab7071cd82e4d086ce39de82aec",
+    "orm-loading-h.xml.gz": "417a177b5b96c4c17d5bfab3058b4e245d20ca87c57efddcae89533159a47f6a",
+    "orm-loading-i.log.gz": "dfd976bb8ec6aca009be9da6c82fcd9454ed6ac03ea076f55c66a0271b0b934d",
+    "orm-loading-i.xml.gz": "e322cf7826a048699b4ba6551282e5efaa376168bfdd554df89e993ab14a8370",
+    "orm-loading-k.log.gz": "1b83c3d2cf8f124544509b377a9e2c5b5b0995f191a7a84eb706388f50c5d931",
+    "orm-loading-k.xml.gz": "377c57cb447370860758bfe3c8cd4424c692d0d0bccaeb2024cb36dad659af83",
+    "orm-loading-l.log.gz": "11fa0dc2773cfae239ec95ccd7edbfbc5b744ddb7257fa32eb6fc0f70001d297",
+    "orm-loading-l.xml.gz": "bb12a47d7bc4fa9cd370063dfc3cb55d458a350b59a4adc24a5f37b8ea45f5ed",
+    "orm-loading-f-test.py.txt": "a7a01f10347ffec57659078aeab387d8089e17c1ecf805fd67e51c15a8ec22f6",
+    "orm-loading-f-startup.log.gz": "0ae7995cbbc6cbcf76e3bb08337a6142d283b17894947cf273115ad91876dacd",
+    "orm-loading-h-candidate.tar.gz": "65440032fb6b1505f013a7c383ef01bdb052da76fc0735cfbe613ca1f6d5a3bf",
+    "orm-loading-k-candidate.tar.gz": "96300092cc617d93d73a0265ac33b006ebd1ff65323925e869205712f632fbf7",
+    "orm-loading-l-candidate.tar.gz": "f4dc337f7ab54d89e630e7a4e9f146eeb92bf2090f3430b77129cee19041aff0"
+  },
+  "remaining": "j/m terminal with results in orm-loading-j-n-result.json; formal parent rebase and complete zero-failure gates still required."
+}

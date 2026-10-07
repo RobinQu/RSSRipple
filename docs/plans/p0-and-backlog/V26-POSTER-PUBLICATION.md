@@ -64,3 +64,8 @@ V25 已以 `bad6742` 完整验收合入。本轮重新确认必要性：已录�
 五维复核：同目录唯一 O_EXCL 临时文件、长度/哈希收据和两次原子替换保证完整内容发布；中断间隙不匹配收据会失效重取，保留既有权限/umask。发布/校验封装在 poster_cache，HTTP 与磁盘移到现有工作线程；不增加依赖，来源校验沿用现有出站约束。命中增加完整文件哈希读取成本，但不阻塞事件循环；不宣称断电持久性或自动回收崩溃临时文件。真实 JPEG、故障、两线程/两进程和静态响应测试在既有专项中覆盖。全仓无缓存 Ruff 通过。
 
 专用 PostgreSQL 预检 8 passed、退出 0；完整 n 单元/API ≥95%、o 隔离集成 ≥85% 已启动。o 首次启动误用服务名 postgres，在校验阶段退出 1；按实际 queue-recovery-postgres/queue-recovery-redis 修正后健康启动退出 0，没有重复 runner。续接见 [n/o](probes/poster-publication-n-o-running.json)。允许完整验收，不批准合入；两道零失败门禁与所有终态审计仍待完成。
+
+
+## o 完整集成终态
+
+o runner 实际退出 0：**3675 passed、17 skipped、2514.56 秒**，覆盖率 **89.40%（21706/24279）**，85% 门禁退出 0。两个应用正常退出 0/0，五份原始覆盖率、JUnit 和语料报告已导出；跳过与 V25 br 完全一致，5987 冻结输入及 10 文件 main 基线一致。compose down 后另行删除命名 runner 和专用 gate-data，最终项目容器/网络/卷均为空。详见 [o 审计](probes/poster-publication-o-audit.json)。n 单元/API 仍运行，尚未批准合入；不得再次轮询已终态 o。

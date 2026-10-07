@@ -1,0 +1,34 @@
+{
+  "accepted": false,
+  "latest_candidate": "/tmp/rssripple-v30-transactions-jl46u0f_",
+  "latest_source": "orm-loading-l-source.json",
+  "j": {
+    "status": "complete",
+    "session": 69501,
+    "candidate": "/tmp/rssripple-v30-explicit-egw46fl0",
+    "source": "orm-loading-k-source.json",
+    "log": "/tmp/rssripple-v30-callers-j.log",
+    "junit": "/tmp/rssripple-v30-callers-j.xml",
+    "note": "Superseded runtime: preserve completion; final fetch transaction/phase-one loading fixes are in latest candidate.",
+    "exit_code": 0,
+    "passed": 338
+  },
+  "m": {
+    "status": "complete",
+    "session": 55875,
+    "candidate": "/tmp/rssripple-v30-transactions-jl46u0f_",
+    "log": "/tmp/rssripple-v30-fetch-m.log",
+    "junit": "/tmp/rssripple-v30-fetch-m.xml",
+    "scope": "complete fetch_service/job_handlers unit files",
+    "exit_code": 0,
+    "passed": 92
+  },
+  "postgres": {
+    "project": "rssripple-v30-tests-f",
+    "compose": "/tmp/rssripple-v25-compose.yml",
+    "port": 32876,
+    "startup_exit": 0,
+    "cleanup": "complete"
+  },
+  "warning": "All recorded sessions terminal and PostgreSQL cleaned. Do not poll old handles. See orm-loading-j-n-result.json; targeted validation only, not accepted."
+}
