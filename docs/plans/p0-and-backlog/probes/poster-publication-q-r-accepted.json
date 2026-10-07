@@ -19,7 +19,9 @@
     "docs/testing/integration-inventory.md": "dc2e0abb424fff5bfc655c33f8b2ebc18fa91f097c135efef207ceb4ea71a24d",
     "tests/integration/posters/test_cache_io_failures.py": "5f4b5a5b00568f2d85b2c43774b83409993af1bf1d0a95cf13ff46719579de37"
   },
-  "commit_verification": "pending",
+  "commit_verification": "passed",
   "ruff_no_cache_exit": 0,
-  "ruff_log_sha256": "f3af4d142827f5aad2eb0c72d556d325488a57fb6219aac10afeb51085667d53"
+  "ruff_log_sha256": "f3af4d142827f5aad2eb0c72d556d325488a57fb6219aac10afeb51085667d53",
+  "runtime_commit": "7da83a26a69a382cfecfe19090f603f23de0d360",
+  "commit_hash_mismatch": []
 }

@@ -1,5 +1,5 @@
 {
-  "accepted": false,
+  "accepted": true,
   "candidate": "/tmp/rssripple-v26-rebased-773gfii3",
   "main_base": "cf1c7855ab2b7a92929214321d3242cab0ce2b6b",
   "effective_files": 10,
@@ -51,5 +51,7 @@
     "poster-publication-p-preflight.xml.gz": "e3f96a4615ce319b4d11cf7ce22cc26ea9a885f89fc9ba92a4fb668208a46547",
     "poster-publication-p-unit-startup.log.gz": "9991f82d68fd4f3294337ed4e2cb139bba788ff71ae6cc3a62e0db674fa66fe2",
     "poster-publication-p-integration-startup.log.gz": "625f349d3b2f99695901ae3de1f663e0f23608621f5a71e260316120366d7c5d"
-  }
+  },
+  "runtime_commit": "7da83a26a69a382cfecfe19090f603f23de0d360",
+  "final_audit": "poster-publication-q-r-accepted.json"
 }

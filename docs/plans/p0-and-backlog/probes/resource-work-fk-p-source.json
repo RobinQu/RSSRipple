@@ -1,0 +1,65 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v27-rebased-q3o9mg4x",
+  "main_base": "7da83a26a69a382cfecfe19090f603f23de0d360",
+  "effective_files": 13,
+  "three_way_merged": [
+    "docs/design/data-models.md",
+    "docs/design/db-migration.md",
+    "docs/testing/integration-inventory.md"
+  ],
+  "files": {
+    "app/models/file_resource.py": {
+      "base": "9e2f72f30ee6be9e86b6d42aebcb625faae590014f090d42553f1ba659b6413e",
+      "candidate": "b4f984e4ddff49ddb1a0f01d7d0358b78bb6fe0c4247463ec29f48a06e44ea16"
+    },
+    "tests/integration/resource_work_fk/conftest.py": {
+      "base": null,
+      "candidate": "7a336d516dbceeb2bca8154c7b7e8d074c88a382b5e12592d39d1f13fa1d79eb"
+    },
+    "tests/integration/resource_work_fk/test_constraint.py": {
+      "base": null,
+      "candidate": "b6b27ae2fbe8b8a38fc3ade1e8866805da576b8a76655b52f5691d7ba7f27037"
+    },
+    "docs/design/data-models.md": {
+      "base": "8c75f8b1d2aa237d4006e27dc899c0a0f5f7305616d66a32eeaa7445b1a7b35c",
+      "candidate": "e0cdcfc1ee9b3ae4b557770740bf2652d9099187f864d8187cb9810846189bf1"
+    },
+    "docs/design/db-migration.md": {
+      "base": "715066fc86703dd1f9889501a7942aa527be7107af178fdf55a472800ede3dd6",
+      "candidate": "ee26a306fec3f90ca427279f167e39d5a9eaea85fbcd64fba439bf4df9a79f98"
+    },
+    "docs/testing/integration-inventory.md": {
+      "base": "dc2e0abb424fff5bfc655c33f8b2ebc18fa91f097c135efef207ceb4ea71a24d",
+      "candidate": "bb0adadade512501baed0e708277c45f051ad2ed6404d4f6d042cccfbdc9e8cb"
+    },
+    "app/database.py": {
+      "base": "f481534754623cebd64f287ff4222f9345077d760f3f8dacd7ef053cd6fce548",
+      "candidate": "82e37f38859ba13dcc90c99b9178c419a88c06d586d9f8fdc3648978c63ceaea"
+    },
+    "app/services/resource_work_schema.py": {
+      "base": null,
+      "candidate": "c0a00d7a1a6ee0db492752a879b3cecb47652477590694d815ad0cfa39454467"
+    },
+    "tests/integration/resource_work_fk/test_legacy.py": {
+      "base": null,
+      "candidate": "96672cd96ff1d5e0ee819fd2ef9567e2bd43594c8e1e50caccb6f65e86babb26"
+    },
+    "tests/integration/resource_work_fk/test_service_transitions.py": {
+      "base": null,
+      "candidate": "69cc008921e0e439e561cdc68f6256b70abc63a48ac9568f95fce7abc887dfaa"
+    },
+    "tests/unit/test_database_migrations.py": {
+      "base": "8be544e221130290e6adc91841338a243b0a6aa06d54a480785ec03685df4d6e",
+      "candidate": "4ccabe96c660c83c5c8dc1809ba57338c96ee0a35fc88348d99b2bc5ce1714ed"
+    },
+    "tests/integration/resource_work_fk/test_catalog_guards.py": {
+      "base": null,
+      "candidate": "e2b026a5102df206865a48ea6dfb60c7f35851b1233d5bb25bd05c3d825834de"
+    },
+    "tests/integration/resource_work_fk/test_parent_guard_interaction.py": {
+      "base": null,
+      "candidate": "094bcec6c9d604ab89b3d3f0ad09e263a91367fcca3b5ca4cf58eee3403ce340"
+    }
+  }
+}

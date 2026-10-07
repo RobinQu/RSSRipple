@@ -7,7 +7,7 @@
 
 ## 最新续接（2026-10-07）
 
-当前 P0/B9 已合入本地 main。V25 原合入清单漏掉一个已完整验收的离线修复脚本，V26 n 两项失败促成重新审计；已按全部冻结输入推导 50 个有效文件并补齐，详见 [范围纠正](probes/dedup-preservation-scope-correction.json)。V26 纠正后的 q/r 已完成完整验收及清理，10 文件终审批准并同步本地，见 [验收摘要](probes/poster-publication-q-r-accepted.json)；V27、V29、V30 继续保留候选和专项证据。剩余项只以 [TODO](TODO.md) 为准，以下按时间保留历史记录。
+当前 P0/B9 已合入本地 main。V25 原合入清单漏掉一个已完整验收的离线修复脚本，V26 n 两项失败促成重新审计；已按全部冻结输入推导 50 个有效文件并补齐，详见 [范围纠正](probes/dedup-preservation-scope-correction.json)。V26 纠正后的 q/r 已完成完整验收及清理，10 文件已验收合入本地 main `7da83a2` 且提交对象哈希匹配，见 [验收摘要](probes/poster-publication-q-r-accepted.json)；V27、V29、V30 继续保留候选和专项证据。剩余项只以 [TODO](TODO.md) 为准，以下按时间保留历史记录。
 
 ## 当前收尾与下次续接（2026-09-20）
 

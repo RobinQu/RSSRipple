@@ -1,0 +1,25 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v27-rebased-q3o9mg4x",
+  "main_base": "7da83a26a69a382cfecfe19090f603f23de0d360",
+  "effective_files": 13,
+  "source": "resource-work-fk-p-source.json",
+  "scope_audit": "resource-work-fk-p-scope.json",
+  "stage": "formal rebase preflight; full gates not started",
+  "preflight": {
+    "status": "running",
+    "session": 88410,
+    "log": "/tmp/rssripple-v27-q-preflight.log",
+    "junit": "/tmp/rssripple-v27-q-preflight.xml",
+    "project": "rssripple-v27-preflight-q",
+    "compose": "/tmp/rssripple-v27-compose.yml",
+    "port": 32880,
+    "startup_exit": 0,
+    "cleanup": "pending"
+  },
+  "ruff_no_cache_exit": 0,
+  "artifacts": {
+    "resource-work-fk-p-startup.log.gz": "7f06871ce0bf0280d763faccaf835b0045d11d811fba42ea1982eb1751c3012e",
+    "resource-work-fk-p-ruff.log.gz": "f3af4d142827f5aad2eb0c72d556d325488a57fb6219aac10afeb51085667d53"
+  }
+}

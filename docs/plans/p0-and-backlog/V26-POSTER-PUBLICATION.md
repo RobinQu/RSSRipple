@@ -97,3 +97,5 @@ q 单元/API 仍运行，继续以 [q/r](probes/poster-publication-q-r-running.j
 q 完整单元/API 实际退出 0：**4181 passed、12 skipped、15 warnings、3090.70 秒**，覆盖率 **96.96%（23540/24279）**。12 项跳过与 V25 bq 相同，6084 冻结输入未变，独立 PostgreSQL 清理后容器/网络/卷均为空。[q 审计](probes/poster-publication-q-audit.json)。此前 r 已完整验收，原 n 的两项失败及父批遗漏纠正记录保留。
 
 终审见 [V26-REVIEW](V26-REVIEW.md#pqr-最终审查批准合入)：批准合入。原始候选与正式候选的完整范围均重新推导无漏项；10 个有效文件已逐字节同步本地主干工作树，全部 3292 个非计划输入与通过的候选一致，主干无缓存 Ruff 和 diff-check 通过。海报残缺缓存项从 pending-only TODO 移除；未知暂存与未引用种子的生命周期回收仍待处理。提交对象验证由 [验收摘要](probes/poster-publication-q-r-accepted.json) 记录。
+
+有效代码已合入本地 main `7da83a2`；十个有效文件的 Git 提交对象 SHA256 均与验收候选一致，无遗漏。未推送远端。
