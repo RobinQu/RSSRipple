@@ -1,0 +1,165 @@
+{
+  "accepted": false,
+  "integration_gate_passed": true,
+  "project": "rssripple-v27-final-ac",
+  "runner_exit": 0,
+  "passed": 3833,
+  "failed": 0,
+  "skipped": 17,
+  "seconds": 2593.86,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "17",
+    "tests": "3850",
+    "time": "2593.448",
+    "timestamp": "2026-10-07T11:53:36.602401+00:00",
+    "hostname": "7170e1711746"
+  },
+  "coverage_exit": 0,
+  "coverage": {
+    "lines-covered": "21784",
+    "lines-valid": "24356",
+    "line-rate": "0.8944"
+  },
+  "skips": [
+    [
+      "tests.integration.http.test_api_coverage2.TestMagnetResolve",
+      "test_terminal_retry_flow",
+      "no magnet resolution reached a terminal state in time",
+      "/app/tests/integration/http/test_api_coverage2.py:819: no magnet resolution reached a terminal state in time"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_mapping_structure",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:227: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_mapping_has_torrent_url",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:232: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_mapping_has_title_field",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:238: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_all_rules_have_source_key",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:243: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_confidence_not_low",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:248: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_fetch_succeeded",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:257: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_fetch_created_resources",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:263: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_resources_have_torrent_url",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:269: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_resources_have_title_raw",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:275: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_channel_stream_analyze_also_works",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:281: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_no_duplicates_on_refetch",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:290: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_metadata_api.TestMetadataLink",
+      "test_link_metadata_creates_series",
+      "No metadata API keys configured — cannot perform search+link",
+      "/app/tests/integration/http/test_metadata_api.py:189: No metadata API keys configured — cannot perform search+link"
+    ],
+    [
+      "tests.integration.http.test_task_queue.TestRedisDistributedDedup",
+      "test_status_key_shared_after_enqueue",
+      "No distinct Redis-backed app instance configured",
+      "/app/tests/integration/http/test_task_queue.py:365: No distinct Redis-backed app instance configured"
+    ],
+    [
+      "tests.integration.http.test_task_queue.TestRedisDistributedDedup",
+      "test_redis_job_state_persists_after_done",
+      "No distinct Redis-backed app instance configured",
+      "/app/tests/integration/http/test_task_queue.py:383: No distinct Redis-backed app instance configured"
+    ],
+    [
+      "tests.integration.magnet.test_magnet_resolve_e2e",
+      "test_live_magnet_resolution",
+      "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)",
+      "/app/tests/integration/magnet/test_magnet_resolve_e2e.py:376: live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)"
+    ],
+    [
+      "tests.integration.magnet.test_magnet_resolve_e2e",
+      "test_live_fetch_to_resolve_end_to_end",
+      "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)",
+      "/app/tests/integration/magnet/test_magnet_resolve_e2e.py:387: live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)"
+    ]
+  ],
+  "skips_vs_v26_r": {
+    "added": [],
+    "removed": []
+  },
+  "apps_exit": [
+    0,
+    0
+  ],
+  "export_exit": 0,
+  "cleanup_exit": 0,
+  "labels": {
+    "containers": [],
+    "networks": [],
+    "volumes": []
+  },
+  "frozen_count": 6297,
+  "frozen_mismatch": [],
+  "main_base_mismatch": [],
+  "artifacts": {
+    "resource-work-fk-ac-integration.xml.gz": "795d4fa53573fa0bd4d89e49955355c1d8297e0c4a460dd1494419b809809739",
+    "resource-work-fk-ac-coverage.xml.gz": "511447d594054c17bc1f42894789e2ed162dc76b9b60852b1992851a88d8d36c",
+    "resource-work-fk-ac-run.log.gz": "f152b1fbb85214e090b134a0bacbb6d9f615da5e37826d6ab2315ebb7453d5b0",
+    "resource-work-fk-ac-coverage.log.gz": "71fee3e57e78950d4dc85cab05194ba4da01ddd2dd666c7cd4ca7f00fb9b8765",
+    "resource-work-fk-ac-cleanup.log.gz": "41c2effcf24b13466b9dc58c25ea28402c1d11e40db5320c7e7ff2d685ab437c",
+    "resource-work-fk-ac-coverage.integration.gz": "fce2837edc95d5290f7481e6aa999d72afa945481785d6a8c163c1e89dd20949",
+    "resource-work-fk-ac-coverage.integration-llm.gz": "acfd0a134a3e6ef2532838463ecbc971146addcb5e11498014bed73df35a1c8d",
+    "resource-work-fk-ac-coverage.scripts.gz": "52983033ddb9e2240b3d81f5c189ec68672e8a53dd32b73a75f6daa3b6fb6352",
+    "resource-work-fk-ac-coverage.combined.gz": "91aa5a243332bee117315d1b8bc6cc2326c82c907804de5d3d09bd9669acf7db",
+    "resource-work-fk-ac-coverage.test-runner.gz": "8bbdd4a91ff433afdb1a1b8dbb2bd0c976d49b1b273ab7b8da6ff29303e2f87f",
+    "resource-work-fk-ac-corpus-scenario-71bf5def93704363.json.gz": "9d2ef6037429a0bdd00d8e0fe0b3d5b4e4c85c0a4f78a7d52a944f1ddeac9364",
+    "resource-work-fk-ac-corpus-scenario-db811b734d386cbc.json.gz": "b108424266537d672dbc79708201b6b3fbc2d1952545380b6c7c6fc0016d44da",
+    "resource-work-fk-ac-corpus-audit.json.gz": "8fcbf563b6f6cb06ca9835affc415cdb02a7d4fb864631ab7bdfc6a99276c431",
+    "resource-work-fk-ac-corpus-deepsearch-audit.json.gz": "ca6fecce5f60d498555db9c166806536fa5c1f4600092f7c9caf2e956df81cbc"
+  },
+  "required": "Unit/API ab still running; final five-axis review and merge audit required."
+}

@@ -1,0 +1,46 @@
+{
+  "runs": [
+    {
+      "phase": "n",
+      "actual_exit_code": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "10",
+        "time": "11.558",
+        "timestamp": "2026-10-07T12:38:03.616098+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    {
+      "phase": "o",
+      "actual_exit_code": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "229",
+        "time": "299.741",
+        "timestamp": "2026-10-07T12:38:34.059917+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    }
+  ],
+  "candidate_source": "search-text-o-source.json",
+  "runtime_changes_since_m": false,
+  "new_coverage": "10 real metadata upsert scenarios across two databases; 229 existing unit/metadata call-path cases",
+  "accepted": false,
+  "cleanup": {
+    "project": "rssripple-v33-metadata-n",
+    "startup_exit": 0,
+    "down_exit": 0,
+    "labels": {
+      "containers": [],
+      "networks": [],
+      "volumes": []
+    }
+  }
+}

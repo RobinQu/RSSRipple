@@ -1,0 +1,93 @@
+{
+  "base": "04e83d0040c1a24f2f824cc85b1314f8f3df3c71",
+  "candidate": "/tmp/rssripple-v33-search-902xn062",
+  "effective_files": [
+    {
+      "path": "app/database.py",
+      "baseline_sha256": "f481534754623cebd64f287ff4222f9345077d760f3f8dacd7ef053cd6fce548",
+      "candidate_sha256": "e14317982a204874b7eaed740dfa8b20f4b011d1f0930d73659ab6eb9879589f"
+    },
+    {
+      "path": "app/models/audio_work.py",
+      "baseline_sha256": "b800ecc6461447c74c9066ecbd11ce054133ddd202b6ed291ab1fa2b9d4a4450",
+      "candidate_sha256": "855f62996edab9a4bdcb214a54374387a43b2f146db5edf82f87b178ddd1108b"
+    },
+    {
+      "path": "app/models/movie.py",
+      "baseline_sha256": "7467cfe4f2f905ee2ea66c48a7bd7ac4c2820d4024ec3a6eed4413450e929f5f",
+      "candidate_sha256": "7b237c4f52d5289411015cb281ac7e95aea445a5564113a4dc11589e7004da7a"
+    },
+    {
+      "path": "app/models/series.py",
+      "baseline_sha256": "44fb96cf7e3588d03bb6ab502a15db60f346391f4c1f196d2698590259290040",
+      "candidate_sha256": "386acee418606ff3040812a4b32c6a04ee02a51c52d7fc40dde31b0cd4be8a90"
+    },
+    {
+      "path": "app/models/work_collection.py",
+      "baseline_sha256": "ad510405783eb8eb5826c24dd4ec546db3fea560a5400efb9dc3673309783608",
+      "candidate_sha256": "e71c4206c1a4f27170a09d1a55a68c9824624bd53ebc1e466cac163643a47655"
+    },
+    {
+      "path": "app/services/fts.py",
+      "baseline_sha256": "a24b44cf2c17cf69a9ecf4f800fdcf288d79f6db05606aa707145c8b6507775f",
+      "candidate_sha256": "18e76e247ea829d66b1d1c5057b4ca5c33cd9293c5ecdf6d669939db07290d19"
+    },
+    {
+      "path": "app/services/search_text_schema.py",
+      "baseline_sha256": null,
+      "candidate_sha256": "8dfd1475b7e1c6a552954f0d61305ede9f72533b13ada86997701a5f50919f85"
+    },
+    {
+      "path": "tests/integration/search_text/__init__.py",
+      "baseline_sha256": null,
+      "candidate_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/integration/search_text/conftest.py",
+      "baseline_sha256": null,
+      "candidate_sha256": "dce154b6522adc38f133c2a191cb5c850ad8dd25820e85c25a6d0ca102a7160b"
+    },
+    {
+      "path": "tests/integration/search_text/test_http.py",
+      "baseline_sha256": null,
+      "candidate_sha256": "c01a83c56c90d4864321865a1386acf1c8213b77b205eb59c723a7a9b49021a5"
+    },
+    {
+      "path": "tests/integration/search_text/test_metadata.py",
+      "baseline_sha256": null,
+      "candidate_sha256": "4ac80873ba23444ed87ad865b2dfa14e741c9b850fde03b550bd8bd282a0d0c2"
+    },
+    {
+      "path": "tests/integration/search_text/test_startup.py",
+      "baseline_sha256": null,
+      "candidate_sha256": "4e70a0a9602d42672a059ef63afd81190244562a87047a2e15ae79fd71b7ff23"
+    },
+    {
+      "path": "tests/integration/search_text/test_storage.py",
+      "baseline_sha256": null,
+      "candidate_sha256": "ca8db579460796cc59576efa4e5d035791823324769a255dae93c99d3ae5b01f"
+    },
+    {
+      "path": "docs/design/business-logic.md",
+      "baseline_sha256": "a849bf30d59fb22ee37b2930cd307786aa0a49c1319e3977e6f3500d76e3e1ff",
+      "candidate_sha256": "681e20b7e34277c7e843a8c89da90eb88920534a0751d7d4cffc0bf735ab8d38"
+    },
+    {
+      "path": "docs/design/data-models.md",
+      "baseline_sha256": "8c75f8b1d2aa237d4006e27dc899c0a0f5f7305616d66a32eeaa7445b1a7b35c",
+      "candidate_sha256": "c5484c6ba1749b7fee3ee0ab104b2ea2bc401cf075e649e5b5d1f7b0f8608210"
+    },
+    {
+      "path": "docs/design/db-migration.md",
+      "baseline_sha256": "715066fc86703dd1f9889501a7942aa527be7107af178fdf55a472800ede3dd6",
+      "candidate_sha256": "6b471e032012ccff3ce3cdb305ec111e65b9187fc10604b5644e177b11e737b0"
+    },
+    {
+      "path": "docs/testing/integration-inventory.md",
+      "baseline_sha256": "dc2e0abb424fff5bfc655c33f8b2ebc18fa91f097c135efef207ceb4ea71a24d",
+      "candidate_sha256": "0d49bf7f55ad6788b2e8d2d8ae54bfcda2edd36ca7a6fb423167519d63d382c7"
+    }
+  ],
+  "accepted": false,
+  "scope": "All copied app/tests/scripts/docs files compared to main; full repository freeze/rebase still required"
+}

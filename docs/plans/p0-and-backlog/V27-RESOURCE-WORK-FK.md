@@ -127,3 +127,10 @@ r 单元/API 现已退出 1：**4179 passed、2 failed、12 skipped、15 warning
 原 r/s 已终态失败且全部审计/清理完成。三处夹具修正保持 Bangumi 来源独立性、音频真实提交与音频详情冷会话关联序列化覆盖；本轮重新确认无需放宽工作 FK 约束。以本地 main `d90273b` 复制全部跟踪文件并保留文件模式，叠加已专项验证的 z 十六文件；相对当前主干完整非计划输入独立推导恰为 **16 文件**，app/tests/scripts 新 Python 文件无遗漏。运行实现与原 p 相同。
 
 最终候选 `/tmp/rssripple-v27-final-3qnte9ze`，冻结 **6,297 个输入文件**。无缓存全仓 Ruff 退出 0。完整单元/API ab（≥95%）与隔离集成 ac（≥85%）均已启动，专用 PostgreSQL/集成项目健康；实际句柄、项目名和原始报告路径见 [ab-ac-running](probes/resource-work-fk-ab-ac-running.json)，源码/范围/冻结清单见 aa 系列。运行中不得修改该候选，必须重新通过零失败完整双门禁与全部退出/skip/hash/导出/清理审计后才可合入。
+
+
+## ac 完整集成终态审计（2026-10-07）
+
+ac runner 已实际退出 0：**3833 passed、17 skipped、25 warnings，2593.86 秒**，零失败。两个应用经 SIGINT 正常退出 0/0；覆盖率汇总退出 0，**21784/24356 = 89.44%**。五份原始覆盖率、汇总 XML、JUnit 及四份语料 JSON 均在清理前导出。项目 rssripple-v27-final-ac 已 down，容器/网络/卷标签全部为空。
+
+17 项跳过的名称、理由及文本与已验收 V26 r 完全一致，无增删；6,297 个冻结输入逐项哈希不变，16 个有效文件的主干基线也未漂移。原始压缩报告和机器审计见 [ac 审计](probes/resource-work-fk-ac-audit.json)。ab 单元/API 仍在运行，最终五轴审查和合入审计尚未完成；ac 通过不等于本批已验收，不关闭 TODO。

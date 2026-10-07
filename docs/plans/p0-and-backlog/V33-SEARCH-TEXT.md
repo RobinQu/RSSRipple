@@ -49,3 +49,12 @@ l 最终专项 **105 passed，零跳过，125.84 秒，退出 0**：80 存储/�
 m 将**同一 HTTP 测试文件**用于当前 main 原运行代码的独立副本：**7 failed / 7 passed，16.67 秒，退出 1**。全部 PostgreSQL HTTP 场景返回 500，Turso 对照均成功；源文件哈希和逐文件 main 代码一致性保存在 [g–m 摘要](probes/search-text-g-m-result.json)。这证明绿色结果不是由弱化 HTTP 断言取得。h 原测试、所有失败轮和原始日志/JUnit 均归档。
 
 当前 [16 文件候选](probes/search-text-m-source.json) 包含七个运行文件、五个测试文件、四份权威设计/迁移/测试文档，归档 `search-text-m-candidate.tar.gz`。独立项目 `rssripple-v33-search-g`（32887）已清理，容器/网络/卷标签均为空。main 运行代码未修改，未关闭 TODO。正式全仓冻结/重基、元数据写入调用方扩大、完整双门禁与五轴终审仍待完成；上述 105 项不能替代完整门禁。
+
+
+## 元数据调用方补验（n/o，2026-10-07）
+
+重新论证：HTTP 人工编辑通过不足以代表自动来源刷新。新增 `test_metadata.py` 直接调用真实三类 metadata upsert，以已录制标题配合明确合成来源身份/别名，电影和剧集覆盖新增/更新的来源别名批量输入，音频按实际契约通过 14 次刷新逐步累积每个不超过 512 字符的标题。断言原身份不变、全部别名及其规范化文本保留，剧集新增还检查所属合集。海报为返回 None 的边界替身，所有入参都断言为 None；不访问外部元数据或声称来源响应为真实录制。
+
+n **10 passed，11.58 秒，退出 0**；o 既有 metadata_service 单元文件与 batch_content_analysis 集成文件 **229 passed、1 warning，299.80 秒，退出 0**，无跳过。原始日志/JUnit 见 [n/o 摘要](probes/search-text-n-o-result.json)。独立项目 rssripple-v33-metadata-n（32888）已清理，标签容器/网络/卷为空。七个运行文件与 m 候选逐字节相同，仅补测试和清单；最新 [17 文件候选](probes/search-text-o-source.json) 及完整有效文件归档已保存。
+
+元数据调用方缺口现已补验；仍待前批验收后正式重基、全仓输入冻结、完整双门禁和五轴终审，未合入运行代码。
