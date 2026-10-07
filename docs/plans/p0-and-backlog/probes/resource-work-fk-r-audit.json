@@ -1,0 +1,130 @@
+{
+  "accepted": false,
+  "unit_gate_passed": false,
+  "exit_code": 1,
+  "passed": 4179,
+  "failed": 2,
+  "skipped": 12,
+  "seconds": 3441.21,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "2",
+    "skipped": "12",
+    "tests": "4193",
+    "time": "3441.024",
+    "timestamp": "2026-10-07T10:50:21.712528+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "coverage": {
+    "lines-covered": "23596",
+    "lines-valid": "24356",
+    "line-rate": "0.9688"
+  },
+  "failures": [
+    {
+      "class": "tests.unit.test_bangumi_relations",
+      "test": "test_seed_subjects_from_all_sources",
+      "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_file_resources_work_fk (19)\n[SQL: INSERT INTO file_resources (id, channel_id, guid, title_raw, title_cn, title_en, search_title, subtitle_group, subtitle_groups_source, episode, season, title_year, is_batch, episode_start, episode_end, batch_scope, absolute_episode, episode_confidence, resolution, source, video_codec, audio_codec, subtitle_type, container, file_size, torrent_url, torrent_file, magnet_resolve_status, magnet_resolve_attempt_id, magnet_resolve_error, magnet_resolve_attempts, magnet_resolve_updated_at, detail_url, published_at, parsed_at, series_id, movie_id, audio_work_id, collection_id, metadata_matched_at, metadata_attempts, last_metadata_attempt_at, metadata_failure_type, confirmation_ignored_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('8926e317-8cff-450a-9685-a1314fe1fa26', 'b5ddb0e0-fb8d-43fb-b53b-75ec1051f3df', 'f32fa1e8-50dc-4a00-808e-f52c02a01e87', '头文字D.全六季.Initial D', None, None, None, None, None, None, None, None, 1, None, None, 'franchise', None, None, None, None, None, None, None, None, None, 'https://x/pack.torrent', None, None, None, None, 0, None, None, None, None, 'ae003890-f0cb-420f-95c1-f42bc7d0eb24', '51972765-4e95-4d10-98cd-44519bb8cd6f', None, '9b6cdfef-1ad1-45b5-9440-6a8e7f7937ec', None, 0, None, None, None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+    },
+    {
+      "class": "tests.api.test_audio_works",
+      "test": "test_audio_work_detail_with_linked_resources",
+      "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_file_resources_work_fk (19)\n[SQL: INSERT INTO file_resources (id, channel_id, guid, title_raw, title_cn, title_en, search_title, subtitle_group, subtitle_groups_source, episode, season, title_year, is_batch, episode_start, episode_end, batch_scope, absolute_episode, episode_confidence, resolution, source, video_codec, audio_codec, subtitle_type, container, file_size, torrent_url, torrent_file, magnet_resolve_status, magnet_resolve_attempt_id, magnet_resolve_error, magnet_resolve_attempts, magnet_resolve_updated_at, detail_url, published_at, parsed_at, series_id, movie_id, audio_work_id, collection_id, metadata_matched_at, metadata_attempts, last_metadata_attempt_at, metadata_failure_type, confirmation_ignored_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('9ee57dbe-08e5-446c-a4cf-dd5ff60ad4e4', '707f23c6-3b96-4d9a-b402-103b9f7f5080', 'g-1', '[G] Test - 01', None, None, None, None, None, None, None, None, 0, None, None, None, None, None, None, None, None, None, None, None, None, 'https://example.com/t.torrent', None, None, None, None, 0, None, None, None, None, '4aebbf17-153a-4f94-bf80-ca5854511212', None, 'b520d4ce-e145-4645-bf36-1838bb523ead', None, None, 0, None, None, None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+    }
+  ],
+  "skips": [
+    [
+      "tests.unit.test_decision_migration",
+      "test_postgres_startup_rejects_unreviewed_then_accepts_review",
+      "PostgreSQL startup DDL branch; embedded startup tested through CLI subprocess",
+      "<candidate>/tests/unit/test_decision_migration.py:351: PostgreSQL startup DDL branch; embedded startup tested through CLI subprocess"
+    ],
+    [
+      "tests.api.test_api_coverage3.TestResourcesMore",
+      "test_search_metadata_via_manual",
+      "resource-scoped metadata search replaced by /api/v1/metadata/search",
+      "<candidate>/tests/api/test_api_coverage3.py:136: resource-scoped metadata search replaced by /api/v1/metadata/search"
+    ],
+    [
+      "tests.api.test_api_coverage3.TestResourcesMore",
+      "test_link_metadata_error_path",
+      "resource-scoped metadata link replaced by work metadata apply/associations",
+      "<candidate>/tests/api/test_api_coverage3.py:151: resource-scoped metadata link replaced by work metadata apply/associations"
+    ],
+    [
+      "tests.api.test_api_coverage3.TestResourcesMore",
+      "test_link_metadata_movie",
+      "resource-scoped metadata link replaced by work metadata apply/associations",
+      "<candidate>/tests/api/test_api_coverage3.py:162: resource-scoped metadata link replaced by work metadata apply/associations"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_search_404",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:368: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_search_returns_results",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:373: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_search_result_none_genre_coerced",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:387: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_search_forwards_source_and_fallback_sites",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:400: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_search_llm_error_returns_502",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:425: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_link_creates_series",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:435: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_link_404",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:451: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_link_movie_clears_ambiguous",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:456: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ]
+  ],
+  "skips_vs_v26_q": {
+    "added": [],
+    "removed": []
+  },
+  "cleanup_exit": 0,
+  "labels": {
+    "containers": [],
+    "volumes": [],
+    "networks": []
+  },
+  "frozen_count": 6183,
+  "frozen_mismatch": [],
+  "artifacts": {
+    "resource-work-fk-r-run.log.gz": "95854cfe4d2fc5a6070ddd17d50dcb044640f35b3aecf1d71f526871112cb8da",
+    "resource-work-fk-r-unit.xml.gz": "70f8972e14f2f5581ef2e26f3097625b6c1bc97691a992041fd4a75770850224",
+    "resource-work-fk-r-coverage.xml.gz": "ce203940d4756eca3c2cb637acb70638e8fda5e5fd04571ced4d200a21634cb5",
+    "resource-work-fk-r-coverage.gz": "83a3e96f00fda7457886c9f1f8d723eb6807ff64a7cb07f2ffbb430b42135e7e",
+    "resource-work-fk-r-cleanup.log.gz": "ccb8b1e37002670e697dd0436c2d528c5bcbee012d84b0d2ce03b337ae3aa25c"
+  },
+  "required": "Successor legal fixture tests passed; complete successor unit/API and integration gates still required."
+}

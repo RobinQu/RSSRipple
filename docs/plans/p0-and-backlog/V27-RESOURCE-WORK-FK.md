@@ -108,3 +108,15 @@ s 完整集成运行中暴露 `test_local_match_links_without_search` 失败。�
 测试改为两种合法起点（series 或 movie），给合成剧集提供合集归属；仍断言本地匹配不得搜索 Wikipedia，且增加提交/重新读取后检查音频 FK、旧作品 FK 清空、标题和匹配时间。解析器与约束运行代码均不改动。x 整个音频解析集成文件 **12 passed、11.63 秒、退出 0**，全仓无缓存 Ruff 退出 0。该文件沿用原合成音频数据，不冒充录制音频样本；V27 核心约束测试仍保留此前真实录制资源数据。
 
 后继相对已验收基线独立推导为 **15 个有效文件**，v 的十四文件哈希保持，新增差异仅上述测试文件。源/可恢复 tar 见 [x-source](probes/resource-work-fk-x-source.json)，红绿结果见 [w–x](probes/resource-work-fk-w-x-result.json)。未创建新的外部项目，临时 Turso 已由正常退出夹具释放。r/s 原冻结完整门禁继续运行，当前各观察到一个旧夹具失败；实际总数以终态为准。后继尚未启动完整门禁，必须取得旧轮全部结果并清理，再完整重验，不批准合入。
+
+
+## s 完整集成失败轮终态及 y/z 音频详情夹具
+
+s 完整隔离集成已退出 1：**3831 passed、1 failed、17 skipped、25 warnings，2588.70 秒**。JUnit 确认唯一失败就是音频解析旧双 FK 夹具，已在 x 专项修正；覆盖率命令退出 0，**21766/24356 = 89.37%**，不因覆盖率达标宣称通过。两个应用 SIGINT 后均退出 0；五份原始 coverage 数据库、JUnit/语料与 coverage.xml 在清理前成功导出。项目 down 退出 0，所有容器/网络/卷标签为空；全部 6,183 个冻结输入未变，17 项 skips 与 V26 r 完全一致。原始报告及失败 traceback 见 [s-audit](probes/resource-work-fk-s-audit.json)。
+
+r 单元/API 继续运行，另发现音频详情 API 的 audio_work_id+series_id 非法夹具。y 在独立后继原样复现：**1 failed、2.58 秒、退出 1**，错误在 fixture commit，尚未进入详情 HTTP。z 改用合法音频 FK 和可选 collection FK 两种场景，独立 HTTP session 必须正确序列化 collection_name，保留正值关系的 MissingGreenlet 回归；同时明确 series/movie 为空。整个音频 API 文件 **13 passed、26.65 秒、退出 0**，无缓存全仓 Ruff 通过。
+
+最新后继 `/tmp/rssripple-v27-audio-api-hf297dzv` **16 个有效文件**，x 的十五文件哈希未变，本轮仅增加测试文件差异。源码/恢复 tar 见 [z-source](probes/resource-work-fk-z-source.json)，红绿与实际退出见 [y–z](probes/resource-work-fk-y-z-result.json)。这些是三处旧夹具修正，没有放宽 CHECK 或改变运行实现。r 的全部终态和清理仍待取得，后继完整双门禁尚未开始，不批准合入。
+
+
+r 单元/API 现已退出 1：**4179 passed、2 failed、12 skipped、15 warnings，3441.21 秒**；覆盖率 **23596/24356 = 96.88%**。JUnit 确认恰为已修正的 Bangumi 双 FK、音频详情双 FK 两个旧夹具失败，没有额外失败。12 项 skips 与 V26 q 完全一致，全部冻结输入未变；专用 PostgreSQL 清理退出 0，项目容器/网络/卷标签为空。原始 coverage/JUnit/日志及失败消息见 [r-audit](probes/resource-work-fk-r-audit.json)。r/s 都是失败轮，完整验收未达成；现在可冻结 16 文件后继，重新运行完整双门禁。

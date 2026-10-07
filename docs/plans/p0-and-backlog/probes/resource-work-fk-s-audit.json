@@ -1,0 +1,172 @@
+{
+  "accepted": false,
+  "integration_gate_passed": false,
+  "project": "rssripple-v27-final-s",
+  "runner_exit": 1,
+  "passed": 3831,
+  "failed": 1,
+  "skipped": 17,
+  "seconds": 2588.7,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "1",
+    "skipped": "17",
+    "tests": "3849",
+    "time": "2588.272",
+    "timestamp": "2026-10-07T10:50:33.527495+00:00",
+    "hostname": "7346de596309"
+  },
+  "coverage_exit": 0,
+  "coverage": {
+    "lines-covered": "21766",
+    "lines-valid": "24356",
+    "line-rate": "0.8937"
+  },
+  "failures": [
+    {
+      "class": "tests.integration.metadata.test_metadata_audio_resolver_coverage.TestResolveAudioWork",
+      "test": "test_local_match_links_without_search",
+      "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_file_resources_work_fk (19)\n[SQL: INSERT INTO file_resources (id, channel_id, guid, title_raw, title_cn, title_en, search_title, subtitle_group, subtitle_groups_source, episode, season, title_year, is_batch, episode_start, episode_end, batch_scope, absolute_episode, episode_confidence, resolution, source, video_codec, audio_codec, subtitle_type, container, file_size, torrent_url, torrent_file, magnet_resolve_status, magnet_resolve_attempt_id, magnet_resolve_error, magnet_resolve_attempts, magnet_resolve_updated_at, detail_url, published_at, parsed_at, series_id, movie_id, audio_work_id, collection_id, metadata_matched_at, metadata_attempts, last_metadata_attempt_at, metadata_failure_type, confirmation_ignored_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('9c6b704a-c4ae-42cc-ae4b-4ec7e04315fd', '19ade377-acbb-4eba-9c39-62951b25fa0b', '3e3d29e6-85c6-47a6-99ed-a22c1d98d4d1', '[Group] Test ASMR Work - 01', None, None, 'Test ASMR Work', None, None, None, None, None, 0, None, None, None, None, None, None, None, None, None, None, None, None, 'magnet:?xt=urn:btih:abababababababababababababababababababab', None, None, None, None, 0, None, None, None, None, 'e06109f9-d342-4574-98d7-2355115eeb7b', '023a54b5-8a4a-4214-ab3a-e1fdc73cadf4', None, None, None, 0, None, None, None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+    }
+  ],
+  "skips": [
+    [
+      "tests.integration.http.test_api_coverage2.TestMagnetResolve",
+      "test_terminal_retry_flow",
+      "no magnet resolution reached a terminal state in time",
+      "/app/tests/integration/http/test_api_coverage2.py:819: no magnet resolution reached a terminal state in time"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_mapping_structure",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:227: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_mapping_has_torrent_url",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:232: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_mapping_has_title_field",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:238: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_all_rules_have_source_key",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:243: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_confidence_not_low",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:248: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_fetch_succeeded",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:257: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_fetch_created_resources",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:263: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_resources_have_torrent_url",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:269: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_resources_have_title_raw",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:275: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_channel_stream_analyze_also_works",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:281: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_no_duplicates_on_refetch",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:290: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_metadata_api.TestMetadataLink",
+      "test_link_metadata_creates_series",
+      "No metadata API keys configured — cannot perform search+link",
+      "/app/tests/integration/http/test_metadata_api.py:189: No metadata API keys configured — cannot perform search+link"
+    ],
+    [
+      "tests.integration.http.test_task_queue.TestRedisDistributedDedup",
+      "test_status_key_shared_after_enqueue",
+      "No distinct Redis-backed app instance configured",
+      "/app/tests/integration/http/test_task_queue.py:365: No distinct Redis-backed app instance configured"
+    ],
+    [
+      "tests.integration.http.test_task_queue.TestRedisDistributedDedup",
+      "test_redis_job_state_persists_after_done",
+      "No distinct Redis-backed app instance configured",
+      "/app/tests/integration/http/test_task_queue.py:383: No distinct Redis-backed app instance configured"
+    ],
+    [
+      "tests.integration.magnet.test_magnet_resolve_e2e",
+      "test_live_magnet_resolution",
+      "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)",
+      "/app/tests/integration/magnet/test_magnet_resolve_e2e.py:376: live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)"
+    ],
+    [
+      "tests.integration.magnet.test_magnet_resolve_e2e",
+      "test_live_fetch_to_resolve_end_to_end",
+      "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)",
+      "/app/tests/integration/magnet/test_magnet_resolve_e2e.py:387: live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)"
+    ]
+  ],
+  "skips_vs_v26_r": {
+    "added": [],
+    "removed": []
+  },
+  "apps_exit": [
+    0,
+    0
+  ],
+  "export_exit": 0,
+  "cleanup_exit": 0,
+  "labels": {
+    "containers": [],
+    "volumes": [],
+    "networks": []
+  },
+  "frozen_count": 6183,
+  "frozen_mismatch": [],
+  "artifacts": {
+    "resource-work-fk-s-integration.xml.gz": "b540837327110c10a36c0956439d7014e9db0a069219d754a39094ac53061196",
+    "resource-work-fk-s-coverage.xml.gz": "3d1395759d24681ff26d59064f16e8dfec4080611249561e1f1de7359a673b58",
+    "resource-work-fk-s-run.log.gz": "93f3b00e1bab019e6918fbcbfad6a909005cddb0b3398381244dacbc4a7c8ea8",
+    "resource-work-fk-s-coverage.log.gz": "354ebca02d08ff25a8df5a736524c7e81bf3d1fda31b0634ff331b23568cbfd2",
+    "resource-work-fk-s-cleanup.log.gz": "b295858b1e537a5fab4736c7e4a710852d33c0907bc904fce8fe197c03706b61",
+    "resource-work-fk-s-app-exits.log.gz": "935934ad6cb3d371520fec8b8d8b97c2a05fd4ea2443f8fd0ed4d941448343eb",
+    "resource-work-fk-s-coverage.integration.gz": "2ccca63e8cfae8e7d7b82c62108587cb9d2d57e99d1c028d7cba623aae74b844",
+    "resource-work-fk-s-coverage.integration-llm.gz": "31f18f0b2b6ae129d00719620323da99b31cf246448b1f9d6885a41b81ebb1bd",
+    "resource-work-fk-s-coverage.test-runner.gz": "96168bc9514fe0b2293fd1ca7dcf46298beaacdc78fdb56cdee1a0126e858fc0",
+    "resource-work-fk-s-coverage.scripts.gz": "52983033ddb9e2240b3d81f5c189ec68672e8a53dd32b73a75f6daa3b6fb6352",
+    "resource-work-fk-s-coverage.combined.gz": "0a53f8c95273ff118a33a22cd2e7afa108db8720a16f71c45562fa5d3246b41a",
+    "resource-work-fk-s-corpus-scenario-71bf5def93704363.json.gz": "604ee52ca8e7fadb3f84499db79ae2a7868577f317810a1a603f9840a81c0ffb",
+    "resource-work-fk-s-corpus-scenario-db811b734d386cbc.json.gz": "3b03c9b138efa807cbc806d903ed3f063e70ef23dca69ee71fc33173d284a40b",
+    "resource-work-fk-s-corpus-audit.json.gz": "8fcbf563b6f6cb06ca9835affc415cdb02a7d4fb864631ab7bdfc6a99276c431",
+    "resource-work-fk-s-corpus-deepsearch-audit.json.gz": "ca6fecce5f60d498555db9c166806536fa5c1f4600092f7c9caf2e956df81cbc"
+  },
+  "required": "Audio fixture fix exists in successor; full successor integration gate must pass. Coverage alone is not acceptance."
+}

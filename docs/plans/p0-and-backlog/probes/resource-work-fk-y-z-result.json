@@ -1,0 +1,46 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v27-audio-api-hf297dzv",
+  "effective_files": 16,
+  "runs": {
+    "y": {
+      "exit_code": 1,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "1",
+        "skipped": "0",
+        "tests": "1",
+        "time": "2.579",
+        "timestamp": "2026-10-07T11:43:58.643251+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    "z": {
+      "exit_code": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "13",
+        "time": "26.641",
+        "timestamp": "2026-10-07T11:44:47.985380+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    }
+  },
+  "diagnosis": "Illegal audio_work_id+series_id fixture rejected at commit before HTTP",
+  "fix": "Legal audio FK with/without collection; separate HTTP session must serialize collection_name, retaining positive-FK eager loading regression without a forbidden second work FK",
+  "runtime_unchanged": true,
+  "ruff_no_cache_exit": 0,
+  "external_resources": "Only fixture-owned temporary Turso; normal pytest exit",
+  "required": "Complete failed r unit audit and cleanup, then freeze and rerun both full gates on successor",
+  "artifacts": {
+    "resource-work-fk-audio-api-y.log.gz": "0700340a12dddcc11bbb8ecef05c54b151558d82c20054da3980cf005aac35f9",
+    "resource-work-fk-audio-api-y.xml.gz": "ca9d8273305522fe06569886a64501bc201ed352cc8d7c580b318e74174861e4",
+    "resource-work-fk-audio-api-z.log.gz": "2b8cde69bff31a16e6a17bea40aa466d5749f81421182dc246813bef31c17b06",
+    "resource-work-fk-audio-api-z.xml.gz": "4a55a23c44621fc54cd6d7169e41f8ba1b79c080c5e1c641adbbfd2d80789def",
+    "resource-work-fk-audio-api-z-ruff.log.gz": "f3af4d142827f5aad2eb0c72d556d325488a57fb6219aac10afeb51085667d53"
+  }
+}

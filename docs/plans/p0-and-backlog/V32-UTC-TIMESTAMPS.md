@@ -92,3 +92,16 @@ r 全部 time_contract 专项 **78 passed、0 skipped、81.14 秒、退出 0**�
 当前独立候选 `/tmp/rssripple-v32-http-1_gthbwe` **72 个有效文件**，基线仍是此前 storage 候选，未正式重基。源码/可恢复 tar 见 [t-source](probes/utc-contract-t-source.json)，所有红绿报告、skip/退出与清理见 [m–t](probes/utc-contract-m-t-result.json)。conventions/API/notifications/业务逻辑/数据模型/迁移和测试清单已随候选同步。
 
 剩余边界：dashboard 的显式时间断言、资源磁力状态及资源 SSE、既有正确 Agent scan_since 偏移输入回归；继续审阅 Transmission 的 added_date 等自有预序列化字段，避免误改离线审核指纹与历史快照。然后正式重基并执行完整单元/API ≥95% 与隔离集成 ≥85%、零失败、全部生命周期审计及五维终审。当前只是扩大后的专项验证，不关闭 TODO，不批准合入。V27 冻结完整门禁未被改动。
+
+
+## u/v：剩余显式 HTTP 边界与无需修改的格式路径
+
+独立后继 `/tmp/rssripple-v32-boundaries-ber5bcsj` 扩大既有录制文本夹具，补实际 dashboard 决策及嵌套候选时间、磁力状态的预序列化字段、资源分析 SSE。二候选决策符合原不变量，资源文本/下载地址来自固定哈希录制语料，关系与时刻明确合成；磁力 URL、外部文件/元数据与 SSE 生产者在边界替换，不执行外部下载。u 扩大输出文件 **20 passed、22.95 秒、退出 0**。
+
+v 新增 Agent scan_since 双库实际 HTTP/内存队列准入 **16 passed、19.42 秒、退出 0**：正偏移跨年、DST 回拨两种偏移、Z/naive、null 全历史、缺省增量、未来时间 422 且不入队。冻结校验时钟，核对真正入队 payload；不启动 worker，不将其当作运行扫描/恢复验证。该路径原来已正确转换 UTC，本轮没有重复修改实现。
+
+其余 isoformat 使用逐一归类：Transmission SDK 的真实 Torrent.added_date 属性使用 datetime.fromtimestamp(epoch, timezone.utc)，合成 RPC 字段经过实际安装 SDK 及现有 _torrent_to_dict 后保留精确 UTC epoch，输出 +00:00 符合契约，**无需修改**；检查结果在 u/v 审计内。内部 Agent scan_since 和 Redis 存储仍为已约定 naive UTC；离线决策审核导出的时间参与指纹，不能随 API 编码改变；metadata_search/Bangumi 比较中的日期保持纯日期。
+
+全仓无缓存 Ruff 退出 0；专用项目 rssripple-v32-boundaries-u 启动/清理均退出 0，容器/卷/网络标签为空，无 V32 后台测试。后继 **73 个有效文件**由完整 Git 基线重新推导，所有 app/ 文件与 t 候选哈希相同，仅扩大测试/清单。源及恢复 tar 见 [v-source](probes/utc-contract-v-source.json)，原始日志/JUnit、SDK 检查与清理见 [u–v](probes/utc-contract-u-v-result.json)。
+
+计划中的专项边界现已补齐；仍须在前序批次接受后正式重基、完整单元/API ≥95% 与完整隔离集成 ≥85%、零失败，以及最终五维/范围/退出/skip/导出/清理审计。不能以 78 项此前专项和本轮 20/16 项拼成完整门禁，V32 未合入，TODO 保留。

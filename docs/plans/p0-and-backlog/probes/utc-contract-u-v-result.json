@@ -1,0 +1,64 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v32-boundaries-ber5bcsj",
+  "effective_files": 73,
+  "runtime_unchanged_from_t": true,
+  "runs": {
+    "u": {
+      "exit_code": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "20",
+        "time": "22.933",
+        "timestamp": "2026-10-07T11:36:14.598847+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    "v": {
+      "exit_code": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "16",
+        "time": "19.415",
+        "timestamp": "2026-10-07T11:37:49.872356+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    }
+  },
+  "transmission_sdk_inspection": {
+    "input_epoch": 1793514600,
+    "sdk_added_date": "2026-11-01T06:30:00+00:00",
+    "serialized_added_date": "2026-11-01T06:30:00+00:00",
+    "utc_preserved": true,
+    "implementation_change_needed": false,
+    "scope": "actual installed transmission_rpc.Torrent from synthetic RPC fields; no daemon/network claim"
+  },
+  "startup_exit": 0,
+  "cleanup_exit": 0,
+  "labels": {
+    "containers": [],
+    "volumes": [],
+    "networks": []
+  },
+  "ruff_no_cache_exit": 0,
+  "remaining": [
+    "Formal rebase after earlier accepted batches; resolve all scope differences",
+    "Full unit/API >=95% and full isolated integration >=85%, zero failures",
+    "Final five-axis review and complete scope/hash/exit/skip/export/cleanup audit"
+  ],
+  "artifacts": {
+    "utc-contract-boundaries-u.log.gz": "f946aba3442f074fc998242c2f92491b37ec4fe5c20ce00bd8da356fa3916664",
+    "utc-contract-boundaries-u.xml.gz": "983db8a1eb0eb4013b6163f0dc50a534f50643784d1b6a46ad4a6aa7ad5bbb38",
+    "utc-contract-boundaries-v.log.gz": "9d81561c0f1ea6096a86b4091ab38123f6a62e0b1a00404247ac1ff02427529a",
+    "utc-contract-boundaries-v.xml.gz": "344c1425dfb201584633aca207cba34cbdc5e8228e2a732f752d799749ad4f2d",
+    "utc-contract-boundaries-v-startup.log.gz": "e9f15a1a682b1aec5db8ea33be70ceb5c47960eb1e8610c12c6c487a43c4cfb5",
+    "utc-contract-boundaries-v-cleanup.log.gz": "9240780ec0608173c58bcdabc27b83be614883030083d15a174cce68a745cf69",
+    "utc-contract-boundaries-v-ruff.log.gz": "f3af4d142827f5aad2eb0c72d556d325488a57fb6219aac10afeb51085667d53"
+  }
+}

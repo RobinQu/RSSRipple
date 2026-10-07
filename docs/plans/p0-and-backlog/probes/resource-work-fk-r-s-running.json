@@ -10,7 +10,7 @@
   "preflight": "resource-work-fk-q-result.json",
   "ruff_no_cache_exit": 0,
   "unit": {
-    "status": "running",
+    "status": "failed_audited",
     "session": 29886,
     "log": "/tmp/rssripple-v27-unit-r.log",
     "junit": "/tmp/rssripple-v27-unit-r.xml",
@@ -21,14 +21,22 @@
     "postgres_port": 32881,
     "startup_exit": 0,
     "threshold": 95,
-    "cleanup": "pending",
+    "cleanup": "complete",
     "observed_failures": [
-      "tests/unit/test_bangumi_relations.py::test_seed_subjects_from_all_sources"
+      "tests/unit/test_bangumi_relations.py::test_seed_subjects_from_all_sources",
+      "tests/api/test_audio_works.py::test_audio_work_detail_with_linked_resources"
     ],
-    "failure_observation": "Independent t reproduces CHECK ck_file_resources_work_fk on old same-row series/movie fixture. Successor uses valid primary alternatives; targeted u 77 and strengthened v 3 pass. Await complete r/s failures; original frozen unchanged."
+    "failure_observation": "Independent t/y reproduce illegal multi-work FK fixtures; successor has legal source alternatives and positive optional collection serialization coverage. Await r terminal and complete audit.",
+    "exit_code": 1,
+    "passed": 4179,
+    "failed": 2,
+    "skipped": 12,
+    "seconds": 3441.21,
+    "coverage": "96.88%",
+    "audit": "resource-work-fk-r-audit.json"
   },
   "integration": {
-    "status": "running",
+    "status": "failed_audited",
     "session": 96075,
     "project": "rssripple-v27-final-s",
     "compose": "/tmp/rssripple-v27-rebased-q3o9mg4x/docker-compose.integration-isolated.yml",
@@ -36,11 +44,18 @@
     "log": "/tmp/rssripple-v27-integration-s.log",
     "startup_exit": 0,
     "threshold": 85,
-    "cleanup": "pending",
+    "cleanup": "complete",
     "observed_failures": [
       "tests/integration/metadata/test_metadata_audio_resolver_coverage.py::TestResolveAudioWork::test_local_match_links_without_search"
     ],
-    "failure_observation": "Independent w confirms illegal fixture insert before resolver; x complete audio file 12 passed with committed series-to-audio/movie-to-audio transitions."
+    "failure_observation": "Independent w confirms illegal fixture insert before resolver; x complete audio file 12 passed with committed series-to-audio/movie-to-audio transitions.",
+    "exit_code": 1,
+    "passed": 3831,
+    "failed": 1,
+    "skipped": 17,
+    "seconds": 2588.7,
+    "coverage": "89.37%",
+    "audit": "resource-work-fk-s-audit.json"
   },
   "image": "rssripple-v20-tests:local",
   "startup_artifacts": {
@@ -49,13 +64,14 @@
   },
   "warning": "Require terminal zero-failure results, skip comparison to V26 q/r, full frozen input and effective scope verification, coverage exit codes, application exits, raw artifact export before cleanup, and empty project labels. Do not merge from preflight alone.",
   "successor": {
-    "candidate": "/tmp/rssripple-v27-audio-xfc1jaw8",
-    "source": "resource-work-fk-x-source.json",
+    "candidate": "/tmp/rssripple-v27-audio-api-hf297dzv",
+    "source": "resource-work-fk-z-source.json",
     "targeted_results": [
       "resource-work-fk-t-v-result.json",
-      "resource-work-fk-w-x-result.json"
+      "resource-work-fk-w-x-result.json",
+      "resource-work-fk-y-z-result.json"
     ],
-    "effective_files": 15,
+    "effective_files": 16,
     "full_gates_started": false,
     "runtime_unchanged": true
   }
