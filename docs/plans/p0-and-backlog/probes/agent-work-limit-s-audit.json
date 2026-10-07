@@ -1,0 +1,26 @@
+{
+  "exit": 0,
+  "passed": 3355,
+  "skipped": 17,
+  "warnings": 11,
+  "seconds": 2102.69,
+  "coverage_exit": 0,
+  "coverage": {
+    "lines-covered": "21187",
+    "lines-valid": "23936",
+    "line-rate": "0.8852"
+  },
+  "app_exits": [
+    0,
+    0
+  ],
+  "export_exit": 0,
+  "skip_same_as_CORS_r": true,
+  "frozen_count": 3252,
+  "frozen_changes": [],
+  "cleanup_exit": 0,
+  "cleanup": "containers/networks/volumes absent",
+  "accepted": false,
+  "remaining": "unit r still running",
+  "warning_review": "Three additional record_property/xunit2 compatibility warnings; all three actual PG lock-wait properties are retained in JUnit. Other eight warnings match prior gate categories."
+}

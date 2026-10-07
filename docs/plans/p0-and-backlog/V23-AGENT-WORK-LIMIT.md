@@ -74,3 +74,7 @@ o 15 项重放单元通过。新增生命周期测试读取大于 1 MiB 的真�
 组合候选 `/tmp/rssripple-v23-combined-jvco65ot`，3252 输入冻结；十一文件增量仍与 q 源码清单一致，前置 CORS 3247 冻结输入也未变。全仓 Ruff 通过。完整单元/API r 会话 48627，专用 PG rssripple-v23-unit-pg-r（32862）；独立集成 s 会话 26798，唯一项目 rssripple-v23-final-s，依赖启动退出 0。正式报告将在测试与两路应用正常结束后运行。
 
 实时路径/句柄与收尾契约见 `probes/agent-work-limit-r-s-running.json`。CORS q/r 自身仍在跑；B6 可提前执行组合门禁以验证交互，但最终必须先验收 CORS，再核对 main 与 B6 base_hashes 完全一致。前置若修改则按差异重新对齐验证，不能以 B6 组合通过掩盖 CORS 独立失败。当前不合入、TODO 不关闭。
+
+## s 完整集成审计（2026-10-07）
+
+s 完整集成已退出 0：**3355 passed、17 skipped、11 warnings，2102.69 秒**。两个应用正常 SIGINT 退出 0/0；最终覆盖率 **21187/23936（88.52%）**，85% 门禁退出 0。17 个跳过身份/原因与 CORS r 一致，3252 个冻结输入无变化；导出/down 均退出 0，专用项目 rssripple-v23-final-s 的容器/网络/卷已清理。证据见 [s audit](probes/agent-work-limit-s-audit.json)。r 单元/API 仍运行，B6 尚未验收合入。

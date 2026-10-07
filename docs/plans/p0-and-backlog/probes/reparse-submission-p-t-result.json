@@ -1,0 +1,326 @@
+{
+  "p": {
+    "tests": 4,
+    "failures": 0,
+    "errors": 0,
+    "properties": [
+      {
+        "name": "actual_postgres_blocking_observed",
+        "value": "True"
+      },
+      {
+        "name": "responses",
+        "value": "200,409"
+      },
+      {
+        "name": "actual_redis_execution_ownership",
+        "value": "True"
+      },
+      {
+        "name": "metadata_provider",
+        "value": "synthetic blocked coroutine"
+      },
+      {
+        "name": "response_loss",
+        "value": "none"
+      },
+      {
+        "name": "queue_terminal_status",
+        "value": "done"
+      },
+      {
+        "name": "actual_redis_execution_ownership",
+        "value": "True"
+      },
+      {
+        "name": "metadata_provider",
+        "value": "synthetic blocked coroutine"
+      },
+      {
+        "name": "response_loss",
+        "value": "injected after real enqueue"
+      },
+      {
+        "name": "queue_terminal_status",
+        "value": "done"
+      },
+      {
+        "name": "actual_redis_execution_ownership",
+        "value": "True"
+      },
+      {
+        "name": "metadata_provider",
+        "value": "synthetic blocked coroutine"
+      },
+      {
+        "name": "response_loss",
+        "value": "none"
+      },
+      {
+        "name": "queue_terminal_status",
+        "value": "failed"
+      }
+    ]
+  },
+  "q": {
+    "tests": 2,
+    "failures": 0,
+    "errors": 0,
+    "properties": [
+      {
+        "name": "child_exit",
+        "value": "97"
+      },
+      {
+        "name": "crash_phase",
+        "value": "before_enqueue"
+      },
+      {
+        "name": "recovered_actual_redis_job",
+        "value": "True"
+      },
+      {
+        "name": "metadata_provider",
+        "value": "synthetic; first process killed while blocked"
+      },
+      {
+        "name": "child_exit",
+        "value": "-9"
+      },
+      {
+        "name": "crash_phase",
+        "value": "during_handler"
+      },
+      {
+        "name": "recovered_actual_redis_job",
+        "value": "True"
+      },
+      {
+        "name": "metadata_provider",
+        "value": "synthetic; first process killed while blocked"
+      }
+    ]
+  },
+  "r": {
+    "tests": 2,
+    "failures": 1,
+    "errors": 0,
+    "properties": [
+      {
+        "name": "backend",
+        "value": "postgresql"
+      },
+      {
+        "name": "production_migration_reruns",
+        "value": "2"
+      },
+      {
+        "name": "legacy_manual_marker_preserved",
+        "value": "True"
+      },
+      {
+        "name": "unique_constraint_and_cascade",
+        "value": "True"
+      },
+      {
+        "name": "request_transaction_rollback",
+        "value": "True"
+      }
+    ]
+  },
+  "s": {
+    "tests": 2,
+    "failures": 0,
+    "errors": 0,
+    "properties": [
+      {
+        "name": "backend",
+        "value": "postgresql"
+      },
+      {
+        "name": "production_migration_reruns",
+        "value": "2"
+      },
+      {
+        "name": "legacy_manual_marker_preserved",
+        "value": "True"
+      },
+      {
+        "name": "unique_constraint_and_cascade",
+        "value": "True"
+      },
+      {
+        "name": "request_transaction_rollback",
+        "value": "True"
+      },
+      {
+        "name": "backend",
+        "value": "sqlite"
+      },
+      {
+        "name": "production_migration_reruns",
+        "value": "2"
+      },
+      {
+        "name": "legacy_manual_marker_preserved",
+        "value": "True"
+      },
+      {
+        "name": "unique_constraint_and_cascade",
+        "value": "True"
+      },
+      {
+        "name": "request_transaction_rollback",
+        "value": "True"
+      }
+    ]
+  },
+  "t": {
+    "tests": 8,
+    "failures": 0,
+    "errors": 0,
+    "properties": [
+      {
+        "name": "child_exit",
+        "value": "97"
+      },
+      {
+        "name": "crash_phase",
+        "value": "before_enqueue"
+      },
+      {
+        "name": "recovered_actual_redis_job",
+        "value": "True"
+      },
+      {
+        "name": "metadata_provider",
+        "value": "synthetic; first process killed while blocked"
+      },
+      {
+        "name": "child_exit",
+        "value": "-9"
+      },
+      {
+        "name": "crash_phase",
+        "value": "during_handler"
+      },
+      {
+        "name": "recovered_actual_redis_job",
+        "value": "True"
+      },
+      {
+        "name": "metadata_provider",
+        "value": "synthetic; first process killed while blocked"
+      },
+      {
+        "name": "backend",
+        "value": "postgresql"
+      },
+      {
+        "name": "production_migration_reruns",
+        "value": "2"
+      },
+      {
+        "name": "legacy_manual_marker_preserved",
+        "value": "True"
+      },
+      {
+        "name": "unique_constraint_and_cascade",
+        "value": "True"
+      },
+      {
+        "name": "request_transaction_rollback",
+        "value": "True"
+      },
+      {
+        "name": "backend",
+        "value": "sqlite"
+      },
+      {
+        "name": "production_migration_reruns",
+        "value": "2"
+      },
+      {
+        "name": "legacy_manual_marker_preserved",
+        "value": "True"
+      },
+      {
+        "name": "unique_constraint_and_cascade",
+        "value": "True"
+      },
+      {
+        "name": "request_transaction_rollback",
+        "value": "True"
+      },
+      {
+        "name": "actual_postgres_blocking_observed",
+        "value": "True"
+      },
+      {
+        "name": "responses",
+        "value": "200,409"
+      },
+      {
+        "name": "actual_redis_execution_ownership",
+        "value": "True"
+      },
+      {
+        "name": "metadata_provider",
+        "value": "synthetic blocked coroutine"
+      },
+      {
+        "name": "response_loss",
+        "value": "none"
+      },
+      {
+        "name": "queue_terminal_status",
+        "value": "done"
+      },
+      {
+        "name": "actual_redis_execution_ownership",
+        "value": "True"
+      },
+      {
+        "name": "metadata_provider",
+        "value": "synthetic blocked coroutine"
+      },
+      {
+        "name": "response_loss",
+        "value": "injected after real enqueue"
+      },
+      {
+        "name": "queue_terminal_status",
+        "value": "done"
+      },
+      {
+        "name": "actual_redis_execution_ownership",
+        "value": "True"
+      },
+      {
+        "name": "metadata_provider",
+        "value": "synthetic blocked coroutine"
+      },
+      {
+        "name": "response_loss",
+        "value": "none"
+      },
+      {
+        "name": "queue_terminal_status",
+        "value": "failed"
+      }
+    ]
+  },
+  "notes": {
+    "p": "Formal integration harness; four pass, 2.64s.",
+    "q": "Actual child os._exit(97) after DB commit and SIGKILL(-9) during handler; two pass, 3.82s. Metadata provider synthetic.",
+    "r": "PostgreSQL passes; Turso probe used same stem for main and FTS files, causing native log collision. Not accepted.",
+    "s": "Production-style distinct FTS stem fixes probe; both actual upgrade entry points pass, 2.66s. Transaction rollback only, not deployment downgrade.",
+    "t": "Entire formal integration group passes: eight tests, 8.23s, zero skips."
+  },
+  "cleanup": {
+    "scratch_postgres_databases_remaining": [],
+    "postgres_p_stop_exit": 0,
+    "redis_p_stop_exit": 0,
+    "containers_auto_remove": true
+  }
+}

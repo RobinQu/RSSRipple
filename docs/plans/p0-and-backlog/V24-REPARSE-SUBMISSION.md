@@ -60,3 +60,15 @@ k 原并发探针强求数据库立即抛冲突异常，遇到唯一插入等待
 o 扩大生命周期验收 **12 passed，25.32 秒**，新增每批最多 50 项且下批处理余项、认领提交先于投递、故障退避 30→1800 秒封顶、不持久化异常中的凭证、成功清错误、完成确认早于入队响应时不复活请求。所有结果与失败尝试见 [i–o 审计](probes/reparse-submission-i-o-result.json)，19 文件候选见 [o source](probes/reparse-submission-o-source.json)。
 
 下一轮须将当前位于 API 测试目录的 Redis 探针整理为完整集成默认收集的专用 harness（避免全局 sleep 补丁影响消费者），补实际失权/进程崩溃恢复、升级回滚及历史标记盘点、录制元数据回放，再执行完整双门禁。当前仅独立候选，仍不可关闭 B8。
+
+## p–t：正式集成、实际崩溃与双库升级
+
+已把 Redis worker 探针迁至 `tests/integration/resources/`，自有 PG/HTTP 夹具不导入 API conftest 的 sleep 加速。默认集成收集包含本组；严格门禁缺少显式测试 PostgreSQL/Redis 即失败。每测创建并删除 PG scratch DB；Redis 使用专用测试服务 DB14，仅删除本例已知键，不清空其他 DB。p 四项正式集成通过，2.64 秒。
+
+q 两项实际子进程崩溃恢复通过，3.82 秒：提交请求后 os._exit(97)，新扫描补发；worker 已持有真实 Redis 执行权并进入元数据替身后 SIGKILL(-9)，等原消费者租约到期，新 worker 恢复同一 Redis job_id 并确认请求。两例人工忽略均保留；元数据提供者仍为明确合成替身，不是录制管线回放。
+
+r 升级首轮 PostgreSQL 通过，Turso 夹具的主库 reparse.db 与侧库 reparse.fts 同 stem 导致日志路径冲突，失败保留、不计作通过。s 将侧库改为生产同款不同 stem reparse_fts.db 后，**双库两项通过，2.66 秒**。调用真实 create_tables 两次，验证请求数据与历史人工标记保留、数据库唯一约束、请求事务 rollback 和 FK cascade；不将事务 rollback 宣称为应用版本回滚。
+
+t 对整个正式目录重跑，**8 passed，8.23 秒，零跳过、退出 0**。专用 PG 中 scratch DB 查询为空，PG/Redis 两容器均停止 0 并自动删除。原始日志/JUnit/属性见 [p–t 审计](probes/reparse-submission-p-t-result.json)，候选见 [t source](probes/reparse-submission-t-source.json)。源码仍基于 V21，基线哈希保留原记录；后续须与已合入 CORS 及待验收 B6 重基，尤其不能直接覆盖新权威文档。
+
+下一步：历史标记只读盘点/保守迁移策略、部署回滚兼容、录制元数据管线回放、组合基线与完整双门禁；B8 未合入、未关闭。
