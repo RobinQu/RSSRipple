@@ -1,0 +1,70 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v29-sort-0flp49gg",
+  "source_unchanged": true,
+  "p": {
+    "exit": 0,
+    "passed": 127,
+    "skipped": 3,
+    "seconds": 173.16,
+    "suite": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "3",
+      "tests": "130",
+      "time": "173.102",
+      "timestamp": "2026-10-07T08:17:11.645863+00:00",
+      "hostname": "dl-workstation-albert"
+    }
+  },
+  "q": {
+    "exit": 0,
+    "passed": 8,
+    "skipped": 0,
+    "deselected": 42,
+    "seconds": 2.35,
+    "suite": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "8",
+      "time": "2.124",
+      "timestamp": "2026-10-07T08:23:06.773399+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "project": "rssripple-v29-migration-q",
+    "postgres_port": 32873,
+    "startup_exit": 0,
+    "cleanup_exit": 0,
+    "labels": {
+      "containers": [],
+      "networks": [],
+      "volumes": []
+    }
+  },
+  "p_skips_all_passed_in_q": true,
+  "skipped_nodes": [
+    [
+      "tests.unit.test_database_migrations",
+      "test_create_tables_postgres_path"
+    ],
+    [
+      "tests.unit.test_database_migrations",
+      "test_light_migrations_postgres_legacy_shapes"
+    ],
+    [
+      "tests.unit.test_database_migrations",
+      "test_light_migrations_postgres_legacy_delivery_columns_nullable"
+    ]
+  ],
+  "artifacts": {
+    "turso-pagination-locked-p.log.gz": "1edcfc395b9330bbee73e8c44d84106401bd95d25ed76c732261d59347c13a53",
+    "turso-pagination-locked-p.xml.gz": "a20e3677af82b960680c528d2f544170276a43df57c744f4222cd4f3887e652b",
+    "turso-pagination-postgres-q.log.gz": "9a778cc037bdd1b05d1850461e826762faa4bff4b12a99ea0e81db2f427ce107",
+    "turso-pagination-postgres-q.xml.gz": "c8fea45cf0ee90ec5b89ff245f994b3a4d00b15c1ac080f0b950d7585db34d3a",
+    "turso-pagination-postgres-q-cleanup.log.gz": "78696d4935a93686a48d560c8fd0bc23aa1741173664ba01549fffda86d4adc1"
+  },
+  "remaining": "parent rebase, full zero-failure gates and final review; not accepted"
+}

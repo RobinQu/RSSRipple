@@ -1,0 +1,41 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v26-rebased-ocnef6py",
+  "main_base": "bad67423dbe6f1af645e701a0ad70c6be4498a61",
+  "effective_files": 10,
+  "frozen_count": 5987,
+  "frozen": "poster-publication-m-frozen.json",
+  "source": "poster-publication-m-source.json",
+  "ruff_no_cache_exit": 0,
+  "unit": {
+    "status": "running",
+    "session": 21008,
+    "log": "/tmp/rssripple-v26-unit-n.log",
+    "junit": "/tmp/rssripple-v26-unit-n.xml",
+    "coverage": "/tmp/rssripple-v26-unit-n-coverage.xml",
+    "coverage_data": "/tmp/rssripple-v26-unit-n.coverage",
+    "postgres_project": "rssripple-v26-unit-n",
+    "postgres_compose": "/tmp/rssripple-v25-compose.yml",
+    "postgres_port": 32874,
+    "startup_exit": 0,
+    "preflight_exit": 0,
+    "preflight_passed": 8,
+    "threshold": 95,
+    "cleanup": "pending"
+  },
+  "integration": {
+    "status": "running",
+    "session": 79868,
+    "project": "rssripple-v26-final-o",
+    "compose": "/tmp/rssripple-v26-rebased-ocnef6py/docker-compose.integration-isolated.yml",
+    "runner": "rssripple-v26-final-o-runner",
+    "log": "/tmp/rssripple-v26-integration-o.log",
+    "startup_first_exit": 1,
+    "startup_first_error": "no such service: postgres; rejected before runner start",
+    "startup_corrected_exit": 0,
+    "threshold": 85,
+    "cleanup": "pending"
+  },
+  "image": "rssripple-v20-tests:local",
+  "warning": "Frozen input immutable. Require both zero-failure gates, hash/skip/coverage/actual-exit/export/cleanup audit. Named runner must be exported before removal."
+}

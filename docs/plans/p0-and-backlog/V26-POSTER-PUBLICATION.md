@@ -55,3 +55,12 @@ V25 az 已确认实际回填重试耗尽，原 k 的父候选不能接受。V25 
 
 
 l 预组合完成：**264 passed、0 skipped、2 warnings，392.54 秒，退出 0**。新 V25 准入逻辑与 V26 海报发布在完整 metadata/franchise/external_ids 单元回归、录制资源竞争和全部海报集成中通过；57 文件组合源码哈希未变，日志/JUnit/源码存档见 `probes/poster-publication-l-result.json`、`l-source.json`。仍不能替代 V25 bm/bn 终态或 V26 自身完整门禁；父候选未接受前不正式合入。
+
+
+## 正式重基与完整门禁 m/n/o
+
+V25 已以 `bad6742` 完整验收合入。本轮重新确认必要性：已录制 JPEG 和真实短写/截断/崩溃证据证明旧代码会把残缺最终文件直接作为命中；P2 定位不变。10 文件补丁正式重基到该提交，唯一文档冲突是测试清单尾部追加，经共同基线前缀验证保留两方内容；运行代码无冲突。候选 `/tmp/rssripple-v26-rebased-ocnef6py`，5987 输入冻结，10 文件源码及 tar 可恢复。
+
+五维复核：同目录唯一 O_EXCL 临时文件、长度/哈希收据和两次原子替换保证完整内容发布；中断间隙不匹配收据会失效重取，保留既有权限/umask。发布/校验封装在 poster_cache，HTTP 与磁盘移到现有工作线程；不增加依赖，来源校验沿用现有出站约束。命中增加完整文件哈希读取成本，但不阻塞事件循环；不宣称断电持久性或自动回收崩溃临时文件。真实 JPEG、故障、两线程/两进程和静态响应测试在既有专项中覆盖。全仓无缓存 Ruff 通过。
+
+专用 PostgreSQL 预检 8 passed、退出 0；完整 n 单元/API ≥95%、o 隔离集成 ≥85% 已启动。o 首次启动误用服务名 postgres，在校验阶段退出 1；按实际 queue-recovery-postgres/queue-recovery-redis 修正后健康启动退出 0，没有重复 runner。续接见 [n/o](probes/poster-publication-n-o-running.json)。允许完整验收，不批准合入；两道零失败门禁与所有终态审计仍待完成。

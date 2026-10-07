@@ -46,3 +46,8 @@ i 使用旧驱动生成可离线测试的真实格式数据库 gzip，保存 man
 m 新增的“普通 B-tree 会使 fts_match 报错”假设被真实执行推翻（7 passed/1 failed，退出 1）。保留原始测试/日志，不改运行代码去迎合错误断言；n 改为升级 helper 边界的真实缺表 SQL 错误，证明非格式异常向外传播且不 DROP 其他索引，并补缺失索引重建：**8 passed、2.05 秒、退出 0**。这不宣称能检测任意索引定义漂移。k/n 均使用新驱动临时安装目录，后续仍需独立锁定环境和完整门禁。
 
 11 个有效文件（含权威设计/测试清单更新）已归档，可叠加在 V25 bq 恢复。源码与结果见 [n 候选清单](probes/turso-pagination-n-source.json)、[i–n 原始证据](probes/turso-pagination-i-n-result.json)。当前仅候选，尚未合入运行代码；父批验收、完整升级回归和全量双门禁继续保留。
+
+
+## o–q：独立锁定环境补验
+
+uv sync --locked 在 `/tmp/rssripple-v29-venv` 成功退出 0，pyturso 0.8.2 / SQLAlchemy 2.0.51。p 的迁移、FTS、分页和快照恢复专项 **127 passed、3 skipped、173.16 秒、退出 0**。三项跳过均因未提供 PostgreSQL，随后在独立 `rssripple-v29-migration-q` 补跑 PostgreSQL 子集：**8 passed、0 skipped、42 deselected、2.35 秒、退出 0**，逐节点确认覆盖全部三项原跳过。专用库清理退出 0，标签资源均空，11 个候选文件哈希不变。见 [p/q 结果](probes/turso-pagination-p-q-result.json)。仍为专项回归，不代替正式父批重基和完整门禁。
