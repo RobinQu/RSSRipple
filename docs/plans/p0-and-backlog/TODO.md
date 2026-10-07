@@ -40,7 +40,7 @@
 
 ## P2
 
-- [ ] `resource_cleanup._stale_unresolved_where` 忽略权威关联，已实际复现自动/手动清理删除合集待确认及人工多作品资源；补条件后又复现 PostgreSQL 等待 FK 锁后用旧快照删除。V21 已补双库、真实 API/scheduler、跨批次回滚测试；又复现 Turso 先写快照下提交后留下孤儿关联，新增父行写屏障及升级事务保护，专项 q 103 项、s 41 项、u 2 项通过，仍须最终审查与完整门禁，见 [V21](V21-CLEANUP-ASSOCIATIONS.md)。
+- [x] `resource_cleanup._stale_unresolved_where` 权威关联保护：已验收合入本地 main `938a7fb`。保留合集、作品链接和人工/已绑定文件指派，补 PG 锁重查及 Turso 父行版本屏障；真实录制数据、双库并发、升级回滚通过。完整 v 单元/API 4078 项、97.05%；w 集成 3319 项、88.49%，零失败，跳过/哈希/退出/清理审计完成，见 [V21](V21-CLEANUP-ASSOCIATIONS.md)。
 
 - [ ] **P1-S4 CORS 通配 + 凭证且中间件顺序错**：`app/main.py:220-226` `allow_origins=["*"]` +
       `allow_credentials=True`，Starlette 反射 Origin 携带 Cookie；Auth 中间件先于 CORS 执行，预检被 401、

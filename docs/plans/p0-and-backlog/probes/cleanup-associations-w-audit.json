@@ -1,0 +1,21 @@
+{
+  "exit": 0,
+  "passed": 3319,
+  "skipped": 17,
+  "warnings": 8,
+  "seconds": 2108.99,
+  "coverage_exit": 0,
+  "coverage": {
+    "lines-covered": "21104",
+    "lines-valid": "23849",
+    "line-rate": "0.8849"
+  },
+  "app_exits": [
+    0,
+    0
+  ],
+  "export_exit": 0,
+  "skip_same_as_S1_ak": true,
+  "cleanup": "complete",
+  "cleanup_exit": 0
+}

@@ -1,5 +1,7 @@
 # V21：过期资源清理保留权威关联
 
+验收终态：已合入本地 main `938a7fb`，未推送。v 完整单元/API 4078 passed、12 skipped、97.05%；w 完整集成 3319 passed、17 skipped、88.49%，零失败。冻结、跳过、应用退出、正式覆盖率、导出与环境清理审计完成。原始日志/XML/coverage 与机器审计见 `probes/cleanup-associations-v*`、`-w*`。下文阶段性未完成描述为历史记录。
+
 最新状态：已三方对齐 S1 主干 `6bf8c1c`，新候选 `/tmp/rssripple-v21-rebased-176jhgxl`，十四文件无冲突，完整 v/w 门禁已启动（单元会话 75854；集成日志/退出跟踪会话 81087）。冻结与源码见 `probes/cleanup-associations-v-*`，五维审查见 [V21-REVIEW](V21-REVIEW.md)。未合入。
 
 历史原型：必要性已复现，独立原型 `/tmp/rssripple-v21-cleanup-fs3vtp33`，基于已验收 main 运行代码 `b0e2ce1`；未合入、未完整验收。S1 ah/ai 门禁期间未修改其冻结目录。最新 V21 十四文件候选/基线哈希见 `probes/cleanup-associations-u-source.json`，可从同名前缀 candidate.tar.gz 恢复。

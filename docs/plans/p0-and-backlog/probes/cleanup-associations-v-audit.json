@@ -1,0 +1,17 @@
+{
+  "exit": 0,
+  "passed": 4078,
+  "skipped": 12,
+  "warnings": 3,
+  "seconds": 2321.73,
+  "coverage": {
+    "lines-covered": "23146",
+    "lines-valid": "23849",
+    "line-rate": "0.9705"
+  },
+  "frozen_count": 3240,
+  "frozen_changes": [],
+  "skip_same_as_S1_ah_after_candidate_root_normalization": true,
+  "skip_notes": "Raw skip text differs only by absolute candidate root; identities, reasons, file paths and line numbers unchanged",
+  "postgres_cleanup_exit": 0
+}
