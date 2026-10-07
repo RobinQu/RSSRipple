@@ -1,0 +1,60 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v31-i18n-7p8trjqe",
+  "baseline": {
+    "a_exit": 1,
+    "b_exit": 1,
+    "b_observed_en_US_title": "搜索并刷新元数据"
+  },
+  "intermediate_failures": {
+    "c": "Missing-message error fixture normalized by API client; corrected fallback fixture to explicit null error",
+    "d_e_f": "Ant Design hidden loading icon affects accessible button name; Chinese two-character button spacing also covered by final selector"
+  },
+  "browser_g": {
+    "exit": 0,
+    "passed_flows": 6
+  },
+  "browser_h": {
+    "exit": 0,
+    "passed_flows": 6,
+    "languages": [
+      "en-US",
+      "zh-CN"
+    ],
+    "applied_counts": [
+      0,
+      1,
+      2
+    ],
+    "server_message_preserved": true,
+    "payload_contract_asserted": true,
+    "runtime_page_errors": 0
+  },
+  "build_exit": 0,
+  "eslint_full_exit": 0,
+  "eslint_targeted_d_exit": 0,
+  "vite_shutdown_exit": 130,
+  "vite_shutdown": "intentional SIGINT after all browser contexts closed",
+  "data": "Recorded movie title/identity from fixed-hash prod_works_v1; API responses, work ID, field changes and failures synthetic. Component/browser integration only.",
+  "remaining": [
+    "formal rebase after preceding batches",
+    "complete unit/API >=95% and integration >=85%, zero failures",
+    "final scope/hash/exit/skip/export/cleanup audit and merge review"
+  ],
+  "artifacts": {
+    "metadata-refresh-i18n-a.log.gz": "bd8ac3d71173e19f978b838a150fac9eb624b4da2539577edd8908708b1c8bda",
+    "metadata-refresh-i18n-b.log.gz": "2454a987f7188d7af3b5dba328f242baaad251feb5395098e88f15588092259f",
+    "metadata-refresh-i18n-c.log.gz": "1160a46b07d23d83230b02240b3259029e9945da0b9841dd4e5c6a5c652ccbf7",
+    "metadata-refresh-i18n-d.log.gz": "8e647d4abd534c33a1ae0011b015018141fc35d1376b6069bc65d0f525f0db1b",
+    "metadata-refresh-i18n-e.log.gz": "d608a74c33642913e6287acf7f99cbe4730d0bd2fa9032d31aa6aa5915bc0528",
+    "metadata-refresh-i18n-f.log.gz": "801b1887ff008403698ac698c9127fbc88c5378fd92546f9e02ade891eca8129",
+    "metadata-refresh-i18n-g.log.gz": "f06ab6a07bddc8a9592cd220e1806d1803ca7bd0523bde778f563dc959a3b756",
+    "metadata-refresh-i18n-h.log.gz": "0784f525b7af4287dd1aab1b1f2f77ace756e8a181d0cf2fcbac9396345c1b32",
+    "metadata-refresh-i18n-build.log.gz": "94867ce9c05726d66c6a3e5132593720d1fa6f7c8a0b4518c95b36cb53e86831",
+    "metadata-refresh-i18n-eslint.log.gz": "7b1e5b1e939611cc5c54bf6dfd57f005cd2d35c6241a00d88f0f304e580cc4b4",
+    "metadata-refresh-i18n-eslint-d.log.gz": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+    "metadata-refresh-i18n-eslint-full.log.gz": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+    "metadata-refresh-i18n-tsc.log.gz": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+    "metadata-refresh-i18n-vite.log.gz": "fe627c68be55668fba49eaef37d38702f7edf75f72873cd07843fd2f56b34aac"
+  }
+}
