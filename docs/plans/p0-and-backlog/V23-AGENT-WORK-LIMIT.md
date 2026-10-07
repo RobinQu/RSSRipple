@@ -40,3 +40,11 @@ d 加真实双请求测试，控制两请求在实际 flush 前完成 count=9 �
 原限时探针修复后返回 200，entered/body-read 重复两次。f 真实 API/Turso 8 passed，13.26 秒；并发用例记录真实 DatabaseError 1 次、响应 [201,400]，最终 10 条。g 17 passed / 45 deselected，1.88 秒，覆盖既有重试中间件契约、空体/分块/大于 1 MiB/部分读取、响应开始、断连、取消、非锁错误和次数上限。g 的冲突是合成单元输入，真实冲突证据仅来自 f。
 
 已在候选同步 API/业务/错误处理/测试清单。重试层无法撤销端点此前提交或外部副作用，仍依赖已有幂等和事务边界，不能宣称通用事务安全。九文件源码/基线及候选归档见 `probes/agent-work-limit-g-*`。剩余：PostgreSQL 与 add/replace/scope 混合并发、反向规则确认兼容、请求重放的完整回归、五维审查和完整 ≥95%/≥85% 双门禁。V21/V22 均未混入本候选。
+
+## PostgreSQL 与 Turso 混合编辑并发（h–k）
+
+h 三项因下载器夹具缺 download_dir 失败，非产品缺陷。修正后 i add/add、replace/add 通过，scope/add 未经过显式 flush 暂停点而超时，属于测试协调问题。j 改为取得真实父行锁后暂停第一请求，通过 pg_blocking_pids 观察第二请求等待后才释放，三项全部通过（2.19 秒）；第二请求均 400，最终 10 条且限定范围。scratch 库 fixture finally 删除，专用 rssripple-v23-pg-h 停止 --rm 清理，退出 0。
+
+k 对应扩大 Turso 三种场景：第一请求取得父行写屏障后暂停，第二请求真实可重试 DatabaseError 触发放行，再由生产 HTTP 层重放；add/add、replace/add、scope/add 均保持 10 条，分别 [201,400]/[200,400]/[200,400]。连同顺序边界共 10 passed，16.92 秒；finally 取消并收拢所有未完成测试任务。两种数据库都未伪造 SQL 输出或锁异常。Ruff 通过。
+
+十文件候选/基线和原始 h–k 证据见 `probes/agent-work-limit-k-*`、`-pg-*`。继续检查拒绝操作的完整副作用、既有决策确认兼容；待 CORS 验收后将本候选三方对齐新 main（当前仍基于 S1），执行五维审查及完整双门禁，尚未合入。
