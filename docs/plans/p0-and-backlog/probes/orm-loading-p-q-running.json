@@ -1,0 +1,51 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v30-rebased-sznr_fn7",
+  "main_base": "07633cd47558c7350f084867450eb5c0ab829d35",
+  "source": "orm-loading-o-source.json",
+  "frozen": "orm-loading-o-frozen.json",
+  "scope": "orm-loading-o-scope.json",
+  "preflight": "orm-loading-o-result.json",
+  "image": "rssripple-v29-tests:local",
+  "image_id": "sha256:9f79b2a0d7b37b8e52545b7d0582df5474ecbf3ff93ebdbd2633fa6cbacf3985",
+  "unit": {
+    "status": "running",
+    "session": 30903,
+    "venv": "/workspace/dropbox/github/robinqu/RSSRipple/.venv",
+    "log": "/tmp/rssripple-v30-unit-p.log",
+    "junit": "/tmp/rssripple-v30-unit-p.xml",
+    "coverage_xml": "/tmp/rssripple-v30-unit-p-coverage.xml",
+    "coverage_data": "/tmp/rssripple-v30-unit-p.coverage",
+    "postgres_project": "rssripple-v30-unit-p",
+    "postgres_compose": "/tmp/rssripple-v27-compose.yml",
+    "postgres_port": 32896,
+    "startup_exit": 0,
+    "threshold": 95,
+    "cleanup": "pending"
+  },
+  "integration": {
+    "status": "running",
+    "session": 79513,
+    "project": "rssripple-v30-final-q",
+    "compose": "/tmp/rssripple-v30-rebased-sznr_fn7/docker-compose.integration-isolated.yml",
+    "runner": "rssripple-v30-final-q-runner",
+    "log": "/tmp/rssripple-v30-integration-q.log",
+    "startup_exit": 0,
+    "threshold": 85,
+    "cleanup": "pending"
+  },
+  "actual_app_images": {
+    "app": {
+      "image": "sha256:9f79b2a0d7b37b8e52545b7d0582df5474ecbf3ff93ebdbd2633fa6cbacf3985",
+      "healthy": true,
+      "container": "3d68ac1a05b5"
+    },
+    "app-llm": {
+      "image": "sha256:9f79b2a0d7b37b8e52545b7d0582df5474ecbf3ff93ebdbd2633fa6cbacf3985",
+      "healthy": true,
+      "container": "4e48594625fa"
+    }
+  },
+  "lock_sha256": "40eb42674db4b72aedaecc7f7fc3ded572e50d51d3f440cb663a7bc2cacaa6c2",
+  "required": "Compare skips against accepted V29 t/u; verify actual exits, zero failures, full frozen inputs and Git scope, app exits, export coverage and corpus before cleanup, empty project labels and final review before merge."
+}

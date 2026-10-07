@@ -1,0 +1,23 @@
+{
+  "candidate": "/tmp/rssripple-v30-rebased-sznr_fn7",
+  "main_base": "07633cd47558c7350f084867450eb5c0ab829d35",
+  "git_derived_effective_files": [
+    "app/api/v1/agents.py",
+    "app/api/v1/channels.py",
+    "app/job_handlers.py",
+    "app/models/agent.py",
+    "app/models/channel.py",
+    "app/schemas/agent.py",
+    "app/services/agent_service.py",
+    "app/services/fetch_service.py",
+    "docs/design/api-endpoints.md",
+    "docs/design/business-logic.md",
+    "docs/design/data-models.md",
+    "docs/testing/integration-inventory.md",
+    "tests/integration/loading/conftest.py",
+    "tests/integration/loading/test_list_boundaries.py"
+  ],
+  "frozen_count": 6454,
+  "non_plan_inputs": 3306,
+  "new_python_files_covered": true
+}

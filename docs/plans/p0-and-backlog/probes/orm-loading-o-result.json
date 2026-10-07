@@ -1,0 +1,34 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v30-rebased-sznr_fn7",
+  "main_base": "07633cd47558c7350f084867450eb5c0ab829d35",
+  "source": "orm-loading-o-source.json",
+  "frozen": "orm-loading-o-frozen.json",
+  "scope": "orm-loading-o-scope.json",
+  "tests": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "16",
+    "time": "33.796",
+    "timestamp": "2026-10-07T14:09:05.309821+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "passed": 16,
+  "seconds": 34.04,
+  "actual_exit": 0,
+  "ruff_no_cache_exit": 0,
+  "frozen_inputs_verified": 6454,
+  "cleanup": {
+    "startup_exit": 0,
+    "down_exit": 0,
+    "project": "rssripple-v30-preflight-o",
+    "labels": {
+      "containers": [],
+      "networks": [],
+      "volumes": []
+    }
+  },
+  "runtime_main_changed": false
+}

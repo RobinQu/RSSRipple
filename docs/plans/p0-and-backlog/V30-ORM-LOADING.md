@@ -1,6 +1,6 @@
 # V30 列表与校验路径的 ORM 加载边界
 
-状态：已形成 14 文件独立候选，双库与调用方专项通过，尚未正式重基/完整验收或合入，未关闭 P1-D7（当前 P2）。V26 全量门禁保持原冻结输入；本批不能借用其他批次通过结果。
+状态：o 已正式重基至 V29 验收后的 `07633cd`，14 文件/6454 输入冻结，重基后双库预检 16 项通过、零跳过、34.04 秒、退出 0，预检项目已清理。p/q 完整单元/API 与隔离集成现已启动，结果未定，未关闭 P1-D7（当前 P2），未合入本批运行代码。当前入口：[运行记录](probes/orm-loading-p-q-running.json)。以下保留早期阶段记录。
 
 ## 必要性与优先级复核
 
@@ -58,3 +58,11 @@ n 将同一正式测试放回未修改 main：双库列表加载边界与全范�
 最终 14 文件包含八个运行文件、两个正式测试文件及四份权威设计/测试清单。全仓无缓存 Ruff 通过，源码与 tar 归档可恢复：[l 源](probes/orm-loading-l-source.json)、[f–l 证据](probes/orm-loading-f-l-result.json)、[j–n 终态](probes/orm-loading-j-n-result.json)。专用 PG rssripple-v30-tests-f 已清理，标签资源为空。所有本轮测试句柄已终态，下一轮不重复轮询。
 
 阶段审查：正确性边界已经从冷列表扩展到预加载图、全范围规则和事务后入队；公开 schema 防止历史图/下载器密码被偶然序列化。规则集合在业务需要处读取，默认查询不承担隐含 IO；页内聚合没有逐行 COUNT。没有新增依赖或 DDL，既有 FK/cascade 未变。批量加载开销仍随实际返回作品配置而增长，这是接口自身数据量，不能声称所有响应恒定大小。仍需正式重基及完整双门禁、全部相关 API/后台生命周期覆盖与最终终审；**本批未批准合入**。
+
+## o–q 正式重基与完整门禁
+
+必要性再核对：新主干的八个相关运行文件仍与原型旧基线一致，V25–V29 没有替代此加载修复；保留已有实际 API 红/绿与录制数据证据，仍为 P2。o 从 Git 导出完整 `07633cd`，应用已存档的 l 候选；运行实现与测试原样保留，data-models 三方合并无冲突，测试清单按已证明的旧基线完整前缀追加后保留主干全部 V29 内容。V25 离线脚本补齐、V26/V27 和 V29 驱动/FTS 修复均继承。
+
+重基候选 `/tmp/rssripple-v30-rebased-sznr_fn7`，指针 `/tmp/rssripple-v30-rebased-path`。独立比较 Git 对象推导 14 个有效文件，冻结全仓 6454 输入（3306 个非计划输入），全部 app/tests/scripts 新 Python 文件已包含。无缓存 Ruff 通过。使用 pyturso 0.8.2 的实际双库列表/全范围/入队事务边界 16 项全部通过，预检 PG `rssripple-v30-preflight-o` 已清理、标签为空。证据：[o 预检](probes/orm-loading-o-result.json)、[源码](probes/orm-loading-o-source.json)、[冻结](probes/orm-loading-o-frozen.json)、[独立范围](probes/orm-loading-o-scope.json)。
+
+p 完整单元/API 会话 30903，专用 PG `rssripple-v30-unit-p`（32896）；q 完整集成会话 79513，项目 `rssripple-v30-final-q`，保留 runner 供导出。两次 startup 均退出 0。锁文件与已验收 V29 相同，复用 `rssripple-v29-tests:local`；实际 app/app-llm 镜像摘要均核对为 `sha256:9f79b2a0d7b37b8e52545b7d0582df5474ecbf3ff93ebdbd2633fa6cbacf3985`，健康检查通过。不得修改在跑候选、因观察超时重启，或在实际退出/覆盖率/清理和最终审查前关闭待办。后续跳过基线为 V29 t/u；完整续接信息见 [p/q](probes/orm-loading-p-q-running.json)。

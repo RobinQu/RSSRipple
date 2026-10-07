@@ -1,0 +1,81 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v30-rebased-sznr_fn7",
+  "main_base": "07633cd47558c7350f084867450eb5c0ab829d35",
+  "parent_source": "orm-loading-l-source.json",
+  "effective_files": 14,
+  "files": {
+    "app/models/agent.py": {
+      "base": "2f40a1e0beba244855660b97aea8d5fa846f689598c0c4c42d6ec39f4674135e",
+      "candidate": "aabe47538da5eeec4e87baf8e9877def045a38f7aa69c2baab5561ece5659353"
+    },
+    "app/models/channel.py": {
+      "base": "7134cfe961d28967fd56ecf76381ad179f5f1cd1b04d86d99441407b7de89778",
+      "candidate": "0ee4bb77b4b8d292ad574efa4dd19f176681aed710f3db376230857dcad98b65"
+    },
+    "app/schemas/agent.py": {
+      "base": "f5a4656e6313d609390a6ce55c7ac2759cfbfba839c6b3991c4cf2b16e9af2a0",
+      "candidate": "64e51548a429fe31abffee98e15bdc32c38f774755b06f0539ce0e40b7fbbf3c"
+    },
+    "app/api/v1/agents.py": {
+      "base": "26c9e31424fdf9548f5d0f5cb28a6dd39465b971e570c434fdab07115924192f",
+      "candidate": "25ba4924e50ae96bfa71f42d4c18b2c597cbf3156eef1713093f26d1112d73e1"
+    },
+    "app/api/v1/channels.py": {
+      "base": "702cd2997aaeaeac48e976f7f996ed0072f508eadcacb2868f117f0142adb9b6",
+      "candidate": "26c650e7cbd239de22b808d3bedd54519ede282928d2005f7c3416beaea38cdc"
+    },
+    "app/services/fetch_service.py": {
+      "base": "ff1ab4e16dc3a864c8b07effc80a08fe18bf89a4e15407d03b556c25a92bdbb7",
+      "candidate": "c8ffef075a8a05c19ea48ea703b30abfc5c9ebd83820321c844b6397b6953945"
+    },
+    "tests/integration/loading/conftest.py": {
+      "base": null,
+      "candidate": "1af208bac415c346535b8a6d4704c5d734893d0e378fabf0e47b4e81efdeed6f"
+    },
+    "tests/integration/loading/test_list_boundaries.py": {
+      "base": null,
+      "candidate": "87ef698687cbe88e13b50348d07b36d206b936d7f8842f71ba3079935f455947"
+    },
+    "app/services/agent_service.py": {
+      "base": "3e8b19af166d343e79b9acf51f3a757be7fc3be04ac841ae54d8eee8028081fb",
+      "candidate": "e2813e55897827eee1abfe338199ec60494c4aa25aa71f6ae7eb3a440d3022a8"
+    },
+    "app/job_handlers.py": {
+      "base": "a721846f2e09b9d6d45deb419e4bd97bfe539b4c88fa61b2e7375b3ce4b0a5f0",
+      "candidate": "50e923ef11feba7ebd24cea67ec32a978df5860f0354c56629c398676cc54144"
+    },
+    "docs/design/data-models.md": {
+      "base": "e0cdcfc1ee9b3ae4b557770740bf2652d9099187f864d8187cb9810846189bf1",
+      "candidate": "969eb05604b0f0832706e0bee342d31560b641ed823be04686e4f653620311bd"
+    },
+    "docs/design/api-endpoints.md": {
+      "base": "f960cc0d142c9340d7b3382264449c29029a1523b27446e26ec642af2a8a4472",
+      "candidate": "1fc03f7dd7b720b8c667b12fa1a0ef6b94dbb512d672eb6ea352a20139ebe88b"
+    },
+    "docs/design/business-logic.md": {
+      "base": "a849bf30d59fb22ee37b2930cd307786aa0a49c1319e3977e6f3500d76e3e1ff",
+      "candidate": "d3b4e977b97924aba97d2dae854651aec0a1b0c7dcb12105072b711d940dd2d9"
+    },
+    "docs/testing/integration-inventory.md": {
+      "base": "01f2a51cfc83160d887af1fbc6ae3afc46423f56a9eafa7f4ff2e349deac2ef4",
+      "candidate": "658a1c556718419bb54f99684ff8afee577146d8876838a4927b88988080b09d"
+    }
+  },
+  "rebase_resolution": {
+    "app/models/agent.py": "base unchanged",
+    "app/models/channel.py": "base unchanged",
+    "app/schemas/agent.py": "base unchanged",
+    "app/api/v1/agents.py": "base unchanged",
+    "app/api/v1/channels.py": "base unchanged",
+    "app/services/fetch_service.py": "base unchanged",
+    "tests/integration/loading/conftest.py": "base unchanged",
+    "tests/integration/loading/test_list_boundaries.py": "base unchanged",
+    "app/services/agent_service.py": "base unchanged",
+    "app/job_handlers.py": "base unchanged",
+    "docs/design/data-models.md": "three-way clean",
+    "docs/design/api-endpoints.md": "base unchanged",
+    "docs/design/business-logic.md": "base unchanged",
+    "docs/testing/integration-inventory.md": "retain current; append proven incoming suffix"
+  }
+}
