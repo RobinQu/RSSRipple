@@ -388,3 +388,8 @@ M3 候选 `metadata/test_wiki_failure_cache.py`：专用 PostgreSQL scratch data
 CORS/来源防护扩展覆盖不可信 Origin/Referer/Fetch Metadata、真实 logout Set-Cookie 副作用、同源与白名单退出、合法请求模型自动 422。Chromium 的独立回环探针使用生产 TOTP 登录及临时 Turso：拒绝来源 logout 后仍 authenticated=true，白名单 logout 后 authenticated=false。该探针记录在 V22 计划证据中，已整理为下述可移植入口；不把浏览器 API 无法返回的请求头作为 Cookie 未发送证据。
 
 可复用浏览器入口为 `tests/browser/cors_fixture_server.py` 与 `tests/browser/cors_policy.cjs`，运行及依赖说明见同目录 README。真实临时数据库在退出时删除，浏览器与页面服务 finally 关闭。专项新增重复 Origin/Referer、伪造转发头、受信代理还原的 HTTPS scope、GZip/Vary 与 poster 挂载认证。
+Agent 作品上限专项通过真实 API/Turso 检查更新后的有效 scope/works；并发添加用例协调真实 SQL 前的时序，观察实际数据库冲突并由生产 HTTP 中间件重试，最终 201/400 且总数 10。请求重放单元矩阵的 DatabaseError 为明确合成，覆盖分块/大请求/部分读取、响应已发送、取消和上限；不能将其作为真实数据库冲突证据。PostgreSQL 与混合编辑并发证据见下述双库扩大验证。
+
+Agent 上限双库扩大验证：`agents/test_work_limit_postgres.py` 对 add/add、replace/add、scope/add 调用真实生产 API 与 get_db，观察 pg_blocking_pids 确实等待后再释放父锁，第二请求重新读取并拒绝超限。专用 scratch DB finally 删除，完整门禁 REQUIRED=1 缺 PG 必须失败。对应 Turso API 场景观察真实 DatabaseError 和生产 HTTP 重放，保留 10 条；两种数据库都不以伪造 SQL 结果或锁异常替代证据。
+
+`tests/api/test_request_replay_production.py` 通过完整 app.main ASGI 栈、认证/GZip/真实 get_db 和临时 Turso 验证小体及大于 1 MiB 的请求：首次 flush 后注入明确合成冲突，重放后新会话只查到一条 Movie。用于生产栈与事务回滚组合验证，不将注入冲突混作真实 MVCC 证据。

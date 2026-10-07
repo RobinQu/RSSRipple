@@ -401,6 +401,16 @@ async def update_agent(agent_id: str, body: AgentUpdate, db: AsyncSession = Depe
     data = body.model_dump(exclude_unset=True)
     new_works = data.pop("works", None)
     dispatch_resource_ids = data.pop("dispatch_resource_ids", None)
+    # Validate the resulting state before mutating fields, replacing links or
+    # advancing backfill progress. A scope-only edit may activate the limit.
+    effective_scope = data.get("scope_channel_wide", agent.scope_channel_wide)
+    effective_works = new_works if new_works is not None else agent.works
+    if not effective_scope and len(effective_works) > 10:
+        return JSONResponse(status_code=422, content={
+            "success": False, "data": None,
+            "error": {"code": "VALIDATION_ERROR", "message": "Maximum 10 works"},
+            "meta": {},
+        })
     # Validate only the payloads being changed (exclude_unset semantics):
     # an untouched stored filter is not re-validated here. The channel
     # gate uses the effective channel (a channel switch in the same payload
@@ -826,7 +836,15 @@ async def rules_preview(body: RulesPreviewRequest, db: AsyncSession = Depends(ge
 async def _lock_agent_rules(db: AsyncSession, agent_id: str) -> None:
     """Serialize rule/membership edits with final decision confirmation."""
     with db.no_autoflush:
-        await db.execute(select(Agent.id).where(Agent.id == agent_id).with_for_update(key_share=True))
+        if db.get_bind().dialect.driver == "aioturso":
+            # Turso ignores FOR UPDATE. Touch the shared parent before reading
+            # membership, so competing edits conflict and retry the request.
+            # Preserve metadata timestamps: only advance the MVCC row version.
+            from sqlalchemy import text
+
+            await db.execute(text("UPDATE agents SET id = id WHERE id = :id"), {"id": agent_id})
+        else:
+            await db.execute(select(Agent.id).where(Agent.id == agent_id).with_for_update(key_share=True))
 
 
 async def _get_work(agent_id: str, work_id: str, db: AsyncSession) -> AgentWork | None:

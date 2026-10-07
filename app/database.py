@@ -157,27 +157,9 @@ def install_db_retry_middleware(app):
     if not is_turso_url(settings.database_url):
         return app
 
-    from fastapi import Request, Response
+    from app.middleware.db_retry import DatabaseRetryMiddleware
 
-    @app.middleware("http")
-    async def _db_lock_retry_middleware(request: Request, call_next):
-        last_exc: Exception | None = None
-        for attempt in range(_MAX_DB_RETRIES):
-            try:
-                response: Response = await call_next(request)
-                return response
-            except DatabaseError as e:
-                last_exc = e
-                if not _is_retryable_lock_error(e):
-                    raise
-                if attempt == _MAX_DB_RETRIES - 1:
-                    raise
-                delay = _backoff_delay(attempt)
-                logger.debug("database is locked in request — retrying in %.0f ms (attempt %d/%d)",
-                             delay * 1000, attempt + 1, _MAX_DB_RETRIES)
-                await asyncio.sleep(delay)
-        raise last_exc or AssertionError("unreachable")
-
+    app.add_middleware(DatabaseRetryMiddleware)
     return app
 
 

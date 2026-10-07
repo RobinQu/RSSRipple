@@ -551,3 +551,6 @@ POST /api/v1/auth/otp 在验证码验证前预留持久额度：每来源 5 次/
 对 `/api/v1/` 的非 GET/HEAD/OPTIONS 请求，在认证和业务副作用前核验来源：Origin 必须为当前请求同源或 `CORS_ALLOWED_ORIGINS` 精确白名单；拒绝 null、非法或重复 Origin。没有 Origin 时核验 Referer 的 origin；两者皆无时拒绝 Sec-Fetch-Site 明确 cross-site/same-site。完全没有浏览器来源信息的程序端调用保持兼容；来源可信不能代替认证。显式 API-key 头不会绕过不可信来源限制，避免伪造空头使 Cookie 保护失效。
 
 拒绝返回 403 `FORBIDDEN`、统一响应结构，不执行登录/退出或业务写入，不发送清 Cookie 头。CORS 仍决定浏览器是否可读该响应；不可信来源一般只能观察 fetch 失败。反向代理需正确传递并由受信代理配置还原外部 scheme/Host；不得把任意外部 Forwarded 头直接当可信 origin。
+### Agent 更新有效作品数
+
+PUT `/agents/{id}` 在字段/作品替换及回填副作用前按更新后状态检查：scope_channel_wide=false 时最多 10 个 AgentWork。works 未传或 null 保留原列表，空数组清空；切范围也检查保留的作品数。超限返回 422 VALIDATION_ERROR，保留原字段、关联与消费进度。频道全范围仍可保留超过 10 条配置。
