@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="14" skipped="0" tests="16" time="15.169" timestamp="2026-10-07T16:40:00.176663+00:00" hostname="dl-workstation-albert"><testcase classname="tests.integration.time_contract.test_range" name="test_postgres_range_rejection[run-0001-01-01T00:00:00+08:00]" time="0.508"><failure message="AssertionError: Internal Server Error&#10;assert 500 == 422&#10; +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code">tests/integration/time_contract/test_range.py:70: in test_postgres_range_rejection
+    await check_rejection(dedup_postgres, monkeypatch, route, stamp)
+tests/integration/time_contract/test_range.py:61: in check_rejection
+    assert response.status_code == 422, response.text
+E   AssertionError: Internal Server Error
+E   assert 500 == 422
+E    +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code</failure></testcase><testcase classname="tests.integration.time_contract.test_range" name="test_postgres_range_rejection[run-9999-12-31T23:59:59-08:00]" time="0.409"><failure message="AssertionError: Internal Server Error&#10;assert 500 == 422&#10; +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code">tests/integration/time_contract/test_range.py:70: in test_postgres_range_rejection
+    await check_rejection(dedup_postgres, monkeypatch, route, stamp)
+tests/integration/time_contract/test_range.py:61: in check_rejection
+    assert response.status_code == 422, response.text
+E   AssertionError: Internal Server Error
+E   assert 500 == 422
+E    +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code</failure></testcase><testcase classname="tests.integration.time_contract.test_range" name="test_postgres_range_rejection[retry-0001-01-01T00:00:00+08:00]" time="0.409"><failure message="AssertionError: Internal Server Error&#10;assert 500 == 422&#10; +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code">tests/integration/time_contract/test_range.py:70: in test_postgres_range_rejection
+    await check_rejection(dedup_postgres, monkeypatch, route, stamp)
+tests/integration/time_contract/test_range.py:61: in check_rejection
+    assert response.status_code == 422, response.text
+E   AssertionError: Internal Server Error
+E   assert 500 == 422
+E    +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code</failure></testcase><testcase classname="tests.integration.time_contract.test_range" name="test_postgres_range_rejection[retry-9999-12-31T23:59:59-08:00]" time="0.433"><failure message="AssertionError: Internal Server Error&#10;assert 500 == 422&#10; +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code">tests/integration/time_contract/test_range.py:70: in test_postgres_range_rejection
+    await check_rejection(dedup_postgres, monkeypatch, route, stamp)
+tests/integration/time_contract/test_range.py:61: in check_rejection
+    assert response.status_code == 422, response.text
+E   AssertionError: Internal Server Error
+E   assert 500 == 422
+E    +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code</failure></testcase><testcase classname="tests.integration.time_contract.test_range" name="test_postgres_range_rejection[regenerate-0001-01-01T00:00:00+08:00]" time="0.450"><failure message="AssertionError: Internal Server Error&#10;assert 500 == 422&#10; +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code">tests/integration/time_contract/test_range.py:70: in test_postgres_range_rejection
+    await check_rejection(dedup_postgres, monkeypatch, route, stamp)
+tests/integration/time_contract/test_range.py:61: in check_rejection
+    assert response.status_code == 422, response.text
+E   AssertionError: Internal Server Error
+E   assert 500 == 422
+E    +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code</failure></testcase><testcase classname="tests.integration.time_contract.test_range" name="test_postgres_range_rejection[regenerate-9999-12-31T23:59:59-08:00]" time="0.401"><failure message="AssertionError: Internal Server Error&#10;assert 500 == 422&#10; +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code">tests/integration/time_contract/test_range.py:70: in test_postgres_range_rejection
+    await check_rejection(dedup_postgres, monkeypatch, route, stamp)
+tests/integration/time_contract/test_range.py:61: in check_rejection
+    assert response.status_code == 422, response.text
+E   AssertionError: Internal Server Error
+E   assert 500 == 422
+E    +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code</failure></testcase><testcase classname="tests.integration.time_contract.test_range" name="test_turso_range_rejection[run-0001-01-01T00:00:00+08:00]" time="2.297"><failure message="AssertionError: Internal Server Error&#10;assert 500 == 422&#10; +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code">tests/integration/time_contract/test_range.py:76: in test_turso_range_rejection
+    await check_rejection(dedup_turso, monkeypatch, route, stamp)
+tests/integration/time_contract/test_range.py:61: in check_rejection
+    assert response.status_code == 422, response.text
+E   AssertionError: Internal Server Error
+E   assert 500 == 422
+E    +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code</failure></testcase><testcase classname="tests.integration.time_contract.test_range" name="test_turso_range_rejection[run-9999-12-31T23:59:59-08:00]" time="1.969"><failure message="AssertionError: Internal Server Error&#10;assert 500 == 422&#10; +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code">tests/integration/time_contract/test_range.py:76: in test_turso_range_rejection
+    await check_rejection(dedup_turso, monkeypatch, route, stamp)
+tests/integration/time_contract/test_range.py:61: in check_rejection
+    assert response.status_code == 422, response.text
+E   AssertionError: Internal Server Error
+E   assert 500 == 422
+E    +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code</failure></testcase><testcase classname="tests.integration.time_contract.test_range" name="test_turso_range_rejection[retry-0001-01-01T00:00:00+08:00]" time="1.727"><failure message="AssertionError: Internal Server Error&#10;assert 500 == 422&#10; +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code">tests/integration/time_contract/test_range.py:76: in test_turso_range_rejection
+    await check_rejection(dedup_turso, monkeypatch, route, stamp)
+tests/integration/time_contract/test_range.py:61: in check_rejection
+    assert response.status_code == 422, response.text
+E   AssertionError: Internal Server Error
+E   assert 500 == 422
+E    +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code</failure></testcase><testcase classname="tests.integration.time_contract.test_range" name="test_turso_range_rejection[retry-9999-12-31T23:59:59-08:00]" time="2.022"><failure message="AssertionError: Internal Server Error&#10;assert 500 == 422&#10; +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code">tests/integration/time_contract/test_range.py:76: in test_turso_range_rejection
+    await check_rejection(dedup_turso, monkeypatch, route, stamp)
+tests/integration/time_contract/test_range.py:61: in check_rejection
+    assert response.status_code == 422, response.text
+E   AssertionError: Internal Server Error
+E   assert 500 == 422
+E    +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code</failure></testcase><testcase classname="tests.integration.time_contract.test_range" name="test_turso_range_rejection[regenerate-0001-01-01T00:00:00+08:00]" time="2.078"><failure message="AssertionError: Internal Server Error&#10;assert 500 == 422&#10; +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code">tests/integration/time_contract/test_range.py:76: in test_turso_range_rejection
+    await check_rejection(dedup_turso, monkeypatch, route, stamp)
+tests/integration/time_contract/test_range.py:61: in check_rejection
+    assert response.status_code == 422, response.text
+E   AssertionError: Internal Server Error
+E   assert 500 == 422
+E    +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code</failure></testcase><testcase classname="tests.integration.time_contract.test_range" name="test_turso_range_rejection[regenerate-9999-12-31T23:59:59-08:00]" time="2.082"><failure message="AssertionError: Internal Server Error&#10;assert 500 == 422&#10; +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code">tests/integration/time_contract/test_range.py:76: in test_turso_range_rejection
+    await check_rejection(dedup_turso, monkeypatch, route, stamp)
+tests/integration/time_contract/test_range.py:61: in check_rejection
+    assert response.status_code == 422, response.text
+E   AssertionError: Internal Server Error
+E   assert 500 == 422
+E    +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code</failure></testcase><testcase classname="tests.integration.time_contract.test_range" name="test_unrepresentable_mapped_feed_time_is_invalid[0001-01-01T00:00:00+08:00]" time="0.002"><failure message="OverflowError: date value out of range">tests/integration/time_contract/test_range.py:81: in test_unrepresentable_mapped_feed_time_is_invalid
+    assert _apply_transform(stamp, 'iso_datetime') is None
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/resource_parser.py:257: in _apply_transform
+    return naive_utc(datetime.fromisoformat(value))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/utils/time.py:10: in naive_utc
+    return value.astimezone(UTC).replace(tzinfo=None)
+           ^^^^^^^^^^^^^^^^^^^^^
+E   OverflowError: date value out of range</failure></testcase><testcase classname="tests.integration.time_contract.test_range" name="test_unrepresentable_mapped_feed_time_is_invalid[9999-12-31T23:59:59-08:00]" time="0.002"><failure message="OverflowError: date value out of range">tests/integration/time_contract/test_range.py:81: in test_unrepresentable_mapped_feed_time_is_invalid
+    assert _apply_transform(stamp, 'iso_datetime') is None
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/resource_parser.py:257: in _apply_transform
+    return naive_utc(datetime.fromisoformat(value))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/utils/time.py:10: in naive_utc
+    return value.astimezone(UTC).replace(tzinfo=None)
+           ^^^^^^^^^^^^^^^^^^^^^
+E   OverflowError: date value out of range</failure></testcase><testcase classname="tests.integration.time_contract.test_range" name="test_representable_boundary_instants_remain_valid[0001-01-01T08:00:00+08:00-expected0]" time="0.001" /><testcase classname="tests.integration.time_contract.test_range" name="test_representable_boundary_instants_remain_valid[9999-12-31T15:59:59-08:00-expected1]" time="0.001" /></testsuite></testsuites>

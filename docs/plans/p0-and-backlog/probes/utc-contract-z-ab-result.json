@@ -1,0 +1,108 @@
+{
+  "accepted": false,
+  "range_candidate": "/tmp/rssripple-v32-range-klaw53xo",
+  "red_initial": {
+    "actual_exit": 1,
+    "failed": 16,
+    "seconds": 15.2,
+    "note": "Includes two over-constrained positive assertions on pre-existing Agent schema; not all failures are product defects."
+  },
+  "red_corrected": {
+    "actual_exit": 1,
+    "failed": 14,
+    "passed": 2,
+    "seconds": 15.19,
+    "scope": "Twelve real HTTP 500 responses across run/retry/regenerate and both backends, two field mapping OverflowErrors."
+  },
+  "aa": {
+    "actual_exit": 1,
+    "status": "intentionally interrupted before the fixed-name migration tests to avoid shared PostgreSQL conflict with x",
+    "signal": "SIGINT",
+    "secondary_teardown_error": "pytest tmp_path stash KeyError during interruption; not a product result",
+    "partial_tests": 39
+  },
+  "ab": {
+    "session": 71167,
+    "project": "rssripple-v32-range-ab",
+    "postgres_port": 32906,
+    "status": "passed; followed by successful production validation handler confirmation ac",
+    "log": "/tmp/rssripple-v32-ab-targeted.log",
+    "actual_exit": 0,
+    "passed": 443,
+    "skipped": 0,
+    "warnings": 2,
+    "seconds": 266.54
+  },
+  "original_full_gates": {
+    "status": "superseded and deliberately interrupted after reproduced range defect; not accepted",
+    "x": {
+      "actual_exit": 1,
+      "partial_passed": 796,
+      "partial_skipped": 1,
+      "interruption": "SIGINT; secondary pytest tmp_path stash KeyError"
+    },
+    "y": {
+      "actual_exit": 2,
+      "partial_passed": 358,
+      "warnings": 9,
+      "seconds": 633.21,
+      "app_exits": [
+        0,
+        0
+      ]
+    },
+    "cleanup": {
+      "rssripple-v32-rebase-w": {
+        "down_exit": 0,
+        "labels": {
+          "container": [],
+          "network": [],
+          "volume": []
+        }
+      },
+      "rssripple-v32-final-y": {
+        "down_exit": 0,
+        "labels": {
+          "container": [],
+          "network": [],
+          "volume": []
+        }
+      }
+    },
+    "first_unit_signal_attempt": "exact executable prefix failed to match Python wrapper; no signal sent. Second exact argv+process-name match sent SIGINT."
+  },
+  "w_frozen_inputs_verified": 6639,
+  "ac": {
+    "actual_exit": 0,
+    "passed": 20,
+    "skipped": 0,
+    "seconds": 7.75,
+    "production_validation_handler": true,
+    "ruff_exit": 0,
+    "source": "utc-contract-ac-source.json",
+    "frozen_files": 6647,
+    "nonplan_files": 3321
+  },
+  "full_gates": {
+    "unit": {
+      "session": 31484,
+      "project": "rssripple-v32-range-ab",
+      "postgres_port": 32906,
+      "log": "/tmp/rssripple-v32-ad-unit.log",
+      "junit": "/tmp/rssripple-v32-ad-unit.xml",
+      "coverage": "/tmp/rssripple-v32-ad-unit-coverage.xml",
+      "status": "running; actual exit not yet known"
+    },
+    "integration": {
+      "startup_session": 30713,
+      "startup_exit": 0,
+      "runner_session": 55604,
+      "project": "rssripple-v32-final-ae",
+      "log": "/tmp/rssripple-v32-ae-integration.log",
+      "image": "sha256:9f79b2a0d7b37b8e52545b7d0582df5474ecbf3ff93ebdbd2633fa6cbacf3985",
+      "app_health": "healthy",
+      "app_llm_health": "healthy",
+      "status": "running; actual exit not yet known"
+    }
+  }
+}

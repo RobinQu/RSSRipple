@@ -1,5 +1,7 @@
 # V32 UTC 存储与时间输出（P2，必要性已验证）
 
+> 最新：w 的完整门禁因 z 新红测发现极端时间输入缺陷而主动结束，不能验收。后继 ac 候选为 76 文件，扩大 ab 443 项和生产错误码 ac 20 项通过；已重新冻结并启动 ad/ae 完整门禁，结果未定。运行代码尚未合入。
+
 ## 重新论证
 
 naive DateTime 本身不是充分的缺陷证据：本项目的 `utcnow()` 明确返回 naive UTC，现存 PostgreSQL 列为 timestamp without time zone，应用内部已有该约定。实际问题是数据库 `now()` 转入该列时服从会话时区，与 Python UTC 值混用；此外部分 HTTP 时间没有 UTC 标识。不能仅把模型改成 timezone=True 而不迁移旧列或修正调用方。
@@ -118,3 +120,18 @@ w 完整 time_contract 与既有数据库迁移文件共 **150 passed、0 skippe
 冻结 **6639 个文件（3320 个非计划输入）**后启动 x 完整单元/API（95% 门禁）与 y 完整隔离集成（随后汇总覆盖率 85% 门禁）。x 会话 42577；唯一 PG 项目 `rssripple-v32-rebase-w`、宿主端口 32905。y 启动会话 53912 已实际退出 0，六个服务均健康；测试会话 94565，项目 `rssripple-v32-final-y`。实际应用镜像均为已验收锁定依赖镜像 `sha256:9f79b2a0d7b37b8e52545b7d0582df5474ecbf3ff93ebdbd2633fa6cbacf3985`。完整测试仍在运行，尚无通过结论；候选不再改动。
 
 续接先轮询原会话，不能因观察超时重启；单元日志 `/tmp/rssripple-v32-x-unit.log`，集成日志 `/tmp/rssripple-v32-y-integration.log`。必须核对真实退出、跳过基线、全部冻结输入、应用正常停止、覆盖率导出、唯一项目清理及最终五轴审查后才能合入。当前运行代码未合入、TODO 未关闭，全部目标仍继续。
+
+
+## z–ac：UTC 可表示范围与请求错误码
+
+完整门禁期间继续审阅发现：`0001-01-01T00:00:00+08:00` 和 `9999-12-31T23:59:59-08:00` 本身可被 ISO 解析，但 UTC 换算超出 Python 年份范围。真实双库 HTTP 确认通知 retry/regenerate 和 Agent run 均返回 500；字段映射也抛出 OverflowError。这是输入校验边界问题，仍 P2，不表示生产历史已受影响。
+
+z0 初次 16 失败中，两项是测试错误地要求原 Agent request schema 已归一化（原来在路由处理）；删去该过度假设，保持生产实现不变后，z **14 failed、2 passed，15.19 秒，退出 1**。12 项是实际 HTTP 500，另两项是字段映射异常；正确的年份边界正例通过。源码与原始失败报告均保留，不将夹具错误计入产品缺陷。
+
+后继独立候选 `/tmp/rssripple-v32-range-klaw53xo`：naive_utc 将换算溢出转换为明确 ValueError；通知既有 Pydantic 类型自动返回 422。AgentRunRequest.scan_since 使用同一类型，并移除路由中的重复归一化；空值/省略/未来时间规则不变。RSS 与字段映射沿用已有无效日期回退，不把时间裁剪为最小或最大值。可表示的年份边界继续接受。权威 API/时间约定/测试清单已同步。
+
+初次扩大 aa 因发现与 x 共用 PostgreSQL 固定名称迁移测试库而主动 SIGINT；仅完成 39 项，退出 1，并在 pytest tmp_path teardown 出现 stash KeyError，不记为通过。随后启用独立项目 `rssripple-v32-range-ab`、端口 32906，ab **443 passed、0 skipped、2 既有 warnings，266.54 秒、实际退出 0**，覆盖全部时间专项、全部迁移文件、Agent API、两类解析器。ac 进一步接入生产 validation_exception_handler，**20 passed、7.75 秒、退出 0**，确认统一 `VALIDATION_ERROR` 422 与 RSS 回退；Ruff 退出 0。模型实际反射仍为 96 naive 列、72 UTC 默认和 30 UTC 自动更新点。结果见 [z–ac](probes/utc-contract-z-ab-result.json)。
+
+w 源码完整冻结未变，但已知缺陷使其无法成为合入对象。因此主动结束旧门禁：x 实际退出 1，部分 JUnit 为 796 passed/1 skipped（中断后 pytest 同类 stash 清理错误）；y 实际退出 2，部分 358 passed/9 warnings，应用随后正常退出 0/0。部分日志、JUnit、raw coverage 已导出归档，不计算通过覆盖率。旧 x/y 的两个 Compose 项目已 down，容器/网络/卷标签均为空；不是因等待超时而重启。
+
+新 ac 来源独立推导 **76 文件**，以 main `20846db` 为基线，冻结 **6647 文件、3321 非计划输入**。见 [来源](probes/utc-contract-ac-source.json) 和 [冻结清单](probes/utc-contract-ac-frozen.json)。ad 完整单元/API 会话 31484，使用已独立的 range-ab PostgreSQL；ae 完整隔离集成使用项目 `rssripple-v32-final-ae`。新门禁必须重新满足完整 95%/85%、零失败及退出/跳过/覆盖率导出/哈希/清理/最终审查，不能引用已中断 x/y 作为验收。续接信息以 z–ac 结果文件中的 full_gates 为准。

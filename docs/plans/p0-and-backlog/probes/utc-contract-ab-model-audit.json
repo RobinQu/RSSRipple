@@ -1,0 +1,680 @@
+{
+  "time_columns": 96,
+  "utc_defaults": 72,
+  "utc_onupdates": 30,
+  "timezone_columns": 0,
+  "columns": [
+    {
+      "table": "agents",
+      "column": "last_run_at",
+      "timezone": false,
+      "default_type": null,
+      "onupdate_type": null
+    },
+    {
+      "table": "agents",
+      "column": "last_consumed_at",
+      "timezone": false,
+      "default_type": null,
+      "onupdate_type": null
+    },
+    {
+      "table": "agents",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "agents",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "agent_publication_progress",
+      "column": "historical_created_after",
+      "timezone": false,
+      "default_type": null,
+      "onupdate_type": null
+    },
+    {
+      "table": "agent_resource_requests",
+      "column": "requested_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "agent_resource_requests",
+      "column": "next_attempt_at",
+      "timezone": false,
+      "default_type": null,
+      "onupdate_type": null
+    },
+    {
+      "table": "agent_runs",
+      "column": "started_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "agent_runs",
+      "column": "finished_at",
+      "timezone": false,
+      "default_type": null,
+      "onupdate_type": null
+    },
+    {
+      "table": "agent_runs",
+      "column": "scan_since",
+      "timezone": false,
+      "default_type": null,
+      "onupdate_type": null
+    },
+    {
+      "table": "agent_runs",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "agent_suggestions",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "agent_suggestions",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "agent_webhooks",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "agent_webhooks",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "agent_works",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "agent_works",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "api_keys",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "app_settings",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "audio_works",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "audio_works",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "auth_rate_limit_buckets",
+      "column": "resets_at",
+      "timezone": false,
+      "default_type": null,
+      "onupdate_type": null
+    },
+    {
+      "table": "channels",
+      "column": "last_fetched_at",
+      "timezone": false,
+      "default_type": null,
+      "onupdate_type": null
+    },
+    {
+      "table": "channels",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "channels",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "channel_raw_title_mappings",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "channel_raw_title_mappings",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "decision_migrations",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "download_dispatches",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "download_notifications",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "download_notifications",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "download_tasks",
+      "column": "confirmed_at",
+      "timezone": false,
+      "default_type": null,
+      "onupdate_type": null
+    },
+    {
+      "table": "download_tasks",
+      "column": "completed_at",
+      "timezone": false,
+      "default_type": null,
+      "onupdate_type": null
+    },
+    {
+      "table": "download_tasks",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "download_tasks",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "downloader_instances",
+      "column": "last_checked_at",
+      "timezone": false,
+      "default_type": null,
+      "onupdate_type": null
+    },
+    {
+      "table": "downloader_instances",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "downloader_instances",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "episodes",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "episodes",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "eval_jobs",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "eval_jobs",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "file_resources",
+      "column": "magnet_resolve_updated_at",
+      "timezone": false,
+      "default_type": null,
+      "onupdate_type": null
+    },
+    {
+      "table": "file_resources",
+      "column": "published_at",
+      "timezone": false,
+      "default_type": null,
+      "onupdate_type": null
+    },
+    {
+      "table": "file_resources",
+      "column": "parsed_at",
+      "timezone": false,
+      "default_type": null,
+      "onupdate_type": null
+    },
+    {
+      "table": "file_resources",
+      "column": "metadata_matched_at",
+      "timezone": false,
+      "default_type": null,
+      "onupdate_type": null
+    },
+    {
+      "table": "file_resources",
+      "column": "last_metadata_attempt_at",
+      "timezone": false,
+      "default_type": null,
+      "onupdate_type": null
+    },
+    {
+      "table": "file_resources",
+      "column": "confirmation_ignored_at",
+      "timezone": false,
+      "default_type": null,
+      "onupdate_type": null
+    },
+    {
+      "table": "file_resources",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "file_resources",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "fts_outbox",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "ground_truth_entries",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "ground_truth_entries",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "libraries",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "libraries",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "media_server_instances",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "media_server_instances",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "media_server_bindings",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "media_server_bindings",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "metadata_cache",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "metadata_cache",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "movies",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "movies",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "notification_build_failures",
+      "column": "next_attempt_at",
+      "timezone": false,
+      "default_type": null,
+      "onupdate_type": null
+    },
+    {
+      "table": "notification_build_failures",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "organize_audit_entries",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "organize_plans",
+      "column": "executed_at",
+      "timezone": false,
+      "default_type": null,
+      "onupdate_type": null
+    },
+    {
+      "table": "organize_plans",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "organize_plans",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "organize_plan_ops",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "organize_plan_ops",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "organize_rules",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "organize_rules",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "pending_decisions",
+      "column": "expires_at",
+      "timezone": false,
+      "default_type": null,
+      "onupdate_type": null
+    },
+    {
+      "table": "pending_decisions",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "pending_decisions",
+      "column": "decided_at",
+      "timezone": false,
+      "default_type": null,
+      "onupdate_type": null
+    },
+    {
+      "table": "pending_decisions",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "resource_file_assignments",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "resource_file_assignments",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "resource_publications",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "resource_reparse_requests",
+      "column": "requested_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "resource_reparse_requests",
+      "column": "next_attempt_at",
+      "timezone": false,
+      "default_type": null,
+      "onupdate_type": null
+    },
+    {
+      "table": "resource_work_links",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "tv_series",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "tv_series",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "storage_volumes",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "storage_volumes",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "subtitle_group_mappings",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "subtitle_group_mappings",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "webhook_deliveries",
+      "column": "next_attempt_at",
+      "timezone": false,
+      "default_type": null,
+      "onupdate_type": null
+    },
+    {
+      "table": "webhook_deliveries",
+      "column": "delivered_at",
+      "timezone": false,
+      "default_type": null,
+      "onupdate_type": null
+    },
+    {
+      "table": "webhook_deliveries",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "webhook_deliveries",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "work_collections",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    },
+    {
+      "table": "work_collections",
+      "column": "updated_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": "UTCNow"
+    },
+    {
+      "table": "work_external_ids",
+      "column": "created_at",
+      "timezone": false,
+      "default_type": "UTCNow",
+      "onupdate_type": null
+    }
+  ]
+}

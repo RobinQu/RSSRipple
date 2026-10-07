@@ -124,26 +124,60 @@
     "tests/unit/test_database_migrations.py": "three-way clean"
   },
   "full_gates": {
-    "unit": {
-      "session": 42577,
-      "project": "rssripple-v32-rebase-w",
-      "log": "/tmp/rssripple-v32-x-unit.log",
-      "junit": "/tmp/rssripple-v32-x-unit.xml",
-      "coverage": "/tmp/rssripple-v32-x-unit-coverage.xml",
-      "status": "running; no result yet"
+    "status": "superseded and deliberately interrupted after reproduced range defect; not accepted",
+    "x": {
+      "actual_exit": 1,
+      "partial_passed": 796,
+      "partial_skipped": 1,
+      "interruption": "SIGINT; secondary pytest tmp_path stash KeyError"
     },
-    "integration": {
-      "startup_session": 53912,
-      "project": "rssripple-v32-final-y",
-      "startup_log": "/tmp/rssripple-v32-y-startup.log",
-      "status": "running; no result yet",
-      "startup_exit": 0,
-      "runner_session": 94565,
-      "log": "/tmp/rssripple-v32-y-integration.log",
-      "image": "sha256:9f79b2a0d7b37b8e52545b7d0582df5474ecbf3ff93ebdbd2633fa6cbacf3985",
-      "app_health": "healthy",
-      "app_llm_health": "healthy"
+    "y": {
+      "actual_exit": 2,
+      "partial_passed": 358,
+      "warnings": 9,
+      "seconds": 633.21,
+      "app_exits": [
+        0,
+        0
+      ]
+    },
+    "cleanup": {
+      "rssripple-v32-rebase-w": {
+        "down_exit": 0,
+        "labels": {
+          "container": [],
+          "network": [],
+          "volume": []
+        }
+      },
+      "rssripple-v32-final-y": {
+        "down_exit": 0,
+        "labels": {
+          "container": [],
+          "network": [],
+          "volume": []
+        }
+      }
+    },
+    "first_unit_signal_attempt": "exact executable prefix failed to match Python wrapper; no signal sent. Second exact argv+process-name match sent SIGINT."
+  },
+  "cleanup": {
+    "rssripple-v32-rebase-w": {
+      "down_exit": 0,
+      "labels": {
+        "container": [],
+        "network": [],
+        "volume": []
+      }
+    },
+    "rssripple-v32-final-y": {
+      "down_exit": 0,
+      "labels": {
+        "container": [],
+        "network": [],
+        "volume": []
+      }
     }
   },
-  "cleanup": "PostgreSQL project rssripple-v32-rebase-w remains needed for the full unit/API gate."
+  "superseded_by": "utc-contract-ab-source.json"
 }

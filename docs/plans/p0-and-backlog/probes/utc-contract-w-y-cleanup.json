@@ -1,0 +1,18 @@
+{
+  "rssripple-v32-rebase-w": {
+    "down_exit": 0,
+    "labels": {
+      "container": [],
+      "network": [],
+      "volume": []
+    }
+  },
+  "rssripple-v32-final-y": {
+    "down_exit": 0,
+    "labels": {
+      "container": [],
+      "network": [],
+      "volume": []
+    }
+  }
+}
