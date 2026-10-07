@@ -1,0 +1,8 @@
+"""Diagnostic: preserve real backoff without altering production or assertions."""
+import asyncio
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def actual_backoff(monkeypatch):
+    monkeypatch.setattr(asyncio, 'sleep', asyncio.tasks.sleep)
