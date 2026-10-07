@@ -1,0 +1,30 @@
+{
+  "prototype": "/tmp/rssripple-v23-work-limit-ji74j3mq",
+  "base_runtime_commit": "6bf8c1c",
+  "accepted": false,
+  "files": {
+    "app/api/v1/agents.py": "26c9e31424fdf9548f5d0f5cb28a6dd39465b971e570c434fdab07115924192f",
+    "tests/api/test_agent_work_limit.py": "c3aa6af8b0c8a7682dd34e5741d59944c3be6d044a3cabf0e0a2db37bac59891"
+  },
+  "base_hashes": {
+    "app/api/v1/agents.py": "fba2ae091014bbaf168735a5e22b2395915fa272974675bd9d0621f2da59b202",
+    "tests/api/test_agent_work_limit.py": null
+  },
+  "e": {
+    "exit": 2,
+    "interrupted": true,
+    "passed_before_interrupt": 7,
+    "seconds": 152.13,
+    "reason": "concurrent case remained live; independent synthetic conflict probe proves HTTP retry hangs rereading consumed body"
+  },
+  "retry_probe": {
+    "exit": 1,
+    "timeout_seconds": 3,
+    "events": [
+      "entered",
+      "body-read",
+      "entered"
+    ],
+    "synthetic_error": true
+  }
+}

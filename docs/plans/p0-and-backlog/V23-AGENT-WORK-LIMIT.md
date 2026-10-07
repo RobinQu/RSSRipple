@@ -24,3 +24,11 @@ a 四项均因测试漏传 content_type 在创建阶段失败，非缺陷证据�
 d 加真实双请求测试，控制两请求在实际 flush 前完成 count=9 判断，不替换 SQL 结果或锁异常；最终两次添加成功、持久化 11 条，7 passed / 1 failed，13.65 秒。已有 `_lock_agent_rules` 在 PostgreSQL 实际编译为 FOR NO KEY UPDATE（不是 KEY SHARE），但 Turso 不提供同样的行锁。没有 AgentPublicationProgress 行时 invalidate_running_scope 不能提供共享父行写冲突，因此不可将后续更新存在当作充分保护。
 
 下一步在 Turso 的现有规则锁入口建立父行版本写屏障，并以真实冲突及整请求重试验证 add/add、replace/add、范围切换；PostgreSQL 需保留现有锁语义并跑实际双会话测试。并发测试的时序协调必须同时支持“第二请求已在真实锁/冲突处被阻止”的正确实现，不能用强制两个请求均进入插入阶段造成夹具死锁。源码/基线和未验收两文件候选见 `probes/agent-work-limit-d-*`。
+
+## Turso 写屏障与 HTTP 重试请求体缺口（e）
+
+原型在现有规则锁入口对 aioturso 执行参数化 `UPDATE agents SET id=id WHERE id=:id`，读取订阅前触碰共享父行版本，不改变时间字段；PG 分支保持 FOR NO KEY UPDATE。并发夹具允许第二写事务真实冲突时释放第一事务，不伪造 DatabaseError。e 前七项通过，但并发请求未退出。
+
+独立三秒诊断使用生产 install_db_retry_middleware 与 FastAPI/HTTPX：端点第一次读取 JSON 后主动抛合成 Write-write conflict，第二次进入端点却不能再读完 JSON；观察 entered/body-read/entered 后真实 asyncio 超时，退出 1。这直接证明现有 HTTP 重试无法重放已消费请求体；合成错误只用于诊断重试机制，不是 Turso 冲突证据。
+
+基于此具体诊断，中止仍运行的 e（SIGINT，退出 2，7 passed/152.13 秒），不将其计为通过或普通完整终态。V21 两套完整门禁不受影响。下一步需在独立副本修复 HTTP 请求体重放，并测试 JSON/空体/不可重试异常/已发送响应/重试上限及取消边界，然后重跑真实并发。不能只在测试手工重发请求来掩盖生产重试缺陷。当前两文件 e 候选与日志、限时诊断源码均已归档；数据库重试运行代码尚未修改。

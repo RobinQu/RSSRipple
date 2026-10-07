@@ -1,0 +1,26 @@
+import asyncio
+import httpx
+from fastapi import FastAPI, Request
+from sqlalchemy.exc import DatabaseError
+from app.database import install_db_retry_middleware
+
+async def main():
+    app=FastAPI()
+    install_db_retry_middleware(app)
+    calls=[]
+    @app.post('/probe')
+    async def probe(request:Request):
+        calls.append('entered')
+        body=await request.json()
+        calls.append('body-read')
+        if len(calls)==2:
+            raise DatabaseError('synthetic operation',{},Exception('Write-write conflict'))
+        return body
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://probe') as client:
+        try:
+            response=await asyncio.wait_for(client.post('/probe',json={'synthetic':True}),3)
+            print('status',response.status_code,'calls',calls)
+        except TimeoutError:
+            print('TIMEOUT after 3 seconds; calls',calls)
+            raise
+asyncio.run(main())
