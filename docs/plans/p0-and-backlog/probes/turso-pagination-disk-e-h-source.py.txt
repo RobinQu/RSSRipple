@@ -1,0 +1,64 @@
+"""Cross-process old-file startup and native FTS compatibility diagnostic."""
+import asyncio
+import hashlib
+import importlib.util
+import json
+import sys
+from importlib.metadata import version
+from pathlib import Path
+
+from sqlalchemy import select, text, update
+from app import database
+from app.models.movie import Movie
+from app.models.pending_decision import PendingDecision
+from app.services import fts
+
+spec = importlib.util.spec_from_file_location('pagination_fixture', Path.cwd() / 'tests/integration/database/test_turso_decision_order.py')
+fixture = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(fixture)
+root = Path(sys.argv[2])
+
+async def snapshot():
+    result = {}
+    async with database.engine.connect() as conn:
+        for name in ['movies', 'file_resources', 'pending_decisions', 'agents', 'channels', 'downloader_instances']:
+            rows = [dict(row) for row in (await conn.execute(text(f'SELECT * FROM {name}'))).mappings()]
+            rows.sort(key=lambda row: row['id'])
+            raw = json.dumps(rows, sort_keys=True, default=str).encode()
+            result[name] = {'count': len(rows), 'sha256': hashlib.sha256(raw).hexdigest()}
+    return result
+
+async def main():
+    try:
+        if sys.argv[1] == 'seed':
+            await database.create_tables()
+            agent, expected, captured = await fixture.seed_history(database.engine, 8192, 512)
+            async with database.engine.begin() as conn:
+                await conn.execute(update(Movie).where(Movie.id == fixture.MOVIE_ID).values(
+                    description='', rating=0, is_anime=False,
+                    manually_edited_fields=['description', 'rating', 'is_anime'],
+                ))
+            await database.create_tables()
+            before = await snapshot()
+            hits = await fts._search_fts('movie_fts', 'leprechaun', 20)
+            assert fixture.MOVIE_ID in hits, hits
+            (root / 'baseline.json').write_text(json.dumps({'tables': before, 'agent': agent, 'first_ids': [r['id'] for r in expected[:20]], 'fts_hits': hits}, indent=2))
+            print(json.dumps({'phase': 'seed', 'version': version('pyturso'), 'tables': before, 'fts_hits': hits}))
+        else:
+            baseline = json.loads((root / 'baseline.json').read_text())
+            assert await snapshot() == baseline['tables'], 'raw old-file read changed data'
+            for iteration in range(2):
+                await database.create_tables()
+                assert await snapshot() == baseline['tables'], f'startup {iteration} changed rows'
+                async with database.engine.connect() as conn:
+                    rows = list(await conn.scalars(select(PendingDecision.id).where(PendingDecision.agent_id == baseline['agent']).order_by(PendingDecision.created_at.desc()).limit(20)))
+                assert rows == baseline['first_ids']
+                hits = await fts._search_fts('movie_fts', 'leprechaun', 20)
+                assert fixture.MOVIE_ID in hits, hits
+            print(json.dumps({'phase': 'upgrade', 'version': version('pyturso'), 'startup_runs': 2, 'tables': await snapshot(), 'fts_hits': hits}))
+    finally:
+        await database.engine.dispose()
+        if fts._FTS_ENGINE is not None:
+            await fts._FTS_ENGINE.dispose()
+
+asyncio.run(main())

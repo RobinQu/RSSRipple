@@ -178,3 +178,8 @@ bn 完整集成 **2 failed、3646 passed、17 skipped、24 warnings，2400.91 �
 独立副本将该调用改为 `MetadataConcurrency(1)`，更新业务说明；不修改录制种子断言，也不增加兼容旧参数的静默回退。搜索 app/scripts 的全部调用点：handler 一处、fetch 三处均使用同一接口。bp 双库录制种子、完整 handler 单元、失权及实际准入回归 **72 passed、10 warnings、122.40 秒、退出 0**；录制 torrent 的缓存复用、12 文件持久化、身份处理与请求确认仍全部断言。专项项目已清理，标签为空。
 
 新候选 `/tmp/rssripple-v25-reparse-slyrpzqn`：**49 有效文件、5527 输入**。对比 bm 仅 `app/job_handlers.py` 和业务文档变化；源与 tar 为 `probes/dedup-preservation-bq-*`。无缓存 Ruff 通过，独立 PostgreSQL 三项预检 **3 passed、2.21 秒、退出 0**。完整 bq 单元/API 与 br 隔离集成已启动，最新续接清单为 `probes/dedup-preservation-bq-br-running.json`。运行代码改变，两道完整门禁都必须重跑，不复用 bm/bn 为新版本验收。V26/V27 的旧父预组合证据保留，正式合入前必须在最终接受的父提交上重基。
+
+
+## bm 最终审计与 bq/br 续接
+
+bm 已实际退出 0：4181 passed、12 skipped、96.97%（23478/24211），5527 冻结输入一致，与 az 跳过无变化，专用 PostgreSQL 已清理且标签资源为空。原始覆盖率、日志和 JUnit 见 [bm 审计](probes/dedup-preservation-bm-audit.json)。匹配的 bn 集成失败，因此 bm 不能批准该版本；bq 改动运行代码后仍需完成独立两道门禁。本轮确认 session 74297/19866 均仍活跃，未重启测试。

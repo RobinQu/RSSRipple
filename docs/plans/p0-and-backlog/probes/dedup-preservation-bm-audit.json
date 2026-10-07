@@ -1,0 +1,118 @@
+{
+  "accepted": false,
+  "unit_gate_passed": true,
+  "note": "This candidate failed integration bn and was superseded by bq/br; cannot reuse for changed runtime.",
+  "exit_code": 0,
+  "passed": 4181,
+  "failed": 0,
+  "skipped": 12,
+  "seconds": 3571.62,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "12",
+    "tests": "4193",
+    "time": "3571.441",
+    "timestamp": "2026-10-07T06:34:29.273209+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "coverage": {
+    "lines-covered": "23478",
+    "lines-valid": "24211",
+    "line-rate": "0.9697"
+  },
+  "skips": [
+    [
+      "tests.unit.test_decision_migration",
+      "test_postgres_startup_rejects_unreviewed_then_accepts_review",
+      "PostgreSQL startup DDL branch; embedded startup tested through CLI subprocess",
+      "<candidate>/tests/unit/test_decision_migration.py:351: PostgreSQL startup DDL branch; embedded startup tested through CLI subprocess"
+    ],
+    [
+      "tests.api.test_api_coverage3.TestResourcesMore",
+      "test_search_metadata_via_manual",
+      "resource-scoped metadata search replaced by /api/v1/metadata/search",
+      "<candidate>/tests/api/test_api_coverage3.py:136: resource-scoped metadata search replaced by /api/v1/metadata/search"
+    ],
+    [
+      "tests.api.test_api_coverage3.TestResourcesMore",
+      "test_link_metadata_error_path",
+      "resource-scoped metadata link replaced by work metadata apply/associations",
+      "<candidate>/tests/api/test_api_coverage3.py:151: resource-scoped metadata link replaced by work metadata apply/associations"
+    ],
+    [
+      "tests.api.test_api_coverage3.TestResourcesMore",
+      "test_link_metadata_movie",
+      "resource-scoped metadata link replaced by work metadata apply/associations",
+      "<candidate>/tests/api/test_api_coverage3.py:162: resource-scoped metadata link replaced by work metadata apply/associations"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_search_404",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:368: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_search_returns_results",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:373: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_search_result_none_genre_coerced",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:387: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_search_forwards_source_and_fallback_sites",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:400: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_search_llm_error_returns_502",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:425: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_link_creates_series",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:435: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_link_404",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:451: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_link_movie_clears_ambiguous",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:456: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ]
+  ],
+  "skips_vs_az": {
+    "added": [],
+    "removed": []
+  },
+  "frozen_count": 5527,
+  "frozen_mismatch": [],
+  "cleanup_exit": 0,
+  "labels": {
+    "containers": [],
+    "networks": [],
+    "volumes": []
+  },
+  "artifacts": {
+    "dedup-preservation-bm-run.log.gz": "617f0a2dbd8c3f2ee1c999b6ddecd01014af023fc87f6082a3ed3d5d1c1ea544",
+    "dedup-preservation-bm-unit.xml.gz": "1a2cdccecbf493a2e8a0ce2554311287f2b4288627dded9e80576031775349af",
+    "dedup-preservation-bm-coverage.gz": "67d053230b018a1514c65a755accb7179499ab465ff95c4de430218f359ddba1",
+    "dedup-preservation-bm-coverage.xml.gz": "447477f159b71ea2d8060379d5d7a0e4b2e37897c8ed77dd580346c2db0d8db1",
+    "dedup-preservation-bm-cleanup.log.gz": "a4aaca4cdec57cb08f2a4db5a771cb78f6fa9878dd7bdbf3cc1483ea084944d0"
+  }
+}

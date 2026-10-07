@@ -1,0 +1,20 @@
+"""Rebuild only derived FTS indexes in an isolated old-version sidecar."""
+import asyncio
+import json
+from sqlalchemy import text
+from app import database  # noqa: F401 -- register application dialect compatibility
+from app.services import fts
+
+async def main():
+    engine = fts._get_fts_engine()
+    try:
+        async with engine.begin() as connection:
+            for table in fts._SHADOW_TABLES:
+                await connection.execute(text(f'DROP INDEX {table}_idx'))
+                await connection.execute(text(fts._CREATE_INDEX.format(table=table)))
+        hits = await fts._search_fts('movie_fts', 'leprechaun', 20)
+        assert '064abd83-8804-4591-8a08-6e116009fa7a' in hits
+        print(json.dumps({'recreated_indexes': list(fts._SHADOW_TABLES), 'movie_hits': hits}))
+    finally:
+        await engine.dispose()
+asyncio.run(main())

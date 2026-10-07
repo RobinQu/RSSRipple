@@ -35,8 +35,11 @@
   "image": "rssripple-v20-tests:local",
   "previous_unit_bm": {
     "session": 80553,
-    "status": "running",
-    "note": "Do not infer final exit from progress; retain terminal audit then clean rssripple-v25-unit-bm."
+    "status": "complete",
+    "note": "Terminal and cleaned; do not poll old handle or reuse for changed runtime.",
+    "exit_code": 0,
+    "cleanup": "complete",
+    "audit": "dedup-preservation-bm-audit.json"
   },
   "specialty_bp": {
     "passed": 72,

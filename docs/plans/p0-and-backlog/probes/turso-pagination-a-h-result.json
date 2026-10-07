@@ -1,0 +1,74 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v29-sort-0flp49gg",
+  "parent": "V25 bq (not accepted)",
+  "shared_environment_unchanged": true,
+  "runtime_or_lockfile_changes": false,
+  "a_exit": 0,
+  "b_exit": 0,
+  "http_results": {
+    "http-c-old": {
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "2",
+        "skipped": "0",
+        "tests": "4",
+        "time": "23.781",
+        "timestamp": "2026-10-07T07:46:04.944049+00:00",
+        "hostname": "dl-workstation-albert"
+      },
+      "actual_process_exit": null,
+      "note": "JUnit/log complete; original execution handle exit not retained. Not a full acceptance gate."
+    },
+    "http-d-new": {
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "4",
+        "time": "24.086",
+        "timestamp": "2026-10-07T07:45:59.879155+00:00",
+        "hostname": "dl-workstation-albert"
+      },
+      "actual_process_exit": null,
+      "note": "JUnit/log complete; original execution handle exit not retained. Not a full acceptance gate."
+    }
+  },
+  "disk_e_seed_exit": 0,
+  "disk_e_upgrade_exit": 1,
+  "disk_e_failure": "old native FTS index format unsupported by 0.8.2",
+  "fts_f_exit": 1,
+  "fts_f_failure": "diagnostic omitted application dialect registration; no index mutation",
+  "fts_g_exit": 0,
+  "restart_h_exit": 0,
+  "restart_h_startups": 2,
+  "main_tables_hash_unchanged": true,
+  "artifacts": {
+    "turso-pagination-version-a-082.json.gz": "ee08edb92287a55033d01dbf5652ee41fabbb6c8672302b772a484ca1d339acd",
+    "turso-pagination-version-a-082.log.gz": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+    "turso-pagination-matrix-b-082.json.gz": "1d0d8a4658de831080978fe804bbb7ab539ba4a48b0eda39a3a6a963bfe69432",
+    "turso-pagination-matrix-b-082.log.gz": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+    "turso-pagination-http-c-old.xml.gz": "c2c64dc855ae98126cc9dce83f2c191ca6ec73f393d5ac780272db631d361729",
+    "turso-pagination-http-c-old.log.gz": "c2120d0c6bc6745a4a281214880c55c0a9d96778a43d3084a46be169741a9413",
+    "turso-pagination-http-d-new.xml.gz": "0763f5eefd94c07ccfee7a7cdf6c304fe966d036a22f023575a67ac222da7e91",
+    "turso-pagination-http-d-new.log.gz": "bf709fb56f4a731156cb461b7e8a193cf1ab91dae6117b8c60da77b95f254453",
+    "turso-pagination-version-a-source.py.txt": "80846263904a51113460d43bcd7f54443f004ee62a5fc41b37f28479a2aad476",
+    "turso-pagination-matrix-b-source.py.txt": "de7ab44bfb070d727eccf5f7c06ee82d58ebfba825c5ad0c25f37ef33c6c5b69",
+    "turso-pagination-http-c-d-test.py.txt": "8e5a7a8a990fa44d1a49c27a2ae9d4b3108b629159b1b2add4bf7ba46d9edd15",
+    "turso-pagination-disk-e-h-source.py.txt": "ec0d633775f2678a3cb14f40b803d4f8630cd03fb96c27ac6cc0df79385efac4",
+    "turso-pagination-fts-f-source.py.txt": "1f6dfaa5f17a465d57abd31a6e0675a4fe5dd0f096cba153804b9a3f0c8d91c9",
+    "turso-pagination-fts-g-source.py.txt": "408333dec3d5653e72ccb0d449d233678cdc28b5a0f2b392b756886443f9d038",
+    "turso-pagination-disk-e-h-seed.log.gz": "7226c5eb77e5e459617e060d1e7e8350eaddaa9b8621af769452d165c285a55e",
+    "turso-pagination-disk-e-h-upgrade.log.gz": "41e11ef3dbb2766acbd48d17e2cd64ae62aea07417c6a2b805fc6b85f3376380",
+    "turso-pagination-disk-e-h-rebuild.log.gz": "158f1481256836bc6a8749cc26aa0a485ee42e2861107fd9cdf50b64e3d56768",
+    "turso-pagination-disk-e-h-rebuild-g.log.gz": "804f677d2f64b200244446647afff73bc258b20832b5680d975dfe853bd5cf35",
+    "turso-pagination-disk-e-h-restart-h.log.gz": "f9f9af471efe7c7117a20ab8f7c5dfecc6a9e35c1dc658e32e04f97fdc0ac92a",
+    "turso-pagination-disk-e-h-baseline.json.gz": "8307afd3786f839b1115c078025dec514ad59f2f951c10d48be26e6786680061",
+    "turso-pagination-upstream-sources.json.gz": "a800cbeaa66c12141e23c58b756ec280d827dfc67df3229719ac016417d0768d",
+    "turso-pagination-upstream-pypi-080rc2.json.gz": "11cb7df06181fd6dd6c1bdca79e41fb96dc960e3f91f8c475f0901fa28c6acf6",
+    "turso-pagination-upstream-pypi-082.json.gz": "04147bc6d4c09cb51ba6210d97c6c5cb2a3e351ea6e4b1a16a65722534b435b4",
+    "turso-pagination-upstream-sorter-082.rs.gz": "69da11a1bcf17e87658dbf6a472f29fa19e6c39b65f7db18776c66baed62cf12"
+  }
+}
