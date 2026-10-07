@@ -1,0 +1,37 @@
+"""Generate a self-contained old-engine sidecar from recorded and labelled synthetic titles."""
+import asyncio
+import gzip
+import hashlib
+import json
+from importlib.metadata import version
+from pathlib import Path
+from sqlalchemy import text
+from app import database  # noqa: F401 -- installs dialect compatibility
+from app.services import fts
+
+async def main():
+    assert version('pyturso') == '0.8.0rc2'
+    raw = Path('tests/fixtures/prod_works_v1.json').read_bytes()
+    corpus = json.loads(raw)['tables']
+    entries = {}
+    for table, source, query in [('tv_series_fts', 'tv_series', '伪恋'), ('movie_fts', 'movies', 'hamnet')]:
+        row = corpus[source][0]
+        entries[table] = {'values': {**fts._fts_values(type('Captured', (), row)()), 'id': row['id']}, 'query': query, 'provenance': f'captured {source} first row'}
+    entries['audio_work_fts'] = {'values': {'id': 'd555c631-fcb3-46bf-bcea-79505b988165', 'title_cn': '合成音声', 'title_en': 'synthetic audio', 'original_title': '', 'aliases': ''}, 'query': 'synthetic', 'provenance': 'synthetic; corpus contains no audio works'}
+    await fts.ensure_fts_tables()
+    for table, entry in entries.items():
+        await fts._shadow_write([(f'INSERT INTO {table}(entity_id,title_cn,title_en,original_title,aliases) VALUES (:id,:title_cn,:title_en,:original_title,:aliases)', entry['values'])])
+        assert entry['values']['id'] in await fts._search_fts(table, entry['query'], 20)
+    engine = fts._get_fts_engine()
+    async with engine.connect() as connection:
+        await connection.execute(text('PRAGMA wal_checkpoint(TRUNCATE)'))
+    await engine.dispose()
+    db = Path('/tmp/rssripple-v29-legacy-fixture_fts.db')
+    wal = Path(str(db) + '-wal')
+    assert not wal.exists() or wal.stat().st_size == 0
+    output = Path('tests/fixtures/turso_080rc2_fts.db.gz')
+    output.write_bytes(gzip.compress(db.read_bytes(), mtime=0))
+    manifest = {'engine': version('pyturso'), 'corpus_sha256': hashlib.sha256(raw).hexdigest(), 'database_sha256': hashlib.sha256(db.read_bytes()).hexdigest(), 'archive_sha256': hashlib.sha256(output.read_bytes()).hexdigest(), 'entries': entries}
+    output.with_name('turso_080rc2_fts.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2)+'\n')
+    print(json.dumps(manifest, ensure_ascii=False))
+asyncio.run(main())

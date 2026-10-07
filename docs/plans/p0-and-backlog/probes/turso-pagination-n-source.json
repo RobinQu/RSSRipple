@@ -1,0 +1,52 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v29-sort-0flp49gg",
+  "parent_candidate": "/tmp/rssripple-v25-reparse-slyrpzqn",
+  "parent_manifest": "dedup-preservation-bq-frozen.json",
+  "files": {
+    "app/services/fts.py": {
+      "base": "a24b44cf2c17cf69a9ecf4f800fdcf288d79f6db05606aa707145c8b6507775f",
+      "candidate": "e2de3f44cd01984aaa43b5c0b82a4fec0e060999f93b58b0aa69415fa40f2a91"
+    },
+    "app/services/fts_index_upgrade.py": {
+      "base": null,
+      "candidate": "e383ec75b64b266e8b60ebeb0847136bbfd8f702e4f902f79c0bd75761971198"
+    },
+    "tests/integration/database/test_turso_decision_order.py": {
+      "base": null,
+      "candidate": "8e5a7a8a990fa44d1a49c27a2ae9d4b3108b629159b1b2add4bf7ba46d9edd15"
+    },
+    "tests/integration/database/test_turso_fts_upgrade.py": {
+      "base": null,
+      "candidate": "f977033232f5980107e18546cb1bbcc8dcaa926883a9b5d73e2869e84040da27"
+    },
+    "tests/fixtures/turso_080rc2_fts.db.gz": {
+      "base": null,
+      "candidate": "65433474cf5263f4d6b2207d6f7e1edc92f322c2cc665f1f980790dab91bfe2f"
+    },
+    "tests/fixtures/turso_080rc2_fts.json": {
+      "base": null,
+      "candidate": "5206be6c2a966949ccc18a361c6028959e8955c8be4c740ea486a9f1f9c52489"
+    },
+    "pyproject.toml": {
+      "base": "72bc99d170fac6d29ad07a64e9c756f7ea0c554839b79636608e5bbab181134f",
+      "candidate": "77bd9f8d68fcfae414d7b039f9156103b5ac8ee81bf92a9c3decfacd13eec2ac"
+    },
+    "uv.lock": {
+      "base": "205f1eb7c59206d22c359d690d6b4b7dd1d1c375ff6c4e47be51a09f4424d31f",
+      "candidate": "40eb42674db4b72aedaecc7f7fc3ded572e50d51d3f440cb663a7bc2cacaa6c2"
+    },
+    "docs/design/db-migration.md": {
+      "base": "715066fc86703dd1f9889501a7942aa527be7107af178fdf55a472800ede3dd6",
+      "candidate": "c46f856f94c340153a951c4f3b2ffcbd6153b65a7b543a4b6d29c3c1a42e8cce"
+    },
+    "docs/design/conventions.md": {
+      "base": "e5245526456104f988fd5ad499ae86f21ed8285100cd65e26e987094f51e878d",
+      "candidate": "40cc6c5bb416d299bad2127b8412ae13326f796e1fdd93de575fd020283c8389"
+    },
+    "docs/testing/integration-inventory.md": {
+      "base": "4881f3d02c0ae9f94616bbdb22be8abe597f9a8f35c5a5725dc68994ef3b3954",
+      "candidate": "6f5d2eeb16137ce2b39e21d4742aaead878731e85efe84b3278906975cd56427"
+    }
+  }
+}

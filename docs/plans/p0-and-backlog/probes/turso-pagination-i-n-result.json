@@ -1,0 +1,63 @@
+{
+  "accepted": false,
+  "i_fixture_exit": 0,
+  "j": {
+    "passed": 6,
+    "exit": 0
+  },
+  "k": {
+    "passed": 77,
+    "exit": 0,
+    "seconds": 116.29
+  },
+  "l_lock_exit": 0,
+  "lock_changed_packages": [
+    {
+      "name": "pyturso",
+      "old": "0.8.0rc2",
+      "new": "0.8.2"
+    },
+    {
+      "name": "rssripple",
+      "old": "0.1.0",
+      "new": "0.1.0"
+    }
+  ],
+  "added_or_removed_packages": [],
+  "m": {
+    "passed": 7,
+    "failed": 1,
+    "exit": 1,
+    "reason": "Incorrect test assumption: ordinary index did not cause fts_match to raise. Original source/log preserved."
+  },
+  "n": {
+    "passed": 8,
+    "failed": 0,
+    "exit": 0,
+    "seconds": 2.05,
+    "note": "Real missing-table SQL error replaces invalid ordinary-index assumption; runtime unchanged from j/k."
+  },
+  "effective_files": 11,
+  "ruff_exit": 0,
+  "artifacts": {
+    "turso-pagination-fts-j.xml.gz": "2e7ade3053900eccb496ad67499ad274a9c9c5d829465c9fe40d8ee804bf5194",
+    "turso-pagination-fts-j.log.gz": "d6300448edd9d66c7b1e2242a809fcce689587cfe94bc074061860973df0b938",
+    "turso-pagination-fts-k.xml.gz": "90e1e0a5acf6362c082883b22f630f90159a75396b9f12a35543bda99a506d77",
+    "turso-pagination-fts-k.log.gz": "2da39489f0afc015dac8d2f6022f9c2c284595998096ca1a446856f598965f54",
+    "turso-pagination-fts-m.xml.gz": "ea25ff721c422f82d158d45003e2dbeaafef1c3b13389da9a09efd349eb62ec3",
+    "turso-pagination-fts-m.log.gz": "105707bf48fb8b61933713f2b0f80f0d2ea8214eea15abf86abcb4898a65bfee",
+    "turso-pagination-fts-n.xml.gz": "84f145e2aaeab10b19c00b02a8611a439a3a325f2948b6bf3d084aad29b66f41",
+    "turso-pagination-fts-n.log.gz": "11c29df156551775aa655b4cb243d011af2bda7c98bce914546ef65b32d2a122",
+    "turso-pagination-fixture-i.log.gz": "26f182ede486be5149ea28a5166bf62c33db826fee5bb566ddfac6f5f16484c6",
+    "turso-pagination-fixture-i-source.py.txt": "43e82091e85bc6135e6eda41443721da51abf209e38cec7abed76848588f0f41",
+    "turso-pagination-fts-m-test.py.txt": "7965c64d10bc001ef5601bb772f6b4d8ad0a5469697163f0d1872d339f95358b",
+    "turso-pagination-lock-l.log.gz": "68b405bd51c0c3f9aec1bbf373ff2b7a96a260ecb8bfd5ca26b8728784461bb2",
+    "turso-pagination-n-candidate.tar.gz": "a45772d13b0753915aa41b7343b2c0352dff9d8645c33e705c2a3c141a7124b8"
+  },
+  "remaining": [
+    "formal own locked environment and upgrade compatibility regression",
+    "accepted parent rebase",
+    "full unit/API >=95% and integration >=85%, zero failures",
+    "final review and hash/skip/cleanup audits"
+  ]
+}

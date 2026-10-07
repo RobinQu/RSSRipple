@@ -22,7 +22,7 @@
     "cleanup": "pending"
   },
   "integration": {
-    "status": "running",
+    "status": "complete",
     "session": 19866,
     "log": "/tmp/rssripple-v25-integration-br.log",
     "project": "rssripple-v25-final-br",
@@ -30,7 +30,11 @@
     "compose": "/tmp/rssripple-v25-reparse-slyrpzqn/docker-compose.integration-isolated.yml",
     "startup_exit": 0,
     "threshold": 85,
-    "cleanup": "pending"
+    "cleanup": "complete",
+    "exit_code": 0,
+    "passed": 3648,
+    "coverage": "89.35%",
+    "audit": "dedup-preservation-br-audit.json"
   },
   "image": "rssripple-v20-tests:local",
   "previous_unit_bm": {

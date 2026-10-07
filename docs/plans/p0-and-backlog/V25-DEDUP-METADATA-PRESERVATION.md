@@ -183,3 +183,10 @@ bn 完整集成 **2 failed、3646 passed、17 skipped、24 warnings，2400.91 �
 ## bm 最终审计与 bq/br 续接
 
 bm 已实际退出 0：4181 passed、12 skipped、96.97%（23478/24211），5527 冻结输入一致，与 az 跳过无变化，专用 PostgreSQL 已清理且标签资源为空。原始覆盖率、日志和 JUnit 见 [bm 审计](probes/dedup-preservation-bm-audit.json)。匹配的 bn 集成失败，因此 bm 不能批准该版本；bq 改动运行代码后仍需完成独立两道门禁。本轮确认 session 74297/19866 均仍活跃，未重启测试。
+
+
+## br 完整集成最终审计
+
+br 实际退出 0：**3648 passed、17 skipped、2415.89 秒**；覆盖率 **89.35%（21634/24212）**，85% 门禁退出 0。两个应用 SIGINT 后均退出 0，五份原始覆盖率、JUnit、语料报告和日志已导出归档；17 项跳过与 bn 完全一致，5527 冻结输入以及 49 文件 main 基线均一致。唯一项目已清理，命名 runner 及其 gate-data 额外移除后容器/网络/卷标签库存均为空。详见 [br 审计](probes/dedup-preservation-br-audit.json)。
+
+bq 单元/API 仍活跃，禁止用 bm 替代，最终合入审查仍待完成。br 集成已结束并清理，不应再轮询其旧句柄或重跑该冻结版本集成。
