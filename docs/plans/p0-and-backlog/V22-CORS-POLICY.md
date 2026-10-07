@@ -62,3 +62,9 @@ k 新增重复头、代理、GZip 与 poster 专项，30 passed / 1 failed，证
 截至本轮 V21 单元/API 会话 75854 与完整集成跟踪会话 81087 均已轮询确认仍在运行，不重启。等待其终态并验收后，再将 V22 三方对齐最终 main；当前本地 main 运行代码仍只有已验收 S1，不应用 V21/V22 未验收实现。
 
 续接更新：V21 已验收合入 main `938a7fb`，不再等待其会话。下一步从该主干创建新候选，三方合并 V22 o 的十四文件（尤其保留同一文档的 V21 修改），重核 browser/专项后冻结完整双门禁。
+
+## 完整门禁 q/r 已启动
+
+最新冻结目录 `/tmp/rssripple-v22-rebased-iamb_8_1`，基于已验收 V21 `938a7fb`。三方合并保留全部清理改动；仅测试清单两段末尾追加冲突，已保留双方并更正旧阶段文字。p 78 passed、1 warning、8.97 秒，真实 Chromium p 通过，临时服务 SIGINT 退出 130。十四有效文件、3247 输入冻结，原始证据和清单见 cors-policy-p/q-*。
+
+完整单元/API q 会话 92328，专用 PG rssripple-v22-unit-pg-q（32858）；完整集成 r 会话 63998，项目 rssripple-v22-final-r，依赖 startup 退出 0。复用镜像 sha256:82b848…（依赖未变）。实时句柄/路径和收尾要求见 `probes/cors-policy-q-r-running.json`。不得修改冻结目录或启动重复测试，未验收前保持 TODO。

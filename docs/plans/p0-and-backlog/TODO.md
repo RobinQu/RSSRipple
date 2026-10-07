@@ -44,7 +44,7 @@
 
 - [ ] **P1-S4 CORS 通配 + 凭证且中间件顺序错**：`app/main.py:220-226` `allow_origins=["*"]` +
       `allow_credentials=True`，Starlette 反射 Origin 携带 Cookie；Auth 中间件先于 CORS 执行，预检被 401、
-      401 无 CORS 头。**修复**：拆分 P2 跨域配置（Origin 白名单/中间件顺序）与 CSRF 验证；Cookie 已为 SameSite=Lax，不能直接推导任意跨站读凭证数据。V22 已用实际 ASGI 栈复现三项响应缺陷，保留 P2；真实 Chromium 又确认未授权同站来源仍能触发 logout 清 Cookie，独立原型已补来源防护，46 项专项与 Chromium logout 回归通过，仍需剩余边界和完整门禁，不能仅靠 CORS 白名单关闭；方案与证据见 [V22](V22-CORS-POLICY.md)。
+      401 无 CORS 头。**修复**：拆分 P2 跨域配置（Origin 白名单/中间件顺序）与 CSRF 验证；Cookie 已为 SameSite=Lax，不能直接推导任意跨站读凭证数据。V22 已用实际 ASGI 栈复现三项响应缺陷，保留 P2；真实 Chromium 又确认未授权同站来源仍能触发 logout 清 Cookie，独立原型已补来源防护，扩大后 78 项专项与 Chromium logout 回归通过，已对齐 V21 并启动 q/r 完整门禁，不能仅靠 CORS 白名单关闭；方案与证据见 [V22](V22-CORS-POLICY.md)。
 
 
 ### 从 P1 调整（原编号保留）

@@ -1,0 +1,31 @@
+{
+  "accepted": false,
+  "prototype": "/tmp/rssripple-v22-rebased-iamb_8_1",
+  "base_runtime_commit": "938a7fb",
+  "source": "cors-policy-q-source.json",
+  "freeze": "cors-policy-q-frozen.json",
+  "frozen_count": 3247,
+  "image": "rssripple-v20-tests:local",
+  "image_id": "sha256:82b848a7ced66ed29f4556606eb97da654fa9332edb34c9d01cffcbb2e5c1a12",
+  "unit": {
+    "status": "running",
+    "session": 92328,
+    "postgres_container": "rssripple-v22-unit-pg-q",
+    "postgres_port": 32858,
+    "log": "/tmp/rssripple-v22-unit-q.log",
+    "junit": "/tmp/rssripple-v22-unit-q.xml",
+    "coverage": "/tmp/rssripple-v22-unit-q-coverage.xml",
+    "coverage_data": "/tmp/rssripple-v22-unit-q.coverage",
+    "threshold": 95
+  },
+  "integration": {
+    "status": "running",
+    "session": 63998,
+    "project": "rssripple-v22-final-r",
+    "startup_exit": 0,
+    "log": "/tmp/rssripple-v22-integration-r.log",
+    "threshold": 85,
+    "cleanup": "pending"
+  },
+  "warning": "Do not edit frozen candidate. Poll actual handles, then SIGINT both apps, wait and inspect exits, run final coverage-report, export before down --volumes --remove-orphans for this project only. Stop unit PG after terminal."
+}

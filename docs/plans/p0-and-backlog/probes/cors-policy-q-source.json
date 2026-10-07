@@ -1,0 +1,37 @@
+{
+  "prototype": "/tmp/rssripple-v22-rebased-iamb_8_1",
+  "base_runtime_commit": "938a7fb",
+  "accepted": false,
+  "files": {
+    "app/config.py": "8c9df6bccc0bfbe9e46ca3246ceea394cf55554770e6b000baa083445545cba8",
+    "app/main.py": "13029f41e7af99614759ac3ac59aa272e1b288e7b7938f462db93b438132545f",
+    "app/middleware/cors.py": "47807f7611bfd0a5f7552643578d246a6966e80f3a4652a32f4187445e5f9ef1",
+    "tests/integration/security/test_cors_policy.py": "40c2e8a3b3ff3e2f96793945f2a77da3612aefbc58313b2b1f00a1d0ca825324",
+    "tests/unit/test_cors_config.py": "648a18ad8ec9dc15f2cac9a6ce650942140a67d140f129ac2686d494cabe905f",
+    ".env.example": "44f3d789276eacac9c2290a891e2b0f88e2e6597251c3c63bfc781bee8aea474",
+    "docs/design/conventions.md": "e5245526456104f988fd5ad499ae86f21ed8285100cd65e26e987094f51e878d",
+    "docs/design/api-endpoints.md": "6d97e197b0ff25f978445f4f3b3ab97f6d86564ecdb3f3b3d7cc861dc70345a3",
+    "docs/testing/integration-inventory.md": "3d6fbb61aec2758aae7d281a68e10cd8072f806a3789de65facb1057bec5bfc4",
+    "app/middleware/csrf.py": "c30efc8597a21c3e163403379ba987c8996267f2f3ace07614bed4eee3a08f09",
+    "docs/design/error-handling.md": "814994f8495b792d79b09031bbb7d11adadee69ace49cf827b9557e39d3376bb",
+    "tests/browser/README.md": "55f60aabbc5fed6c829fab6726d108372a2a4408e0f445801bfb6cf8f154e886",
+    "tests/browser/cors_fixture_server.py": "42eecb8a5a2d5bde64dfb6998414b456298560c03109999bc2b45526ee0b7d2e",
+    "tests/browser/cors_policy.cjs": "ed54e5a7bf392d4f002d16d432101be4a8326cdf53645fe82612c2685dd70c95"
+  },
+  "base_hashes": {
+    "app/config.py": "57b4bd7bac61ed0f60cfa09846ea6647d97ff69a457fcd7c2f4b2ae06fda1a99",
+    "app/main.py": "18d941b374bbdfe6e468314bb20df33452f92d43de2dedf76cac2189174b9ea0",
+    "app/middleware/cors.py": null,
+    "tests/integration/security/test_cors_policy.py": null,
+    "tests/unit/test_cors_config.py": null,
+    ".env.example": "4a7fdb10283290bceebf41385a39c2fcbaa1716fb6aa404dd3a4d42960ba9862",
+    "docs/design/conventions.md": "72a6522b6d5435f2051d38793c4a111b107ccacc21e99c020e49185c4e971d40",
+    "docs/design/api-endpoints.md": "3138ff4d75fce89fe8606a3aaad92174116f1bef4a7b22d8fae9ea72fe7f1d11",
+    "docs/testing/integration-inventory.md": "ae8b9381e497e98be3bbce86c9d0aa567272ca5ccb27b7f9e9134e27f941174a",
+    "app/middleware/csrf.py": null,
+    "docs/design/error-handling.md": "f49395ac467af2d0168f84d2846a5196be70a1410477dbfa250a6b8357b53f2b",
+    "tests/browser/README.md": null,
+    "tests/browser/cors_fixture_server.py": null,
+    "tests/browser/cors_policy.cjs": null
+  }
+}
