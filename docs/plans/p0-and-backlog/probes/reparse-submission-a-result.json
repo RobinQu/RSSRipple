@@ -1,0 +1,25 @@
+{
+  "prototype": "/tmp/rssripple-v24-reparse-54_450v_",
+  "base_runtime_commit": "938a7fb",
+  "accepted": false,
+  "runtime_changes": false,
+  "passed": 1,
+  "failed": 1,
+  "exit": 1,
+  "seconds": 4.19,
+  "observations": {
+    "test_reparse_failed_submission_restores_visibility[False]": {
+      "accepted": "False",
+      "marker_committed_before_enqueue": "[True]",
+      "hidden_after_submission": "True",
+      "error": "Synthetic queue submission failed before acceptance"
+    },
+    "test_reparse_failed_submission_restores_visibility[True]": {
+      "accepted": "True",
+      "marker_committed_before_enqueue": "[True]",
+      "hidden_after_submission": "True",
+      "error": ""
+    }
+  },
+  "boundary": "Real router, DB commit and fresh-session read; queue outcome injected, not real Redis failure"
+}

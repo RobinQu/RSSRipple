@@ -1,0 +1,44 @@
+"""Real router/Turso state, with explicitly injected queue submission outcomes."""
+
+import pytest
+
+from app.models.file_resource import FileResource
+from tests.api.test_resources import _make_resource
+
+
+@pytest.mark.parametrize("accepted", [False, True])
+async def test_reparse_failed_submission_restores_visibility(client, sample_channel, db_session_factory, monkeypatch, accepted, record_property):
+    rid = await _make_resource(db_session_factory, sample_channel.id)
+    observed_committed = []
+
+    async def enqueue(*args, **kwargs):
+        async with db_session_factory() as db:
+            row = await db.get(FileResource, rid)
+            observed_committed.append(row.confirmation_ignored_at is not None)
+        if not accepted:
+            raise ConnectionError("Synthetic queue submission failed before acceptance")
+        return {"job_id": "synthetic-accepted-job"}
+
+    monkeypatch.setattr("app.services.task_queue.task_queue.enqueue", enqueue)
+    error = None
+    response = None
+    try:
+        response = await client.post(f"/api/v1/resources/{rid}/reparse-metadata")
+    except ConnectionError as exc:
+        # ASGITransport re-raises an unhandled application exception after
+        # production error handling; do not hide its persisted DB state.
+        error = str(exc)
+    async with db_session_factory() as db:
+        row = await db.get(FileResource, rid)
+        hidden = row.confirmation_ignored_at is not None
+    record_property("accepted", accepted)
+    record_property("marker_committed_before_enqueue", str(observed_committed))
+    record_property("hidden_after_submission", hidden)
+    record_property("error", error or "")
+    assert observed_committed == [True]
+    if accepted:
+        assert response.status_code == 200
+        assert hidden
+    else:
+        assert error or response.status_code >= 400
+        assert not hidden
