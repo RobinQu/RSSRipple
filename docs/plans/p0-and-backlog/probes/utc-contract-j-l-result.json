@@ -1,0 +1,75 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v32-input-lbomiqmh",
+  "effective_files": 56,
+  "runs": {
+    "j": {
+      "exit_code": 1,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "24",
+        "skipped": "0",
+        "tests": "31",
+        "time": "35.005",
+        "timestamp": "2026-10-07T10:54:28.569817+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    "k": {
+      "exit_code": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "41",
+        "time": "39.093",
+        "timestamp": "2026-10-07T10:55:39.485534+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    "l": {
+      "exit_code": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "227",
+        "time": "0.448",
+        "timestamp": "2026-10-07T10:56:13.191243+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    }
+  },
+  "baseline": "Same i storage candidate plus identical new test file, before changes to utils/time.py, clients/rss_parser.py and services/resource_parser.py",
+  "failures_explained": "j: PostgreSQL rejects aware timestamps for naive columns; Turso loses nonzero offsets on binding and parsed aware values violate the naive contract even for Z. 24 failures and 7 passes retained.",
+  "test_data": "Recorded title/guid/torrent URL from fixed-hash prod_works_v1; explicitly synthetic offset timestamps. No external downloads or production rows changed.",
+  "scope": "Real parsers and database writes/reconnects, not a full fetch pipeline test",
+  "ruff_full_exit": 0,
+  "startup_exit": 0,
+  "cleanup_exit": 0,
+  "labels": {
+    "containers": [],
+    "volumes": [],
+    "networks": []
+  },
+  "remaining": [
+    "UTC API output, preformatted fields, SSE and queue history",
+    "other typed API offset inputs and frontend consumption",
+    "formal rebase and complete unit/API >=95% and integration >=85% zero-failure gates",
+    "five-axis review and complete hash/exit/skip/export/cleanup audit"
+  ],
+  "artifacts": {
+    "utc-contract-input-j.log.gz": "98771929144c0f76302f874049e54114b7fb8afd77151457ae899aaadb960bd8",
+    "utc-contract-input-j.xml.gz": "38288f30e299b5940289c63af5a4793ae80951125165e67440d986e107d9556f",
+    "utc-contract-input-k.log.gz": "11ae07677fc4efde2390dd86f2a6a13f0db3e07e068a304514a8bd9c364aebe4",
+    "utc-contract-input-k.xml.gz": "62f104e9ac8143ad97a7a7b81ea8b8d52f4167906da8294c0402660f0b95057c",
+    "utc-contract-input-l.log.gz": "7fb73d0f6ccf89da7cbce6ce9a3d1396751e068cc1687d57f861a4b691e18545",
+    "utc-contract-input-l.xml.gz": "5ab8abccaa7d907aaede24add6162378d6c8e835533383ea489a788a140ddc79",
+    "utc-contract-input-l-startup.log.gz": "6fb82c3537605e536e837c72b80aa5853d607286d8dc1128372c8137657b7841",
+    "utc-contract-input-l-cleanup.log.gz": "aac77866c4b162dcf066f3175e9b10868e15c7356f9ca75742e6cb4d6a436ed6",
+    "utc-contract-input-l-ruff.log.gz": "f3af4d142827f5aad2eb0c72d556d325488a57fb6219aac10afeb51085667d53"
+  }
+}

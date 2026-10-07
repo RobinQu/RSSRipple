@@ -85,3 +85,6 @@ V26 已通过 q/r 完整门禁并合入 `7da83a2`，V25 漏掉的离线脚本亦
 q 已正常退出 0：**207 passed、0 failed、0 skipped、3 warnings，135.49 秒**。其中 resource_work_fk 正式集成 157 项、数据库迁移单元 50 项。历史 o 的 159 项另含两个 work_parent_guard_upgrade 单元测试，数量差异不是丢失测试；该文件由本轮完整单元门禁收录。专用预检项目 down 退出 0，容器/卷/网络标签均空。原始日志、JUnit、清理日志和审计见 [q-result](probes/resource-work-fk-q-result.json)。
 
 候选 13 个有效文件哈希未变，冻结 **6,183 个输入文件**，见 [p-frozen](probes/resource-work-fk-p-frozen.json)。r 完整单元/API（≥95%）与 s 完整隔离集成（≥85%）已经启动；专用 PostgreSQL 和集成项目均健康，实际句柄、唯一项目名及报告路径见 [r-s-running](probes/resource-work-fk-r-s-running.json)。预检完成不等于完整验收；门禁终态后还须逐项核验 skip、完整输入范围、应用正常退出、原始覆盖率导出及资源清理。V27 未合入，TODO 保留。
+
+
+r 单元/API 运行中已观察 `test_seed_subjects_from_all_sources` 失败：静态核对其夹具同一资源同时设置 series_id/movie_id，与新约束冲突。完整终态/traceback 尚未取得，不能宣称本轮通过；保持冻结候选不变，等待所有失败收集后在后继候选中以合法资源组合保持各身份来源覆盖，并重新验收。s 完整集成仍运行，不能用其局部通过替代 r。

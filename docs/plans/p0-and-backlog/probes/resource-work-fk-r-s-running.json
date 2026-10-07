@@ -21,7 +21,11 @@
     "postgres_port": 32881,
     "startup_exit": 0,
     "threshold": 95,
-    "cleanup": "pending"
+    "cleanup": "pending",
+    "observed_failures": [
+      "tests/unit/test_bangumi_relations.py::test_seed_subjects_from_all_sources"
+    ],
+    "failure_observation": "Log marks FAILED; test fixture inserts both series_id and movie_id on one FileResource. Await terminal traceback and remaining failures. Frozen candidate unchanged; successor must preserve seed-source coverage with valid resource rows."
   },
   "integration": {
     "status": "running",

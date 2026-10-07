@@ -57,3 +57,18 @@ naive DateTime 本身不是充分的缺陷证据：本项目的 `utcnow()` 明�
 源码/双方哈希/可恢复 tar 见 [i-source](probes/utc-contract-i-source.json)，逐轮结果和原始日志/JUnit 见 [e–i](probes/utc-contract-e-i-result.json)。范围从全部跟踪输入独立推导，并检查 app/tests/scripts 新 Python 文件无漏项。
 
 **尚未完成的同一问题范围**：API UTC 输出、已经手工序列化的路径、SSE、偏移输入归一化及 DST/边界验证。当前候选仅完成存储部分，不缩减 V32 目标，不关闭 TODO，不批准合入；后续先补这些边界，再正式重基和完整双门禁。V26 q/r 冻结副本不受影响。
+
+
+## j–l：外部偏移输入的实际写入与 DST 回归
+
+重新核对必要性：RSS 的 `torrent_pubdate` 与字段映射 `iso_datetime` 原来直接返回 datetime.fromisoformat 结果，含偏移输入会进入 naive 数据列。本轮保持 i 存储实现和同一测试文件不变，先验证原解析逻辑：j **24 failed、7 passed、35.02 秒、退出 1**。PostgreSQL 的实际绑定拒绝 aware 时间；Turso 写入非零偏移时丢失原时刻，Z 输入虽然存储时刻正确，解析值仍违反 naive 约定。日志保留每项错误，不归因于连接时区默认值。尚无生产对应数据损坏证据，仍按 P2。
+
+独立继承候选 `/tmp/rssripple-v32-input-lbomiqmh` 在 `app/utils/time.py` 增加小型 `naive_utc`：aware 先 astimezone(UTC) 再去掉 tzinfo；naive 不变。两个解析入口统一调用，标准 RSS 已由 feedparser 归一化的路径保持不变。不根据机器时区猜测无偏移输入，不平移历史行。
+
+新增正式集成使用固定 SHA256 的 prod_works_v1 录制资源标题/guid/torrent_url，合成发布时间；真实两库写入后用独立连接读取，期望 UTC 时刻为人工列出的常量。覆盖东八区跨年、纽约春季跳时和秋季同一墙钟时间的两种偏移、Z 微秒、naive、非法输入及标准 RSS。录制 URL 不被请求；这是实际解析器与持久化边界测试，不是完整抓取流水线测试。
+
+k 全部 time_contract 集成 **41 passed、0 skipped、39.09 秒、退出 0**；l 两个完整解析器单元文件 **227 passed、1 warning、0.48 秒、退出 0**。全仓无缓存 Ruff 退出 0。专用 PostgreSQL 项目 `rssripple-v32-input-j` 启动/清理均退出 0，容器/卷/网络标签为空；无本批后台测试。
+
+来源由完整 Git 基线独立推导，新增文件扫描纳入，当前 **56 个有效文件**。可恢复源码见 [l-source](probes/utc-contract-l-source.json) 与 l-candidate.tar.gz，红/绿报告、退出和清理见 [j–l](probes/utc-contract-j-l-result.json)。业务逻辑和测试清单已同步到候选。
+
+仍须完成 API 输出、手工字符串、SSE/队列历史与其他类型化 API 偏移输入审计、前端消费边界，再正式重基及完整双门禁。当前不是 V32 完整修复，不关闭 TODO，不批准合入。V27 r/s 冻结门禁不受此候选改动影响。
