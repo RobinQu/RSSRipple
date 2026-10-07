@@ -18,13 +18,27 @@
     "postgres_preflight_passed": 3
   },
   "integration": {
-    "status": "running",
+    "status": "completed",
     "session": 21973,
     "project": "rssripple-v24-final-ag",
     "startup_exit": 0,
     "log": "/tmp/rssripple-v24-integration-ag.log",
     "threshold": 85,
-    "cleanup": "pending"
+    "cleanup": "complete",
+    "runner_exit_code": 0,
+    "passed": 3366,
+    "skipped": 17,
+    "app_exit_codes": [
+      0,
+      0
+    ],
+    "coverage_exit_code": 0,
+    "covered": 21433,
+    "valid": 24026,
+    "artifact_tar": "/tmp/rssripple-v24-integration-ag-artifacts.tar",
+    "cleanup_exit": 0,
+    "export_exit": 0,
+    "audit": "reparse-submission-ag-audit.json"
   },
   "image": "rssripple-v20-tests:local",
   "image_id": "sha256:82b848a7ced66ed29f4556606eb97da654fa9332edb34c9d01cffcbb2e5c1a12",

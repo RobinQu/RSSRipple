@@ -1,0 +1,228 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v25-dedup-vdloqrh0",
+  "main_base": "7a4f63a146485be486ec0aebbc04d0c98c5ce1fd",
+  "base_runtime": "accd024",
+  "effective_files": 30,
+  "files": {
+    "app/services/dedup_metadata_policy.py": {
+      "candidate": "da3f3e0a106f08e67875df05b02e905e603c69b6aab28c3df42e2f1b0ac91534",
+      "base": null
+    },
+    "app/services/dedup_work_lock.py": {
+      "candidate": "ed9c293881ad0bfc98d04f93ba5ad0a1744f1cd3598a088cb363de1f822e6cd4",
+      "base": null
+    },
+    "app/services/metadata_dedup.py": {
+      "candidate": "d2d08a36efa34580af9740b1882fc3f650d483ed451cbb5cb3049a9793768b8a",
+      "base": "3b1a5e647c4c6f43e310c1015d02f45e4ab246b0a765df0b1edd82c620adec4a"
+    },
+    "app/services/work_deletion.py": {
+      "candidate": "06a97bcf047e43101eaa09299ab0a7ee34ac8e2522eb62dd3c73b5e16ece9dba",
+      "base": "e2aa9bce182af9ddce868ac45ceb6bddcef7abceb0bd9a7502659303b026732a"
+    },
+    "app/services/franchise_service.py": {
+      "candidate": "61b2fc45339ce80da8ecbf39fc9aa83d2b4ae76929632de072df0ce1b648ecf0",
+      "base": "b6dab236f59c07dc05c25c4ef1a878e6c845180e52791b88910185bb9c087308"
+    },
+    "app/services/scheduler.py": {
+      "candidate": "be37ec273c5e8c89bdfde807d550e9ac4baf13bf0955ffebea2e4275a8638249",
+      "base": "f122647ed4d7a6a37ae8f1fc294a36b2f4458472bcb02904341c68705aaac3f2"
+    },
+    "app/api/v1/works.py": {
+      "candidate": "eb821b8d2a38feeecf8bac11f2df2bc2139e55538cf2f24ddc5440787631ff8b",
+      "base": "9cb21095511a98e32cb8bc39f8b56503f5effb63de351b6c43f91a545ee76822"
+    },
+    "scripts/post_split_leftover_repair.py": {
+      "candidate": "65d7386d26109f93e3ef190acd2fb69f8304f7cd6dc30f91178d950fea2efeb2",
+      "base": "010d08eeccb286b3c3733ca2e73576c8a67e9856540b2d534946dd44917695af"
+    },
+    "tests/unit/test_metadata_dedup.py": {
+      "candidate": "54ad6b5e80493f75f67789babfc7c66154df90ebd98a50381005b52b7a100a26",
+      "base": "b8a65ecf16e241b5863887bd08b4fe648c10995cf7748e19f46852c5cbb2a3ae"
+    },
+    "tests/unit/test_dedup_manual_preservation.py": {
+      "candidate": "a6f7acd5aa7a0ad9b97804fb4b7460761a55d53795b73fd8313d4bb5c4941672",
+      "base": null
+    },
+    "tests/unit/test_dedup_cross_manual.py": {
+      "candidate": "115662b20ee1ed7982297b5f26fdee467d84df38babc89d6c40558dfe79bffc7",
+      "base": null
+    },
+    "tests/api/test_merge_manual_conflict.py": {
+      "candidate": "20e91d8056e38ca4f752fbdcf7e77c9a3f1a2befe350a0fef32bf724f1e23305",
+      "base": null
+    },
+    "tests/integration/dedup/conftest.py": {
+      "candidate": "b008cd22d8ee318f5b064653fa4f5b1e69e65cea4658d046754ee6b232f90ae7",
+      "base": null
+    },
+    "tests/integration/dedup/test_concurrent_manual_edit.py": {
+      "candidate": "5fc79b2a71a15f2e12db4274faa004b33d6fcd6b8c287c22f577dfd5e31c8215",
+      "base": null
+    },
+    "docs/design/business-logic.md": {
+      "candidate": "1e498f09a6c53ede2f09f7456b6318e84bb2d0e341e444254717e29bec288aec",
+      "base": "965410549a39a8895d8ca6ecdb144da446845c0ef1795ab3516af3c1bbbd0f63"
+    },
+    "docs/design/api-endpoints.md": {
+      "candidate": "e8dd5ee275ec81601d3b03181f3db02bf38d3f0282ae8a4205ef90e12ed40ff7",
+      "base": "1a229c1b3974cd0bfce04c1bf34b89cb72fb0dd45f494ddde257db227e747be2"
+    },
+    "docs/testing/integration-inventory.md": {
+      "candidate": "9269b336c7e3ab15e981332545e6737b48b747d6f58d76f004e574ee3ddbd109",
+      "base": "13256fc2674ef747f8730ef92a932c737361ec7b7c97bb496f868e2f32021990"
+    },
+    "tests/unit/test_dedup_identity_pair.py": {
+      "candidate": "ec2eddcdd44fe2bffbfb9a827010c63ecb845f763b1f9639005110690bc44718",
+      "base": null
+    },
+    "tests/integration/dedup/test_group_revalidation.py": {
+      "candidate": "c6b8876422579d938ed0ad9c20c7225fb49320a971631e461f92872c3d3b83c7",
+      "base": null
+    },
+    "tests/integration/dedup/test_captured_assignments.py": {
+      "candidate": "ddeee418c0836f0f3499ca98176a16834bfd9582272c8f92b45fadb7492224cf",
+      "base": null
+    },
+    "app/services/fetch_service.py": {
+      "candidate": "7db26b3d3e97575ecc76765885bb97df364d5222eb039d44f4fc9c69fb7d87d8",
+      "base": "a3f31fcc2ac0ed40b07600bbaff28a2929dccd331074aad50e7349166f4938e0"
+    },
+    "tests/unit/test_dedup_caller_transactions.py": {
+      "candidate": "ae53664276d373cf83b1625d4b72ca8ad6aa286072348d6e32abf47c5698d03c",
+      "base": null
+    },
+    "tests/unit/test_dedup_offline_repair.py": {
+      "candidate": "197b6c48178c7878254788ddd60b334d76bfe80b33fff890059f6a2eba7e3e4b",
+      "base": null
+    },
+    "tests/integration/dedup/test_caller_transactions.py": {
+      "candidate": "99d6aa081948a05f613f710c4cca110f1cc8df1b3648fe3e191932911f879ce5",
+      "base": null
+    },
+    "tests/unit/test_fetch_service.py": {
+      "candidate": "8b568498b8203db6f1fadaaf71caca022190a139ea5dcff73313e09985f55285",
+      "base": "79ddc56fae1bfaf6abc871028d13f08b524a2e4c003298d5621f8f1ab268f0a5"
+    },
+    "tests/integration/dedup/test_late_writers.py": {
+      "candidate": "35e76335eeed6aaa03bebd50bb01100cdd049440e82ec534fd7ca836d98dad80",
+      "base": null
+    },
+    "app/services/resource_parent_guard.py": {
+      "candidate": "3b424c0b8ca914cc4c0f3edd68028d395d231f9c41b80d208bebc9862b566923",
+      "base": "4aba54d2705432a6f755a180471b1710170033378be97c47c23d5f1d6879848e"
+    },
+    "app/services/schema_foreign_keys.py": {
+      "candidate": "be1da3dae5c171d1edf422e60500f89b3c9ba05d753ddde5074ed814452f71a4",
+      "base": "46f8e6fd111eb0866edd618b2598e4c7888e8c3fd47bac4f83e8b4ce23b12d82"
+    },
+    "docs/design/db-migration.md": {
+      "candidate": "3f97398a3e76e6956e4629e9221defb357ab197a4486efab74bc43d091d4c5ae",
+      "base": "23fb5ebf67367f9c5fb46dc3ba7e1bdf47fe4cd160c2909b21611037d020c0f0"
+    },
+    "tests/unit/test_work_parent_guard_upgrade.py": {
+      "candidate": "31f1d337fb17f881e4bab7c2b5d25ed83ba6b4538eab8e70cfc27a397dc5f94b",
+      "base": null
+    }
+  },
+  "runs": {
+    "z": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "136",
+      "time": "189.592",
+      "timestamp": "2026-10-07T02:49:51.150089+00:00",
+      "hostname": "dl-workstation-albert",
+      "failures_named": [],
+      "exit_code": 0
+    },
+    "aa": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "1",
+      "skipped": "0",
+      "tests": "6",
+      "time": "7.292",
+      "timestamp": "2026-10-07T02:52:36.940191+00:00",
+      "hostname": "dl-workstation-albert",
+      "failures_named": [
+        "test_late_writer_turso[new_reference]"
+      ],
+      "exit_code": 1
+    },
+    "ab": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "7",
+      "time": "3.202",
+      "timestamp": "2026-10-07T02:53:49.428152+00:00",
+      "hostname": "dl-workstation-albert",
+      "failures_named": [],
+      "exit_code": 0
+    },
+    "ac": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "1",
+      "skipped": "0",
+      "tests": "2",
+      "time": "2.454",
+      "timestamp": "2026-10-07T02:54:29.870877+00:00",
+      "hostname": "dl-workstation-albert",
+      "failures_named": [
+        "test_late_writer_turso[wizard_reference]"
+      ],
+      "exit_code": 1
+    },
+    "ad": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "38",
+      "time": "39.259",
+      "timestamp": "2026-10-07T02:56:27.026793+00:00",
+      "hostname": "dl-workstation-albert",
+      "failures_named": [],
+      "exit_code": 0
+    },
+    "ae": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "73",
+      "time": "151.414",
+      "timestamp": "2026-10-07T02:57:15.799651+00:00",
+      "hostname": "dl-workstation-albert",
+      "failures_named": [],
+      "exit_code": 0
+    },
+    "af": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "2",
+      "time": "6.940",
+      "timestamp": "2026-10-07T02:59:35.470262+00:00",
+      "hostname": "dl-workstation-albert",
+      "failures_named": [],
+      "exit_code": 0
+    }
+  },
+  "cleanup": {
+    "project": "rssripple-v25-late-aa",
+    "exit_code": 0,
+    "scratch_databases": [],
+    "remaining_containers": [],
+    "remaining_networks": [],
+    "remaining_volumes": []
+  },
+  "validation_limits": "z passed before work-parent trigger change. ad/ae/af cover latest runtime; full unit/API and integration gates remain required, plus rebase after accepted B8."
+}

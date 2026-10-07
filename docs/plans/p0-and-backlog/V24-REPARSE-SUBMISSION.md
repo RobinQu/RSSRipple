@@ -100,3 +100,9 @@ aa 以 `git archive accd024 app` 提取实际旧代码，在独立 PG/Turso 中�
 顺序复核确认 `test_worker_entrypoint.wired_worker` 只替换 create_queue，却未恢复 `_run` 自行重绑的全局 task_queue；其他目录导入 unit/API conftest 又永久加速 asyncio.sleep。隔离新副本 `/tmp/rssripple-v24-isolation-4br76c92` 按 worker-entrypoint→resources 顺序 ad 复现 **6 failed、15 passed，62.51 秒**；定时竞态失败数量与完整轮不同，不能据此删除恢复断言。修正 worker fixture 恢复原单例，并在 resources fixture 使用原生 asyncio.tasks.sleep 后，ae 相同顺序 **21 passed，11.83 秒，退出 0**。未改业务实现，未增加超时或弱化断言。专用 ad 项目已导出报告并清理无残留。
 
 af/ag 候选为 25 个有效文件、5332 冻结输入，全仓无缓存 Ruff 通过。af 单元门禁前显式连接独立项目 `rssripple-v24-unit-af`，三项先前跳过的 PG 迁移预检 **3 passed，2.20 秒**。完整单元/API af 与新项目 `rssripple-v24-final-ag` 的完整集成 ag 已启动，均尚未结束，不得关闭 B8。运行句柄、清理协议和日志路径见 [af/ag 运行记录](probes/reparse-submission-af-ag-running.json)；上一失败轮见 [ab/ac 审计](probes/reparse-submission-ab-ac-audit.json)。
+
+## ag 完整集成终态（af 单元/API 仍运行）
+
+ag runner 退出 0：**3366 passed、17 skipped、22 warnings，2094.21 秒**。两应用 SIGINT 后均退出 0；覆盖率汇总退出 0，**21433/24026＝89.21%**，满足 85%。报告、五份原始 coverage 数据及 metadata-corpus JSON 已导出；专用 `rssripple-v24-final-ag` down 退出 0，容器/网络/卷均无残留。
+
+17 项跳过的测试标识、理由与位置和 B6 s 基线逐项一致；5332 个冻结输入哈希未变，25 个有效文件的 main 基线哈希均一致。证据见 `probes/reparse-submission-ag-audit.json` 及相邻压缩原始报告。af 单元/API 尚未结束，其独立 PostgreSQL 必须继续保留。当前仅集成门禁通过，仍不批准合入；下一步轮询会话 35488，完成 95% 单元/API、跳过/哈希、PG 清理及最终代码审查后才可合入。
