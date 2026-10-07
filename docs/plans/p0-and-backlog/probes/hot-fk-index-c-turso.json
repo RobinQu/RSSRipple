@@ -1,0 +1,196 @@
+{
+  "backend": "sqlite",
+  "catalog": {
+    "file_resources": {
+      "indexes": [
+        {
+          "name": "ix_file_resources_confirmation_created",
+          "column_names": [
+            "confirmation_ignored_at",
+            "created_at",
+            "id"
+          ],
+          "unique": 0,
+          "dialect_options": {}
+        }
+      ],
+      "unique": [
+        {
+          "name": "uq_file_resources_channel_guid",
+          "column_names": [
+            "channel_id",
+            "guid"
+          ]
+        }
+      ]
+    },
+    "agent_works": {
+      "indexes": [],
+      "unique": []
+    },
+    "pending_decisions": {
+      "indexes": [
+        {
+          "name": "ix_pending_decisions_status_created",
+          "column_names": [
+            "status",
+            "created_at",
+            "id"
+          ],
+          "unique": 0,
+          "dialect_options": {}
+        },
+        {
+          "name": "uq_pending_decisions_agent_key",
+          "column_names": [
+            "agent_id",
+            "decision_key"
+          ],
+          "unique": 1,
+          "dialect_options": {
+            "sqlite_where": "status = 'pending'"
+          }
+        }
+      ],
+      "unique": []
+    },
+    "download_tasks": {
+      "indexes": [
+        {
+          "name": "ix_download_tasks_downloader_torrent",
+          "column_names": [
+            "downloader_id",
+            "transmission_torrent_id"
+          ],
+          "unique": 0,
+          "dialect_options": {}
+        },
+        {
+          "name": "ix_download_tasks_status_agent",
+          "column_names": [
+            "status",
+            "agent_id"
+          ],
+          "unique": 0,
+          "dialect_options": {}
+        }
+      ],
+      "unique": []
+    },
+    "agent_runs": {
+      "indexes": [],
+      "unique": []
+    },
+    "webhook_deliveries": {
+      "indexes": [
+        {
+          "name": "ix_webhook_deliveries_notification_id",
+          "column_names": [
+            "notification_id"
+          ],
+          "unique": 0,
+          "dialect_options": {}
+        }
+      ],
+      "unique": [
+        {
+          "name": "uq_delivery_pair",
+          "column_names": [
+            "notification_id",
+            "webhook_id"
+          ]
+        }
+      ]
+    },
+    "episodes": {
+      "indexes": [],
+      "unique": [
+        {
+          "name": "uq_episode_series_season_episode",
+          "column_names": [
+            "series_id",
+            "season",
+            "episode"
+          ]
+        }
+      ]
+    }
+  },
+  "corpus_sha256": "d11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32",
+  "rows": 16000,
+  "matched": 16,
+  "query": "SELECT file_resources.id, file_resources.channel_id, file_resources.guid, file_resources.title_raw, file_resources.title_cn, file_resources.title_en, file_resources.search_title, file_resources.subtitle_group, file_resources.subtitle_groups, file_resources.subtitle_groups_source, file_resources.episode, file_resources.season, file_resources.title_year, file_resources.is_batch, file_resources.episode_start, file_resources.episode_end, file_resources.batch_scope, file_resources.batch_seasons, file_resources.season_ranges, file_resources.absolute_episode, file_resources.episode_confidence, file_resources.resolution, file_resources.source, file_resources.video_codec, file_resources.audio_codec, file_resources.subtitle_type, file_resources.subtitle_langs, file_resources.container, file_resources.file_size, file_resources.torrent_url, file_resources.torrent_file, file_resources.magnet_resolve_status, file_resources.magnet_resolve_attempt_id, file_resources.magnet_resolve_error, file_resources.magnet_resolve_attempts, file_resources.magnet_resolve_updated_at, file_resources.magnet_resolve_trackers, file_resources.detail_url, file_resources.published_at, file_resources.parsed_at, file_resources.series_id, file_resources.movie_id, file_resources.audio_work_id, file_resources.collection_id, file_resources.metadata_matched_at, file_resources.metadata_attempts, file_resources.last_metadata_attempt_at, file_resources.metadata_failure_type, file_resources.confirmation_ignored_at, file_resources.created_at, file_resources.updated_at \nFROM file_resources \nWHERE file_resources.movie_id = '6e16c611-e400-4ddd-b7fb-d16a0d973c63'",
+  "before": {
+    "plan": [
+      [
+        1,
+        0,
+        0,
+        "SCAN file_resources"
+      ]
+    ],
+    "seconds": [
+      0.011650698259472847,
+      0.007567235268652439,
+      0.007414732128381729,
+      0.007363481447100639,
+      0.007421783171594143
+    ],
+    "row_count": 16,
+    "ids": [
+      "2228c780-aeeb-43e4-8914-3b8b1fc3b51e",
+      "2c9b003c-6477-4f5c-acd7-d8396c94602b",
+      "4b1322fe-fd91-4471-98d0-79d38df5d31b",
+      "5e8aead5-7b2c-49c7-9429-d9f9498e0461",
+      "62103e66-3f19-4682-88c1-0c33db58b408",
+      "73cee38f-3c11-406b-aec1-32208f268301",
+      "7d365870-d885-41d6-a8ee-46e9bc237cc4",
+      "88bced78-433d-4972-ab98-2045e46cb21a",
+      "b0c3027b-7df5-4de1-8e45-ccf6b53773d6",
+      "bc1ac092-0495-4a40-a869-78b9b6b85462",
+      "c716cbfa-eb6f-489b-a916-50c15f5bd3f4",
+      "d22a3e77-552f-49e8-9ea6-ab43eea26741",
+      "d6c5c889-2f46-4f3a-87bd-1de1a6cd95df",
+      "d776e4f7-0b03-4a84-943b-5e448d5c7dea",
+      "da97f375-4ffc-4ba2-ba10-7c69b16d05c1",
+      "fad40a6f-a2eb-4718-902b-10966a0dc075"
+    ]
+  },
+  "after": {
+    "plan": [
+      [
+        1,
+        0,
+        0,
+        "SEARCH file_resources USING INDEX ix_probe_file_resources_movie_id (movie_id=?)"
+      ]
+    ],
+    "seconds": [
+      0.0006822915747761726,
+      0.0005908813327550888,
+      0.0005583195015788078,
+      0.0005279090255498886,
+      0.000505128875374794
+    ],
+    "row_count": 16,
+    "ids": [
+      "2228c780-aeeb-43e4-8914-3b8b1fc3b51e",
+      "2c9b003c-6477-4f5c-acd7-d8396c94602b",
+      "4b1322fe-fd91-4471-98d0-79d38df5d31b",
+      "5e8aead5-7b2c-49c7-9429-d9f9498e0461",
+      "62103e66-3f19-4682-88c1-0c33db58b408",
+      "73cee38f-3c11-406b-aec1-32208f268301",
+      "7d365870-d885-41d6-a8ee-46e9bc237cc4",
+      "88bced78-433d-4972-ab98-2045e46cb21a",
+      "b0c3027b-7df5-4de1-8e45-ccf6b53773d6",
+      "bc1ac092-0495-4a40-a869-78b9b6b85462",
+      "c716cbfa-eb6f-489b-a916-50c15f5bd3f4",
+      "d22a3e77-552f-49e8-9ea6-ab43eea26741",
+      "d6c5c889-2f46-4f3a-87bd-1de1a6cd95df",
+      "d776e4f7-0b03-4a84-943b-5e448d5c7dea",
+      "da97f375-4ffc-4ba2-ba10-7c69b16d05c1",
+      "fad40a6f-a2eb-4718-902b-10966a0dc075"
+    ]
+  },
+  "scope": "Recorded titles only. All IDs/GUIDs, work assignments, duplication and 16/16000 skew synthetic; no production latency claim."
+}

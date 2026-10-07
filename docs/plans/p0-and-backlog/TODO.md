@@ -51,6 +51,7 @@
       `agent_works.*`、`pending_decisions.*`、`download_tasks.file_resource_id`、`agent_runs.agent_id`、
       `webhook_deliveries(status,next_attempt_at)` 等无 `index=True`（SQLite 不自动索引 FK）。
       **修复**：先对实际查询做 EXPLAIN/规模验证，再补缺失索引迁移，避免只据 `index=True` 判定。
+      V28 已核对真实双库七表目录：episode 联合唯一前缀可用、pending 的 agent/key 仅为部分索引。16000 行明确合成规模、录制标题的 movie FK 查找在两库从全表扫描变为索引扫描，结果 16 个 ID 不变；测试项目已清理。尚未确定其余查询族和最终索引/迁移，未改运行代码，见 [V28](V28-HOT-FK-INDEXES.md)。
 - [ ] **P1-D7 `lazy="selectin"` 过度加载**：`Channel.file_resources`（`app/models/channel.py:102-113`）、
       `Agent.*` 七大关系（`app/models/agent.py:75-117`）使列表/校验路径拉全量关联。
       **修复**：记录列表 SQL/关联规模，按需显式加载；异步 ORM 禁止靠隐式 `select` 懒加载兜底。

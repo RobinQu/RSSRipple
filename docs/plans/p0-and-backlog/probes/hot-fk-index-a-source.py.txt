@@ -1,0 +1,56 @@
+"""Read-only workload comparison in disposable databases; never production data writes."""
+import asyncio,hashlib,json,os,tempfile,time,uuid
+from pathlib import Path
+from sqlalchemy import Index,inspect,insert,select,text
+from sqlalchemy.ext.asyncio import create_async_engine
+import app.models  # noqa: F401
+from app.database import Base,apply_db_pragmas,normalize_database_url
+from app.models.channel import Channel
+from app.models.movie import Movie
+from app.models.file_resource import FileResource
+
+async def probe(url):
+ engine=create_async_engine(url);apply_db_pragmas(engine)
+ try:
+  async with engine.begin() as conn:
+   await conn.run_sync(Base.metadata.create_all)
+   catalog=await conn.run_sync(lambda c:{name:{'indexes':inspect(c).get_indexes(name),'unique':inspect(c).get_unique_constraints(name)} for name in ['file_resources','agent_works','pending_decisions','download_tasks','agent_runs','webhook_deliveries','episodes']})
+  raw=Path('tests/fixtures/prod_works_v1.json').read_bytes();digest=hashlib.sha256(raw).hexdigest();assert digest=='d11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32'
+  corpus=json.loads(raw)['tables'];channel=str(uuid.uuid4());movies=[str(uuid.uuid4()),str(uuid.uuid4())]
+  async with engine.begin() as conn:
+   await conn.execute(insert(Channel),{'id':channel,'name':'Synthetic index scale probe','url':'https://example.invalid/index-probe','type':'rss_feed','field_mapping':{}})
+   await conn.execute(insert(Movie),[{'id':identity,'title_en':corpus['movies'][i].get('title_en') or corpus['movies'][i]['title_cn']} for i,identity in enumerate(movies)])
+   for offset in range(0,16000,200):
+    rows=[]
+    for i in range(offset,offset+200):
+     captured=corpus['file_resources'][i%len(corpus['file_resources'])]
+     rows.append({'id':str(uuid.uuid4()),'channel_id':channel,'title_raw':captured['title_raw'],'guid':f'index-probe:{i}:{captured["id"]}','movie_id':movies[0] if i<16 else movies[1]})
+    await conn.execute(insert(FileResource),rows)
+  query=select(FileResource.__table__).where(FileResource.movie_id==movies[0])
+  sql=str(query.compile(dialect=engine.dialect,compile_kwargs={'literal_binds':True}))
+  async def measured():
+   async with engine.begin() as conn:
+    await conn.execute(text('ANALYZE'))
+   async with engine.connect() as conn:
+    explain='EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ' if engine.dialect.name=='postgresql' else 'EXPLAIN QUERY PLAN '
+    plan=[list(r) for r in (await conn.execute(text(explain+sql))).all()]
+    timings=[];identities=None
+    for _ in range(5):
+     started=time.perf_counter();rows=(await conn.execute(query)).mappings().all();timings.append(time.perf_counter()-started)
+     current=sorted(r['id'] for r in rows)
+     if identities is not None:assert current==identities
+     identities=current
+    return {'plan':plan,'seconds':timings,'row_count':len(identities),'ids':identities}
+  before=await measured()
+  async with engine.begin() as conn:
+   await conn.run_sync(lambda c:Index('ix_probe_file_resources_movie_id',FileResource.__table__.c.movie_id).create(c))
+  after=await measured();assert before['ids']==after['ids'] and before['row_count']==16
+  return {'backend':engine.dialect.name,'catalog':catalog,'corpus_sha256':digest,'rows':16000,'matched':16,'query':sql,'before':before,'after':after,'scope':'Recorded titles only. All IDs/GUIDs, work assignments, duplication and 16/16000 skew synthetic; no production latency claim.'}
+ finally:await engine.dispose()
+
+async def main():
+ with tempfile.TemporaryDirectory(prefix='rssripple-v28-index-') as directory:
+  url=os.environ.get('INDEX_PROBE_URL') or normalize_database_url(f'sqlite+aioturso:///{directory}/index.db')
+  result=await probe(url)
+  Path(os.environ['INDEX_PROBE_REPORT']).write_text(json.dumps(result,ensure_ascii=False,indent=2,default=str)+'\n')
+asyncio.run(main())

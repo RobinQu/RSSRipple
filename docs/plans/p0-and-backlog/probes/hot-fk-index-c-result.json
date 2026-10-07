@@ -1,0 +1,179 @@
+{
+  "accepted": false,
+  "runtime_changed": false,
+  "scope": "P1-D5 remains P2. Representative resource movie FK lookup only; remaining query families need individual measurement.",
+  "runs": {
+    "a_turso": {
+      "exit_code": 1,
+      "reason": "Probe omitted required MVCC pragma before DML"
+    },
+    "b_turso": {
+      "exit_code": 1,
+      "reason": "Probe omitted non-null torrent_url"
+    },
+    "b_postgres": {
+      "exit_code": 1,
+      "reason": "Probe omitted non-null torrent_url"
+    },
+    "c_turso": {
+      "exit_code": 0
+    },
+    "c_postgres": {
+      "exit_code": 0
+    }
+  },
+  "artifacts": {
+    "hot-fk-index-a-turso.log.gz": "716e61a5a89e0f63fdfb1e1426aa18e3290361156a7f116e3cac49efbc415736",
+    "hot-fk-index-b-turso.log.gz": "977601d3f51ffdb35138c05a83c11378175edafd6556a70555049f777895471c",
+    "hot-fk-index-b-postgres.log.gz": "3c05bf7ba3cb4d12197c250e715290648f2706136efa13302cb90cb16698ab0c",
+    "hot-fk-index-c-turso.log.gz": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+    "hot-fk-index-c-postgres.log.gz": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+    "hot-fk-index-c-turso.json": "3097dce8ba95645f4db4bf272e3ca8cea180b656f122e1b9e3d0b157b9140dcb",
+    "hot-fk-index-c-postgres.json": "0f54c1b21e4b87b9a779913ea058ff899b912cb9b02a4a9250a539be36aae2d9",
+    "hot-fk-index-a-source.py.txt": "d07968625952672c19c1a686eb33c03cc0d19d18a266aa883b4fe3ce6d7d9e54",
+    "hot-fk-index-b-source.py.txt": "36e8046db992c017e0dba8027752f26a91f7f47077fc1040b6e694e802e4097d",
+    "hot-fk-index-c-source.py.txt": "5ada71a0bbbced84f463ef27608cb0ad1ed6d0661bb6e49ec7d0f38e79777134"
+  },
+  "cleanup": {
+    "postgres_project": "rssripple-v28-index-a",
+    "exit_code": 0,
+    "containers": [],
+    "networks": [],
+    "volumes": [],
+    "turso": "TemporaryDirectory deleted by context manager after engine disposal"
+  },
+  "observations": {
+    "turso": {
+      "rows": 16000,
+      "matches": 16,
+      "before_median_seconds": 0.007421783171594143,
+      "after_median_seconds": 0.0005583195015788078,
+      "identical_result_ids": true,
+      "plan_before": [
+        [
+          1,
+          0,
+          0,
+          "SCAN file_resources"
+        ]
+      ],
+      "plan_after": [
+        [
+          1,
+          0,
+          0,
+          "SEARCH file_resources USING INDEX ix_probe_file_resources_movie_id (movie_id=?)"
+        ]
+      ]
+    },
+    "postgres": {
+      "rows": 16000,
+      "matches": 16,
+      "before_median_seconds": 0.002574366517364979,
+      "after_median_seconds": 0.000595499761402607,
+      "identical_result_ids": true,
+      "plan_before": [
+        [
+          [
+            {
+              "Plan": {
+                "Node Type": "Seq Scan",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Relation Name": "file_resources",
+                "Alias": "file_resources",
+                "Startup Cost": 0.0,
+                "Total Cost": 1044.0,
+                "Plan Rows": 16,
+                "Plan Width": 5404,
+                "Actual Startup Time": 0.006,
+                "Actual Total Time": 2.971,
+                "Actual Rows": 16,
+                "Actual Loops": 1,
+                "Filter": "((movie_id)::text = 'e67fa565-8a89-42af-91a1-b5070dce6364'::text)",
+                "Rows Removed by Filter": 15984,
+                "Shared Hit Blocks": 844,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0
+              },
+              "Planning": {
+                "Shared Hit Blocks": 194,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0
+              },
+              "Planning Time": 0.912,
+              "Triggers": [],
+              "Execution Time": 3.002
+            }
+          ]
+        ]
+      ],
+      "plan_after": [
+        [
+          [
+            {
+              "Plan": {
+                "Node Type": "Index Scan",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Scan Direction": "Forward",
+                "Index Name": "ix_probe_file_resources_movie_id",
+                "Relation Name": "file_resources",
+                "Alias": "file_resources",
+                "Startup Cost": 0.29,
+                "Total Cost": 9.28,
+                "Plan Rows": 16,
+                "Plan Width": 5404,
+                "Actual Startup Time": 0.028,
+                "Actual Total Time": 0.031,
+                "Actual Rows": 16,
+                "Actual Loops": 1,
+                "Index Cond": "((movie_id)::text = 'e67fa565-8a89-42af-91a1-b5070dce6364'::text)",
+                "Rows Removed by Index Recheck": 0,
+                "Shared Hit Blocks": 1,
+                "Shared Read Blocks": 2,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0
+              },
+              "Planning": {
+                "Shared Hit Blocks": 267,
+                "Shared Read Blocks": 1,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0
+              },
+              "Planning Time": 1.215,
+              "Triggers": [],
+              "Execution Time": 0.05
+            }
+          ]
+        ]
+      ]
+    }
+  }
+}

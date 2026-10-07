@@ -1,0 +1,355 @@
+{
+  "backend": "postgresql",
+  "catalog": {
+    "file_resources": {
+      "indexes": [
+        {
+          "name": "ix_file_resources_confirmation_created",
+          "unique": false,
+          "column_names": [
+            "confirmation_ignored_at",
+            "created_at",
+            "id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "uq_file_resources_channel_guid",
+          "unique": true,
+          "column_names": [
+            "channel_id",
+            "guid"
+          ],
+          "duplicates_constraint": "uq_file_resources_channel_guid",
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique": [
+        {
+          "column_names": [
+            "channel_id",
+            "guid"
+          ],
+          "name": "uq_file_resources_channel_guid",
+          "comment": null,
+          "dialect_options": {
+            "postgresql_include": [],
+            "postgresql_nulls_not_distinct": false
+          }
+        }
+      ]
+    },
+    "agent_works": {
+      "indexes": [],
+      "unique": []
+    },
+    "pending_decisions": {
+      "indexes": [
+        {
+          "name": "ix_pending_decisions_status_created",
+          "unique": false,
+          "column_names": [
+            "status",
+            "created_at",
+            "id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "uq_pending_decisions_agent_key",
+          "unique": true,
+          "column_names": [
+            "agent_id",
+            "decision_key"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_where": "(status = 'pending'::decision_status)",
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique": []
+    },
+    "download_tasks": {
+      "indexes": [
+        {
+          "name": "ix_download_tasks_downloader_torrent",
+          "unique": false,
+          "column_names": [
+            "downloader_id",
+            "transmission_torrent_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_download_tasks_status_agent",
+          "unique": false,
+          "column_names": [
+            "status",
+            "agent_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique": []
+    },
+    "agent_runs": {
+      "indexes": [],
+      "unique": []
+    },
+    "webhook_deliveries": {
+      "indexes": [
+        {
+          "name": "ix_webhook_deliveries_notification_id",
+          "unique": false,
+          "column_names": [
+            "notification_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "uq_delivery_pair",
+          "unique": true,
+          "column_names": [
+            "notification_id",
+            "webhook_id"
+          ],
+          "duplicates_constraint": "uq_delivery_pair",
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique": [
+        {
+          "column_names": [
+            "notification_id",
+            "webhook_id"
+          ],
+          "name": "uq_delivery_pair",
+          "comment": null,
+          "dialect_options": {
+            "postgresql_include": [],
+            "postgresql_nulls_not_distinct": false
+          }
+        }
+      ]
+    },
+    "episodes": {
+      "indexes": [
+        {
+          "name": "uq_episode_series_season_episode",
+          "unique": true,
+          "column_names": [
+            "series_id",
+            "season",
+            "episode"
+          ],
+          "duplicates_constraint": "uq_episode_series_season_episode",
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique": [
+        {
+          "column_names": [
+            "series_id",
+            "season",
+            "episode"
+          ],
+          "name": "uq_episode_series_season_episode",
+          "comment": null,
+          "dialect_options": {
+            "postgresql_include": [],
+            "postgresql_nulls_not_distinct": false
+          }
+        }
+      ]
+    }
+  },
+  "corpus_sha256": "d11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32",
+  "rows": 16000,
+  "matched": 16,
+  "query": "SELECT file_resources.id, file_resources.channel_id, file_resources.guid, file_resources.title_raw, file_resources.title_cn, file_resources.title_en, file_resources.search_title, file_resources.subtitle_group, file_resources.subtitle_groups, file_resources.subtitle_groups_source, file_resources.episode, file_resources.season, file_resources.title_year, file_resources.is_batch, file_resources.episode_start, file_resources.episode_end, file_resources.batch_scope, file_resources.batch_seasons, file_resources.season_ranges, file_resources.absolute_episode, file_resources.episode_confidence, file_resources.resolution, file_resources.source, file_resources.video_codec, file_resources.audio_codec, file_resources.subtitle_type, file_resources.subtitle_langs, file_resources.container, file_resources.file_size, file_resources.torrent_url, file_resources.torrent_file, file_resources.magnet_resolve_status, file_resources.magnet_resolve_attempt_id, file_resources.magnet_resolve_error, file_resources.magnet_resolve_attempts, file_resources.magnet_resolve_updated_at, file_resources.magnet_resolve_trackers, file_resources.detail_url, file_resources.published_at, file_resources.parsed_at, file_resources.series_id, file_resources.movie_id, file_resources.audio_work_id, file_resources.collection_id, file_resources.metadata_matched_at, file_resources.metadata_attempts, file_resources.last_metadata_attempt_at, file_resources.metadata_failure_type, file_resources.confirmation_ignored_at, file_resources.created_at, file_resources.updated_at \nFROM file_resources \nWHERE file_resources.movie_id = 'e67fa565-8a89-42af-91a1-b5070dce6364'",
+  "before": {
+    "plan": [
+      [
+        [
+          {
+            "Plan": {
+              "Node Type": "Seq Scan",
+              "Parallel Aware": false,
+              "Async Capable": false,
+              "Relation Name": "file_resources",
+              "Alias": "file_resources",
+              "Startup Cost": 0.0,
+              "Total Cost": 1044.0,
+              "Plan Rows": 16,
+              "Plan Width": 5404,
+              "Actual Startup Time": 0.006,
+              "Actual Total Time": 2.971,
+              "Actual Rows": 16,
+              "Actual Loops": 1,
+              "Filter": "((movie_id)::text = 'e67fa565-8a89-42af-91a1-b5070dce6364'::text)",
+              "Rows Removed by Filter": 15984,
+              "Shared Hit Blocks": 844,
+              "Shared Read Blocks": 0,
+              "Shared Dirtied Blocks": 0,
+              "Shared Written Blocks": 0,
+              "Local Hit Blocks": 0,
+              "Local Read Blocks": 0,
+              "Local Dirtied Blocks": 0,
+              "Local Written Blocks": 0,
+              "Temp Read Blocks": 0,
+              "Temp Written Blocks": 0
+            },
+            "Planning": {
+              "Shared Hit Blocks": 194,
+              "Shared Read Blocks": 0,
+              "Shared Dirtied Blocks": 0,
+              "Shared Written Blocks": 0,
+              "Local Hit Blocks": 0,
+              "Local Read Blocks": 0,
+              "Local Dirtied Blocks": 0,
+              "Local Written Blocks": 0,
+              "Temp Read Blocks": 0,
+              "Temp Written Blocks": 0
+            },
+            "Planning Time": 0.912,
+            "Triggers": [],
+            "Execution Time": 3.002
+          }
+        ]
+      ]
+    ],
+    "seconds": [
+      0.005892844870686531,
+      0.002627587877213955,
+      0.002574366517364979,
+      0.0025070039555430412,
+      0.002414744347333908
+    ],
+    "row_count": 16,
+    "ids": [
+      "0d13396e-ca1c-4f84-8a31-0777abb04118",
+      "13cdbba2-cb2e-4fdb-96b4-0f63596eabb4",
+      "415ba1ba-7d53-476e-aba9-95df210e2f26",
+      "4bbf9df6-6d3a-4396-bfc4-9759ff2737b8",
+      "5bbeaafe-cef1-448b-9b02-dea1aaa43d72",
+      "623a3016-c47c-4194-ba01-89a4a9ca9e40",
+      "734a284c-1233-4b32-a013-3f0450994fc9",
+      "9a3d7da4-88e5-469f-ba8a-92a6d4132849",
+      "b6d66e16-dc52-4613-92b4-63a66f5f4c80",
+      "bdcd4b4a-2c71-4b2a-85a5-5c69f981ea89",
+      "c7f596a5-c640-4090-b7eb-3c3e1b66ca5e",
+      "d098961e-aff8-4334-8bdb-4985d4e3531f",
+      "e5a5eb28-06fa-4ea2-87d6-bc28afc06ff3",
+      "e64b72bd-3df8-44b5-aff9-5fc5986a1974",
+      "ef7ab6e7-868b-4422-92ae-f68c3e905e6f",
+      "fa507e2c-aee3-4c43-a720-bb7a8a7ab63e"
+    ]
+  },
+  "after": {
+    "plan": [
+      [
+        [
+          {
+            "Plan": {
+              "Node Type": "Index Scan",
+              "Parallel Aware": false,
+              "Async Capable": false,
+              "Scan Direction": "Forward",
+              "Index Name": "ix_probe_file_resources_movie_id",
+              "Relation Name": "file_resources",
+              "Alias": "file_resources",
+              "Startup Cost": 0.29,
+              "Total Cost": 9.28,
+              "Plan Rows": 16,
+              "Plan Width": 5404,
+              "Actual Startup Time": 0.028,
+              "Actual Total Time": 0.031,
+              "Actual Rows": 16,
+              "Actual Loops": 1,
+              "Index Cond": "((movie_id)::text = 'e67fa565-8a89-42af-91a1-b5070dce6364'::text)",
+              "Rows Removed by Index Recheck": 0,
+              "Shared Hit Blocks": 1,
+              "Shared Read Blocks": 2,
+              "Shared Dirtied Blocks": 0,
+              "Shared Written Blocks": 0,
+              "Local Hit Blocks": 0,
+              "Local Read Blocks": 0,
+              "Local Dirtied Blocks": 0,
+              "Local Written Blocks": 0,
+              "Temp Read Blocks": 0,
+              "Temp Written Blocks": 0
+            },
+            "Planning": {
+              "Shared Hit Blocks": 267,
+              "Shared Read Blocks": 1,
+              "Shared Dirtied Blocks": 0,
+              "Shared Written Blocks": 0,
+              "Local Hit Blocks": 0,
+              "Local Read Blocks": 0,
+              "Local Dirtied Blocks": 0,
+              "Local Written Blocks": 0,
+              "Temp Read Blocks": 0,
+              "Temp Written Blocks": 0
+            },
+            "Planning Time": 1.215,
+            "Triggers": [],
+            "Execution Time": 0.05
+          }
+        ]
+      ]
+    ],
+    "seconds": [
+      0.001345854252576828,
+      0.0006082411855459213,
+      0.000595499761402607,
+      0.0005589202046394348,
+      0.0005093896761536598
+    ],
+    "row_count": 16,
+    "ids": [
+      "0d13396e-ca1c-4f84-8a31-0777abb04118",
+      "13cdbba2-cb2e-4fdb-96b4-0f63596eabb4",
+      "415ba1ba-7d53-476e-aba9-95df210e2f26",
+      "4bbf9df6-6d3a-4396-bfc4-9759ff2737b8",
+      "5bbeaafe-cef1-448b-9b02-dea1aaa43d72",
+      "623a3016-c47c-4194-ba01-89a4a9ca9e40",
+      "734a284c-1233-4b32-a013-3f0450994fc9",
+      "9a3d7da4-88e5-469f-ba8a-92a6d4132849",
+      "b6d66e16-dc52-4613-92b4-63a66f5f4c80",
+      "bdcd4b4a-2c71-4b2a-85a5-5c69f981ea89",
+      "c7f596a5-c640-4090-b7eb-3c3e1b66ca5e",
+      "d098961e-aff8-4334-8bdb-4985d4e3531f",
+      "e5a5eb28-06fa-4ea2-87d6-bc28afc06ff3",
+      "e64b72bd-3df8-44b5-aff9-5fc5986a1974",
+      "ef7ab6e7-868b-4422-92ae-f68c3e905e6f",
+      "fa507e2c-aee3-4c43-a720-bb7a8a7ab63e"
+    ]
+  },
+  "scope": "Recorded titles only. All IDs/GUIDs, work assignments, duplication and 16/16000 skew synthetic; no production latency claim."
+}
