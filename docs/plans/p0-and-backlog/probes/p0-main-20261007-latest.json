@@ -1,0 +1,14 @@
+{
+  "date": "2026-10-07",
+  "main": "b650e615aa9d8f63f4b8a02e610f13a6dd5944fa",
+  "ancestor_check_exit_codes": {
+    "4c804ed": 0,
+    "7fd8121": 0,
+    "e535e1f": 0
+  },
+  "runtime_worktree_diff": [],
+  "tests_rerun": false,
+  "fetch_or_push": false,
+  "remaining_former_p0": "P0-5, now P2; V27 not accepted or merged",
+  "other_uncommitted_work": "V25 validation evidence preserved separately"
+}
