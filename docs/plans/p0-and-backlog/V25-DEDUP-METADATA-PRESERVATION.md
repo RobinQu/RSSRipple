@@ -101,3 +101,20 @@ B8 已经通过全量验收并合入 `c642911`，现在可重基 V25。主干仍
 副本 `/tmp/rssripple-v25-rebased-ojpz2uko` 已对齐 `c642911`。ah 调度报告替身 1 failed/85 passed，换用真实报告并验证冲突告警后 ai **86 passed，44.50 秒**。专用 unit PostgreSQL 三项迁移预检 **3 passed，2.28 秒**。最终 32 个有效文件及 5520 输入已冻结，无缓存全仓 Ruff 通过。
 
 aj 完整单元/API 已启动；ak 隔离栈健康检查退出 0，完整集成已启动。状态及续接句柄见 `probes/dedup-preservation-aj-ak-running.json`；此记录不表示门禁通过。测试期间禁止修改冻结候选；报告及源快照见 `dedup-preservation-aj-*`。
+
+## ak 完整门禁失败与修复续接
+
+完整集成 ak：**5 failed、3617 passed、17 skipped、22 warnings，2385.54 秒，runner 退出 1**。覆盖率 89.34% 不能抵消失败；跳过列表与 B8 相同，5520 冻结输入不变。两应用退出 0/0，覆盖率/导出/专用项目清理均退出 0，容器/网络/卷标签均空，报告见 `probes/dedup-preservation-ak-audit.json`。单元 aj 继续运行，原候选不得修改。
+
+独立修复副本 `/tmp/rssripple-v25-repair-io3q912c` 的 al 稳定重现 **5 failed、16 passed，34.42 秒，退出 1**。四例旧去重夹具假设最早记录必保留，与人工优先/完整度排序不符；修正目标保留作品的人工标题标记，保留原字段继承及子行冲突断言。第五例 SQL 跟踪证明内存库 StaticPool 共用物理连接：观察会话退出先回滚生产事务，再进入惰性 SAVEPOINT，导致 RELEASE 提前提交。改成临时文件库并断言两物理连接不同，增加 DEFERRED/CONCURRENT 两模式，原发布原子性断言保留。运行实现未改。am 专项回归正在运行，句柄 68984；原始失败和 SQL 跟踪已存档。仍不批准合入，修正后必须重跑完整集成。
+
+am **25 passed，55.70 秒，退出 0**，修正后全部原断言与两种事务模式通过。无缓存全仓 Ruff 通过。35 个有效文件及 5520 冻结输入保存于 `probes/dedup-preservation-an-*`；与 aj 仅三个集成测试文件和清单文档不同，运行代码、单元/API、共享配置及其他输入完全相同。aj 单元可作为同运行代码的完整单元门禁，仍须等待其实际退出；新的完整集成 an 使用唯一项目 `rssripple-v25-final-an`。启动首次因服务名错误在校验时退出 1，改为真实服务名后重试；续接句柄见 `probes/dedup-preservation-aj-an-running.json`。**允许进入新完整门禁，仍不批准合入。**
+
+## aj 单元终态：未通过，续修入口
+
+完整单元/API aj **2 failed、4166 passed、12 skipped、14 warnings，3238.89 秒，退出 1**，覆盖率 **96.97%（23435/24167）**。跳过与 B8 完全一致，5520 冻结输入及主干基线哈希不变。专用 PG 已清理，标签容器/网络/卷为空；审计见 `probes/dedup-preservation-aj-audit.json`。不得以覆盖率达标宣称通过。
+
+1. `test_external_ids.py::test_dedup_merge_unions_bags` 仍查询最早 s1 的身份袋，而具有主身份的 s2 在完整度排序下保留。应补独立重现，按真实保留对象核对完整身份袋及被删对象无悬空身份，不删除身份袋断言。
+2. `test_fetch_service.py::TestMetadataBackfill::test_backfill_caps_and_records_attempts` 再现 29/30。日志明确是 channel_publication_counters 的 MVCC 写冲突，最终有一条资源耗尽重试；恢复真实 sleep 未充分解决。下一步记录每次重试与 semaphore 排队顺序，验证待处理新任务是否挤占重试任务；不得直接放宽 30/10 断言或用一次重跑通过关闭。是否调整事务/并发策略需先复现与论证，尚无运行代码补修。
+
+完整集成 an（句柄 94766）继续在冻结副本 `/tmp/rssripple-v25-repair-io3q912c` 收集全套证据，禁止原地改动。后续修复另建副本；若运行代码改变，an 即使通过也不能当作改后代码验收。V26 j 195 项通过，仍等待 V25 接受后重基。当前 P1 不可关闭，未合入任何 V25/V26 运行代码。

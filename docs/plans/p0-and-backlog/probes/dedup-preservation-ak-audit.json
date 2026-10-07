@@ -1,0 +1,195 @@
+{
+  "status": "failed",
+  "startup_session": 65116,
+  "startup_log": "/tmp/rssripple-v25-integration-ak-startup.log",
+  "project": "rssripple-v25-final-ak",
+  "threshold": 85,
+  "cleanup": "complete",
+  "startup_exit": 0,
+  "session": 40856,
+  "log": "/tmp/rssripple-v25-integration-ak.log",
+  "runner_exit": 1,
+  "passed": 3617,
+  "failed": 5,
+  "skipped": 17,
+  "apps_exit": [
+    0,
+    0
+  ],
+  "coverage_exit": 0,
+  "export_exit": 0,
+  "artifacts": {
+    "dedup-preservation-ak-integration.xml.gz": "96b26cd9004018e72a1a89464bb5631f00eb2fa74d234fbcfa73617f55c4b1cb",
+    "dedup-preservation-ak-coverage.xml.gz": "f8c7eec140e062ec420dc6c359a68c4a9fa5d7e971eecdb1ac913d393e8060fe",
+    "dedup-preservation-ak-run.log.gz": "4c282977139a26ef131d9b04472443b4da289f033db82c1778a9c6ea5bef10f9",
+    "dedup-preservation-ak-coverage.log.gz": "543c13f3ec98c0af530dda5c6359e8da29a6ed37bcbfa19f9c0be6fd69c05c53",
+    "dedup-preservation-ak-cleanup.log.gz": "34847d7d15902e8ca29d2b4bd05d906704d0656531d8760d4c29edd53d9cfc45",
+    "dedup-preservation-ak-coverage.integration.gz": "9f313687c220a64618e73d7d83002f9902dcaefa947e477875a40219ed9794fd",
+    "dedup-preservation-ak-coverage.integration-llm.gz": "3ac3338d758595d0e63994f70544208d090c579497765c0dd91ca00ca59e9886",
+    "dedup-preservation-ak-coverage.scripts.gz": "e473e598dba41cb777cec0f268d13004b22c91a92a86eb662da70039c513939f",
+    "dedup-preservation-ak-coverage.combined.gz": "3c8e8a9847eeb4b1381bd4e0f31221f8f915f098f843d604c4eeef4f474e60c0",
+    "dedup-preservation-ak-coverage.test-runner.gz": "61c38adb5dcddb1d3c38d422ace100753126100a5b95039931750cc69bb55957",
+    "dedup-preservation-ak-corpus-scenario-71bf5def93704363.json.gz": "4d971bd578af2a41267ba71896e3ca841eadda047375cde8085ec1e585ca8b8f",
+    "dedup-preservation-ak-corpus-scenario-db811b734d386cbc.json.gz": "7e5a06ce8096e31b1ca216fa6226088b188172323df8ee2afc4c37989eada289",
+    "dedup-preservation-ak-corpus-audit.json.gz": "8fcbf563b6f6cb06ca9835affc415cdb02a7d4fb864631ab7bdfc6a99276c431",
+    "dedup-preservation-ak-corpus-deepsearch-audit.json.gz": "ca6fecce5f60d498555db9c166806536fa5c1f4600092f7c9caf2e956df81cbc"
+  },
+  "cleanup_exit": 0,
+  "containers": [],
+  "networks": [],
+  "volumes": [],
+  "accepted": false,
+  "integration_gate_passed": false,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "5",
+    "skipped": "17",
+    "tests": "3639",
+    "time": "2385.120",
+    "timestamp": "2026-10-07T03:22:04.413135+00:00",
+    "hostname": "2a18873a2731"
+  },
+  "coverage": {
+    "lines-covered": "21592",
+    "lines-valid": "24167",
+    "line-rate": "0.8934"
+  },
+  "failures": [
+    {
+      "class": "tests.integration.metadata.test_metadata_dedup_coverage",
+      "name": "test_merge_series_enriches_survivor_and_resolves_child_collisions",
+      "failure": "tests/integration/metadata/test_metadata_dedup_coverage.py:300: in test_merge_series_enriches_survivor_and_resolves_child_collisions\n    assert await _refresh(db_session, TVSeries, dup.id) is None\nE   assert <app.models.series.TVSeries object at 0x7ff386afb770> is None"
+    },
+    {
+      "class": "tests.integration.metadata.test_metadata_dedup_coverage",
+      "name": "test_merge_series_inherits_title_cn_via_alias_clustering",
+      "failure": "tests/integration/metadata/test_metadata_dedup_coverage.py:396: in test_merge_series_inherits_title_cn_via_alias_clustering\n    assert survivor.title_cn == \"\u540c\u4e00\u5267\"\nE   AssertionError: assert None == '\u540c\u4e00\u5267'\nE    +  where None = <app.models.series.TVSeries object at 0x7ff387f634a0>.title_cn"
+    },
+    {
+      "class": "tests.integration.metadata.test_metadata_dedup_coverage",
+      "name": "test_merge_movie_enriches_survivor_and_resolves_child_collisions",
+      "failure": "tests/integration/metadata/test_metadata_dedup_coverage.py:464: in test_merge_movie_enriches_survivor_and_resolves_child_collisions\n    assert await _refresh(db_session, Movie, dup.id) is None\nE   assert <app.models.movie.Movie object at 0x7ff3855907a0> is None"
+    },
+    {
+      "class": "tests.integration.metadata.test_metadata_dedup_coverage",
+      "name": "test_merge_movie_inherits_title_en",
+      "failure": "tests/integration/metadata/test_metadata_dedup_coverage.py:523: in test_merge_movie_inherits_title_en\n    assert survivor.title_en == \"Inherited EN\"\nE   AssertionError: assert None == 'Inherited EN'\nE    +  where None = <app.models.movie.Movie object at 0x7ff36f6e1b20>.title_en"
+    },
+    {
+      "class": "tests.integration.organize.test_publication_feed",
+      "name": "test_feed_publication_atomicity_and_consumption[metadata-False]",
+      "failure": "tests/integration/organize/test_publication_feed.py:33: in test_feed_publication_atomicity_and_consumption\n    assert completed.returncode == 0, completed.stdout + completed.stderr\nE   AssertionError: [metadata-task] failed for f42513d5-2651-4ff2-add9-71ccf399e080: Synthetic publication INSERT failure: metadata\nE     Traceback (most recent call last):\nE       File \"<frozen runpy>\", line 198, in _run_module_as_main\nE       File \"<frozen runpy>\", line 88, in _run_code\nE       File \"/app/tests/integration/organize/publication_feed_driver.py\", line 190, in <module>\nE         asyncio.run(main())\nE       File \"/usr/local/lib/python3.12/asyncio/runners.py\", line 195, in run\nE         return runner.run(main)\nE                ^^^^^^^^^^^^^^^^\nE       File \"/usr/local/lib/python3.12/asyncio/runners.py\", line 118, in run\nE         return self._loop.run_until_complete(task)\nE                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE       File \"/usr/local/lib/python3.12/asyncio/base_events.py\", line 691, in run_until_complete\nE         return future.result()\nE                ^^^^^^^^^^^^^^^\nE       File \"/app/tests/integration/organize/publication_feed_driver.py\", line 138, in main\nE         assert kinds == [\"created\"] and resources[0].series_id is None\nE                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE     AssertionError\nE     \nE   assert 1 == 0\nE    +  where 1 = CompletedProcess(args=['/app/.venv/bin/python', '-m', 'tests.integration.organize.publication_feed_driver'], returncode=1, stdout='', stderr='[metadata-task] failed for f42513d5-2651-4ff2-add9-71ccf399e080: Synthetic publication INSERT failure: metadata\\nTraceback (most recent call last):\\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\\n  File \"<frozen runpy>\", line 88, in _run_code\\n  File \"/app/tests/integration/organize/publication_feed_driver.py\", line 190, in <module>\\n    asyncio.run(main())\\n  File \"/usr/local/lib/python3.12/asyncio/runners.py\", line 195, in run\\n    return runner.run(main)\\n           ^^^^^^^^^^^^^^^^\\n  File \"/usr/local/lib/python3.12/asyncio/runners.py\", line 118, in run\\n    return self._loop.run_until_complete(task)\\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\n  File \"/usr/local/lib/python3.12/asyncio/base_events.py\", line 691, in run_until_complete\\n    return future.result()\\n           ^^^^^^^^^^^^^^^\\n  File \"/app/tests/integration/organize/publication_feed_driver.py\", line 138, in main\\n    assert kinds == [\"created\"] and resources[0].series_id is None\\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\nAssertionError\\n').returncode"
+    }
+  ],
+  "skips": [
+    [
+      "tests.integration.http.test_api_coverage2.TestMagnetResolve",
+      "test_terminal_retry_flow",
+      "no magnet resolution reached a terminal state in time",
+      "/app/tests/integration/http/test_api_coverage2.py:819: no magnet resolution reached a terminal state in time"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_all_rules_have_source_key",
+      "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:243: LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_confidence_not_low",
+      "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:248: LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_mapping_has_title_field",
+      "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:238: LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_mapping_has_torrent_url",
+      "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:232: LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_mapping_structure",
+      "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:227: LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_channel_stream_analyze_also_works",
+      "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:281: LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_fetch_created_resources",
+      "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:263: LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_fetch_succeeded",
+      "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:257: LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_no_duplicates_on_refetch",
+      "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:290: LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_resources_have_title_raw",
+      "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:275: LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_resources_have_torrent_url",
+      "LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests",
+      "/app/tests/integration/http/test_channel_workflow.py:269: LLM_API_KEY not set \u2014 skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_metadata_api.TestMetadataLink",
+      "test_link_metadata_creates_series",
+      "No metadata API keys configured \u2014 cannot perform search+link",
+      "/app/tests/integration/http/test_metadata_api.py:189: No metadata API keys configured \u2014 cannot perform search+link"
+    ],
+    [
+      "tests.integration.http.test_task_queue.TestRedisDistributedDedup",
+      "test_redis_job_state_persists_after_done",
+      "No distinct Redis-backed app instance configured",
+      "/app/tests/integration/http/test_task_queue.py:383: No distinct Redis-backed app instance configured"
+    ],
+    [
+      "tests.integration.http.test_task_queue.TestRedisDistributedDedup",
+      "test_status_key_shared_after_enqueue",
+      "No distinct Redis-backed app instance configured",
+      "/app/tests/integration/http/test_task_queue.py:365: No distinct Redis-backed app instance configured"
+    ],
+    [
+      "tests.integration.magnet.test_magnet_resolve_e2e",
+      "test_live_fetch_to_resolve_end_to_end",
+      "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)",
+      "/app/tests/integration/magnet/test_magnet_resolve_e2e.py:387: live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)"
+    ],
+    [
+      "tests.integration.magnet.test_magnet_resolve_e2e",
+      "test_live_magnet_resolution",
+      "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)",
+      "/app/tests/integration/magnet/test_magnet_resolve_e2e.py:376: live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)"
+    ]
+  ],
+  "skips_vs_B8": {
+    "added": [],
+    "removed": []
+  },
+  "frozen_inputs_checked": 5520,
+  "changed_frozen_inputs": []
+}

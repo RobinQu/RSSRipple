@@ -1,0 +1,28 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v25-repair-io3q912c",
+  "original_frozen_candidate": "/tmp/rssripple-v25-rebased-ojpz2uko",
+  "red_run": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "5",
+    "skipped": "0",
+    "tests": "21",
+    "time": "34.419",
+    "timestamp": "2026-10-07T04:04:56.570376+00:00",
+    "hostname": "dl-workstation-albert",
+    "exit_code": 1
+  },
+  "finding": "Four fixtures assumed oldest survivor; completeness policy selects newer populated rows. Publication observer uses same StaticPool physical connection and rolls back producer DML before lazy SAVEPOINT: observed SQL sequence UPDATE no rows -> observer ROLLBACK -> SAVEPOINT -> data UPDATE -> RELEASE -> failed publication -> outer ROLLBACK.",
+  "correction": "No runtime change: mark intended fixture survivor title as manual, preserving all collision/field assertions; use private file database, assert distinct observer/producer physical connections, add DEFERRED and CONCURRENT cases.",
+  "targeted_green": {
+    "session": 68984,
+    "log": "/tmp/rssripple-v25-dedup-am.log",
+    "junit": "/tmp/rssripple-v25-dedup-am.xml",
+    "status": "passed",
+    "passed": 25,
+    "seconds": 55.7,
+    "exit_code": 0
+  },
+  "full_gate": "aj unit remains running on unchanged frozen candidate. ak failed; all integration resources cleaned. New full integration required after fixture changes."
+}

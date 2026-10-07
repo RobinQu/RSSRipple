@@ -1,0 +1,137 @@
+{
+  "candidate": "/tmp/rssripple-v25-rebased-ojpz2uko",
+  "session": 59771,
+  "status": "failed",
+  "log": "/tmp/rssripple-v25-unit-aj.log",
+  "threshold": 95,
+  "postgres_project": "rssripple-v25-unit-aj",
+  "exit_code": 1,
+  "passed": 4166,
+  "failed": 2,
+  "skipped": 12,
+  "cleanup": "complete",
+  "cleanup_exit": 0,
+  "containers": [],
+  "networks": [],
+  "volumes": [],
+  "accepted": false,
+  "unit_gate_passed": false,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "2",
+    "skipped": "12",
+    "tests": "4180",
+    "time": "3238.687",
+    "timestamp": "2026-10-07T03:20:52.570455+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "coverage": {
+    "lines-covered": "23435",
+    "lines-valid": "24167",
+    "line-rate": "0.9697"
+  },
+  "failures": [
+    {
+      "class": "tests.unit.test_external_ids",
+      "name": "test_dedup_merge_unions_bags",
+      "failure": "tests/unit/test_external_ids.py:262: in test_dedup_merge_unions_bags\n    assert await _bag_pairs(db_session, \"series\", s1.id) == {\nE   AssertionError: assert set() == {('wikipedia', 'wikipedia:1'), ('bangumi', 'bangumi:99'), ('tmdb', 'tmdb:2')}\nE     \nE     Extra items in the right set:\nE     ('wikipedia', 'wikipedia:1')\nE     ('bangumi', 'bangumi:99')\nE     ('tmdb', 'tmdb:2')\nE     \nE     Full diff:\nE     + set()\nE     - {\nE     -     (\nE     -         'bangumi',\nE     -         'bangumi:99',\nE     -     ),\nE     -     (\nE     -         'tmdb',\nE     -         'tmdb:2',\nE     -     ),\nE     -     (\nE     -         'wikipedia',\nE     -         'wikipedia:1',\nE     -     ),\nE     - }"
+    },
+    {
+      "class": "tests.unit.test_fetch_service.TestMetadataBackfill",
+      "name": "test_backfill_caps_and_records_attempts",
+      "failure": "tests/unit/test_fetch_service.py:812: in test_backfill_caps_and_records_attempts\n    assert len(attempted) == 30\nE   assert 29 == 30\nE    +  where 29 = len([<app.models.file_resource.FileResource object at 0x7fd045647750>, <app.models.file_resource.FileResource object at 0x7fd045647490>, <app.models.file_resource.FileResource object at 0x7fd0456475f0>, <app.models.file_resource.FileResource object at 0x7fd0456476a0>, <app.models.file_resource.FileResource object at 0x7fd045647a10>, <app.models.file_resource.FileResource object at 0x7fd045647280>, <app.models.file_resource.FileResource object at 0x7fd045647330>, <app.models.file_resource.FileResource object at 0x7fd045647070>, <app.models.file_resource.FileResource object at 0x7fd045644680>, <app.models.file_resource.FileResource object at 0x7fd045646f10>, <app.models.file_resource.FileResource object at 0x7fd045644520>, <app.models.file_resource.FileResource object at 0x7fd045644310>, <app.models.file_resource.FileResource object at 0x7fd0456445d0>, <app.models.file_resource.FileResource object at 0x7fd045644c00>, <app.models.file_resource.FileResource object at 0x7fd045421860>, <app.models.file_resource.FileResource object at 0x7fd045421d30>, <app.models.file_resource.FileResource object at 0x7fd045421e90>, <app.models.file_resource.FileResource object at 0x7fd045421f40>, <app.models.file_resource.FileResource object at 0x7fd045421c80>, <app.models.file_resource.FileResource object at 0x7fd045421de0>, <app.models.file_resource.FileResource object at 0x7fd0454aa570>, <app.models.file_resource.FileResource object at 0x7fd0454abc20>, <app.models.file_resource.FileResource object at 0x7fd03be95b20>, <app.models.file_resource.FileResource object at 0x7fd03be94310>, <app.models.file_resource.FileResource object at 0x7fd03be949f0>, <app.models.file_resource.FileResource object at 0x7fd03be94470>, <app.models.file_resource.FileResource object at 0x7fd03be96410>, <app.models.file_resource.FileResource object at 0x7fd03be964c0>, <app.models.file_resource.FileResource object at 0x7fd03be97c20>])"
+    }
+  ],
+  "skips": [
+    [
+      "tests.api.test_api_coverage3.TestResourcesMore",
+      "test_link_metadata_error_path",
+      "resource-scoped metadata link replaced by work metadata apply/associations",
+      "<candidate>/tests/api/test_api_coverage3.py:151: resource-scoped metadata link replaced by work metadata apply/associations"
+    ],
+    [
+      "tests.api.test_api_coverage3.TestResourcesMore",
+      "test_link_metadata_movie",
+      "resource-scoped metadata link replaced by work metadata apply/associations",
+      "<candidate>/tests/api/test_api_coverage3.py:162: resource-scoped metadata link replaced by work metadata apply/associations"
+    ],
+    [
+      "tests.api.test_api_coverage3.TestResourcesMore",
+      "test_search_metadata_via_manual",
+      "resource-scoped metadata search replaced by /api/v1/metadata/search",
+      "<candidate>/tests/api/test_api_coverage3.py:136: resource-scoped metadata search replaced by /api/v1/metadata/search"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_link_404",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:451: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_link_creates_series",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:435: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_link_movie_clears_ambiguous",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:456: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_search_404",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:368: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_search_forwards_source_and_fallback_sites",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:400: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_search_llm_error_returns_502",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:425: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_search_result_none_genre_coerced",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:387: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.api.test_resources.TestResourceSearchLink",
+      "test_search_returns_results",
+      "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+      "<candidate>/tests/api/test_resources.py:373: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+    ],
+    [
+      "tests.unit.test_decision_migration",
+      "test_postgres_startup_rejects_unreviewed_then_accepts_review",
+      "PostgreSQL startup DDL branch; embedded startup tested through CLI subprocess",
+      "<candidate>/tests/unit/test_decision_migration.py:351: PostgreSQL startup DDL branch; embedded startup tested through CLI subprocess"
+    ]
+  ],
+  "skip_path_normalization_only": [
+    "/tmp/rssripple-v25-rebased-ojpz2uko"
+  ],
+  "skips_vs_B8": {
+    "added": [],
+    "removed": []
+  },
+  "frozen_inputs_checked": 5520,
+  "changed_frozen_inputs": [],
+  "base_hash_changes": [],
+  "artifacts": {
+    "dedup-preservation-aj.log.gz": "ad6cac5b1c1e9dfc329405b359065efe43dd77fd4439857e136e87c80169b307",
+    "dedup-preservation-aj.xml.gz": "74898026177dc4e7a8e59f8efd68eeefc535e8be74a30c6410beab40a9037725",
+    "dedup-preservation-aj.coverage.xml.gz": "953c0641aa7ea84dd1888dc4ccaec593905b37a9a73d23297b8b865c4fc52399",
+    "dedup-preservation-aj.coverage.gz": "9d6c88f2cbacd6076b79938a9ed2cb270c469b704df1929138c10824e77d15a8",
+    "dedup-preservation-aj.cleanup.log.gz": "4023382f5c4f5d26c5e6531e6d4865ee27a672928fb60e511bea3a9b29d5dd7a"
+  }
+}
