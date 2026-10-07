@@ -61,7 +61,7 @@ async def repair_turso_foreign_keys(engine) -> None:
         if await conn.scalar(text("PRAGMA foreign_keys")) != 0:
             raise RuntimeError("Cannot suspend foreign keys for atomic schema repair")
         try:
-            if "file_resources" in missing:
+            if {"file_resources", "movies", "tv_series"}.intersection(missing):
                 from app.services.resource_parent_guard import drop_resource_parent_guards
 
                 await conn.run_sync(drop_resource_parent_guards)
@@ -93,7 +93,7 @@ async def repair_turso_foreign_keys(engine) -> None:
                 await conn.execute(text(f"ALTER TABLE {quote(temporary)} RENAME TO {quote(table)}"))
                 for statement in objects:
                     await conn.execute(text(statement))
-            if "file_resources" in missing:
+            if {"file_resources", "movies", "tv_series"}.intersection(missing):
                 from app.services.resource_parent_guard import ensure_resource_parent_guards
 
                 await conn.run_sync(ensure_resource_parent_guards)

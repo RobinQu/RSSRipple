@@ -190,3 +190,10 @@ bm 已实际退出 0：4181 passed、12 skipped、96.97%（23478/24211），5527
 br 实际退出 0：**3648 passed、17 skipped、2415.89 秒**；覆盖率 **89.35%（21634/24212）**，85% 门禁退出 0。两个应用 SIGINT 后均退出 0，五份原始覆盖率、JUnit、语料报告和日志已导出归档；17 项跳过与 bn 完全一致，5527 冻结输入以及 49 文件 main 基线均一致。唯一项目已清理，命名 runner 及其 gate-data 额外移除后容器/网络/卷标签库存均为空。详见 [br 审计](probes/dedup-preservation-br-audit.json)。
 
 bq 单元/API 仍活跃，禁止用 bm 替代，最终合入审查仍待完成。br 集成已结束并清理，不应再轮询其旧句柄或重跑该冻结版本集成。
+
+
+## bq/br 最终验收与有效文件合入
+
+bq 单元/API 已实际退出 0：**4181 passed、12 skipped、3450.81 秒、96.98%（23480/24212）**，跳过与 bm 相同，冻结输入无变化，独立 PostgreSQL 已清理且无标签残留。与 br 的完整集成共同满足两道零失败门禁；详见 [bq 审计](probes/dedup-preservation-bq-audit.json)、[br 审计](probes/dedup-preservation-br-audit.json)。
+
+最终五轴审查已批准，见 [V25-REVIEW](V25-REVIEW.md)。49 个有效文件逐个核对主干基线后复制，复制后候选哈希一致，全仓无缓存 Ruff 通过。TODO 的 dedup P1 已移除，失败历史全部保留。后续优先正式重基并验收 V26，再组合 V27；V29 单包升级作为独立批次，禁止将其有限专项结果当成完整验收。

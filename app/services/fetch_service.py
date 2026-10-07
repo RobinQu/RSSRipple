@@ -16,6 +16,7 @@ from app.clients.rss_parser import (
 )
 from app.models.channel import Channel
 from app.models.file_resource import FileResource
+from app.services.metadata_concurrency import MetadataConcurrency
 from app.services.metadata_service import extract_search_title, fetch_and_link_metadata
 from app.services.resource_confirmation import inspect_resource_confirmation
 from app.services.resource_parser import normalize_parsed_fields, parse_entry, strip_season_from_title
@@ -63,7 +64,7 @@ MAX_GLOBAL_BACKFILL_SCAN = 300
 MAX_METADATA_CONCURRENCY = 4
 
 # ── Per-work metadata serialization ──
-# The semaphore bounds total in-flight work, but several resources of the
+# The concurrency bounds total in-flight work, but several resources of the
 # SAME not-yet-persisted work can still run concurrently: each misses the
 # series/movie lookup (its siblings haven't committed yet), asks the agent,
 # and inserts its own duplicate TVSeries/Movie row. Serialize the metadata +
@@ -207,20 +208,30 @@ async def _gather_metadata(*operations) -> None:
 async def _process_resource_metadata(
     resource_id: str,
     channel_id: str,
-    semaphore: asyncio.Semaphore,
+    concurrency: MetadataConcurrency,
     *,
     force_refresh: bool = False,
 ) -> None:
     """Retry an uncommitted metadata transaction with a fresh session."""
-    from app.database import retry_on_lock
+    from app.database import _is_retryable_lock_error, retry_on_lock
     from app.services.task_queue import ExecutionOwnershipLostError
 
     try:
-        await retry_on_lock(
-            lambda: _process_resource_metadata_once(
-                resource_id, channel_id, semaphore, force_refresh=force_refresh
-            )
-        )
+        async with concurrency.resource(channel_id) as mark_retry:
+            async def attempt():
+                try:
+                    await _process_resource_metadata_once(
+                        resource_id, channel_id, force_refresh=force_refresh
+                    )
+                except Exception as error:
+                    if _is_retryable_lock_error(error):
+                        # The attempt has rolled back and closed its session.
+                        # Pause new same-channel work until pending retries
+                        # finish; no DB transaction survives the backoff.
+                        mark_retry()
+                    raise
+
+            await retry_on_lock(attempt)
     except ExecutionOwnershipLostError:
         raise
     except Exception as exc:
@@ -230,15 +241,14 @@ async def _process_resource_metadata(
 async def _process_resource_metadata_once(
     resource_id: str,
     channel_id: str,
-    semaphore: asyncio.Semaphore,
     *,
     force_refresh: bool = False,
 ) -> None:
     """Run metadata + poster download for one FileResource in its own session.
 
     Used by both the new-resource path and the backfill path so each
-    resource's slow LLM/search work runs concurrently under ``semaphore``
-    and in an isolated short-lived DB session - the caller's shared fetch
+    resource's slow LLM/search work runs within its caller-held concurrency
+    slot and in an isolated short-lived DB session - the caller's shared fetch
     session is never held across the agent loop (which spans many LLM +
     external search calls and can take tens of seconds), avoiding the
     "database is locked" / unresponsive-edit symptom that motivated
@@ -252,211 +262,235 @@ async def _process_resource_metadata_once(
     from app.services.task_queue import ExecutionOwnershipLostError, require_execution_ownership
     from app.services.torrent_inspect import ensure_torrent_cached, maybe_inspect_torrent
 
-    async with semaphore:
-        await require_execution_ownership()
-        async with async_session_factory() as task_db:
-            metadata_committed = False
-            try:
-                result = await task_db.execute(
-                    select(FileResource)
-                    .options(selectinload(FileResource.file_assignments))
-                    .where(FileResource.id == resource_id)
-                )
-                resource = result.scalar_one_or_none()
-                channel = await task_db.get(Channel, channel_id)
-                if resource is None or channel is None:
-                    return
-                # Cache the .torrent for every resource (http(s) direct links
-                # only) so later file-listing lookups never re-download.
-                await ensure_torrent_cached(resource)
-                await require_execution_ownership()
-                # magnet: links have no .torrent to fetch — kick off background
-                # metadata resolution (libtorrent, metadata-only) so the torrent
-                # cache / Channel A inspection can work later. Never blocks fetch.
-                if (resource.torrent_url or "").startswith("magnet:"):
-                    try:
-                        from app.services import magnet_resolve
+    await require_execution_ownership()
+    async with async_session_factory() as task_db:
+        metadata_committed = False
+        try:
+            result = await task_db.execute(
+                select(FileResource)
+                .options(selectinload(FileResource.file_assignments))
+                .where(FileResource.id == resource_id)
+            )
+            resource = result.scalar_one_or_none()
+            channel = await task_db.get(Channel, channel_id)
+            if resource is None or channel is None:
+                return
+            # Cache the .torrent for every resource (http(s) direct links
+            # only) so later file-listing lookups never re-download.
+            await ensure_torrent_cached(resource)
+            await require_execution_ownership()
+            # magnet: links have no .torrent to fetch — kick off background
+            # metadata resolution (libtorrent, metadata-only) so the torrent
+            # cache / Channel A inspection can work later. Never blocks fetch.
+            if (resource.torrent_url or "").startswith("magnet:"):
+                try:
+                    from app.services import magnet_resolve
 
-                        await magnet_resolve.enqueue_resolution(resource.id)
-                    except Exception:  # noqa: BLE001 — best-effort, never block fetch
-                        logger.debug(
-                            "[magnet] enqueue failed for %s", resource.id, exc_info=True
-                        )
-                # Channel A torrent inspection: deterministic .torrent
-                # file-listing analysis may reclassify the resource as a
-                # batch the title regexes missed. Runs before metadata
-                # matching; batches still need work linking, so matching
-                # continues regardless of the verdict. No commit here — the
-                # metadata-phase commit below persists any changes.
-                await maybe_inspect_torrent(task_db, resource, channel)
-                work_key = normalize_title(resource.search_title or extract_search_title(resource))
-                async with _work_metadata_lock(work_key):
-                    await require_execution_ownership()
-                    if channel.metadata_agent_enabled:
-                        try:
+                    await magnet_resolve.enqueue_resolution(resource.id)
+                except Exception:  # noqa: BLE001 — best-effort, never block fetch
+                    logger.debug(
+                        "[magnet] enqueue failed for %s", resource.id, exc_info=True
+                    )
+            # Channel A torrent inspection: deterministic .torrent
+            # file-listing analysis may reclassify the resource as a
+            # batch the title regexes missed. Runs before metadata
+            # matching; batches still need work linking, so matching
+            # continues regardless of the verdict. No commit here — the
+            # metadata-phase commit below persists any changes.
+            await maybe_inspect_torrent(task_db, resource, channel)
+            work_key = normalize_title(resource.search_title or extract_search_title(resource))
+            async with _work_metadata_lock(work_key):
+                await require_execution_ownership()
+                if task_db.bind.dialect.name == "sqlite":
+                    # Turso starts its physical transaction on DML, not
+                    # SELECT. Without it, releasing the first SAVEPOINT
+                    # commits changes that an ownership-loss rollback must
+                    # still be able to undo. Match no rows and take no row
+                    # locks; keep the driver's configured isolation level.
+                    from sqlalchemy import text
+
+                    await task_db.execute(text(
+                        "UPDATE file_resources SET id = id WHERE 1 = 0"
+                    ))
+                if channel.metadata_agent_enabled:
+                    try:
+                        async with task_db.begin_nested():
                             await get_agent().process(
                                 resource, channel, task_db, force_refresh=force_refresh
                             )
-                        except ExecutionOwnershipLostError:
+                    except ExecutionOwnershipLostError:
+                        raise
+                    except Exception as e:
+                        if _is_retryable_lock_error(e):
                             raise
-                        except Exception as e:
-                            logger.warning("MetadataAgent failed for %s: %s", resource_id, e)
-                            base_title = _simple_title_clean(resource.title_raw)
-                            if base_title:
-                                resource.search_title = base_title
-                    else:
-                        try:
+                        # SAVEPOINT rollback expires rows changed by a failed
+                        # write-back; reload before continuing the outer task.
+                        await task_db.refresh(resource)
+                        logger.warning("MetadataAgent failed for %s: %s", resource_id, e)
+                        base_title = _simple_title_clean(resource.title_raw)
+                        if base_title:
+                            resource.search_title = base_title
+                else:
+                    try:
+                        async with task_db.begin_nested():
                             await fetch_and_link_metadata(task_db, resource, channel)
-                        except ExecutionOwnershipLostError:
+                    except ExecutionOwnershipLostError:
+                        raise
+                    except Exception as e:
+                        if _is_retryable_lock_error(e):
                             raise
-                        except Exception as e:
-                            logger.warning("Metadata linking failed for %s: %s", resource_id, e)
-                    await require_execution_ownership()
-                    # Final shape guard shared by every metadata route. Cache
-                    # hits and known-work title shortcuts bypass the repository
-                    # write-back branch and may otherwise restore a flat FK
-                    # after torrent inspection linked a franchise collection.
-                    from app.services.franchise_service import (
-                        enforce_franchise_resource_invariant,
+                        await task_db.refresh(resource)
+                        logger.warning("Metadata linking failed for %s: %s", resource_id, e)
+                await require_execution_ownership()
+                # Final shape guard shared by every metadata route. Cache
+                # hits and known-work title shortcuts bypass the repository
+                # write-back branch and may otherwise restore a flat FK
+                # after torrent inspection linked a franchise collection.
+                from app.services.franchise_service import (
+                    enforce_franchise_resource_invariant,
+                )
+                if enforce_franchise_resource_invariant(resource):
+                    logger.info(
+                        "[metadata-task] cleared flat work FK restored on "
+                        "franchise resource %s",
+                        resource.id,
                     )
-                    if enforce_franchise_resource_invariant(resource):
-                        logger.info(
-                            "[metadata-task] cleared flat work FK restored on "
-                            "franchise resource %s",
-                            resource.id,
-                        )
-                    # Every metadata path converges here.  Run the DB-backed
-                    # sibling-history policy after linking as a final safety
-                    # net, including cached and force-refresh agent paths.
-                    if resource.series_id and not resource.is_batch:
-                        from app.models.series import TVSeries
-                        from app.services.episode_history import (
-                            apply_episode_history_reconcile,
-                            apply_season_history_default,
-                        )
-                        from app.services.metadata_episode_reconcile import (
-                            seasons_map_for_work,
-                        )
-
-                        series_row = await task_db.get(TVSeries, resource.series_id)
-                        if series_row is not None:
-                            await apply_episode_history_reconcile(
-                                task_db,
-                                resource,
-                                seasons_map=seasons_map_for_work(series_row),
-                            )
-                            await apply_season_history_default(task_db, resource)
-                    # Torrent inspection precedes metadata matching, so its
-                    # deterministic rows may still be work-less.  Once this
-                    # pass has linked exactly one work, bind those rows now.
-                    from app.services.batch_content_analysis import (
-                        bind_single_work_assignments,
+                # Every metadata path converges here.  Run the DB-backed
+                # sibling-history policy after linking as a final safety
+                # net, including cached and force-refresh agent paths.
+                if resource.series_id and not resource.is_batch:
+                    from app.models.series import TVSeries
+                    from app.services.episode_history import (
+                        apply_episode_history_reconcile,
+                        apply_season_history_default,
                     )
-                    await bind_single_work_assignments(task_db, resource)
-                    # Bangumi series-graph expansion (B1): a franchise /
-                    # multi_season pack linked to a Bangumi base entry unfolds
-                    # its sibling seasons / movies / specials via the
-                    # related-subjects endpoint. Best-effort and expansion-only
-                    # — failures keep the original link verdict.
-                    if resource.is_batch and resource.batch_scope in (
-                        "franchise", "multi_season",
-                    ):
-                        try:
-                            from app.services.bangumi_relations import (
-                                expand_bangumi_series_graph,
-                            )
+                    from app.services.metadata_episode_reconcile import (
+                        seasons_map_for_work,
+                    )
 
-                            await expand_bangumi_series_graph(task_db, resource)
-                        except ExecutionOwnershipLostError:
-                            raise
-                        except Exception as e:  # noqa: BLE001 — never a downgrade
-                            logger.warning(
-                                "[bangumi-graph] expansion failed for %s: %s",
-                                resource_id, e, exc_info=True,
-                            )
-                        # Cluster binding second pass: torrent inspection runs
-                        # BEFORE metadata linking, so works created or
-                        # season-relocated by the series graph above were not
-                        # visible to it. The pass is idempotent — unbound
-                        # clusters resolve against the expanded members, and
-                        # already-bound auto rows mirror any season relocation
-                        # (e.g. "Final Stage" created as s1 by franchise
-                        # linking, then relocated to s6 by the graph).
-                        try:
-                            from app.services.cluster_work_binding import (
-                                bind_hint_clusters,
-                            )
+                    series_row = await task_db.get(TVSeries, resource.series_id)
+                    if series_row is not None:
+                        await apply_episode_history_reconcile(
+                            task_db,
+                            resource,
+                            seasons_map=seasons_map_for_work(series_row),
+                        )
+                        await apply_season_history_default(task_db, resource)
+                # Torrent inspection precedes metadata matching, so its
+                # deterministic rows may still be work-less.  Once this
+                # pass has linked exactly one work, bind those rows now.
+                from app.services.batch_content_analysis import (
+                    bind_single_work_assignments,
+                )
+                await bind_single_work_assignments(task_db, resource)
+                # Bangumi series-graph expansion (B1): a franchise /
+                # multi_season pack linked to a Bangumi base entry unfolds
+                # its sibling seasons / movies / specials via the
+                # related-subjects endpoint. Best-effort and expansion-only
+                # — failures keep the original link verdict.
+                if resource.is_batch and resource.batch_scope in (
+                    "franchise", "multi_season",
+                ):
+                    try:
+                        from app.services.bangumi_relations import (
+                            expand_bangumi_series_graph,
+                        )
 
-                            await bind_hint_clusters(task_db, resource, channel)
-                        except ExecutionOwnershipLostError:
-                            raise
-                        except Exception as e:  # noqa: BLE001 — enrichment only
-                            logger.warning(
-                                "[cluster-bind] post-graph pass failed for %s: %s",
-                                resource_id, e,
-                            )
-                        # C4: member resolution (web fallback, English titles)
-                        # and the series graph (Japanese titles) can each
-                        # create a row for the SAME film. Deterministic
-                        # same-resource same-date movie dedup — no date
-                        # evidence, no merge.
-                        try:
-                            from app.services.franchise_service import (
-                                dedupe_resource_movies,
-                            )
+                        await expand_bangumi_series_graph(task_db, resource)
+                    except ExecutionOwnershipLostError:
+                        raise
+                    except Exception as e:  # noqa: BLE001 — never a downgrade
+                        logger.warning(
+                            "[bangumi-graph] expansion failed for %s: %s",
+                            resource_id, e, exc_info=True,
+                        )
+                    # Cluster binding second pass: torrent inspection runs
+                    # BEFORE metadata linking, so works created or
+                    # season-relocated by the series graph above were not
+                    # visible to it. The pass is idempotent — unbound
+                    # clusters resolve against the expanded members, and
+                    # already-bound auto rows mirror any season relocation
+                    # (e.g. "Final Stage" created as s1 by franchise
+                    # linking, then relocated to s6 by the graph).
+                    try:
+                        from app.services.cluster_work_binding import (
+                            bind_hint_clusters,
+                        )
 
+                        await bind_hint_clusters(task_db, resource, channel)
+                    except ExecutionOwnershipLostError:
+                        raise
+                    except Exception as e:  # noqa: BLE001 — enrichment only
+                        logger.warning(
+                            "[cluster-bind] post-graph pass failed for %s: %s",
+                            resource_id, e,
+                        )
+                    # C4: member resolution (web fallback, English titles)
+                    # and the series graph (Japanese titles) can each
+                    # create a row for the SAME film. Deterministic
+                    # same-resource same-date movie dedup — no date
+                    # evidence, no merge.
+                    try:
+                        from app.services.franchise_service import (
+                            dedupe_resource_movies,
+                        )
+
+                        async with task_db.begin_nested():
                             await dedupe_resource_movies(
                                 task_db, resource, channel=channel
                             )
-                        except ExecutionOwnershipLostError:
+                    except ExecutionOwnershipLostError:
+                        raise
+                    except Exception as e:  # noqa: BLE001 — enrichment only
+                        if _is_retryable_lock_error(e):
                             raise
-                        except Exception as e:  # noqa: BLE001 — enrichment only
-                            logger.warning(
-                                "[franchise] movie dedup failed for %s: %s",
-                                resource_id, e,
-                            )
-                    from app.services.resource_publication import publish_resource
+                        await task_db.refresh(resource)
+                        logger.warning(
+                            "[franchise] movie dedup failed for %s: %s",
+                            resource_id, e,
+                        )
+                from app.services.resource_publication import publish_resource
 
-                    await require_execution_ownership()
-                    await publish_resource(task_db, resource.id, kind="metadata")
-                    # Commit inside the lock: the next same-work task's lookup
-                    # must see this task's series/movie row.
-                    await require_execution_ownership()
-                    await task_db.commit()
-                    metadata_committed = True
-
-                # Poster download for newly-linked entities (kept in the same
-                # task session so a network call never blocks other writers).
-                if resource.series_id:
-                    series = await task_db.get(TVSeries, resource.series_id)
-                    if series and series.poster_url and series.poster_url.startswith("http"):
-                        local = await download_and_cache_poster(series.poster_url)
-                        if local:
-                            series.poster_url = local
-                elif resource.movie_id:
-                    movie = await task_db.get(Movie, resource.movie_id)
-                    if movie and movie.poster_url and movie.poster_url.startswith("http"):
-                        local = await download_and_cache_poster(movie.poster_url)
-                        if local:
-                            movie.poster_url = local
+                await require_execution_ownership()
+                await publish_resource(task_db, resource.id, kind="metadata")
+                # Commit inside the lock: the next same-work task's lookup
+                # must see this task's series/movie row.
                 await require_execution_ownership()
                 await task_db.commit()
-            except Exception as e:
-                logger.warning("[metadata-task] failed for %s: %s", resource_id, e)
-                try:
-                    await task_db.rollback()
-                except Exception:
-                    pass
-                if isinstance(e, ExecutionOwnershipLostError):
-                    raise
-                if not metadata_committed and _is_retryable_lock_error(e):
-                    raise
+                metadata_committed = True
+
+            # Poster download for newly-linked entities (kept in the same
+            # task session so a network call never blocks other writers).
+            if resource.series_id:
+                series = await task_db.get(TVSeries, resource.series_id)
+                if series and series.poster_url and series.poster_url.startswith("http"):
+                    local = await download_and_cache_poster(series.poster_url)
+                    if local:
+                        series.poster_url = local
+            elif resource.movie_id:
+                movie = await task_db.get(Movie, resource.movie_id)
+                if movie and movie.poster_url and movie.poster_url.startswith("http"):
+                    local = await download_and_cache_poster(movie.poster_url)
+                    if local:
+                        movie.poster_url = local
+            await require_execution_ownership()
+            await task_db.commit()
+        except Exception as e:
+            logger.warning("[metadata-task] failed for %s: %s", resource_id, e)
+            try:
+                await task_db.rollback()
+            except Exception:
+                pass
+            if isinstance(e, ExecutionOwnershipLostError):
+                raise
+            if not metadata_committed and _is_retryable_lock_error(e):
+                raise
 
 
 async def _backfill_unmatched_resources(
     channel: Channel,
     db: AsyncSession,
-    semaphore: asyncio.Semaphore,
+    concurrency: MetadataConcurrency,
     *,
     force: bool = False,
     exclude_ids: set[str] | None = None,
@@ -470,7 +504,7 @@ async def _backfill_unmatched_resources(
     existing resource in the channel is reprocessed without a scan cap. This
     refreshes metadata from the live source and reruns torrent-file enrichment
     for linked and unlinked, batch and non-batch resources alike. Runs
-    concurrently under ``semaphore`` (shared with the new-resource phase so
+    concurrently under ``concurrency`` (shared with the new-resource phase so
     one fetch cycle bounds total in-flight metadata work).
     """
     now = utcnow()
@@ -530,7 +564,7 @@ async def _backfill_unmatched_resources(
         await db.commit()
         await _gather_metadata(
             *(
-                _process_resource_metadata(rid, channel.id, semaphore, force_refresh=True)
+                _process_resource_metadata(rid, channel.id, concurrency, force_refresh=True)
                 for rid in eligible_ids
             )
         )
@@ -612,10 +646,10 @@ async def backfill_unmatched_resources_global(db: AsyncSession, limit: int = MAX
         # session's locks before the long metadata gather; per-task sessions
         # persist all results.
         await db.commit()
-        semaphore = asyncio.Semaphore(MAX_METADATA_CONCURRENCY)
+        concurrency = MetadataConcurrency(MAX_METADATA_CONCURRENCY)
         await _gather_metadata(
             *(
-                _process_resource_metadata(rid, cid, semaphore, force_refresh=True)
+                _process_resource_metadata(rid, cid, concurrency, force_refresh=True)
                 for rid, cid in eligible
             )
         )
@@ -957,14 +991,14 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
     # Phase B: run metadata + poster download for the new resources
     # concurrently. Each task uses its own DB session (see
     # ``_process_resource_metadata``) so the slow LLM/search work doesn't
-    # hold this shared fetch session's write lock. The semaphore is shared
+    # hold this shared fetch session's write lock. The concurrency is shared
     # with the backfill phase below so one fetch cycle bounds total in-flight
     # metadata work to ``MAX_METADATA_CONCURRENCY``.
-    semaphore = asyncio.Semaphore(MAX_METADATA_CONCURRENCY)
+    concurrency = MetadataConcurrency(MAX_METADATA_CONCURRENCY)
     if new_resource_ids:
         await _gather_metadata(
             *(
-                _process_resource_metadata(rid, channel.id, semaphore)
+                _process_resource_metadata(rid, channel.id, concurrency)
                 for rid in new_resource_ids
             )
         )
@@ -978,7 +1012,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
         backfilled_count = await _backfill_unmatched_resources(
             channel,
             db,
-            semaphore,
+            concurrency,
             force=force,
             # New entries already completed the same metadata/torrent pass in
             # Phase B. A force re-fetch covers all pre-existing rows without

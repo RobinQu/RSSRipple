@@ -860,7 +860,7 @@ async def test_merge_series_group_enriches_survivor_fields(db_session):
     await db_session.flush()
 
     report = dedup.DedupReport()
-    await dedup._merge_series_group(db_session, [survivor, dup], report)
+    await dedup._merge_series_group(db_session, [survivor, dup], report, survivor=survivor)
 
     assert report.series_groups == 1
     assert report.series_removed == 1
@@ -905,7 +905,7 @@ async def test_merge_movie_group_enriches_survivor_fields(db_session):
     await db_session.flush()
 
     report = dedup.DedupReport()
-    await dedup._merge_movie_group(db_session, [survivor, dup], report)
+    await dedup._merge_movie_group(db_session, [survivor, dup], report, survivor=survivor)
 
     assert report.movie_groups == 1
     assert report.movies_removed == 1

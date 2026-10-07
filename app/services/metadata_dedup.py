@@ -38,7 +38,15 @@ from app.models.pending_decision import PendingDecision
 from app.models.resource_file_assignment import ResourceFileAssignment
 from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
-from app.services.external_ids import merge_external_id_bags
+from app.services.dedup_metadata_policy import (
+    DedupConflictError,
+    apply_metadata,
+    primary_identity_owner,
+    require_protected_values,
+    select_survivor,
+)
+from app.services.dedup_work_lock import lock_merge_works
+from app.services.external_ids import add_external_id, merge_external_id_bags
 from app.services.metadata_episode_reconcile import is_unsplit_legacy_series
 from app.services.metadata_service import canonicalize_external_id
 from app.services.text_normalizer import normalize_title
@@ -146,6 +154,9 @@ async def rehome_series_as_movie(
     episode evidence) is deliberately checked by the caller, while this
     function owns the canonical reference migration and identity-bag merge.
     """
+    await lock_merge_works(db, [series, movie])
+    protected = require_protected_values([series, movie], movie)
+
     from app.services.decision_rekey import lock_work_choice_agents, rekey_agent_choices
 
     choice_agents = await lock_work_choice_agents(db, [("series", [series.id]), ("movie", [movie.id])])
@@ -175,7 +186,7 @@ async def rehome_series_as_movie(
         .values(series_id=None, movie_id=movie.id)
     )
     await rekey_agent_choices(db, choice_agents)
-    await merge_external_id_bags(db, movie, [series])
+    await _merge_work_metadata(db, movie, [series], protected)
     await db.flush()
     await db.delete(series)
     await db.flush()
@@ -414,17 +425,69 @@ async def _repoint_series_children(
     await rekey_agent_choices(db, choice_agents)
 
 
+def _group_still_matches(rows):
+    series = isinstance(rows[0], TVSeries)
+    groups = _cluster_by_shared_title(rows, bucket_of=_series_cluster_bucket if series else None)
+    dates = [row.start_date if series else row.release_date for row in rows]
+    return len(groups) == 1 and not _year_conflict(dates)
+
+
+def _same_cross_type_work(movie, series, movie_keys, series_keys):
+    movie_id = canonicalize_external_id(movie.external_id, movie.external_source, "movie")
+    series_id = canonicalize_external_id(series.external_id, series.external_source, "tv")
+    if (movie_id and series_id and movie_id == series_id) or (
+        movie.external_id and movie.external_id == series.external_id
+    ):
+        return True
+    return bool(movie_keys & series_keys) and not _year_conflict([movie.release_date, series.start_date])
+
+
+async def _merge_work_metadata(db, survivor, duplicates, protected):
+    rows = [survivor, *duplicates]
+    owner = primary_identity_owner(rows, survivor, protected)
+    identity = owner.external_id if "external_id" in protected else _pick_canonical_external_id([owner])
+    source = owner.external_source
+    aliases = _merge_aliases(rows) if "aliases" not in protected else protected["aliases"]
+    if (identity, source) != (survivor.external_id, survivor.external_source):
+        from app.services.metadata_source_registry import REGISTRY_SOURCES
+
+        old_identity = _pick_canonical_external_id([survivor])
+        old_source = survivor.external_source
+        if old_source not in REGISTRY_SOURCES and old_identity:
+            old_source = old_identity.split(":", 1)[0]
+        await add_external_id(db, "movie" if isinstance(survivor, Movie) else "series",
+                              survivor.id, old_source, old_identity)
+    apply_metadata(survivor, rows, protected)
+    survivor.external_id, survivor.external_source = identity, source
+    survivor.aliases = aliases
+    await merge_external_id_bags(db, survivor, duplicates)
+    # Completeness-based selection can keep a legacy row whose primary id
+    # has never been bagged. Keep that id reachable through the bag as well;
+    # add_external_id retains the shared no-steal policy for other owners.
+    await add_external_id(db, "movie" if isinstance(survivor, Movie) else "series",
+                          survivor.id, source, identity)
+
+
 async def _merge_series_group(
     db: AsyncSession,
     rows: list[TVSeries],
     report: DedupReport,
     survivor: TVSeries | None = None,
+    *,
+    automatic: bool = False,
+    allow_season_change: bool = False,
 ) -> None:
     if len(rows) < 2:
         return
+    await lock_merge_works(db, rows)
+    if automatic and not _group_still_matches(rows):
+        report.notes.append("[candidate-changed] " + ",".join(sorted(row.id for row in rows)))
+        return
+    if not allow_season_change and len({row.season_number for row in rows}) > 1:
+        raise DedupConflictError(rows, ["season_number"])
     if survivor is None:
-        rows.sort(key=lambda r: (r.created_at, r.id))
-        survivor = rows[0]
+        survivor = select_survivor(rows)
+    protected = require_protected_values(rows, survivor)
     duplicates = [r for r in rows if r.id != survivor.id]
     dup_ids = [d.id for d in duplicates]
 
@@ -433,37 +496,11 @@ async def _merge_series_group(
 
     inherited_collection_id = survivor.collection_id
 
-    # Enrich survivor from duplicates
-    survivor.aliases = _merge_aliases(rows)
-    canonical_ext = _pick_canonical_external_id(rows)
-    if canonical_ext:
-        survivor.external_id = canonical_ext
-    # Prefer any non-None poster/description/etc from duplicates when survivor lacks it
-    for d in duplicates:
-        if not survivor.title_cn and d.title_cn:
-            survivor.title_cn = d.title_cn
-        if not survivor.title_en and d.title_en:
-            survivor.title_en = d.title_en
-        if not survivor.original_title and d.original_title:
-            survivor.original_title = d.original_title
-        if not (survivor.poster_url or "").startswith("/posters/") and d.poster_url:
-            survivor.poster_url = d.poster_url
-        if not survivor.description and d.description:
-            survivor.description = d.description
-        if survivor.rating is None and d.rating is not None:
-            survivor.rating = d.rating
-        if not survivor.genre and d.genre:
-            survivor.genre = d.genre
-        if survivor.number_of_episodes is None and d.number_of_episodes is not None:
-            survivor.number_of_episodes = d.number_of_episodes
-        # Collection membership survives the merge: the survivor keeps its
-        # own; only inherit a duplicate's when the survivor has none.
-        if inherited_collection_id is None and d.collection_id is not None:
-            inherited_collection_id = d.collection_id
+    for duplicate in duplicates:
+        if inherited_collection_id is None and duplicate.collection_id is not None:
+            inherited_collection_id = duplicate.collection_id
 
-    # P3: union the identity bags so the survivor stays reachable by every
-    # external id any merged row was ever known under.
-    await merge_external_id_bags(db, survivor, duplicates)
+    await _merge_work_metadata(db, survivor, duplicates, protected)
 
     # Delete duplicates
     for d in duplicates:
@@ -543,45 +580,28 @@ async def _merge_movie_group(
     rows: list[Movie],
     report: DedupReport,
     survivor: Movie | None = None,
+    *,
+    automatic: bool = False,
 ) -> None:
     if len(rows) < 2:
         return
+    await lock_merge_works(db, rows)
+    if automatic and not _group_still_matches(rows):
+        report.notes.append("[candidate-changed] " + ",".join(sorted(row.id for row in rows)))
+        return
     if survivor is None:
-        rows.sort(key=lambda r: (r.created_at, r.id))
-        survivor = rows[0]
+        survivor = select_survivor(rows)
+    protected = require_protected_values(rows, survivor)
     duplicates = [r for r in rows if r.id != survivor.id]
     dup_ids = [d.id for d in duplicates]
 
     await _repoint_movie_children(db, dup_ids, survivor.id, report)
 
-    survivor.aliases = _merge_aliases(rows)
-    canonical_ext = _pick_canonical_external_id(rows)
-    if canonical_ext:
-        survivor.external_id = canonical_ext
-    for d in duplicates:
-        if not survivor.title_cn and d.title_cn:
-            survivor.title_cn = d.title_cn
-        if not survivor.title_en and d.title_en:
-            survivor.title_en = d.title_en
-        if not survivor.original_title and d.original_title:
-            survivor.original_title = d.original_title
-        if not (survivor.poster_url or "").startswith("/posters/") and d.poster_url:
-            survivor.poster_url = d.poster_url
-        if not survivor.description and d.description:
-            survivor.description = d.description
-        if survivor.rating is None and d.rating is not None:
-            survivor.rating = d.rating
-        if not survivor.genre and d.genre:
-            survivor.genre = d.genre
-        if survivor.runtime is None and d.runtime is not None:
-            survivor.runtime = d.runtime
-        # Collection membership survives the merge: the survivor keeps its
-        # own; only inherit a duplicate's when the survivor has none.
-        if survivor.collection_id is None and d.collection_id is not None:
-            survivor.collection_id = d.collection_id
+    for duplicate in duplicates:
+        if survivor.collection_id is None and duplicate.collection_id is not None:
+            survivor.collection_id = duplicate.collection_id
 
-    # P3: union the identity bags (see _merge_series_group).
-    await merge_external_id_bags(db, survivor, duplicates)
+    await _merge_work_metadata(db, survivor, duplicates, protected)
 
     for d in duplicates:
         await db.delete(d)
@@ -617,7 +637,10 @@ async def merge_duplicate_series(db: AsyncSession, report: DedupReport | None = 
                     )
                 )
                 continue
-            await _merge_series_group(db, group, report)
+            try:
+                await _merge_series_group(db, group, report, automatic=True)
+            except DedupConflictError as exc:
+                report.notes.append(str(exc))
     return report
 
 
@@ -636,7 +659,10 @@ async def merge_duplicate_movies(db: AsyncSession, report: DedupReport | None = 
                     )
                 )
                 continue
-            await _merge_movie_group(db, group, report)
+            try:
+                await _merge_movie_group(db, group, report, automatic=True)
+            except DedupConflictError as exc:
+                report.notes.append(str(exc))
     return report
 
 
@@ -695,23 +721,14 @@ async def merge_cross_type_duplicates(
         if movie.id in removed_movies:
             continue
         m_keys = _title_keys(movie)
-        m_canon = canonicalize_external_id(movie.external_id, movie.external_source, "movie")
         for series in series_all:
             if series.id in removed_series:
                 continue
-            s_canon = canonicalize_external_id(
-                series.external_id, series.external_source, "tv"
-            )
-            same_entity = bool(
-                (m_canon and s_canon and m_canon == s_canon)
-                or (movie.external_id and movie.external_id == series.external_id)
-            )
-            if not same_entity and m_keys & series_keys[series.id]:
-                # Title-key pairing alone is not proof across very different
-                # premier years (remakes/reboots in one franchise) — external
-                # id equality above stays unguarded.
-                same_entity = not _year_conflict([movie.release_date, series.start_date])
-            if not same_entity:
+            if not _same_cross_type_work(movie, series, m_keys, series_keys[series.id]):
+                continue
+            await lock_merge_works(db, [series, movie])
+            if not _same_cross_type_work(movie, series, _title_keys(movie), _title_keys(series)):
+                report.notes.append(f"[candidate-changed] {movie.id},{series.id}")
                 continue
 
             # Survivor decision: episode evidence (or Episode rows) => series.
@@ -723,6 +740,12 @@ async def merge_cross_type_duplicates(
             movie_ep = await _episode_resource_count(db, FileResource.movie_id, movie.id)
             series_ep = await _episode_resource_count(db, FileResource.series_id, series.id)
             keep_series = bool(series_ep_rows or movie_ep or series_ep)
+            target = series if keep_series else movie
+            try:
+                protected = require_protected_values([series, movie], target)
+            except DedupConflictError as exc:
+                report.notes.append(str(exc))
+                continue
 
             from app.services.decision_rekey import lock_work_choice_agents, rekey_agent_choices
 
@@ -758,23 +781,11 @@ async def merge_cross_type_duplicates(
                 report.work_links_updated += links_n
                 report.file_assignments_updated += assignments_n
 
-                series.aliases = _merge_aliases([series, movie])
-                for attr in ("title_cn", "title_en", "original_title"):
-                    if not getattr(series, attr) and getattr(movie, attr):
-                        setattr(series, attr, getattr(movie, attr))
-                if not (series.poster_url or "").startswith("/posters/") and movie.poster_url:
-                    series.poster_url = movie.poster_url
-                if not series.description and movie.description:
-                    series.description = movie.description
-                if series.rating is None and movie.rating is not None:
-                    series.rating = movie.rating
-                if not series.genre and movie.genre:
-                    series.genre = movie.genre
 
                 # P3: union identity bags; otherwise the movie's bag rows
                 # would dangle at a deleted work id.
                 await rekey_agent_choices(db, choice_agents)
-                await merge_external_id_bags(db, series, [movie])
+                await _merge_work_metadata(db, series, [movie], protected)
 
                 await db.delete(movie)
                 removed_movies.add(movie.id)
@@ -815,22 +826,10 @@ async def merge_cross_type_duplicates(
                 report.work_links_updated += links_n
                 report.file_assignments_updated += assignments_n
 
-                movie.aliases = _merge_aliases([movie, series])
-                for attr in ("title_cn", "title_en", "original_title"):
-                    if not getattr(movie, attr) and getattr(series, attr):
-                        setattr(movie, attr, getattr(series, attr))
-                if not (movie.poster_url or "").startswith("/posters/") and series.poster_url:
-                    movie.poster_url = series.poster_url
-                if not movie.description and series.description:
-                    movie.description = series.description
-                if movie.rating is None and series.rating is not None:
-                    movie.rating = series.rating
-                if not movie.genre and series.genre:
-                    movie.genre = series.genre
 
                 # P3: union identity bags (symmetric to the branch above).
                 await rekey_agent_choices(db, choice_agents)
-                await merge_external_id_bags(db, movie, [series])
+                await _merge_work_metadata(db, movie, [series], protected)
 
                 await db.delete(series)
                 removed_series.add(series.id)

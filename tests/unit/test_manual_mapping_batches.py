@@ -1,6 +1,5 @@
 """Synthetic franchise bindings in real database transactions."""
 
-import asyncio
 import uuid
 from unittest.mock import AsyncMock
 
@@ -88,7 +87,7 @@ async def test_single_work_mapping_preserves_franchise_shape(db_session, sample_
         monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", AsyncMock())
         monkeypatch.setattr("app.services.bangumi_relations.expand_bangumi_series_graph", AsyncMock())
         monkeypatch.setattr("app.services.cluster_work_binding.bind_hint_clusters", AsyncMock())
-        await _process_resource_metadata_once(resource_id, sample_channel.id, asyncio.Semaphore(1), force_refresh=force_refresh)
+        await _process_resource_metadata_once(resource_id, sample_channel.id, force_refresh=force_refresh)
     elif entry == "agent":
         await UnifiedMetadataAgent().process(resource, sample_channel, db_session, force_refresh=force_refresh)
     elif entry == "legacy":

@@ -120,13 +120,12 @@ async def test_recorded_title_preserves_unknown_season(db_session, sample_channe
             await agent._set_cache(resource.title_raw, 'tmdb', ResourceMetadata.from_dict(payload), db_session)
             await db_session.commit()
         if entry == 'pipeline':
-            import asyncio
 
             from app.services.fetch_service import _process_resource_metadata_once
             monkeypatch.setattr('app.services.metadata_agent.get_agent', lambda: agent)
             monkeypatch.setattr('app.services.torrent_inspect.ensure_torrent_cached', AsyncMock())
             monkeypatch.setattr('app.services.torrent_inspect.maybe_inspect_torrent', AsyncMock())
-            await _process_resource_metadata_once(rid, sample_channel.id, asyncio.Semaphore(1), force_refresh=True)
+            await _process_resource_metadata_once(rid, sample_channel.id, force_refresh=True)
         else:
             await agent.process(resource, sample_channel, db_session, force_refresh=entry != 'cache')
         if entry == 'cache':

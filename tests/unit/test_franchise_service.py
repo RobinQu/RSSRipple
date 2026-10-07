@@ -617,7 +617,19 @@ async def test_dedupe_resource_movies_merges_same_date_rows(db_session):
             WorkExternalId.work_id == survivor.id,
         )
     )).scalars().all()
-    assert {b.external_id for b in bag} == {"mal:19613"}
+    # Both the retained primary identity and the merged secondary identity
+    # must remain reachable; primary columns alone are not a complete bag.
+    assert {(b.source, b.external_id) for b in bag} == {
+        ("bangumi", "bangumi:78796"), ("mal", "mal:19613"),
+    }
+    assert not (await db_session.execute(
+        select(WorkExternalId).where(WorkExternalId.work_type == "movie", WorkExternalId.work_id == mal.id)
+    )).scalars().all()
+    from app.services.external_ids import find_work_by_external_id
+
+    for source, identity in [("bangumi", "bangumi:78796"), ("mal", "mal:19613")]:
+        found = await find_work_by_external_id(db_session, "movie", source, identity)
+        assert found is not None and found.id == survivor.id
     links = (await db_session.execute(
         select(ResourceWorkLink).where(ResourceWorkLink.resource_id == resource.id)
     )).scalars().all()

@@ -231,7 +231,8 @@ async def test_merge_series_enriches_survivor_and_resolves_child_collisions(
     db_session.add(coll)
 
     survivor = await _series(
-        db_session, title_cn="重复剧", created_at=datetime(2020, 1, 1)
+        db_session, title_cn="重复剧", manually_edited_fields=["title_cn"],
+        created_at=datetime(2020, 1, 1)
     )
     dup = await _series(
         db_session,
@@ -383,7 +384,8 @@ async def test_merge_series_inherits_title_cn_via_alias_clustering(db_session):
     # No shared title_cn: the cluster forms because the duplicate's alias
     # matches the survivor's title_en; the survivor then inherits title_cn.
     survivor = await _series(
-        db_session, title_en="Same Show", created_at=datetime(2020, 1, 1)
+        db_session, title_en="Same Show", manually_edited_fields=["title_en"],
+        created_at=datetime(2020, 1, 1)
     )
     dup = await _series(
         db_session,
@@ -427,7 +429,8 @@ async def test_merge_movie_enriches_survivor_and_resolves_child_collisions(
     # The survivor carries only a title_en; it must inherit the duplicate's
     # title_cn (and cluster with it through the shared normalized title_en).
     survivor = await _movie(
-        db_session, title_en="Dup Movie EN", created_at=datetime(2020, 1, 1)
+        db_session, title_en="Dup Movie EN", manually_edited_fields=["title_en"],
+        created_at=datetime(2020, 1, 1)
     )
     dup = await _movie(
         db_session,
@@ -510,7 +513,8 @@ async def test_merge_movie_inherits_title_en(db_session):
     # Mirror of the title_cn inheritance case: here the survivor keeps
     # title_cn as the cluster key and picks up the duplicate's title_en.
     survivor = await _movie(
-        db_session, title_cn="继承电影", created_at=datetime(2020, 1, 1)
+        db_session, title_cn="继承电影", manually_edited_fields=["title_cn"],
+        created_at=datetime(2020, 1, 1)
     )
     dup = await _movie(
         db_session,

@@ -23,24 +23,10 @@
 
 ## P1
 
-### 从 P2 提升
-
-- [ ] dedup survivor 取最旧行，忽略数据完整度与人工保护（`metadata_dedup.py`）。V25 必要性及字段/双库事务证据已建立，准入补修解决录制回填 29/30。完整 bn 3646 passed/2 failed、89.35%，真实重解析 handler 漏用新接口导致未处理即确认，失败已归档并清理；独立补修 bp 72 项（含双库录制种子）通过。最新 49 文件候选正在执行 bq/br 两道完整门禁，原 bm 单元仍待终态审计；不得沿用旧版本通过结果。未合入，不得关闭。入口见 [V25](V25-DEDUP-METADATA-PRESERVATION.md) 与 [续接清单](probes/dedup-preservation-bq-br-running.json)。
-
-### 数据模型 / 持久化
-
-### 后台执行 / 调度 / 队列
-
-
-### 安全
-
-- [x] **P1-S1 外部派生 URL 与 SDK 重定向目的地约束**：已合入本地 main `6bf8c1c`。完整 ah 单元/API 4078 passed、97.11%；ak 集成 3280 passed、88.33%，零失败，跳过/哈希/退出/清理审计完成。真实录制数据与受控 HTTP/TLS/SDK 验证范围见 [V20](V20-OUTBOUND-POLICY.md)，五维审查见 [V20-REVIEW](V20-REVIEW.md)。
-
----
+当前已复现的 P1 均已验收；V25 完整证据和终审见 [V25](V25-DEDUP-METADATA-PRESERVATION.md)。剩余待办按以下 P2/P3 继续复核。
 
 ## P2
 
-- [x] `resource_cleanup._stale_unresolved_where` 权威关联保护：已验收合入本地 main `938a7fb`。保留合集、作品链接和人工/已绑定文件指派，补 PG 锁重查及 Turso 父行版本屏障；真实录制数据、双库并发、升级回滚通过。完整 v 单元/API 4078 项、97.05%；w 集成 3319 项、88.49%，零失败，跳过/哈希/退出/清理审计完成，见 [V21](V21-CLEANUP-ASSOCIATIONS.md)。
 
 
 

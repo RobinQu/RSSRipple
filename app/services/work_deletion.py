@@ -55,29 +55,34 @@ async def lock_deletion_target(db, model, work_id):
         )
         if target is None:
             return None, agent_ids
-        from app.models.agent_work import AgentWork
-        from app.models.file_resource import FileResource
-        from app.models.pending_decision import PendingDecision
-
-        field = kind + "_id"
-        # Existing source-only edits need child locks: they do not recheck the
-        # work FK. Every reverse-order lock is NOWAIT to release this work lock
-        # rather than wait behind a resource/decision owner awaiting the work.
-        resources = select(FileResource.id).where(or_(
-            getattr(FileResource, field) == work_id,
-            FileResource.work_links.any(getattr(ResourceWorkLink, field) == work_id),
-            FileResource.file_assignments.any(getattr(ResourceFileAssignment, field) == work_id),
-        ))
-        await db.execute(resources.order_by(FileResource.id).with_for_update(nowait=True))
-        for child in (ResourceWorkLink, ResourceFileAssignment, ChannelRawTitleMapping, AgentWork, PendingDecision):
-            await db.execute(
-                select(child.id)
-                .where(getattr(child, field) == work_id)
-                .order_by(child.id)
-                .with_for_update(nowait=True)
-            )
+        await lock_work_references(db, kind, work_id)
         return target, agent_ids
     except DBAPIError as exc:
         if getattr(exc.orig, "sqlstate", None) != "55P03" and "concurrent decision identity change" not in str(exc):
             raise
         raise WorkDeletionBusyError from exc
+
+
+async def lock_work_references(db, kind, work_id):
+    """Lock existing references before a work deletion or merge."""
+    from app.models.agent_work import AgentWork
+    from app.models.file_resource import FileResource
+    from app.models.pending_decision import PendingDecision
+
+    field = kind + "_id"
+    # Existing source-only edits need child locks: they do not recheck the
+    # work FK. Every reverse-order lock is NOWAIT to release this work lock
+    # rather than wait behind a resource/decision owner awaiting the work.
+    resources = select(FileResource.id).where(or_(
+        getattr(FileResource, field) == work_id,
+        FileResource.work_links.any(getattr(ResourceWorkLink, field) == work_id),
+        FileResource.file_assignments.any(getattr(ResourceFileAssignment, field) == work_id),
+    ))
+    await db.execute(resources.order_by(FileResource.id).with_for_update(nowait=True))
+    for child in (ResourceWorkLink, ResourceFileAssignment, ChannelRawTitleMapping, AgentWork, PendingDecision):
+        await db.execute(
+            select(child.id)
+            .where(getattr(child, field) == work_id)
+            .order_by(child.id)
+            .with_for_update(nowait=True)
+        )

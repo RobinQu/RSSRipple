@@ -11,11 +11,14 @@ import pytest
 
 
 @pytest.mark.parametrize("failure,queue_recovery", [("", False), ("created", False), ("metadata", False), ("", True)])
-async def test_feed_publication_atomicity_and_consumption(failure, queue_recovery, tmp_path, record_testsuite_property):
+@pytest.mark.parametrize("isolation", ["DEFERRED", "CONCURRENT"])
+async def test_feed_publication_atomicity_and_consumption(
+    failure, queue_recovery, isolation, tmp_path, record_testsuite_property,
+):
     output = tmp_path / "result.json"
     env = dict(
         os.environ,
-        DATABASE_URL="sqlite+aioturso:///:memory:?isolation_level=DEFERRED",
+        DATABASE_URL=f"sqlite+aioturso:///{tmp_path / 'publication-feed.db'}?isolation_level={isolation}",
         FAIL_KIND=failure,
         QUEUE_RECOVERY="1" if queue_recovery else "0",
         PROBE_RESULT_PATH=str(output),

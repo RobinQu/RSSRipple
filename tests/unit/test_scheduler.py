@@ -669,10 +669,13 @@ async def test_cleanup_expired_reports_and_handles_cleanup_failure(
 
 
 @pytest.mark.asyncio
-async def test_dedup_metadata_commits_report(db_session, monkeypatch):
-    class _Report:
-        series_removed = 2
-        movies_removed = 1
+async def test_dedup_metadata_commits_report(db_session, monkeypatch, caplog):
+    from app.services.metadata_dedup import DedupReport
+
+    report = DedupReport(
+        series_removed=2, movies_removed=1,
+        notes=["manual-conflict fields=description ids=synthetic"],
+    )
 
     factory = _ctx_factory(db_session)
     import app.database as dbmod
@@ -680,9 +683,10 @@ async def test_dedup_metadata_commits_report(db_session, monkeypatch):
 
     with patch(
         "app.services.metadata_dedup.merge_duplicate_metadata",
-        new=AsyncMock(return_value=_Report()),
+        new=AsyncMock(return_value=report),
     ):
         await sch._dedup_metadata()
+    assert "Metadata dedup skipped: manual-conflict fields=description ids=synthetic" in caplog.text
 
     with patch(
         "app.services.metadata_dedup.merge_duplicate_metadata",

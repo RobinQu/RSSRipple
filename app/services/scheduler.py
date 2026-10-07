@@ -625,6 +625,9 @@ async def _dedup_metadata() -> None:
             await db.rollback()
             logger.warning("Metadata dedup failed: %s", e)
             return
+    for note in report.notes:
+        if note.startswith("manual-conflict"):
+            logger.warning("Metadata dedup skipped: %s", note)
     if report.series_removed or report.movies_removed:
         logger.info(
             "Metadata dedup: removed %d series, %d movie duplicates",

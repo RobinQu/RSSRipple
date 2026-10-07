@@ -3,14 +3,14 @@
 import asyncio
 import json
 import os
+import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 from xml.sax.saxutils import escape
 
-assert os.environ.get("DATABASE_URL") == "sqlite+aioturso:///:memory:?isolation_level=DEFERRED"
-
 import feedparser
-from sqlalchemy import event, select
+from sqlalchemy import event, select, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import selectinload
 
 import app.database as database
@@ -24,8 +24,16 @@ from app.models.file_resource import FileResource
 from app.models.resource_publication import ChannelPublicationCounter, ResourcePublication
 from app.models.series import TVSeries
 from app.models.work_collection import WorkCollection
+from app.services.metadata_concurrency import MetadataConcurrency
 from app.services.torrent_inspect import parse_torrent_payload
 from tests.metadata_corpus.dataset import ROOT, asset, digest, load_corpus, read_json
+
+probe_url = make_url(os.environ["DATABASE_URL"])
+assert probe_url.drivername == "sqlite+aioturso"
+probe_path = Path(probe_url.database).resolve()
+assert probe_path.name == "publication-feed.db"
+assert probe_path.is_relative_to(Path(tempfile.gettempdir()).resolve())
+assert probe_url.query["isolation_level"] in {"DEFERRED", "CONCURRENT"}
 
 CASE = "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b"
 
@@ -49,6 +57,7 @@ async def main():
     parsed_feed = feedparser.parse(rss)
     assert not parsed_feed.bozo and len(parsed_feed.entries) == 1
     async with database.engine.begin() as conn:
+        await conn.execute(text("PRAGMA journal_mode='mvcc'"))
         await conn.run_sync(database.Base.metadata.create_all)
     async with database.async_session_factory() as db:
         channel = Channel(
@@ -80,6 +89,14 @@ async def main():
     async def reviewed_link(db, resource, channel):
         # Explicit reviewed metadata adapter, not a claim of cold metadata inference.
         async with database.async_session_factory() as observer:
+            producer_connection = await db.connection()
+            observer_connection = await observer.connection()
+            # An in-memory StaticPool would let observer.close() roll back
+            # the producer's physical transaction. This must be a real reader.
+            assert (
+                producer_connection.sync_connection.connection.driver_connection
+                is not observer_connection.sync_connection.connection.driver_connection
+            )
             assert await observer.get(FileResource, resource.id) is not None
             assert (
                 await observer.scalar(
@@ -141,7 +158,7 @@ async def main():
         if failure == "metadata":
             before = await _handle_run_agent({"agent_id": aid})
             assert before["unrecognized"] == 1 and before["dispatched"] == 0
-            await fetch._process_resource_metadata(resources[0].id, cid, asyncio.Semaphore(1))
+            await fetch._process_resource_metadata(resources[0].id, cid, MetadataConcurrency(1))
         if queue_recovery:
             from app.services.publication_dispatch import dispatch_pending_publications
             from app.services.task_queue import MemoryQueue

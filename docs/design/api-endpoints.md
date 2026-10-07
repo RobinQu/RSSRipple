@@ -554,3 +554,8 @@ POST /api/v1/auth/otp 在验证码验证前预留持久额度：每来源 5 次/
 ### Agent 更新有效作品数
 
 PUT `/agents/{id}` 在字段/作品替换及回填副作用前按更新后状态检查：scope_channel_wide=false 时最多 10 个 AgentWork。works 未传或 null 保留原列表，空数组清空；切范围也检查保留的作品数。超限返回 422 VALIDATION_ERROR，保留原字段、关联与消费进度。频道全范围仍可保留超过 10 条配置。
+
+
+### V25 候选：作品合并的人工冲突
+
+`POST /works/merge` 的 `confirm=true` 仅确认合并动作，不授权丢弃相互冲突的人工修订。发生冲突或人工字段无法迁移时整体回滚并返回 409 `INVALID_STATE`；`error.details.fields` 为字段名，`work_ids` 为相关作品 ID，不回显字段值。先通过作品编辑修订冲突，再重试合并。尚未验收合入，见 V25。

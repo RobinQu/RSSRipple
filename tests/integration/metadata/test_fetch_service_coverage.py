@@ -26,6 +26,7 @@ from app.models.agent import Agent
 from app.models.channel import Channel
 from app.models.file_resource import FileResource
 from app.models.series import TVSeries
+from app.services.metadata_concurrency import MetadataConcurrency
 from app.services.runtime_config import reset_to_env_defaults
 from app.utils.time import utcnow
 
@@ -254,9 +255,8 @@ def _patch_torrent_and_franchise(monkeypatch):
 
 
 async def test_process_metadata_missing_rows_returns(db_session, _patch_torrent_and_franchise):
-    import asyncio
 
-    sem = asyncio.Semaphore(1)
+    sem = MetadataConcurrency(1)
     # Neither resource nor channel exists: early return, no error.
     await fs._process_resource_metadata(_uuid(), _uuid(), sem)
 
@@ -264,7 +264,6 @@ async def test_process_metadata_missing_rows_returns(db_session, _patch_torrent_
 async def test_process_metadata_magnet_enqueue_failure_is_swallowed(
     db_session, monkeypatch, _patch_torrent_and_franchise
 ):
-    import asyncio
 
     channel = await _make_channel(db_session)
     res = _make_resource(channel.id, torrent_url="magnet:?xt=urn:btih:" + "ab" * 20)
@@ -281,14 +280,13 @@ async def test_process_metadata_magnet_enqueue_failure_is_swallowed(
     monkeypatch.setattr("app.services.magnet_resolve.enqueue_resolution", _enqueue_boom)
     # metadata_agent_enabled=False → fetch_and_link_metadata path; patch it.
     monkeypatch.setattr(fs, "fetch_and_link_metadata", AsyncMock())
-    await fs._process_resource_metadata(res.id, channel.id, asyncio.Semaphore(1))
+    await fs._process_resource_metadata(res.id, channel.id, MetadataConcurrency(1))
     fs.fetch_and_link_metadata.assert_awaited_once()
 
 
 async def test_process_metadata_agent_failure_falls_back_to_simple_title(
     db_session, monkeypatch, _patch_torrent_and_franchise
 ):
-    import asyncio
 
     channel = await _make_channel(db_session, metadata_agent_enabled=True)
     res = _make_resource(channel.id, search_title=None)
@@ -306,7 +304,7 @@ async def test_process_metadata_agent_failure_falls_back_to_simple_title(
         "app.services.metadata_agent.get_agent",
         lambda: SimpleNamespace(process=_process_boom),
     )
-    await fs._process_resource_metadata(res.id, channel.id, asyncio.Semaphore(1))
+    await fs._process_resource_metadata(res.id, channel.id, MetadataConcurrency(1))
     await db_session.refresh(res)
     # The minimal title cleanup filled search_title so the resource is not
     # left with a raw release title.
@@ -316,7 +314,6 @@ async def test_process_metadata_agent_failure_falls_back_to_simple_title(
 async def test_process_metadata_franchise_invariant_guard_logs(
     db_session, monkeypatch, caplog, _patch_torrent_and_franchise
 ):
-    import asyncio
     import logging
 
     channel = await _make_channel(db_session)
@@ -333,14 +330,13 @@ async def test_process_metadata_franchise_invariant_guard_logs(
         lambda resource: True,
     )
     with caplog.at_level(logging.INFO):
-        await fs._process_resource_metadata(res.id, channel.id, asyncio.Semaphore(1))
+        await fs._process_resource_metadata(res.id, channel.id, MetadataConcurrency(1))
     assert "cleared flat work FK" in caplog.text
 
 
 async def test_process_metadata_caches_series_poster(
     db_session, monkeypatch, _patch_torrent_and_franchise
 ):
-    import asyncio
 
     channel = await _make_channel(db_session)
     series = TVSeries(id=_uuid(), title_cn="剧集", content_type="tv",
@@ -359,7 +355,7 @@ async def test_process_metadata_caches_series_poster(
         "app.services.metadata_service.download_and_cache_poster",
         AsyncMock(return_value="/posters/local.jpg"),
     )
-    await fs._process_resource_metadata(res.id, channel.id, asyncio.Semaphore(1))
+    await fs._process_resource_metadata(res.id, channel.id, MetadataConcurrency(1))
     await db_session.refresh(series)
     assert series.poster_url == "/posters/local.jpg"
 
@@ -367,7 +363,6 @@ async def test_process_metadata_caches_series_poster(
 async def test_process_metadata_caches_movie_poster(
     db_session, monkeypatch, _patch_torrent_and_franchise
 ):
-    import asyncio
 
     from app.models.movie import Movie
 
@@ -388,7 +383,7 @@ async def test_process_metadata_caches_movie_poster(
         "app.services.metadata_service.download_and_cache_poster",
         AsyncMock(return_value="/posters/movie.jpg"),
     )
-    await fs._process_resource_metadata(res.id, channel.id, asyncio.Semaphore(1))
+    await fs._process_resource_metadata(res.id, channel.id, MetadataConcurrency(1))
     await db_session.refresh(movie)
     assert movie.poster_url == "/posters/movie.jpg"
 
@@ -396,7 +391,6 @@ async def test_process_metadata_caches_movie_poster(
 async def test_process_metadata_rollback_failure_is_swallowed(
     db_session, monkeypatch, caplog
 ):
-    import asyncio
     import logging
 
     class _BadSession:
@@ -416,7 +410,7 @@ async def test_process_metadata_rollback_failure_is_swallowed(
     monkeypatch.setattr("app.database.async_session_factory", lambda: _BadFactory())
     with caplog.at_level(logging.WARNING):
         # Must not raise despite both the body and the rollback failing.
-        await fs._process_resource_metadata(_uuid(), _uuid(), asyncio.Semaphore(1))
+        await fs._process_resource_metadata(_uuid(), _uuid(), MetadataConcurrency(1))
     assert "db exploded" in caplog.text
 
 
@@ -436,10 +430,9 @@ async def test_backfill_force_bypasses_cooldowns(db_session, monkeypatch):
     proc = AsyncMock()
     monkeypatch.setattr(fs, "_process_resource_metadata", proc)
 
-    import asyncio
 
     count = await fs._backfill_unmatched_resources(
-        channel, db_session, asyncio.Semaphore(1), force=True
+        channel, db_session, MetadataConcurrency(1), force=True
     )
     assert count == 1
     proc.assert_awaited_once()
@@ -455,10 +448,9 @@ async def test_backfill_respects_cooldowns(db_session, monkeypatch):
     proc = AsyncMock()
     monkeypatch.setattr(fs, "_process_resource_metadata", proc)
 
-    import asyncio
 
     count = await fs._backfill_unmatched_resources(
-        channel, db_session, asyncio.Semaphore(1), force=False
+        channel, db_session, MetadataConcurrency(1), force=False
     )
     assert count == 0
     proc.assert_not_awaited()
@@ -769,7 +761,6 @@ class TestLinkedEnrichmentEligible:
 async def test_process_metadata_link_failure_is_swallowed(
     db_session, monkeypatch, _patch_torrent_and_franchise
 ):
-    import asyncio
 
     channel = await _make_channel(db_session)
     res = _make_resource(channel.id)
@@ -781,7 +772,7 @@ async def test_process_metadata_link_failure_is_swallowed(
 
     monkeypatch.setattr(fs, "fetch_and_link_metadata", _link_boom)
     # Must not raise: the failure is logged and the task moves on.
-    await fs._process_resource_metadata(res.id, channel.id, asyncio.Semaphore(1))
+    await fs._process_resource_metadata(res.id, channel.id, MetadataConcurrency(1))
 
 
 async def test_backfill_exclude_ids_skips_new_resources(db_session, monkeypatch):
@@ -793,10 +784,9 @@ async def test_backfill_exclude_ids_skips_new_resources(db_session, monkeypatch)
     proc = AsyncMock()
     monkeypatch.setattr(fs, "_process_resource_metadata", proc)
 
-    import asyncio
 
     count = await fs._backfill_unmatched_resources(
-        channel, db_session, asyncio.Semaphore(1), force=True, exclude_ids={r1.id}
+        channel, db_session, MetadataConcurrency(1), force=True, exclude_ids={r1.id}
     )
     assert count == 1
     assert proc.await_args.args[0] == r2.id
@@ -810,10 +800,9 @@ async def test_backfill_scan_cap_breaks(db_session, monkeypatch):
     proc = AsyncMock()
     monkeypatch.setattr(fs, "_process_resource_metadata", proc)
 
-    import asyncio
 
     count = await fs._backfill_unmatched_resources(
-        channel, db_session, asyncio.Semaphore(1), force=False
+        channel, db_session, MetadataConcurrency(1), force=False
     )
     assert count == fs.MAX_BACKFILL_PER_FETCH
 

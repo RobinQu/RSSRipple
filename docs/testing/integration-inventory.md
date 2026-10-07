@@ -404,3 +404,27 @@ Agent 上限双库扩大验证：`agents/test_work_limit_postgres.py` 对 add/ad
 覆盖真实 PostgreSQL 锁等待下重复 HTTP 提交；实际 Redis producer/worker 所有权与成败收尾；子进程 DB commit 后 os._exit(97)、处理中 SIGKILL(-9) 的补发/同一 Redis job 恢复；生产 create_tables 双库两次升级、历史标记保留、唯一约束、请求事务回滚和资源 FK 级联。元数据提供者为明确合成替身，这些测试不等于真实元数据管线回放；没有将请求事务回滚宣称为应用版本回滚验证。
 
 录制输入重解析覆盖：`test_reparse_captured.py` 在 PG/Turso 使用语料 `affd5114-f61d-40b6-95f1-0d0b937495ab` 原始已录制标题与 SHA-256 为 `6936d731675641e065b7af4c3780b3c36c27b2782e65fc3989a6557b0cff75c3` 的原始 torrent。完整生产 `_process_resource_metadata` 执行缓存读取、合集识别、12 条文件指派、metadata publication 和提交，任务确认后因身份仍未知恢复待确认。身份提供者明确替换为离线未匹配结果，队列投递使用替身；未下载媒体，不宣称 RSS 原文存在或实际外部元数据搜索通过。
+
+
+### V25 候选：去重与并发人工编辑
+
+`tests/integration/dedup/` 使用独立 PostgreSQL scratch 数据库及独立 Turso 主库/FTS 文件。覆盖电影/剧集在去重读入后人工编辑提交、Turso 真正开启 MVCC 事务后的写冲突和新事务重试、PG 编辑持锁时合并回滚再试。必须检验最终持久化字段及人工标记，不能以异常出现或函数返回当作成功。Turso 仅 SELECT 不一定开启原生事务，测试通过无关行写入明确建立旧快照。完整集成要求 PostgreSQL 可用，禁止静默跳过必需后端。其余严格覆盖矩阵见 V25，尚未完成完整验收。
+
+V25 后续用例：`test_group_revalidation.py` 以真实 PostgreSQL 编辑事务覆盖候选发现至锁定间的标题/季号改变及手动 API；`test_captured_assignments.py` 在双库回放录制 Nisekoi 单资源 24 文件子图，保持文件 ID、路径、大小、季集证据和来源，验证合并后的作品/身份袋/文件引用。历史共享作品按录制 S0/S1 指派放进明确合成季容器；人工编辑/重复行亦为合成，不宣称原始历史图已符合单季终态。
+
+V25 新增 `dedup/test_caller_transactions.py`：PostgreSQL/Turso 两后端覆盖在线 rehome 人工冲突/成功、franchise 引用迁移后异常/成功，以及 agent/旧链接路径中保存点内外失权的完整回滚。复用已有实际生产入口测试断言，外部发现输入显式合成；与 `test_captured_assignments.py` 的真实录制 24 文件子图互补，不把合成故障历史描述为生产事故。
+
+V25 `dedup/test_late_writers.py` 覆盖持锁后的人工编辑、直接关联写入、实际编辑向导关联以及删除，双库八例；Turso 两条新关联路径先复现失败，作品父行屏障后恢复。`test_group_revalidation.py` 增加年份及跨类型身份在锁前变化，共七例 PostgreSQL 真实两事务验证。
+
+`dedup/test_manual_field_matrix.py` 逐一覆盖人工可编辑字段在电影/季作品上的适用范围：人工值、主动 NULL、冲突、文本空串与列表清空；显式幸存行选择下验证持久化结果和保护标记。PostgreSQL/Turso 共 218 项；数据为显式合成字段/编辑历史，与录制子图验收互补。
+
+V25 全量回归补正：既有 `metadata/test_metadata_dedup_coverage.py` 的固定保留对象使用明确人工标题标记，继续覆盖字段补齐与子行冲突，避免沿用最早创建必保留的旧策略。`organize/test_publication_feed.py` 使用隔离临时文件库，生产/观察会话必须为不同物理连接，在 DEFERRED 与 CONCURRENT 两模式验证创建/metadata 发布失败原子性及队列失联恢复。禁止使用同一内存 StaticPool 连接冒充独立事务观察者。
+
+V25 `dedup/test_retry_fairness.py` 在 PostgreSQL/Turso 以固定哈希录制资源 ID/标题/GUID 验证元数据事务重试期间的槽位保留和取消释放：发现结果、首轮发布后锁冲突及排队屏障为显式合成，事务/发布/回滚均走实际代码。断言失败尝试不留下计数和 metadata 发布，最终每个完成资源仅提交一次；取消资源保留未尝试状态，后续资源可以完成。
+
+`dedup/test_primary_identity_bag.py` 双库各覆盖季作品与电影：自动完整度排序保留较新的主身份完整对象，合并后按主身份反查命中、原袋并集完整、被删除对象无残留袋行。该身份案例为显式合成，不声明生产已发生主身份漏登记。
+
+
+V25 准入补验：录制资源身份的实际事务测试扩至 1/4 槽、同/不同频道、正常/退避取消，在 PostgreSQL/Turso 各验证八种组合。`test_metadata_concurrency.py` 验证排队后出现重试的重新检查、频道等待不占容量、等待取消以及多个重试持有者全部结束后才放行。原回填 30/10 计数及 publication 原子性断言保留；此专项不替代新运行代码的完整双门禁。
+
+`dedup/test_retry_admission.py` 使用固定 SHA 的生产导出中 40 条不同作品资源身份，在双库生产 fetch 入口选择前 30 条；元数据未命中结果和竞争时序为显式合成。Turso 通过实际 publication counter 提交制造旧快照冲突，必须最终持久化 30 条尝试、10 条未尝试及 30 条唯一发布。观察采用新会话，避免父会话 identity map 的旧值。此用例旧实现稳定提交 29 条，补修为 30 条；PostgreSQL 同样验证持久化结果，不要求两后端产生相同重试次数。

@@ -7,6 +7,7 @@ import pytest
 from app import job_handlers
 from app.models.movie import Movie
 from app.services import task_queue
+from app.services.metadata_concurrency import MetadataConcurrency
 
 
 async def test_metadata_parent_cancellation_waits_for_child_cleanup(db_session):
@@ -53,7 +54,6 @@ async def test_metadata_parent_cancellation_waits_for_child_cleanup(db_session):
 @pytest.mark.parametrize("phase", ["publication", "poster"])
 @pytest.mark.parametrize("kind", ["movie", "series"])
 async def test_resource_metadata_commit_boundaries(db_session, monkeypatch, phase, kind):
-    import asyncio
 
     from sqlalchemy import select
 
@@ -115,7 +115,7 @@ async def test_resource_metadata_commit_boundaries(db_session, monkeypatch, phas
     monkeypatch.setattr(resource_publication, "publish_resource", publish_then_expire)
     monkeypatch.setattr("app.services.metadata_service.download_and_cache_poster", poster)
     with pytest.raises(task_queue.ExecutionOwnershipLostError):
-        await fetch_service._process_resource_metadata(resource_id, channel_id, asyncio.Semaphore(1))
+        await fetch_service._process_resource_metadata(resource_id, channel_id, MetadataConcurrency(1))
     assert reached == (["publication"] if phase == "publication" else ["publication", "poster"])
     async with async_session_factory() as observer:
         row = await observer.get(FileResource, resource_id)
@@ -158,7 +158,7 @@ async def test_metadata_backfill_waits_for_siblings_before_raising(db_session, m
 
     monkeypatch.setattr(fetch_service, "_process_resource_metadata", process)
     operation = (fetch_service.backfill_unmatched_resources_global(db_session) if scope == "global"
-                 else fetch_service._backfill_unmatched_resources(channel, db_session, asyncio.Semaphore(2), force=True))
+                 else fetch_service._backfill_unmatched_resources(channel, db_session, MetadataConcurrency(2), force=True))
     parent = asyncio.create_task(operation)
     try:
         await asyncio.wait_for(entered.wait(), 2)
@@ -179,7 +179,6 @@ async def test_metadata_backfill_waits_for_siblings_before_raising(db_session, m
 async def test_resource_metadata_loss_rolls_back_flushed_fields_and_publication(
     db_session, monkeypatch, agent_enabled, raises_loss,
 ):
-    import asyncio
     from types import SimpleNamespace
 
     from sqlalchemy import select
@@ -222,7 +221,7 @@ async def test_resource_metadata_loss_rolls_back_flushed_fields_and_publication(
     monkeypatch.setattr(fetch_service, "fetch_and_link_metadata", change)
     monkeypatch.setattr("app.services.metadata_agent.get_agent", lambda: SimpleNamespace(process=agent_process))
     with pytest.raises(task_queue.ExecutionOwnershipLostError):
-        await fetch_service._process_resource_metadata(resource_id, channel_id, asyncio.Semaphore(1))
+        await fetch_service._process_resource_metadata(resource_id, channel_id, MetadataConcurrency(1))
     async with async_session_factory() as observer:
         assert (await observer.get(FileResource, resource_id)).search_title == "Original"
         assert (await observer.scalars(select(ResourcePublication))).all() == []

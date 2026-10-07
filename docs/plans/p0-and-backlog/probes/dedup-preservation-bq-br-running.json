@@ -1,16 +1,16 @@
 {
-  "accepted": false,
+  "accepted": true,
   "candidate": "/tmp/rssripple-v25-reparse-slyrpzqn",
   "effective_files": 49,
   "frozen_count": 5527,
   "source": "dedup-preservation-bq-source.json",
   "frozen": "dedup-preservation-bq-frozen.json",
   "unit": {
-    "status": "running",
+    "status": "complete",
     "session": 74297,
     "log": "/tmp/rssripple-v25-unit-bq.log",
     "junit": "/tmp/rssripple-v25-unit-bq.xml",
-    "coverage": "/tmp/rssripple-v25-unit-bq-coverage.xml",
+    "coverage": "96.98%",
     "coverage_data": "/tmp/rssripple-v25-unit-bq.coverage",
     "threshold": 95,
     "postgres_project": "rssripple-v25-unit-bq",
@@ -19,7 +19,10 @@
     "startup_exit": 0,
     "preflight_passed": 3,
     "preflight_exit": 0,
-    "cleanup": "pending"
+    "cleanup": "complete",
+    "exit_code": 0,
+    "passed": 4181,
+    "audit": "dedup-preservation-bq-audit.json"
   },
   "integration": {
     "status": "complete",
@@ -52,5 +55,5 @@
     "cleanup_exit": 0,
     "labels_empty": true
   },
-  "warning": "Immutable candidate; require both full zero-failure gates, skips/hashes/actual exit/coverage/export/cleanup audit. bn failed and is fully cleaned; no candidate runtime merged."
+  "warning": "Both gates terminal, audited and cleaned. Final review approved; see dedup-preservation-bq-br-accepted.json. Do not poll old sessions."
 }

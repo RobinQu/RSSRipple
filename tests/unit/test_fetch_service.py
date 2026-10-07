@@ -13,6 +13,7 @@ from app.models.channel import Channel
 from app.models.downloader import DownloaderInstance
 from app.models.file_resource import FileResource
 from app.services import fetch_service as fs
+from app.services.metadata_concurrency import MetadataConcurrency
 
 
 def _uuid():
@@ -776,16 +777,25 @@ def test_is_retry_eligible_not_found_ttl():
 
 
 class TestMetadataBackfill:
-    async def test_backfill_caps_and_records_attempts(self, db_session, channel, fake_queue):
+    async def test_backfill_caps_and_records_attempts(self, db_session, channel, fake_queue, monkeypatch):
         """40 never-tried unmatched resources → exactly MAX_BACKFILL_PER_FETCH
         re-processed, each stamped with a not_found attempt."""
+        import asyncio
+
         from sqlalchemy import select
-        for i in range(40):
-            db_session.add(FileResource(
-                id=_uuid(), channel_id=channel.id, guid=f"g{i}",
-                title_raw=f"[G] Show{i} - 01 [1080p]",
-                torrent_url=f"magnet:?xt=urn:btih:{i}",
-            ))
+
+        # This exercises concurrent real transactions and publication-counter
+        # contention. The global fast-sleep stub removes real retry backoff and
+        # can exhaust retries while another transaction is still committing.
+        monkeypatch.setattr(asyncio, "sleep", asyncio.tasks.sleep)
+        # Retain parent-session instances deliberately. Metadata is committed
+        # by other sessions; verification must not depend on weak-map GC.
+        resources = [FileResource(
+            id=_uuid(), channel_id=channel.id, guid=f"g{i}",
+            title_raw=f"[G] Show{i} - 01 [1080p]",
+            torrent_url=f"magnet:?xt=urn:btih:{i}",
+        ) for i in range(40)]
+        db_session.add_all(resources)
         await db_session.flush()
         from app.services.publication_migration import bootstrap_publications
 
@@ -797,9 +807,12 @@ class TestMetadataBackfill:
             res = await fs.fetch_channel_resources(channel, db_session)
 
         assert res["backfilled_count"] == 30
-        rows = (await db_session.execute(
-            select(FileResource).where(FileResource.channel_id == channel.id)
-        )).scalars().all()
+        from app.database import async_session_factory
+
+        async with async_session_factory() as observer:
+            rows = (await observer.execute(
+                select(FileResource).where(FileResource.channel_id == channel.id)
+            )).scalars().all()
         attempted = [r for r in rows if r.metadata_attempts == 1]
         untouched = [r for r in rows if r.metadata_attempts == 0]
         assert len(attempted) == 30
@@ -866,7 +879,6 @@ async def test_backfill_runs_even_when_feed_fetch_fails(db_session, channel, fak
 async def test_backfill_force_bypasses_cooldown(db_session, channel, fake_queue):
     """force=True (manual fetch) bypasses the not_found cooldown; force=False
     (automatic) respects it."""
-    import asyncio
     from datetime import timedelta
 
     from app.utils.time import utcnow
@@ -880,7 +892,7 @@ async def test_backfill_force_bypasses_cooldown(db_session, channel, fake_queue)
     ))
     await db_session.commit()
 
-    sem = asyncio.Semaphore(4)
+    sem = MetadataConcurrency(4)
     # Automatic: in cooldown -> not eligible -> 0 processed.
     assert await fs._backfill_unmatched_resources(channel, db_session, sem, force=False) == 0
     # Manual (force): bypasses cooldown -> 1 processed.
@@ -892,7 +904,6 @@ async def test_backfill_force_reprocesses_all_linked_resource_shapes(
 ):
     """Explicit re-fetch includes linked non-batch resources so missing work
     metadata and file assignments can be repaired."""
-    import asyncio
 
     from app.models.movie import Movie
     from app.models.series import TVSeries
@@ -915,7 +926,7 @@ async def test_backfill_force_reprocesses_all_linked_resource_shapes(
     db_session.add_all(resources)
     await db_session.commit()
 
-    sem = asyncio.Semaphore(4)
+    sem = MetadataConcurrency(4)
     with patch(
         "app.services.fetch_service._process_resource_metadata",
         new_callable=AsyncMock,
@@ -1218,7 +1229,6 @@ async def test_process_resource_metadata_caches_torrent_before_inspect(
 ):
     """Every resource gets its .torrent cached (ensure_torrent_cached) before
     the batch-detection analysis (maybe_inspect_torrent) runs."""
-    import asyncio
 
     import app.services.torrent_inspect as ti
 
@@ -1247,7 +1257,7 @@ async def test_process_resource_metadata_caches_torrent_before_inspect(
     monkeypatch.setattr(fs, "fetch_and_link_metadata", _link)
 
     await fs._process_resource_metadata(
-        res.id, sample_channel.id, asyncio.Semaphore(1),
+        res.id, sample_channel.id, MetadataConcurrency(1),
     )
     assert calls == ["ensure", "inspect", "link"]
 
@@ -1303,17 +1313,15 @@ def test_is_linked_enrichment_eligible_contract_satisfied_is_false(monkeypatch):
 
 
 async def test_process_resource_metadata_missing_resource_returns(db_engine, sample_channel):
-    import asyncio
 
     await fs._process_resource_metadata(
-        "does-not-exist", sample_channel.id, asyncio.Semaphore(1),
+        "does-not-exist", sample_channel.id, MetadataConcurrency(1),
     )
 
 
 async def test_process_resource_metadata_restored_fk_is_cleared(
     db_session, sample_channel, monkeypatch,
 ):
-    import asyncio
 
     res = FileResource(
         id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
@@ -1345,14 +1353,13 @@ async def test_process_resource_metadata_restored_fk_is_cleared(
     )
 
     await fs._process_resource_metadata(
-        res.id, sample_channel.id, asyncio.Semaphore(1),
+        res.id, sample_channel.id, MetadataConcurrency(1),
     )
 
 
 async def test_process_resource_metadata_outer_exception_is_swallowed(
     db_session, sample_channel, monkeypatch,
 ):
-    import asyncio
 
     res = FileResource(
         id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
@@ -1369,14 +1376,13 @@ async def test_process_resource_metadata_outer_exception_is_swallowed(
 
     # No exception should escape.
     await fs._process_resource_metadata(
-        res.id, sample_channel.id, asyncio.Semaphore(1),
+        res.id, sample_channel.id, MetadataConcurrency(1),
     )
 
 
 async def test_process_resource_metadata_rollback_failure_is_swallowed(
     db_engine, monkeypatch,
 ):
-    import asyncio
 
     class _FakeSession:
         async def __aenter__(self):
@@ -1395,13 +1401,12 @@ async def test_process_resource_metadata_rollback_failure_is_swallowed(
         "app.database.async_session_factory", MagicMock(return_value=_FakeSession())
     )
     # No exception escapes despite the failing rollback.
-    await fs._process_resource_metadata("r", "c", asyncio.Semaphore(1))
+    await fs._process_resource_metadata("r", "c", MetadataConcurrency(1))
 
 
 async def test_process_resource_metadata_batch_enrichment_failures_are_swallowed(
     db_session, sample_channel, monkeypatch,
 ):
-    import asyncio
 
     res = FileResource(
         id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
@@ -1437,7 +1442,7 @@ async def test_process_resource_metadata_batch_enrichment_failures_are_swallowed
     monkeypatch.setattr("app.services.franchise_service.dedupe_resource_movies", _raise)
 
     await fs._process_resource_metadata(
-        res.id, sample_channel.id, asyncio.Semaphore(1),
+        res.id, sample_channel.id, MetadataConcurrency(1),
     )
 
 

@@ -666,6 +666,8 @@ async def dedupe_resource_movies(
         if year is not None:
             by_year.setdefault(year, []).append(m)
 
+    from app.services.dedup_metadata_policy import DedupConflictError
+    from app.services.dedup_work_lock import lock_merge_works
     from app.services.metadata_dedup import DedupReport, _merge_movie_group
 
     merged = 0
@@ -679,18 +681,24 @@ async def dedupe_resource_movies(
             if partner is None:
                 break
             rows = [survivor, partner]
-            # creator-wins: the merge machine re-picks a canonical primary;
-            # restore the survivor's own identity afterwards.
-            keep_id, keep_source = survivor.external_id, survivor.external_source
+            await lock_merge_works(db, rows)
+            current_years = [await _movie_year(db, resource.id, row) for row in rows]
+            if (None in current_years or len(set(current_years)) != 1
+                    or not _same_ip_movies(survivor, partner)):
+                group = [row for row in group if row is not partner]
+                continue
             report = DedupReport()
-            await _merge_movie_group(db, rows, report, survivor=survivor)
-            survivor.external_id = keep_id
-            survivor.external_source = keep_source
+            try:
+                await _merge_movie_group(db, rows, report, survivor=survivor)
+            except DedupConflictError as exc:
+                logger.warning("[franchise] merge skipped: %s", exc)
+                group = [row for row in group if row is not partner]
+                continue
             merged += 1
             group = [survivor, *[m for m in group[1:] if m is not partner]]
             logger.info(
                 "[franchise] deduped same-date movie rows for resource %s: "
                 "kept %s (%s:%s), merged %s",
-                resource.id, survivor.id, keep_source, keep_id, partner.id,
+                resource.id, survivor.id, survivor.external_source, survivor.external_id, partner.id,
             )
     return merged

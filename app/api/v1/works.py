@@ -5,6 +5,7 @@ from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +15,8 @@ from app.database import get_db
 from app.models.audio_work import AudioWork
 from app.models.movie import Movie
 from app.models.series import TVSeries
-from app.schemas.common import paginated_response, success_response
+from app.schemas.common import error_response_dict, paginated_response, success_response
+from app.services.dedup_metadata_policy import DedupConflictError
 from app.services.metadata_sources import SUPPORTED_METADATA_SOURCES, is_metadata_source_available
 
 router = APIRouter()
@@ -181,10 +183,17 @@ async def merge_works(
 
     report = DedupReport()
     rows = [survivor, *duplicates]
-    if body.survivor_type == "series":
-        await _merge_series_group(db, rows, report, survivor=survivor)
-    else:
-        await _merge_movie_group(db, rows, report, survivor=survivor)
+    try:
+        if body.survivor_type == "series":
+            await _merge_series_group(db, rows, report, survivor=survivor)
+        else:
+            await _merge_movie_group(db, rows, report, survivor=survivor)
+    except DedupConflictError as exc:
+        await db.rollback()
+        return JSONResponse(status_code=409, content=error_response_dict(
+            "INVALID_STATE", "作品包含冲突或无法迁移的人工字段，请先修订后再合并",
+            {"fields": exc.fields, "work_ids": exc.work_ids},
+        ))
     await db.commit()
     return success_response({
         "survivor_type": body.survivor_type,

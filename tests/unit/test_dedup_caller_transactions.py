@@ -1,0 +1,133 @@
+"""Production fetch commits must not preserve a partially failed merge.
+
+Metadata discovery/torrent inspection are explicit synthetic boundaries;
+repository, dedup, publication, transaction commits and queries are real.
+"""
+from datetime import date
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+from sqlalchemy import select
+
+from app.models.channel import Channel
+from app.models.file_resource import FileResource
+from app.models.movie import Movie
+from app.models.resource_file_assignment import ResourceFileAssignment
+from app.models.resource_work_link import ResourceWorkLink
+from app.models.series import TVSeries
+from app.models.work_collection import WorkCollection
+from app.services import fetch_service
+from app.services.metadata_concurrency import MetadataConcurrency
+from app.services.metadata_repository import _apply_to_resource
+from app.services.metadata_resource_meta import ResourceMetadata
+from app.services.publication_migration import bootstrap_publications
+
+
+async def _channel(db, *, agent):
+    channel = Channel(name='Synthetic caller transaction', type='rss_feed', url='https://example.invalid',
+                      field_mapping={}, metadata_agent_enabled=agent, metadata_source='wikipedia')
+    collection = WorkCollection(title_cn='合成调用方合集')
+    db.add_all([channel, collection])
+    await db.flush()
+    return channel, collection
+
+
+def _external_boundaries(monkeypatch):
+    monkeypatch.setattr('app.services.torrent_inspect.ensure_torrent_cached', AsyncMock(return_value=None))
+    monkeypatch.setattr('app.services.torrent_inspect.maybe_inspect_torrent', AsyncMock(return_value=False))
+    monkeypatch.setattr('app.services.metadata_service.download_and_cache_poster', AsyncMock(return_value=None))
+    monkeypatch.setattr('app.services.bangumi_relations.expand_bangumi_series_graph', AsyncMock(return_value=None))
+    monkeypatch.setattr('app.services.cluster_work_binding.bind_hint_clusters', AsyncMock(return_value=None))
+
+
+@pytest.mark.parametrize('conflict', [True, False])
+async def test_fetch_online_rehome_commits_only_complete_graph(db_session, monkeypatch, conflict):
+    _external_boundaries(monkeypatch)
+    channel, collection = await _channel(db_session, agent=True)
+    series = TVSeries(title_en='Synthetic misfiled film', external_source='wikipedia',
+                      external_id='wikipedia:en:123456', content_type='movie', collection_id=collection.id,
+                      description='curator description', manually_edited_fields=['description'])
+    if conflict:
+        series.number_of_episodes = 7
+        series.manually_edited_fields = ['description', 'number_of_episodes']
+    db_session.add(series)
+    await db_session.flush()
+    resource = FileResource(channel_id=channel.id, guid='synthetic-rehome', title_raw='Synthetic misfiled film',
+                            torrent_url='https://example.invalid/film.torrent', series_id=series.id)
+    db_session.add(resource)
+    await db_session.flush()
+    db_session.add(ResourceWorkLink(resource_id=resource.id, series_id=series.id, source='manual'))
+    await bootstrap_publications(db_session, writers_stopped=True)
+    await db_session.commit()
+    rid, cid, sid = resource.id, channel.id, series.id
+    meta = ResourceMetadata(clean_title='Synthetic misfiled film', found=True, content_type='movie',
+                            matched_entity={'title_en':'Synthetic misfiled film', 'external_source':'wikipedia',
+                                            'external_id':'wikipedia:en:123456', 'content_type':'movie'})
+
+    async def synthetic_discovery(resource, channel, db, **kwargs):
+        await _apply_to_resource(meta, resource, channel, db)
+        return meta
+
+    monkeypatch.setattr('app.services.metadata_agent.get_agent', lambda: SimpleNamespace(process=synthetic_discovery))
+    await fetch_service._process_resource_metadata(rid, cid, MetadataConcurrency(1))
+    # End the seed session snapshot; inspect data committed by the real task.
+    db_session.expire_all()
+    resource = await db_session.get(FileResource, rid)
+    movies = (await db_session.execute(select(Movie))).scalars().all()
+    links = (await db_session.execute(select(ResourceWorkLink))).scalars().all()
+    if conflict:
+        assert movies == [], 'Caught rehome conflict must not commit a newly-created target'
+        assert resource.series_id == sid and resource.movie_id is None
+        assert links[0].series_id == sid and links[0].source == 'manual'
+        assert (await db_session.get(TVSeries, sid)).description == 'curator description'
+    else:
+        assert len(movies) == 1
+        assert movies[0].description == 'curator description'
+        assert movies[0].manually_edited_fields == ['description']
+        assert resource.series_id is None and resource.movie_id == movies[0].id
+        assert links[0].series_id is None and links[0].movie_id == movies[0].id
+        assert await db_session.get(TVSeries, sid) is None
+
+
+@pytest.mark.parametrize('fail_after_repoint', [True, False])
+async def test_fetch_franchise_merge_is_atomic(db_session, monkeypatch, fail_after_repoint):
+    _external_boundaries(monkeypatch)
+    channel, collection = await _channel(db_session, agent=False)
+    movies = [Movie(title_en='Synthetic franchise film', external_source=source, external_id=identity,
+                    content_type='movie', release_date=date(2001,1,1), collection_id=collection.id)
+              for source, identity in [('wikipedia','wikipedia:en:123456'), ('bangumi','bangumi:654321')]]
+    db_session.add_all(movies)
+    await db_session.flush()
+    resource = FileResource(channel_id=channel.id, guid='synthetic-franchise', title_raw='Synthetic franchise pack',
+                            torrent_url='https://example.invalid/pack.torrent', is_batch=True,
+                            batch_scope='franchise', collection_id=collection.id)
+    db_session.add(resource)
+    await db_session.flush()
+    original = {}
+    for index, movie in enumerate(movies):
+        row = ResourceFileAssignment(resource_id=resource.id, file_path=f'synthetic-{index}.mkv',
+                                     movie_id=movie.id, source='manual')
+        db_session.add_all([row, ResourceWorkLink(resource_id=resource.id, movie_id=movie.id, source='manual')])
+        original[row.file_path] = movie.id
+    await bootstrap_publications(db_session, writers_stopped=True)
+    await db_session.commit()
+    rid, cid = resource.id, channel.id
+    target_id = movies[0].id
+    monkeypatch.setattr(fetch_service, 'fetch_and_link_metadata', AsyncMock(return_value=None))
+    if fail_after_repoint:
+        monkeypatch.setattr('app.services.metadata_dedup._merge_work_metadata', AsyncMock(side_effect=RuntimeError('Injected failure after actual reference migration')))
+    await fetch_service._process_resource_metadata(rid, cid, MetadataConcurrency(1))
+    db_session.expire_all()
+    actual = (await db_session.execute(select(ResourceFileAssignment))).scalars().all()
+    links = (await db_session.execute(select(ResourceWorkLink))).scalars().all()
+    movie_rows = (await db_session.execute(select(Movie))).scalars().all()
+    if fail_after_repoint:
+        assert {row.file_path: row.movie_id for row in actual} == original
+        assert {row.movie_id for row in links} == set(original.values())
+        assert len(movie_rows) == 2
+    else:
+        assert len(movie_rows) == 1
+        assert {row.movie_id for row in actual} == {target_id}
+        assert len(links) == 1 and links[0].movie_id == target_id
+    assert all(row.source == 'manual' for row in actual + links)

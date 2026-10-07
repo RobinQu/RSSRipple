@@ -435,6 +435,7 @@ async def _handle_reprocess_resource_metadata(payload: dict) -> dict:
     """Execute and acknowledge only this durable request; preserve manual ignore."""
     from app.models.resource_reparse_request import ResourceReparseRequest
     from app.services.fetch_service import _process_resource_metadata
+    from app.services.metadata_concurrency import MetadataConcurrency
     from app.services.resource_reparse_requests import finish_request
     from app.services.task_queue import require_execution_ownership
 
@@ -451,7 +452,7 @@ async def _handle_reprocess_resource_metadata(payload: dict) -> dict:
         await _refresh_runtime_config()
         await require_execution_ownership()
         await _process_resource_metadata(
-            resource_id, payload["channel_id"], asyncio.Semaphore(1), force_refresh=True,
+            resource_id, payload["channel_id"], MetadataConcurrency(1), force_refresh=True,
         )
         terminal = True
     except Exception:

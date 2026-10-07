@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from sqlalchemy import select
 
 from app.database import _apply_light_migrations
@@ -26,7 +27,7 @@ from app.services.external_ids import (
     list_external_ids,
     merge_external_id_bags,
 )
-from app.services.metadata_dedup import merge_duplicate_series
+from app.services.metadata_dedup import merge_duplicate_movies, merge_duplicate_series
 from app.services.metadata_source_registry import build_source_links
 
 
@@ -244,26 +245,35 @@ async def test_movie_upsert_converges_via_bag(db_session):
 # ---------------------------------------------------------------------------
 
 
-async def test_dedup_merge_unions_bags(db_session):
-    s1 = _series(title_cn="同名片", created_at=datetime(2024, 1, 1))
-    s2 = _series(title_cn="同名片", created_at=datetime(2024, 1, 2))
+@pytest.mark.parametrize("kind", ["series", "movie"])
+async def test_dedup_merge_unions_bags(db_session, kind):
+    model = TVSeries if kind == "series" else Movie
+    content_type = "tv" if kind == "series" else "movie"
+    s1 = model(id=_uuid(), title_cn="同名片", content_type=content_type, created_at=datetime(2024, 1, 1))
+    s2 = model(id=_uuid(), title_cn="同名片", content_type=content_type, created_at=datetime(2024, 1, 2))
     db_session.add_all([s1, s2])
     await db_session.flush()
-    # s1 is the survivor (older). s2's bag ids AND its primary column id all
-    # join the survivor's bag; the duplicate's rows are re-pointed.
-    await add_external_id(db_session, "series", s1.id, "wikipedia", "wikipedia:1")
-    await add_external_id(db_session, "series", s2.id, "tmdb", "tmdb:2")
+    # The newer s2 has the more complete primary identity and survives.
+    # Both bags and its primary id remain reachable; s1 must leave no rows.
+    await add_external_id(db_session, kind, s1.id, "wikipedia", "wikipedia:1")
+    await add_external_id(db_session, kind, s2.id, "tmdb", "tmdb:2")
     s2.external_id = "bangumi:99"
     s2.external_source = "bangumi"
     await db_session.flush()
 
-    report = await merge_duplicate_series(db_session)
-    assert report.series_removed == 1
-    assert await _bag_pairs(db_session, "series", s1.id) == {
+    merge = merge_duplicate_series if kind == "series" else merge_duplicate_movies
+    report = await merge(db_session)
+    assert (report.series_removed if kind == "series" else report.movies_removed) == 1
+    await db_session.flush()
+    assert await db_session.get(model, s1.id) is None
+    assert await db_session.get(model, s2.id) is not None
+    assert await _bag_pairs(db_session, kind, s2.id) == {
         ("wikipedia", "wikipedia:1"), ("tmdb", "tmdb:2"), ("bangumi", "bangumi:99"),
     }
+    found = await find_work_by_external_id(db_session, kind, "bangumi", "bangumi:99")
+    assert found is not None and found.id == s2.id
     # No dangling rows for the deleted duplicate.
-    assert await list_external_ids(db_session, "series", s2.id) == []
+    assert await list_external_ids(db_session, kind, s1.id) == []
 
 
 async def test_merge_external_id_bags_direct(db_session):
