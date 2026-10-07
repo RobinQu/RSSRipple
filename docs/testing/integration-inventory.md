@@ -393,3 +393,14 @@ Agent 作品上限专项通过真实 API/Turso 检查更新后的有效 scope/wo
 Agent 上限双库扩大验证：`agents/test_work_limit_postgres.py` 对 add/add、replace/add、scope/add 调用真实生产 API 与 get_db，观察 pg_blocking_pids 确实等待后再释放父锁，第二请求重新读取并拒绝超限。专用 scratch DB finally 删除，完整门禁 REQUIRED=1 缺 PG 必须失败。对应 Turso API 场景观察真实 DatabaseError 和生产 HTTP 重放，保留 10 条；两种数据库都不以伪造 SQL 结果或锁异常替代证据。
 
 `tests/api/test_request_replay_production.py` 通过完整 app.main ASGI 栈、认证/GZip/真实 get_db 和临时 Turso 验证小体及大于 1 MiB 的请求：首次 flush 后注入明确合成冲突，重放后新会话只查到一条 Movie。用于生产栈与事务回滚组合验证，不将注入冲突混作真实 MVCC 证据。
+
+
+### 重解析请求生命周期（候选，待完整集成验收）
+
+`tests/api/test_reparse_durability.py` 使用真实临时 Turso/API/dashboard 查询验证：成功/普通失败各三种人工忽略时序、真实 TCP 拒绝连接后可见性及补发、重复请求身份稳定、commit 后省略 enqueue 的恢复及旧 UUID 确认隔离。元数据处理明确为合成注入，省略 enqueue 不是进程崩溃实验。正式 Redis worker、双库并发、生产迁移、有界补发及录制输入覆盖见下文；部署回退及完整门禁仍须验收。
+
+正式生命周期集成位于 `tests/integration/resources/`，默认纳入 integration 收集；需要显式 REPARSE_TEST_POSTGRES_URL/REPARSE_TEST_REDIS_URL 或复用独立门禁专用 QUEUE_RECOVERY_* 服务，QUEUE_RECOVERY_REQUIRED=1 时缺少服务直接失败。每测创建并删除 PG scratch DB；Redis 使用专用测试服务 DB14，只删除本例已知键，不 FLUSHDB；不导入 API conftest 的全局 sleep 加速。
+
+覆盖真实 PostgreSQL 锁等待下重复 HTTP 提交；实际 Redis producer/worker 所有权与成败收尾；子进程 DB commit 后 os._exit(97)、处理中 SIGKILL(-9) 的补发/同一 Redis job 恢复；生产 create_tables 双库两次升级、历史标记保留、唯一约束、请求事务回滚和资源 FK 级联。元数据提供者为明确合成替身，这些测试不等于真实元数据管线回放；没有将请求事务回滚宣称为应用版本回滚验证。
+
+录制输入重解析覆盖：`test_reparse_captured.py` 在 PG/Turso 使用语料 `affd5114-f61d-40b6-95f1-0d0b937495ab` 原始已录制标题与 SHA-256 为 `6936d731675641e065b7af4c3780b3c36c27b2782e65fc3989a6557b0cff75c3` 的原始 torrent。完整生产 `_process_resource_metadata` 执行缓存读取、合集识别、12 条文件指派、metadata publication 和提交，任务确认后因身份仍未知恢复待确认。身份提供者明确替换为离线未匹配结果，队列投递使用替身；未下载媒体，不宣称 RSS 原文存在或实际外部元数据搜索通过。

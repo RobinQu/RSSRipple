@@ -229,10 +229,12 @@ async def test_resource_metadata_loss_rolls_back_flushed_fields_and_publication(
 
 
 @pytest.mark.parametrize("phase", ["before", "during", "success", "failure"])
-async def test_reparse_only_current_execution_clears_confirmation_marker(db_session, monkeypatch, phase):
+async def test_reparse_only_current_execution_acknowledges_request(db_session, monkeypatch, phase):
     from app.database import async_session_factory
     from app.models.channel import Channel
     from app.models.file_resource import FileResource
+    from app.models.resource_reparse_request import ResourceReparseRequest
+    from app.services.resource_reparse_requests import create_request
     from app.utils.time import utcnow
 
     channel = Channel(name="Reparse", type="rss_feed", url="https://example.invalid", field_mapping={})
@@ -244,6 +246,8 @@ async def test_reparse_only_current_execution_clears_confirmation_marker(db_sess
     db_session.add(resource)
     await db_session.commit()
     resource_id, channel_id = resource.id, channel.id
+    request = await create_request(db_session, resource_id, channel_id)
+    await db_session.commit()
     expired = phase == "before"
 
     async def guard():
@@ -259,7 +263,7 @@ async def test_reparse_only_current_execution_clears_confirmation_marker(db_sess
     process_mock = AsyncMock(side_effect=process)
     monkeypatch.setattr(task_queue, "require_execution_ownership", guard)
     monkeypatch.setattr("app.services.fetch_service._process_resource_metadata", process_mock)
-    payload = {"resource_id": resource_id, "channel_id": channel_id}
+    payload = {"request_id": request.id, "resource_id": resource_id, "channel_id": channel_id}
     if phase in {"before", "during"}:
         with pytest.raises(task_queue.ExecutionOwnershipLostError):
             await job_handlers._handle_reprocess_resource_metadata(payload)
@@ -271,13 +275,16 @@ async def test_reparse_only_current_execution_clears_confirmation_marker(db_sess
     assert process_mock.await_count == (0 if phase == "before" else 1)
     async with async_session_factory() as observer:
         saved = await observer.get(FileResource, resource_id)
-        assert saved.confirmation_ignored_at == (marker if phase in {"before", "during"} else None)
+        assert saved.confirmation_ignored_at == marker
+        pending = await observer.get(ResourceReparseRequest, request.id)
+        assert (pending is not None) == (phase in {"before", "during"})
     if phase in {"before", "during"}:
         expired = False
         monkeypatch.setattr("app.services.fetch_service._process_resource_metadata", AsyncMock())
         assert await job_handlers._handle_reprocess_resource_metadata(payload) == {"status": "done"}
         async with async_session_factory() as observer:
-            assert (await observer.get(FileResource, resource_id)).confirmation_ignored_at is None
+            assert (await observer.get(FileResource, resource_id)).confirmation_ignored_at == marker
+            assert await observer.get(ResourceReparseRequest, request.id) is None
 
 
 @pytest.mark.parametrize("phase", ["before_batch", "during_refresh"])

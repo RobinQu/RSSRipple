@@ -1017,6 +1017,10 @@ class TestMagnetResolve:
 class TestReparseMetadata:
     """POST /resources/{id}/reparse-metadata — background metadata reparse."""
 
+    @pytest.fixture(autouse=True)
+    def _request_database(self, db_session_factory, monkeypatch):
+        monkeypatch.setattr("app.database.async_session_factory", db_session_factory)
+
     async def test_404(self, client):
         res = await client.post("/api/v1/resources/nope/reparse-metadata")
         assert res.status_code == 404
@@ -1031,15 +1035,20 @@ class TestReparseMetadata:
         res = await client.post(f"/api/v1/resources/{rid}/reparse-metadata")
         assert res.status_code == 200
         assert res.json()["data"]["reparse"] == {"status": "pending"}
+        from unittest.mock import ANY
+
         enqueue.assert_awaited_once_with(
             "reprocess_resource_metadata",
             f"reprocess-resource:{rid}",
-            {"resource_id": rid, "channel_id": sample_channel.id},
+            {"request_id": ANY, "resource_id": rid, "channel_id": sample_channel.id},
         )
         from app.models.file_resource import FileResource
         async with db_session_factory() as s:
             r = await s.get(FileResource, rid)
-            assert r.confirmation_ignored_at is not None
+            assert r.confirmation_ignored_at is None
+            from app.models.resource_reparse_request import ResourceReparseRequest
+
+            assert await s.get(ResourceReparseRequest, enqueue.call_args.args[2]["request_id"])
 
     async def test_uses_live_queue_singleton(
         self, client, sample_channel, db_session_factory, monkeypatch,
@@ -1067,6 +1076,8 @@ class TestReparseMetadata:
         enqueue = AsyncMock(return_value=None)
         monkeypatch.setattr("app.services.task_queue.task_queue.enqueue", enqueue)
         rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.post(f"/api/v1/resources/{rid}/reparse-metadata")
+        assert res.status_code == 200
         res = await client.post(f"/api/v1/resources/{rid}/reparse-metadata")
         assert res.status_code == 409
         assert res.json()["error"]["code"] == "ALREADY_RUNNING"

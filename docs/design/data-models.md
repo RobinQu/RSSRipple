@@ -164,7 +164,7 @@ resource_file_assignments              # 文件级映射：torrent 清单条目 
 
 序列化：`GET/PATCH/PUT` 单资源端点返回 `FileResourceDetailResponse`（在基础 schema 上附 `work_links[]` + `file_assignments[]`，需 `_DETAIL_LOAD_OPTIONS` selectinload）；列表端点保持精简基础 schema。
 
-`FileResource.confirmation_ignored_at`：用户在 Dashboard 单个或批量忽略「文件资源元数据确认」时写入 UTC 时间。非空资源仍完整保留并可在频道资源页检索/修订，但不再进入 Dashboard 待确认策略扫描；它不等价于 metadata 已补齐，也不会删除或派发资源。**临时忽略**：`POST /resources/{id}/reparse-metadata` 同样写该列（资源立即退出待办），但其入队的 `reprocess_resource_metadata` 任务在结束（成败都）时清除标记，让待确认策略重新评估——与手动忽略的永久语义差异在于任务结束即重评。
+`FileResource.confirmation_ignored_at`：仅表示用户在 Dashboard 单个或批量永久忽略「文件资源元数据确认」的 UTC 时间。后台重解析不再写入或清除此列；人工忽略不会因任务成功、失败或重试消失。资源仍可在频道页检索和修订。临时隐藏由独立 `ResourceReparseRequest` 决定：请求存在且 `error_message IS NULL` 时暂不显示待确认；队列投递故障时显示待确认，人工忽略仍优先。
 
 Dashboard 待确认扫描索引：`Index(confirmation_ignored_at, created_at, id)`，同时支撑未忽略资源过滤及稳定倒序分页扫描。
 
@@ -868,3 +868,11 @@ Turso 单进程内，同一引擎的额度短事务串行执行，防止全局�
 ### Turso 资源父行并发保护
 
 Turso CONCURRENT 的 child FK 写入不具备 PostgreSQL KEY SHARE 的父行保护。`resource_work_links`、`resource_file_assignments`、`download_tasks` 的 INSERT/UPDATE 各有一个 `trg_resource_parent_*` 触发器，对 NEW 指向的 FileResource 执行 `UPDATE file_resources SET id=id`。此等值写入只推进 MVCC 行版本，不改变 ID、updated_at 或其他业务值；它使并发旧快照删除发生写冲突，避免已提交 child 变成孤儿。三种表的 INSERT/UPDATE、SAVEPOINT/先前写入两种旧快照均须验收。PostgreSQL 不安装这些触发器，使用原生 FK 锁与清理服务的锁定/复查。
+
+### ResourceReparseRequest（持久重解析请求）
+
+`resource_reparse_requests` 每资源至多一行；`id` 为 UUID v4 主键，`resource_id` 为非空唯一 FK→file_resources（ON DELETE CASCADE）。`requested_at` 为 UTC 请求时间；`next_attempt_at` 为非空 UTC 下次补发时间（带索引）；`attempt_count` 为投递故障次数，默认 0；`error_message` 为可空 String(2048)，仅写固定脱敏错误类别。重复请求不更新时间或身份。
+
+请求与入队分开提交，队列只是唤醒；handler payload 携带 `request_id`，成功或普通失败均仅删除自身 ID 对应请求。人工忽略字段永不被该生命周期改写。失权不确认；旧请求的迟到确认不能删除重建的新 UUID。表由统一迁移入口 create_all 创建，存量 confirmation_ignored_at 无法可靠区分人工忽略与旧任务标记，禁止批量清空。
+
+重解析取消不是普通失败：CancelledError 等 BaseException 中断时保留持久请求，由 RedisQueue 重排描述符并交接消费者；仅成功或普通 Exception 终态才确认自身请求，且确认仍需有效所有权。真实 Redis worker.stop 取消回归覆盖原任务 ID 重放和最终确认。

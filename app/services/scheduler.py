@@ -42,6 +42,13 @@ async def init_scheduler() -> None:  # pragma: no cover - wiring only
         id="agent_resource_dispatch", replace_existing=True, coalesce=True, max_instances=1,
     )
 
+    from app.services.resource_reparse_requests import dispatch_pending_reparses
+
+    _scheduler.add_job(
+        dispatch_pending_reparses, trigger=IntervalTrigger(seconds=5),
+        id="resource_reparse_dispatch", replace_existing=True, coalesce=True, max_instances=1,
+    )
+
     from app.services.publication_dispatch import dispatch_pending_publications
 
     _scheduler.add_job(

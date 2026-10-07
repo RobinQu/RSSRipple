@@ -1,9 +1,4 @@
-"""Unit tests for the ``reprocess_resource_metadata`` background job.
-
-The endpoint sets ``confirmation_ignored_at`` up front so the resource
-leaves the dashboard todo list immediately; the job clears the flag when it
-finishes — success or failure — so the confirmation policy re-evaluates.
-"""
+"""Legacy reparse payloads preserve manual ignores while running metadata work."""
 
 from __future__ import annotations
 
@@ -45,7 +40,7 @@ def _patch_env(monkeypatch, process: AsyncMock) -> None:
 
 
 @pytest.mark.asyncio
-async def test_clears_confirmation_ignore_on_success(
+async def test_legacy_payload_preserves_confirmation_ignore_on_success(
     monkeypatch, db_session, sample_channel,
 ):
     process = AsyncMock()
@@ -66,11 +61,11 @@ async def test_clears_confirmation_ignore_on_success(
     assert kwargs["force_refresh"] is True
     db_session.expire_all()
     r = await db_session.get(FileResource, rid)
-    assert r.confirmation_ignored_at is None
+    assert r.confirmation_ignored_at is not None
 
 
 @pytest.mark.asyncio
-async def test_clears_confirmation_ignore_on_failure(
+async def test_legacy_payload_preserves_confirmation_ignore_on_failure(
     monkeypatch, db_session, sample_channel,
 ):
     _patch_env(monkeypatch, AsyncMock(side_effect=RuntimeError("boom")))
@@ -86,4 +81,4 @@ async def test_clears_confirmation_ignore_on_failure(
 
     db_session.expire_all()
     r = await db_session.get(FileResource, rid)
-    assert r.confirmation_ignored_at is None
+    assert r.confirmation_ignored_at is not None

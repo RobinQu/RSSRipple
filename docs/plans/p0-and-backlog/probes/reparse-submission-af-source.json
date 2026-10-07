@@ -2,7 +2,7 @@
   "prototype": "/tmp/rssripple-v24-isolation-4br76c92",
   "base_runtime_commit": "accd024",
   "base_main_commit": "6f18844",
-  "accepted": false,
+  "accepted": true,
   "files": {
     "app/models/resource_reparse_request.py": "07661b8666eb28cf30cd9768592e47ab89194aaf1ce5deaf5f71a6886509f967",
     "app/models/__init__.py": "4f6d75732cd786b6a220003e6771d84ccfe5d68e4e0e52c6cb1a1e7abea1972e",
@@ -69,5 +69,7 @@
     },
     "ruff_no_cache_exit": 0,
     "full_gates": "af/ag pending; unit gate requires dedicated PostgreSQL"
-  }
+  },
+  "validation": "af unit/API 4131 passed, 97.04%; ag integration 3366 passed, 89.21%; zero failures; skips/hash/exit/cleanup audited",
+  "main_worktree_applied": true
 }

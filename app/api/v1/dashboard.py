@@ -213,9 +213,15 @@ async def _page_pending_confirmations(
     # a fragile dialect-specific SQL predicate. Read only the ordered ids up
     # front, then hydrate resources in bounded batches; this avoids OFFSET's
     # quadratic full-table scan while keeping ORM relationship memory bounded.
+    from app.models.resource_reparse_request import ResourceReparseRequest
+
+    pending_reparse = select(ResourceReparseRequest.id).where(
+        ResourceReparseRequest.resource_id == FileResource.id,
+        ResourceReparseRequest.error_message.is_(None),
+    ).exists()
     ordered_ids = (await db.execute(
         select(FileResource.id)
-        .where(FileResource.confirmation_ignored_at.is_(None))
+        .where(FileResource.confirmation_ignored_at.is_(None), ~pending_reparse)
         .order_by(FileResource.created_at.desc(), FileResource.id.desc())
     )).scalars().all()
     for batch_start in range(0, len(ordered_ids), _CONFIRMATION_SCAN_BATCH_SIZE):

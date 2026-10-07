@@ -432,36 +432,42 @@ async def _handle_refresh_channel_works(payload: dict) -> dict:
 
 
 async def _handle_reprocess_resource_metadata(payload: dict) -> dict:
-    """Background job: full metadata reparse for one resource.
-
-    Runs the same pipeline as fetch-time processing with
-    ``force_refresh=True`` (metadata cache bypass). The endpoint set
-    ``confirmation_ignored_at`` up front so the resource left the dashboard
-    todo list immediately; clearing it here — success or failure — lets the
-    confirmation policy re-evaluate: still-incomplete resources re-enter the
-    list, fully matched ones stay out.
-    """
-    from app.models.file_resource import FileResource
+    """Execute and acknowledge only this durable request; preserve manual ignore."""
+    from app.models.resource_reparse_request import ResourceReparseRequest
     from app.services.fetch_service import _process_resource_metadata
+    from app.services.resource_reparse_requests import finish_request
     from app.services.task_queue import require_execution_ownership
 
-    await _refresh_runtime_config()
     await require_execution_ownership()
     resource_id: str = payload["resource_id"]
-    try:
-        await _process_resource_metadata(
-            resource_id,
-            payload["channel_id"],
-            asyncio.Semaphore(1),
-            force_refresh=True,
-        )
-    finally:
-        await require_execution_ownership()
+    request_id = payload.get("request_id")
+    if request_id:
         async with committed_session() as session:
-            resource = await session.get(FileResource, resource_id)
-            if resource is not None:
-                resource.confirmation_ignored_at = None
+            request = await session.get(ResourceReparseRequest, request_id)
+            if request is None or request.resource_id != resource_id:
+                return {"status": "superseded"}
+    terminal = False
+    try:
+        await _refresh_runtime_config()
+        await require_execution_ownership()
+        await _process_resource_metadata(
+            resource_id, payload["channel_id"], asyncio.Semaphore(1), force_refresh=True,
+        )
+        terminal = True
+    except Exception:
+        terminal = True
+        raise
+    finally:
+        # Cancellation/other BaseException means interrupted work. RedisQueue
+        # requeues its descriptor, so the durable request must survive too.
+        if terminal:
             await require_execution_ownership()
+            if request_id:
+                async with committed_session() as session:
+                    await finish_request(session, request_id, resource_id)
+                    await require_execution_ownership()
+    # Legacy queued payloads have no durable request. Never infer ownership
+    # of a historical manual-ignore timestamp or clear it indiscriminately.
     return {"status": "done"}
 
 

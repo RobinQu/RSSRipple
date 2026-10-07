@@ -716,7 +716,7 @@ Mock downloader 面向本地开发和自动化测试；生产环境应使用 `tr
 - 频道详情页「手动抓取」先弹窗确认，默认不勾选「重新抓取所有条目的 metadata」并发送 `force=false`；勾选后发送 `force=true`。`force=true` 无扫描条数上限地重跑该频道全部既有资源，跳过 MetadataCache 与本地已知作品短路，重新查询 metadata 源以补齐作品缺失字段（包括由 `start_date`/`release_date` 派生的必选年份），并对所有作品形态重新执行 torrent 文件关联富化；有本地 torrent 缓存时即使原 URL 是 magnet 也可复用。普通抓取与全局 backfill 也会按较长冷却周期选取“已关联但仍缺 Channel 必填字段”的资源，继续执行作品富化、发布字段写回和 torrent 文件关联；未匹配资源仍按原有失败冷却与限额回填，避免周期任务反复全表扫描。
 - 内容 LLM 对普通单集文件输出互斥的 `season + episode`；仅当一个物理视频文件实际包含连续多集（例如文件名明确为 E01-E02）时才输出 `season + episode_start + episode_end`，torrent 是整季合集本身不构成单文件范围的理由。服务层校验真实路径后将单集规范化为 assignment 的闭区间 `episode_start == episode_end` 落库，保持现有数据模型兼容。
 - 向导文件 LLM 分析使用 `MetadataCache(source=batch_file_analysis:v4)` 持久缓存，key 为资源 ID、搜索标题、文件路径/大小清单及逻辑版本的 SHA-256 指纹，任一输入变化自然失效；主动重新解析用 `force=true` 覆盖缓存。缓存未命中时 web 以 `batch-analysis:<fingerprint>` 为 key 入队 `analyze_batch_files`，由 worker 完成确定性解析、LLM 调用和缓存写入；队列 result 字段承载中间状态与最多 50k 字符的累计输出，SSE 只轮询并增量转发。Redis `SET NX` active-key 在多 web/多 worker 间原子去重，关闭任一窗口不取消任务；MemoryQueue 保持 APP_ROLE=all 单进程兼容。
-- 编辑向导「重新解析元数据」按钮走 `POST /resources/{id}/reparse-metadata`：先写 `confirmation_ignored_at`（临时忽略，资源立即退出 Dashboard 待确认）并 commit，再以 `reprocess-resource:{id}` 为 key 入队 `reprocess_resource_metadata`（key 活跃期去重，已有任务 → 409）。handler 以 `force_refresh=True` 调用 `_process_resource_metadata` 重跑抓取期完整元数据管线（torrent 缓存/检测、metadata 匹配链接、reconcile、簇级绑定等），并在 finally 中清除 `confirmation_ignored_at`（**成败都清**）让待确认策略重新评估——数据仍不全重新进入待办、完整匹配留在外面；不重置 `metadata_attempts`/`metadata_failure_type`（backfill retry-eligibility 门控在调度侧），普通优先级（不进 `_PRIORITY_JOB_TYPES`），刷新不创建绕过历史准入的定向请求；完成事件由普通增量按现有准入范围消费。
+- 编辑向导「重新解析元数据」按钮走 `POST /resources/{id}/reparse-metadata`：创建唯一持久 `ResourceReparseRequest` 后先 commit，再以 `reprocess-resource:{id}` 为 key 入队。重复 HTTP 请求返回 409，不替换已有请求；队列返回 None 只说明 key 忙碌，保留请求供后续补发。handler payload 携带请求 UUID；旧 ID 或资源不匹配直接 superseded，不调用管线。配置刷新和 `force_refresh=True` 完整元数据处理均在受所有权保护的收尾范围内，成功或普通异常只删除自身请求，不清理人工忽略字段。不重置 metadata_attempts/metadata_failure_type，不创建定向派发请求。
 - 向导 LLM 输入包含服务端生成的候选作品清单：`candidate_key=series|movie:<UUID>`、work_type/work_id 与 title_cn/title_en/original_title/canonical_name 全部非空别名；输出必须复用 exact candidate_key。后端只接受输入集合内的 key，并由 key 对应候选还原作品类型/ID，拒绝模型生成或篡改的 UUID；前端优先按 candidate_key 绑定，标题归一化仅作旧结果兼容回退。最终 `season_ranges` 合并经路径与候选 ID 双重校验的 LLM 单集结果。
 - 特别篇文件统一映射到媒体库规范的 Season 0：文件名明确的 `SPxx` / `Special xx` / `OVA xx` / `OAD xx` 直接解析为 `S00Exx`；发布顺序式小数标签（`11.5`、`22.5`）不存入整数 episode 字段，而在作品关联后与 Episode 表的 Season 0 行按顺序一一校准。若作品源尚无 Season 0 数据但清单中存在明确 `.5` 插播标签，则按标签顺序映射为 `S00E01..N`；已有 Season 0 数据但数量不一致时保持未解析，禁止错配。单作品自动绑定和向导 SSE 确定性结果复用同一规则。
 
@@ -805,7 +805,7 @@ Agent 候选循环在入口、各候选开始和建议写入前检查所有权�
 
 待决策建议生成结束后，在 persist_choice 前检查所有权；候选独立事务或请求保存点退出前再次检查，以回滚写入等待期间失权的候选。后台独立 Turso 候选事务先显式 BEGIN，避免驱动尚未开启物理事务时，内部 SAVEPOINT 的 RELEASE 提前提交；这里使用延迟事务，不在网络调用前取得写锁。PostgreSQL 沿用原有事务开始语义。
 
-资源重解析在开始及 finally 清除 confirmation_ignored_at 前检查所有权，清理事务退出前再检查。仍有所有权的成功/普通失败继续清理标记；失权保留标记供接管者完成。此约束不替代重解析内部元数据写入的保护，也未解决入队失败或永久崩溃造成的标记回收（B8）。
+资源重解析开始、元数据处理前及 finally 确认请求前检查所有权，确认事务提交前再检查。失权保留请求；有效所有权下成功/普通失败均确认自身请求。无 request_id 的升级前载荷继续处理元数据但不清理无法辨别归属的历史 confirmation_ignored_at。
 
 资源元数据独立事务在获得 semaphore、torrent 缓存返回、取得作品锁、主元数据处理返回及发布/提交前检查执行所有权；海报阶段提交前再次检查。主匹配与扩展路径中的 ExecutionOwnershipLostError 不作为普通 best-effort 错误吞掉，事务回滚后继续向调用者传播，锁重试包装同样不得吞掉。元数据已经提交后的海报失权只能回滚海报事务，不能撤销前一阶段；文件缓存及已发生网络请求亦不能由数据库回滚撤销。
 
@@ -889,3 +889,8 @@ PostgreSQL 按主键游标前进，分批锁定最多 500 个候选父行（FOR 
 ### Agent 规则写入串行化
 
 更新规则、添加/修改/删除作品共享父 Agent 的规则锁：PostgreSQL 使用 FOR NO KEY UPDATE；Turso 在读取订阅状态前参数化执行父行等值 id 更新，推进 MVCC 版本而不更改元数据时间。竞争失败由 HTTP 整请求重试重新读取状态，禁止仅重试最后一条 INSERT。作品数上限按更新后的有效范围生效。
+
+
+重解析补发每 5 秒调度一次，每批按 next_attempt_at/id 最多认领 50 项；PostgreSQL SKIP LOCKED，Turso 冲突仅重试数据库认领，不跨队列调用持有事务。认领推进下次检查 30 秒，commit→enqueue 崩溃由后续扫描补发。投递异常仅保存固定错误类别、从 30 秒指数退避至最多 1800 秒；资源恢复待确认可见性。投递成功或 key 忙清除投递错误，保留请求等待 handler 确认；队列状态缺失不直接删除请求。未确认请求再次投递仍用稳定资源 key 去重，不以时间猜测执行退休。
+
+重解析取消不是普通失败：CancelledError 等 BaseException 中断时保留持久请求，由 RedisQueue 重排描述符并交接消费者；仅成功或普通 Exception 终态才确认自身请求，且确认仍需有效所有权。真实 Redis worker.stop 取消回归覆盖原任务 ID 重放和最终确认。

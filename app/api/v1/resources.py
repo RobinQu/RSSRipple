@@ -1009,18 +1009,8 @@ async def reparse_resource_metadata(
     resource_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """Trigger a full background metadata reparse for one resource.
-
-    Immediately hides the resource from dashboard file confirmations
-    (``confirmation_ignored_at``) and enqueues the full fetch-time metadata
-    pipeline with ``force_refresh=True`` (cache bypass). The job clears the
-    ignore flag when it finishes — success or failure — so the confirmation
-    policy re-evaluates: still-incomplete resources re-enter the todo list,
-    fully matched ones stay out. Commit happens BEFORE enqueue (same
-    convention as the other revision endpoints); 409 while a reparse job for
-    this resource is already active.
-    """
-    from app.utils.time import utcnow
+    """Persist a reparse request before attempting its queue wakeup."""
+    from app.services.resource_reparse_requests import create_request, wake_request
 
     resource = await db.get(FileResource, resource_id)
     if not resource:
@@ -1029,23 +1019,15 @@ async def reparse_resource_metadata(
             content={"success": False, "data": None,
                      "error": {"code": "NOT_FOUND", "message": "Resource not found"}},
         )
-
-    channel_id = resource.channel_id
-    resource.confirmation_ignored_at = utcnow()
+    request = await create_request(db, resource_id, resource.channel_id)
     await db.commit()
-
-    job = await task_queue_module.task_queue.enqueue(
-        "reprocess_resource_metadata",
-        f"reprocess-resource:{resource_id}",
-        {"resource_id": resource_id, "channel_id": channel_id},
-    )
-    if job is None:
+    if request is None:
         return JSONResponse(
             status_code=409,
             content={"success": False, "data": None,
-                     "error": {"code": "ALREADY_RUNNING",
-                               "message": "Metadata reparse already in progress"}},
+                     "error": {"code": "ALREADY_RUNNING", "message": "Metadata reparse already pending"}},
         )
+    await wake_request(request)
     return success_response({"reparse": {"status": "pending"}})
 
 

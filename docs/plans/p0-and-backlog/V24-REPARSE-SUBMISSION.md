@@ -106,3 +106,7 @@ af/ag 候选为 25 个有效文件、5332 冻结输入，全仓无缓存 Ruff �
 ag runner 退出 0：**3366 passed、17 skipped、22 warnings，2094.21 秒**。两应用 SIGINT 后均退出 0；覆盖率汇总退出 0，**21433/24026＝89.21%**，满足 85%。报告、五份原始 coverage 数据及 metadata-corpus JSON 已导出；专用 `rssripple-v24-final-ag` down 退出 0，容器/网络/卷均无残留。
 
 17 项跳过的测试标识、理由与位置和 B6 s 基线逐项一致；5332 个冻结输入哈希未变，25 个有效文件的 main 基线哈希均一致。证据见 `probes/reparse-submission-ag-audit.json` 及相邻压缩原始报告。af 单元/API 尚未结束，其独立 PostgreSQL 必须继续保留。当前仅集成门禁通过，仍不批准合入；下一步轮询会话 35488，完成 95% 单元/API、跳过/哈希、PG 清理及最终代码审查后才可合入。
+
+## af/ag 完整验收完成
+
+af 最终 **4131 passed、12 skipped、14 warnings，2803.91 秒，退出 0**；覆盖率 **23314/24026＝97.04%**。与 ag 的 3366 passed、89.21% 一起通过两道完整门禁。unit 的三项实际 PG 迁移不再跳过；跳过与 B6 完全一致。冻结哈希、应用退出、报告导出和两项目清理已审计；25 文件经最终五维审查批准并同步本地 main，B8 已从 TODO 移除。原始日志/JUnit/coverage 与机器审计见 `reparse-submission-af-audit.json`、`reparse-submission-ag-audit.json`。后续优先推进 V25；其候选仍未全量验收。

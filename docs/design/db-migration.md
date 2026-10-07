@@ -325,3 +325,25 @@ web/worker 在运行配置和调度启动前检查迁移状态；真正空库初
 模型 metadata 的 after_create 和轻量升级路径均幂等安装六个 `trg_resource_parent_*` 触发器；它们保护作品关联、文件指派及下载任务的新写入与资源清理之间的并发一致性，不添加列或改写已有业务值。必须在完整模型导入后的建表流程中安装，不能把这一步当作可忽略错误的回填。
 
 Turso 重建 file_resources 时，其他表上的这些触发器在父表 DROP/RENAME 窗口会引用不存在的表。FK 修复只在拥有的普通 DDL 事务内临时移除这六个内部触发器，表交换后重新安装，再提交；失败则整笔回滚恢复原表、数据和触发器。不要在运行中的生产进程外手动拆分执行。此保护不自动修复历史孤儿，已有非法数据仍走迁移审核和明确修复流程。
+
+### 重解析持久请求升级
+
+统一迁移服务通过 Base.metadata.create_all 创建 resource_reparse_requests 及唯一资源 FK、next_attempt_at 索引。先迁移后启动新应用；不重建 file_resources，不改写 confirmation_ignored_at 历史数据，因为旧列混用人工忽略与后台临时隐藏，无法安全推断归属。旧队列载荷没有 request_id 时仍可处理，但不清理该列。正式集成已覆盖实际 create_tables 双库重复升级、存量标记保留、唯一/FK 约束及请求事务回滚。应用版本回滚及历史标记只读盘点仍须专项验收；事务回滚不代表部署版本回滚已验证。
+
+#### 历史忽略标记盘点与回退前提
+
+升级不猜测旧 confirmation_ignored_at 的来源。迁移后可用以下只读查询分页导出人工复核清单（两库同一 SQL）；先从空字符串游标开始，将最后一个 id 作为下一页 :after_id，禁止用日期直接批量清理：
+
+```sql
+SELECT r.id, r.channel_id, r.title_raw, r.confirmation_ignored_at,
+       q.id AS pending_request_id, q.error_message AS delivery_error
+FROM file_resources AS r
+LEFT JOIN resource_reparse_requests AS q ON q.resource_id = r.id
+WHERE r.confirmation_ignored_at IS NOT NULL AND r.id > :after_id
+ORDER BY r.id
+LIMIT 100;
+```
+
+该结果仅表示已隐藏，不证明是孤立任务。是否恢复待确认须结合原用户意图或可验证任务历史逐条决定；缺少证据时保留，不以队列状态过期或无记录推断可清理。新请求 UUID 不追认旧标记归属。
+
+应用回退须先停止新重解析提交，保持新 worker/scheduler 运行至持久请求数为零，并确认原 Redis key 没有 queued/running 遗留任务，再停止新 worker。以 `SELECT COUNT(*) FROM resource_reparse_requests` 检查数据库侧；不能仅根据表为空推断队列已清空。回退应用时保留新表，不执行 DROP TABLE，不删除历史忽略数据；存在未完成请求时禁止直接回退到不认识该表的旧 worker。回退旧版本也会恢复其已知人工忽略收尾缺陷，因此应优先前滚修复。专项还以提交 accd024 的实际旧代码，在排空请求的 PG/Turso 数据库上运行 create_tables 和旧 HTTP 资源读取，验证新表和人工标记保留。这只证明排空后的模式/读路径兼容，不证明滚动部署或带活跃任务回退安全。

@@ -36,6 +36,7 @@ from app.models.organize_rule import OrganizeRule
 from app.models.pending_decision import PendingDecision
 from app.models.resource_file_assignment import ResourceFileAssignment
 from app.models.resource_publication import ChannelPublicationCounter, ResourcePublication
+from app.models.resource_reparse_request import ResourceReparseRequest
 from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
 from app.models.storage_volume import StorageVolume
@@ -45,6 +46,7 @@ from app.models.work_collection import WorkCollection
 from app.models.work_external_id import WorkExternalId
 
 __all__ = [
+    "ResourceReparseRequest",
     "AuthRateLimitBucket",
     "AgentPublicationProgress",
     "ChannelPublicationCounter",

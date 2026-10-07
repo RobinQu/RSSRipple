@@ -1,10 +1,10 @@
 {
-  "accepted": false,
+  "accepted": true,
   "candidate": "/tmp/rssripple-v24-isolation-4br76c92",
   "effective_files": 25,
   "frozen_count": 5332,
   "unit": {
-    "status": "running",
+    "status": "completed",
     "session": 35488,
     "log": "/tmp/rssripple-v24-unit-af.log",
     "junit": "/tmp/rssripple-v24-unit-af.xml",
@@ -15,7 +15,14 @@
     "postgres_compose": "/tmp/rssripple-v25-compose.yml",
     "postgres_container": "rssripple-v24-unit-af-postgres-1",
     "postgres_port": 32855,
-    "postgres_preflight_passed": 3
+    "postgres_preflight_passed": 3,
+    "exit_code": 0,
+    "passed": 4131,
+    "skipped": 12,
+    "coverage_percent": 97.04,
+    "cleanup": "complete",
+    "cleanup_exit": 0,
+    "audit": "reparse-submission-af-audit.json"
   },
   "integration": {
     "status": "completed",

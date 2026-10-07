@@ -147,6 +147,11 @@ class _FakeSessionCtx:
 def wired_worker(tmp_path, monkeypatch):
     """把 _run 的全部外部依赖替换为桩；stop_event 立即放行以走完整链路。"""
     monkeypatch.setattr(settings, "poster_cache_dir", str(tmp_path / "p"))
+    # _run rebinds the live singleton itself; record its original value so
+    # monkeypatch restores it even though create_queue is already patched.
+    from app.services import task_queue
+
+    monkeypatch.setattr(task_queue, "task_queue", task_queue.task_queue)
     calls: list = []
     stub = SimpleNamespace(queue=_StubQueue(), calls=calls)
 
