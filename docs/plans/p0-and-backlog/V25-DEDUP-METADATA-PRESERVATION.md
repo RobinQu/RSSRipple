@@ -19,7 +19,7 @@ a 轮：6 failed、2 passed、1 warning，13.05 秒，退出 1；失败均为预
 5. 调用方必须获得明确的合并/冲突结果：`POST /works/merge` 不能在未合并时返回 `merged=len(duplicates)`；`franchise_service` 不能错误累加计数；`post_split_leftover_repair` 在删除 shell episodes 或重新编号前就要验证冲突。在线类型修复不能在未完成 rehome 时继续重绑资源。仅 helper 静默 return 不足以构成可合入修复。
 6. 保持不同季/年份隔离、退役字段不写、人工文件映射及身份袋完整、决策重建同事务。检查并发编辑与删除的锁顺序/重读，不能让去重使用旧快照吞掉刚保存的人工修订。
 
-当前原型只接入同类型合并；跨类型、外部身份配对、未知历史保护字段及并发保护尚未实现/完成验证。不得作为完整修复合入。
+当前原型已接入同类型、跨类型和 rehome 的人工保护，并补 API 409、franchise 冲突跳过、离线修复前检查；共享引用锁与作品重读已通过双库竞态专项。外部身份配对、锁后分组/类型重查及全部调用方集成仍需完善，详见 [阶段审查](V25-REVIEW.md)。不得作为完整修复合入。
 
 ## 严格验收标准
 
@@ -40,3 +40,18 @@ a 轮：6 failed、2 passed、1 warning，13.05 秒，退出 1；失败均为预
 b：扩大 39 例为 35 passed、4 failed，60.39 秒。两例为 UTC aware/naive 排序异常，已在候选统一 UTC 比较；另外两例原测试固定断言旧对象被补齐，现通过显式 survivor 参数继续检验补齐分支，新增默认排序测试另检验自动选择。b 运行时测试文件已追加 c 的四例（未被 b 收集），仅作探索结果，不是冻结验收。
 
 c：12 例为 10 passed、2 failed，19.93 秒；两例新剧集 fixture 缺少合集必填 title_cn，已补齐。d 重跑全部 43 例通过，退出 0；JUnit 用时 45.508 秒，仍只有同类型探索覆盖，未通过正式完整验收。a–c 原始日志/JUnit 与 c 候选源文件保存在 probes/dedup-preservation-*，保留每轮失败性质。
+
+
+## 跨类型、API 与并发复核（e–k）
+
+- e：10 failed、1 passed，17.45 秒。三种跨类型路径 × 三种人工保护场景全部失败；真实 ASGI 作品合并 API 在人工冲突时误报 200/merged=1。兼容人工值的 API 对照通过。
+- f：补冲突异常及调用方处理、跨类型/rehome 人工保护后，77 passed、1 warning，101.83 秒。API 冲突明确回滚并返回 409 INVALID_STATE；自动去重记录冲突而不删除原行。
+- g：实际 PostgreSQL 两会话重叠事务，去重旧 ORM 缓存删除随后提交的人工简介，电影/剧集共 2 failed，1.03 秒。证明只修字段策略不够。
+- h：补决策/Agent 锁顺序、作品 NOWAIT 或 Turso 无值变化 UPDATE 屏障、populate_existing 重读与共享引用锁，PG 两例通过，0.94 秒。
+- i：PG 三例通过，Turso 两例对“必然产生写冲突”的断言失败；原因是仅 SELECT 未开启原生 MVCC 事务，不能把 SQLAlchemy 会话 begin 当成底层事务证据。保留失败记录；k 通过无关行写入明确建立旧快照，不降低必须实际出现冲突的要求。
+- k：PG 三例、Turso 两例共 5 passed，4.71 秒，退出 0。覆盖人工编辑已提交、编辑仍持锁的 NOWAIT 回滚及新事务重试、真实 Turso MVCC 冲突恢复。所有断言检查持久化值与人工标记。
+- j：同一运行候选扩大至去重、跨类型、合并 API、决策重建及作品删除，109 passed、1 warning，157.70 秒，退出 0。该警告为既有 pytest-asyncio event_loop_policy 弃用提示。
+
+唯一 Compose 项目 `rssripple-v25-dedup-g` 启动/清理均退出 0；scratch 数据库查询为空，容器/网络/卷均无残留。未改动 B8 的测试项目。17 个有效候选文件及哈希、补丁、tar、e–k 原始日志/JUnit 和清理审计见 probes/dedup-preservation-j-k-result.json 及相邻文件。
+
+当前运行代码仍未进入 main；完整单元/API 和完整隔离集成尚未启动。下一步先解决 V25-REVIEW 中的 Required 项，再进入完整门禁；不得以本轮 109/5 项通过替代最终验收。

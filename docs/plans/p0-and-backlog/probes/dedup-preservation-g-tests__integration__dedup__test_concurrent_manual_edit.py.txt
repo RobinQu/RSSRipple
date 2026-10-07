@@ -1,0 +1,46 @@
+"""Dedup must re-read committed edits rather than deleting a stale ORM row."""
+from datetime import datetime, timedelta
+
+import pytest
+from sqlalchemy import select
+
+from app.models.movie import Movie
+from app.models.series import TVSeries
+from app.models.work_collection import WorkCollection
+from app.services.metadata_dedup import DedupReport, _merge_movie_group, _merge_series_group
+
+
+@pytest.mark.parametrize("kind", ["movie", "series"])
+async def test_edit_committed_after_dedup_read_is_preserved(dedup_postgres, kind):
+    _, factory = dedup_postgres
+    model = Movie if kind == "movie" else TVSeries
+    async with factory() as seed:
+        rows = []
+        for offset in range(2):
+            attrs = dict(title_en="Synthetic concurrent edit", description="old automatic value",
+                         created_at=datetime(2026, 1, 1) + timedelta(days=offset))
+            if kind == "series":
+                collection = WorkCollection(title_cn="合成并发合集")
+                seed.add(collection)
+                await seed.flush()
+                attrs.update(collection_id=collection.id, season_number=1)
+            rows.append(model(**attrs))
+        seed.add_all(rows)
+        await seed.commit()
+        old_id, new_id = [row.id for row in rows]
+    async with factory() as merge_db:
+        older = await merge_db.get(model, old_id)
+        newer = await merge_db.get(model, new_id)
+        assert newer.manually_edited_fields is None
+        async with factory() as edit_db:
+            edited = await edit_db.get(model, new_id)
+            edited.description = "new manual correction"
+            edited.manually_edited_fields = ["description"]
+            await edit_db.commit()
+        merge = _merge_movie_group if kind == "movie" else _merge_series_group
+        await merge(merge_db, [older, newer], DedupReport(), survivor=older)
+        await merge_db.commit()
+    async with factory() as check:
+        result = (await check.execute(select(model))).scalar_one()
+        assert result.description == "new manual correction"
+        assert "description" in result.manually_edited_fields

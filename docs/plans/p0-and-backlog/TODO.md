@@ -25,7 +25,7 @@
 
 ### 从 P2 提升
 
-- [ ] dedup survivor 取最旧行，忽略数据完整度与人工保护（`metadata_dedup.py:430-440,557-565`）。 V25 已用录制作品身份＋合成编辑历史在真实 Turso 复现人工值、人工空值及三态字段丢失（6 failed、2 passed）；同类型保护原型未验收，跨类型/并发及完整门禁仍待补齐，见 [V25](V25-DEDUP-METADATA-PRESERVATION.md)。
+- [ ] dedup survivor 取最旧行，忽略数据完整度与人工保护（`metadata_dedup.py:430-440,557-565`）。 V25 已用录制作品身份＋合成编辑历史在真实 Turso 复现人工值、人工空值及三态字段丢失（6 failed、2 passed）；保护原型已补跨类型/409 API，扩大回归 109 项及双库实际并发 5 项通过；身份配对、锁后分组重查与完整门禁仍待补齐，未验收合入，见 [V25](V25-DEDUP-METADATA-PRESERVATION.md)。
 
 ### 数据模型 / 持久化
 
