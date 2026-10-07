@@ -35,3 +35,17 @@ e 明确模拟停写升级后重建连接，退出 0，验证：注入异常后�
 4. 在前批验收后正式重基，完整冻结实际范围；全单元/API ≥95%、完整隔离集成 ≥85%、零失败；逐项审计跳过、真实进程退出、冻结哈希、覆盖率导出与资源清理，并完成五轴终审后才合入本地 main。
 
 本轮只确立必要性和可行原型。已有 P0/B9 合入结论不变，V33 待办保持未完成。
+
+## 正式专项与启动补修（g–m，2026-10-07）
+
+本轮重新论证：a/f 函数级证据不能代替 API 或启动升级。独立候选增加双库存储/搜索、实际 HTTP 和 create_tables 测试，复用固定 SHA 录制标题，并明确保留合成长别名/身份边界。g **80 passed，88.42 秒，退出 0**：四模型 × 两种写入 × 五个长度/Unicode 边界 × 两后端，末尾搜索通过。
+
+h HTTP 首轮 **10 passed / 4 failed，15.65 秒，退出 1**，四个剧集断言误把 aliases 当覆盖；实际 API 和权威契约要求保留旧别名并追加。修正为同时断言旧 short 与新增长别名、完整搜索文本后，j **14 passed，16.07 秒，退出 0**。合集 API 不提供 aliases，测试用已有合法 4095 字符搜索文本，在保持标题字段 ≤512 时增加标题，使拼接后跨过旧限制；没有虚构 API 字段。
+
+i 实际启动 **6 passed / 1 failed，4.82 秒，退出 1**：缺列旧库补列后 WorkCollection 的搜索列仍为 NULL，现有 `backfill_search_text` 只含三种作品。这是实际回填缺口，候选将合集纳入同一 NULL 回填，不改变非 NULL 文本或 aliases。k 启动加既有 FTS/outbox 回归 **55 passed / 1 warning，86.97 秒，退出 0**；warning 为既有 event_loop_policy 弃用提示。
+
+l 最终专项 **105 passed，零跳过，125.84 秒，退出 0**：80 存储/搜索、14 HTTP、11 启动/迁移。后者覆盖新库、旧 varchar、已有 TEXT、缺列、未知域/类型/缺列拒绝、Turso NULL 回填、真实事务回滚与 GIN 保留、两个实际 create_tables 调用并发。并发测试先由第三连接持启动 advisory 锁，真实观察两个调用均处于 advisory 等待；释放后四列只执行四次 ALTER，不靠调用先后猜测发生了竞争。
+
+m 将**同一 HTTP 测试文件**用于当前 main 原运行代码的独立副本：**7 failed / 7 passed，16.67 秒，退出 1**。全部 PostgreSQL HTTP 场景返回 500，Turso 对照均成功；源文件哈希和逐文件 main 代码一致性保存在 [g–m 摘要](probes/search-text-g-m-result.json)。这证明绿色结果不是由弱化 HTTP 断言取得。h 原测试、所有失败轮和原始日志/JUnit 均归档。
+
+当前 [16 文件候选](probes/search-text-m-source.json) 包含七个运行文件、五个测试文件、四份权威设计/迁移/测试文档，归档 `search-text-m-candidate.tar.gz`。独立项目 `rssripple-v33-search-g`（32887）已清理，容器/网络/卷标签均为空。main 运行代码未修改，未关闭 TODO。正式全仓冻结/重基、元数据写入调用方扩大、完整双门禁与五轴终审仍待完成；上述 105 项不能替代完整门禁。
