@@ -23,7 +23,7 @@
     "cleanup": "pending"
   },
   "integration": {
-    "status": "running",
+    "status": "passed_audited",
     "session": 58719,
     "startup_exit": 0,
     "project": "rssripple-v31-final-k",
@@ -31,7 +31,14 @@
     "runner": "rssripple-v31-final-k-runner",
     "log": "/tmp/rssripple-v31-integration-k.log",
     "threshold": 85,
-    "cleanup": "pending"
+    "cleanup": "complete",
+    "actual_exit": 0,
+    "passed": 3861,
+    "skipped": 17,
+    "warnings": 29,
+    "seconds": 2698.6,
+    "coverage_exit": 0,
+    "audit": "metadata-refresh-i18n-k-audit.json"
   },
   "required": "Poll existing handles to actual termination. Compare skips to V30 p/q; verify zero failures, frozen scope, app exits, coverage/export, empty project labels and final review before merge.",
   "actual_app_images": {

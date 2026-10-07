@@ -43,7 +43,7 @@
       **修复**：先补副作用幂等，再按任务类型加有限重试/退避；DLQ 为增强，不是所有任务的修复前提。
 - [ ] **P1-F1 `WorkMetadataRefreshModal` 未国际化**：整个 modal 硬编码中文
       （`frontend/src/components/WorkMetadataRefreshModal.tsx`，被 `SeriesDetail`/`MovieDetail` 使用），
-      en-US 用户看到中文。**修复**：接入 `useTranslation` 并补 locale key。 V31 已在真实 Chromium 复现英文模式中文标题；独立 8 文件候选的中英文 × 0/1/2 字段六流程通过，含语言切换、人工保护、错误原文及载荷验证，生产构建和全前端 ESLint 通过。已重基到 6548bcc，重基后的六浏览器流程/构建/ESLint 通过，8 文件/6519 输入冻结，j/k 完整双门禁运行中，未合入，见 [V31](V31-WORK-METADATA-I18N.md)。
+      en-US 用户看到中文。**修复**：接入 `useTranslation` 并补 locale key。 V31 已在真实 Chromium 复现英文模式中文标题；独立 8 文件候选的中英文 × 0/1/2 字段六流程通过，含语言切换、人工保护、错误原文及载荷验证，生产构建和全前端 ESLint 通过。已重基到 6548bcc，重基后的六浏览器流程/构建/ESLint 通过，8 文件/6519 输入冻结，k 集成 3861 项/89.42% 通过并完成跳过/冻结输入/退出/导出/清理审计，j 单元/API 仍运行，未合入，见 [V31](V31-WORK-METADATA-I18N.md)。
 
 ### 缓存生命周期
 
@@ -66,7 +66,7 @@
 
 ### 后台
 
-- [ ] `AgentRun(status=running)` 崩溃后无回收/reaper。 V34 双库真实 handler/独立子进程已复现普通异常与 os._exit(73) 四场景：后续成功运行后旧记录仍 running，探针按不变量退出 1。录制资源标题/GUID/URL，身份和故障明确合成；未宣称 Redis worker 接管。需同时修正异常收尾、持久执行归属和安全回收，禁止只按运行年龄判死。b–e 最小表事务实验确认两版 Turso 在已有写事务时同一行心跳会导致旧事务收尾冲突；最新 24 文件候选已接入 handler/摘要归属/有界调度回收；扩大 j 的 5 个失败已保留并修正，同组合 k 为 131 项通过，l 双库四个异常/真实强退自然过期恢复场景通过。m 双库重复取消红测 2 项失败后已修复等待续租事务结束，n 生命周期及 B9/B7 回归 60 项通过。受控在途事务停止已验证，任意驱动/网络阻塞不在本轮证明范围。p 新增真实 RedisQueue 独立进程强杀/暂停恢复两项通过（默认租约），旧历史终结且旧执行者不覆盖新摘要；这不等同完整 worker/scheduler 启动。r 四个实际 scheduler/满载队列场景、t/u 真实 PG/Redis 主动断连检查及 v 66 项扩大回归通过；不外推任意黑洞超时。仍缺旧库启动/审核与完整门禁，current_run_token 加列失败是否阻断启动需先红测，未合入。项目已清理，方案、证据边界与严格矩阵见 [V34](V34-AGENT-RUN-LIFECYCLE.md)。
+- [ ] `AgentRun(status=running)` 崩溃后无回收/reaper。 V34 双库真实 handler/独立子进程已复现普通异常与 os._exit(73) 四场景：后续成功运行后旧记录仍 running，探针按不变量退出 1。录制资源标题/GUID/URL，身份和故障明确合成；未宣称 Redis worker 接管。需同时修正异常收尾、持久执行归属和安全回收，禁止只按运行年龄判死。b–e 最小表事务实验确认两版 Turso 在已有写事务时同一行心跳会导致旧事务收尾冲突；最新 27 文件候选已接入 handler/摘要归属/有界调度回收；扩大 j 的 5 个失败已保留并修正，同组合 k 为 131 项通过，l 双库四个异常/真实强退自然过期恢复场景通过。m 双库重复取消红测 2 项失败后已修复等待续租事务结束，n 生命周期及 B9/B7 回归 60 项通过。受控在途事务停止已验证，任意驱动/网络阻塞不在本轮证明范围。p 新增真实 RedisQueue 独立进程强杀/暂停恢复两项通过（默认租约），旧历史终结且旧执行者不覆盖新摘要；这不等同完整 worker/scheduler 启动。r 四个实际 scheduler/满载队列场景、t/u 真实 PG/Redis 主动断连检查及 v 66 项扩大回归通过；不外推任意黑洞超时。x 已复现两库关键加列失败被吞并修正；旧库/审核工具 ab 81 项通过，ac 补跑原三项 PG 跳过用例通过，共覆盖 84 项。真实双库 CLI、快照漂移和精确重放已验证，仍待正式重基、完整门禁与最终审查，未合入。项目已清理，方案、证据边界与严格矩阵见 [V34](V34-AGENT-RUN-LIFECYCLE.md)。
 - [ ] 失败 dispatch 累积重复 error `DownloadTask`（`app/services/agent_service.py:61-72,928-941`）。
 - [ ] 周期任务先消费 throttle 再入队，入队失败丢整个周期（daily ~24h，`app/services/scheduler.py:274-296`）。
 - [ ] interval job 仅 1s `misfire_grace_time` （实际默认 coalesce=True），事件循环阻塞即跳过 tick（`app/services/scheduler.py:43-131`）。

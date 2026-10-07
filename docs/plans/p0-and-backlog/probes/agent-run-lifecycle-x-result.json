@@ -1,0 +1,19 @@
+{
+  "accepted": false,
+  "source": "agent-run-lifecycle-x-source.json",
+  "actual_exit": 1,
+  "passed": 2,
+  "failed": 2,
+  "seconds": 3.64,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "2",
+    "skipped": "0",
+    "tests": "4",
+    "time": "3.637",
+    "timestamp": "2026-10-07T15:54:18.629229+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "finding": "Both actual startup paths swallow required current_run_token DDL failure and return success; ordinary legacy upgrade/reentry passed."
+}

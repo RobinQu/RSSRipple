@@ -1,6 +1,6 @@
 # V31 元数据刷新弹窗国际化（P1-F1，现 P2）
 
-> 最新：正式重基至 V30 验收后的 `6548bcc`，8 个有效文件/6519 个输入冻结。重基后的六个真实 Chromium 流程、TypeScript、Vite 生产构建与全前端 ESLint 均退出 0。j/k 完整单元/API 与隔离集成已启动（70705/58719），未验收合入。当前入口：[预检](probes/metadata-refresh-i18n-i-result.json)、[门禁记录](probes/metadata-refresh-i18n-j-k-running.json)。
+> 最新：正式重基至 V30 验收后的 `6548bcc`，8 个有效文件/6519 个输入冻结。重基后的六个真实 Chromium 流程、TypeScript、Vite 生产构建与全前端 ESLint 均退出 0。k 完整集成已终态：3861 passed、17 skipped、89.42%，runner/覆盖率/导出均退出 0，两应用 0/0，跳过与 V30 基线一致，6519 输入与独立 8 文件范围核验通过，项目已清理；j 单元/API（70705）仍运行，未验收合入。当前入口：[预检](probes/metadata-refresh-i18n-i-result.json)、[门禁记录](probes/metadata-refresh-i18n-j-k-running.json)。
 
 ## 必要性与范围
 
@@ -32,3 +32,5 @@
 ## 正式重基与预检 i
 
 组件、语言资源、测试和前端文档的基线均未改变；集成清单仅追加 V31 段，已验证旧基线完整前缀，保留主干 V29/V30 等条目。全 Git 跟踪范围比对仍为 8 文件。生产构建输出单独归档，随后完整恢复主干 app/static 输入再冻结。初次 pnpm 命令因 PATH 中不存在而退出 127；改用现有 Node 工具入口，TypeScript、构建、ESLint 各自退出 0，没有安装或修改依赖。浏览器六流程退出 0，结束后对专用 Vite 发送 SIGINT，PTY 实际退出 1，按有意停止记录，不混同测试失败。两道完整门禁使用唯一 Compose 项目，应用镜像摘要及健康已核验。
+
+V31 k 完整集成审计见 [k 审计](probes/metadata-refresh-i18n-k-audit.json)，总耗时 2698.60 秒。17 项跳过按名称/原因/位置与已验收 V30 q 一致；原始五份覆盖率、四份语料报告、JUnit 均已导出归档后才清理唯一项目。仍等待 j 实际终态及最终审查，不从 TODO 移除本项。

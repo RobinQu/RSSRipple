@@ -1,0 +1,17 @@
+{
+  "accepted": false,
+  "actual_exit": 0,
+  "source": "agent-run-lifecycle-y-source.json",
+  "passed": 4,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "4",
+    "time": "4.134",
+    "timestamp": "2026-10-07T15:55:20.875882+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "scope": "Real legacy schema upgrade and repeat startup preserve old running history/resources and new leases. Required ownership-column DDL failure aborts both backends; removing fault permits retry."
+}

@@ -1,0 +1,148 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v34-integrated-m5mdm6bz",
+  "main_base": "ad71542109e6b17e48a03ed37bd396c2d461faff",
+  "files": {
+    "app/database.py": {
+      "base": "82e37f38859ba13dcc90c99b9178c419a88c06d586d9f8fdc3648978c63ceaea",
+      "candidate": "a597d1e90105e0abcde0b49be4481d2f23dde9cb0409d79f3e6618296ebceccb"
+    },
+    "app/job_handlers.py": {
+      "base": "a721846f2e09b9d6d45deb419e4bd97bfe539b4c88fa61b2e7375b3ce4b0a5f0",
+      "candidate": "c0ca6a88a3f1d84b64fcf6918986607e0374eeb3615148f81a5863459e8a0bdc"
+    },
+    "app/models/__init__.py": {
+      "base": "4f6d75732cd786b6a220003e6771d84ccfe5d68e4e0e52c6cb1a1e7abea1972e",
+      "candidate": "b4b13a7f6e6705e17fe9ddf549509a2c887185a5657a2e7e3a20d71e02b443c8"
+    },
+    "app/models/agent.py": {
+      "base": "2f40a1e0beba244855660b97aea8d5fa846f689598c0c4c42d6ec39f4674135e",
+      "candidate": "9915707af2f48d382600fd2e82fd8f388a7ed92c311b5fa6995908eb133b5f4a"
+    },
+    "app/models/agent_run_lease.py": {
+      "base": null,
+      "candidate": "ce1733750417b40bf903f7a0f79e1efeffbc7724325604ecaa862a7e9bcc85c5"
+    },
+    "app/services/agent_run_execution.py": {
+      "base": null,
+      "candidate": "70988935c12e2ca3b34268429077b3a6c87c7bec584d94a3e03c47b2b1aadb0f"
+    },
+    "app/services/agent_run_finalization.py": {
+      "base": null,
+      "candidate": "cdfbee97852e5fc0296c8b18fe97baab61f777b0d4352cf17ae77c98a94a09cd"
+    },
+    "app/services/agent_run_lifecycle.py": {
+      "base": null,
+      "candidate": "1dff9b29a37312249a05de9f3df797754f80279e588d44443ef4b36f4f4a94d2"
+    },
+    "app/services/agent_service.py": {
+      "base": "3e8b19af166d343e79b9acf51f3a757be7fc3be04ac841ae54d8eee8028081fb",
+      "candidate": "f72b66845b62491cb3f1dde59d02a69db0a51219553350c3f5f3c234539721d7"
+    },
+    "app/services/scheduler.py": {
+      "base": "d81e59a91f14d4d29da2eabd06e5a7b4a434af85626c8e000abe3f7299b346b5",
+      "candidate": "7a8b8e4b4cb1e29e5978f6259d5828bc95feb1a6dafd50c4e01be41700bcc7cb"
+    },
+    "docs/design/business-logic.md": {
+      "base": "a849bf30d59fb22ee37b2930cd307786aa0a49c1319e3977e6f3500d76e3e1ff",
+      "candidate": "874cd67ac34e52fe41c812c38b40e7a6be2033e196a55d0b63aa71fac7b22347"
+    },
+    "docs/design/data-models.md": {
+      "base": "e0cdcfc1ee9b3ae4b557770740bf2652d9099187f864d8187cb9810846189bf1",
+      "candidate": "e48bd776c5ebebd930b85d20a8af510f55dd7e9be4240e20721667d0cfaad96a"
+    },
+    "docs/design/db-migration.md": {
+      "base": "5199bd062e648e9104d3381c1bdadbcabd9a154121ee82b2fcae355403eacc30",
+      "candidate": "36718f4d111d9a9e17a2c19cd8673f0b230f74adff374ed39b2cc158d77176a5"
+    },
+    "docs/testing/integration-inventory.md": {
+      "base": "01f2a51cfc83160d887af1fbc6ae3afc46423f56a9eafa7f4ff2e349deac2ef4",
+      "candidate": "e6e01e25634d061c22ad0cd10eca883345ef6392c363472aed7770e483f405f4"
+    },
+    "tests/integration/agent_run_lifecycle/__init__.py": {
+      "base": null,
+      "candidate": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "tests/integration/agent_run_lifecycle/conftest.py": {
+      "base": null,
+      "candidate": "9c74285d1ce088fb1f69f0d7cbfca76ce7b148d481855b4a68bbf0b60ca47c7e"
+    },
+    "tests/integration/agent_run_lifecycle/test_handler.py": {
+      "base": null,
+      "candidate": "bdcf1eb3956c96e54e070a2fa1bad8dcf37ffa60b0a7d40071a2a7ee3e7e2390"
+    },
+    "tests/integration/agent_run_lifecycle/test_heartbeat_shutdown.py": {
+      "base": null,
+      "candidate": "afc5ee0cc1d3f3bbbcb36778ba561413096f42b3e6398a96b197e29336b9a39e"
+    },
+    "tests/integration/agent_run_lifecycle/test_lease.py": {
+      "base": null,
+      "candidate": "8b5ea8c56d377be0e816ede9e54b8a9490a4c1d4f14bbb000287673bef7b0527"
+    },
+    "tests/integration/queue_recovery/agent_lifecycle_driver.py": {
+      "base": null,
+      "candidate": "835581014241199555729f3147067857b363ac158b3298d1ab655509e8fd1a6d"
+    },
+    "tests/integration/queue_recovery/test_notification_recovery.py": {
+      "base": "ad6bfc268fd5d37cf73874d7db0a7e4a0875a859d64aa91586e9058fa329e80f",
+      "candidate": "c517c842bd147b552a96044f40fe3f11291d7e30e8ec18ef929262208489964d"
+    },
+    "tests/integration/agent_run_lifecycle/test_scheduler.py": {
+      "base": null,
+      "candidate": "cae070e2f7130bb71a3ac53aa9b17d3946bb1564c17a993a99f645610809fe39"
+    },
+    "tests/integration/agent_run_lifecycle/test_database_disconnect.py": {
+      "base": null,
+      "candidate": "3fdcaae00ad478b8d41da78203008ca2c72c3fe7c64c25e4ba48ea04019c82a7"
+    },
+    "tests/integration/agent_run_lifecycle/test_redis_disconnect.py": {
+      "base": null,
+      "candidate": "ef438d59473b331f163f0f6d9fbb25f63d50608699853664e54e12c9c87583d6"
+    },
+    "tests/integration/agent_run_lifecycle/test_migration.py": {
+      "base": null,
+      "candidate": "06b660b6e3a42ce44a9d7df83745d948cc80fb1b542bef3b7e9edab323b209aa"
+    },
+    "scripts/review_legacy_agent_runs.py": {
+      "base": null,
+      "candidate": "49b463f3662e2f45cf1f2872e4389c1e5c28068cbe6ea05c35d831f58ea3f409"
+    },
+    "tests/integration/agent_run_lifecycle/test_legacy_review.py": {
+      "base": null,
+      "candidate": "b31d40da43e7ed6b088d98aed440a6244d53c147181eba09026b8a6ae97dcdb3"
+    }
+  },
+  "effective_files": 27,
+  "scope": "27-file candidate after ab/ac 84-case coverage; only authoritative documentation updated after execution.",
+  "parent_source": "agent-run-lifecycle-ab-source.json",
+  "independently_derived_scope": [
+    "app/database.py",
+    "app/job_handlers.py",
+    "app/models/__init__.py",
+    "app/models/agent.py",
+    "app/models/agent_run_lease.py",
+    "app/services/agent_run_execution.py",
+    "app/services/agent_run_finalization.py",
+    "app/services/agent_run_lifecycle.py",
+    "app/services/agent_service.py",
+    "app/services/scheduler.py",
+    "docs/design/business-logic.md",
+    "docs/design/data-models.md",
+    "docs/design/db-migration.md",
+    "docs/testing/integration-inventory.md",
+    "scripts/review_legacy_agent_runs.py",
+    "tests/integration/agent_run_lifecycle/__init__.py",
+    "tests/integration/agent_run_lifecycle/conftest.py",
+    "tests/integration/agent_run_lifecycle/test_database_disconnect.py",
+    "tests/integration/agent_run_lifecycle/test_handler.py",
+    "tests/integration/agent_run_lifecycle/test_heartbeat_shutdown.py",
+    "tests/integration/agent_run_lifecycle/test_lease.py",
+    "tests/integration/agent_run_lifecycle/test_legacy_review.py",
+    "tests/integration/agent_run_lifecycle/test_migration.py",
+    "tests/integration/agent_run_lifecycle/test_redis_disconnect.py",
+    "tests/integration/agent_run_lifecycle/test_scheduler.py",
+    "tests/integration/queue_recovery/agent_lifecycle_driver.py",
+    "tests/integration/queue_recovery/test_notification_recovery.py"
+  ],
+  "scope_audit": "All Git-tracked non-plan files and every new app/tests/scripts Python input compared to base; final full freeze still pending."
+}

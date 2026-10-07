@@ -1,6 +1,6 @@
 # V34 AgentRun 异常与崩溃后的终态
 
-> 最新：独立候选 `/tmp/rssripple-v34-integrated-m5mdm6bz` 现为 24 个有效文件。r 四个双库实际 APScheduler/队列满载场景通过，t/u 两项真实 PG/Redis TCP 断连检查通过；扩大 v 生命周期及 B9/B7 为 66 passed、零失败/跳过、118.23 秒、退出 0。w 仅补集成清单。专用项目清理完成。旧库/离线审核、所有权列加列失败的启动保护、正式重基与完整门禁仍待验证，未合入运行代码。[源码](probes/agent-run-lifecycle-w-source.json)、[候选](probes/agent-run-lifecycle-w-candidate.tar.gz)、[v 结果](probes/agent-run-lifecycle-v-result.json)。
+> 最新：独立候选 `/tmp/rssripple-v34-integrated-m5mdm6bz` 现为 27 个有效文件，已补旧库关键列失败保护与离线历史审核工具。x 双库关键列失败被吞的红测复现后，y 四项通过。审核/迁移 ab 为 81 passed、3 skipped；ac 补跑这三个既有 PG 用例全部通过，共覆盖 84 项。ad 仅同步文档，专项项目已清理。仍需正式重基、完整双门禁和最终审查，未合入运行代码。[源码](probes/agent-run-lifecycle-ad-source.json)、[候选](probes/agent-run-lifecycle-ad-candidate.tar.gz)、[ab 结果](probes/agent-run-lifecycle-ab-result.json)、[ac 补跑](probes/agent-run-lifecycle-ac-result.json)。
 
 ## 必要性与分级
 
@@ -120,3 +120,15 @@ u Redis 断连通过（0.62 秒、退出 0）。两个断连测试均先经真�
 v 同环境合跑生命周期（44 项）及 B9/B7（22 项）：66 passed、零失败/跳过、1 个既有 event_loop_policy 弃用警告、118.23 秒、退出 0。测试源码与 u 存档哈希一致；w 只追加权威测试清单，候选全仓 Ruff 退出 0。两个专用项目 rssripple-v34-scheduler-r / rssripple-v34-network-u 已 down 0，容器/网络/卷标签为空；V31 完整门禁不受影响。
 
 下一轮优先旧库：源码审查发现 current_run_token 的轻迁移仍在 best-effort 分支，需用实际旧库及 DDL 失败注入验证是否应阻止启动，并同步修复、重入/回滚证据。当前仅是待验证风险，不能把源码观察当作红测。离线旧 running 审核工具也未实现；旧记录无执行身份，禁止按年龄自动判死。随后正式重基到已验收 main、冻结全范围并完成完整双门禁与最终审查。
+
+## x–ad：旧库升级与显式历史审核
+
+x 从缺少租约表/归属列的真实旧 schema 调用生产 create_tables：两库正常升级/重入通过，但关键列 DDL 故障均被 best-effort 吞掉（2 failed、2 passed，3.64 秒、退出 1）。将 agents.current_run_token 纳入必须成功的列后，y 四项通过；故障原样传播，解除故障可重试启动，旧 running 的计数、错误和录制资源保留，新租约与截止索引在重复启动后仍存在。
+
+新增 scripts.review_legacy_agent_runs：默认 100/最多 1000 条按 ID 游标导出完整无租约历史，文件独占创建；不运行隐式模式升级。人工批准 fingerprint 并明确选择 IDs，确认所有写入进程停止且备份后才能 CLI apply。PG 锁历史和租约表，Turso 显式写事务；全部所选快照/租约检查成功后才写入 failed、完成时间与审计标记。保留原计数、错误、资源 IDs、Agent 摘要、请求和消费状态。不按年龄判死；有租约的旧行由正常协议处理，不能绕过所有权。
+
+z 扩大结果为 76 passed、1 failed、3 skipped（94.68 秒、退出 1）：Turso CLI 子进程仍被父夹具持有的原生文件锁拒绝，即使已调用 engine.dispose。改为独立子进程创建另一实际数据库并退出再运行 CLI，避免伪造停写前提。aa 增补重放反例：两库完成时间漂移仍被接受；另一个 Turso 种子子进程缺少 MVCC 初始化而失败（3 failed、3 passed，退出 1）。两项缺口分别修正：标记同时保存报告指纹及实际完成时间，重放必须匹配；真实文件种子启用 MVCC 后再写入。所有失败轮源码和原日志保留。
+
+ab 相同审核/升级/既有迁移组合及新反例：81 passed、3 skipped、2 warnings、106.46 秒、退出 0。真实 PG/Turso CLI 导出文件保护、停写/备份标志、选择性应用与重放均通过；双库覆盖分页、回滚、整批快照漂移拒绝、取得租约/消失、非法批准、已退休记录的时间和计数变化。三个旧 PG 测试因 RSSRIPPLE_TEST_POSTGRES_URL 未设置跳过；ac 显式绑定专用 PG 后原三项全部通过（2.05 秒、1 个既有弃用警告、退出 0）。不能把 ab 的跳过改写为当时通过；两轮共同覆盖 84 个不同用例。ab 的另一个 warning 来自既有模拟 begin_nested 的未等待协程。
+
+专用 rssripple-v34-upgrade-x 启动/清理退出 0，容器/网络/卷标签为空。ad 仅更新权威迁移/测试说明，候选 Ruff 无缓存通过。五轴复核支持保留候选：审批和漂移边界明确、事务内先检查全部再写、只处理历史记录、不触发外部副作用、导出和选择有上限；依然须重基到当前已验收主干，冻结完整范围并通过全量双门禁后再关闭 TODO。

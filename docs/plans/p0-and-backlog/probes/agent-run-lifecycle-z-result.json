@@ -1,0 +1,21 @@
+{
+  "accepted": false,
+  "actual_exit": 1,
+  "source": "agent-run-lifecycle-z-source.json",
+  "passed": 76,
+  "failed": 1,
+  "skipped": 3,
+  "warnings": 2,
+  "seconds": 94.68,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "1",
+    "skipped": "3",
+    "tests": "80",
+    "time": "94.659",
+    "timestamp": "2026-10-07T16:00:13.511085+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "finding": "Turso real CLI export refused because parent fixture retains native file ownership even after engine.dispose; PG CLI and in-process review cases passed. Child CLI must receive a separately seeded file with creator process fully exited."
+}

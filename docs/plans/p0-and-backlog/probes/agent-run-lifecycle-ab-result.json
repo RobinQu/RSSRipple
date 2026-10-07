@@ -1,0 +1,48 @@
+{
+  "accepted": false,
+  "actual_exit": 0,
+  "source": "agent-run-lifecycle-ab-source.json",
+  "passed": 81,
+  "skipped": [
+    {
+      "class": "tests.unit.test_database_migrations",
+      "name": "test_create_tables_postgres_path",
+      "reason": "PostgreSQL unavailable: ConnectionRefusedError(111, \"Connect call failed ('127.0.0.1', 5432)\")"
+    },
+    {
+      "class": "tests.unit.test_database_migrations",
+      "name": "test_light_migrations_postgres_legacy_shapes",
+      "reason": "PostgreSQL unavailable: ConnectionRefusedError(111, \"Connect call failed ('127.0.0.1', 5432)\")"
+    },
+    {
+      "class": "tests.unit.test_database_migrations",
+      "name": "test_light_migrations_postgres_legacy_delivery_columns_nullable",
+      "reason": "PostgreSQL unavailable: ConnectionRefusedError(111, \"Connect call failed ('127.0.0.1', 5432)\")"
+    }
+  ],
+  "warnings": 2,
+  "seconds": 106.46,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "3",
+    "tests": "84",
+    "time": "106.440",
+    "timestamp": "2026-10-07T16:06:51.294333+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "pending": "Rebase, full unit/API and integration gates, full scope audit and final review.",
+  "supplement": "agent-run-lifecycle-ac-result.json",
+  "cleanup": {
+    "project": "rssripple-v34-upgrade-x",
+    "down_exit": 0,
+    "labels": {
+      "containers": [],
+      "networks": [],
+      "volumes": []
+    }
+  },
+  "documented_candidate": "agent-run-lifecycle-ad-source.json",
+  "ruff_exit": 0
+}
