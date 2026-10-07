@@ -78,3 +78,10 @@ V26 已通过 q/r 完整门禁并合入 `7da83a2`，V25 漏掉的离线脚本亦
 原 n 候选相对其 Git 基线独立推导恰为 12 文件，无遗漏；在已验收 main 上正式叠加，并加入预组合 o 的表重建后并发父行保护测试，形成 **13 文件**候选 `/tmp/rssripple-v27-rebased-q3o9mg4x`。三份文档的新增内容经三方合并保留；运行代码无冲突。相对当前主干的完整非计划范围也恰为这 13 文件。源及可恢复 tar 见 [p-source](probes/resource-work-fk-p-source.json)，范围见 [p-scope](probes/resource-work-fk-p-scope.json)。
 
 无缓存全仓 Ruff 退出 0。唯一 PostgreSQL 项目 `rssripple-v27-preflight-q` 已健康启动；全部 resource_work_fk 正式集成与完整数据库迁移单元文件预检正在运行，句柄及报告入口见 [q](probes/resource-work-fk-q-running.json)。这不是完整双门禁；预检终态后核对范围/清理并冻结，再运行单元/API ≥95% 和集成 ≥85%，零失败及全部审计后才允许合入。
+
+
+## q 预检终态与 r/s 完整门禁启动
+
+q 已正常退出 0：**207 passed、0 failed、0 skipped、3 warnings，135.49 秒**。其中 resource_work_fk 正式集成 157 项、数据库迁移单元 50 项。历史 o 的 159 项另含两个 work_parent_guard_upgrade 单元测试，数量差异不是丢失测试；该文件由本轮完整单元门禁收录。专用预检项目 down 退出 0，容器/卷/网络标签均空。原始日志、JUnit、清理日志和审计见 [q-result](probes/resource-work-fk-q-result.json)。
+
+候选 13 个有效文件哈希未变，冻结 **6,183 个输入文件**，见 [p-frozen](probes/resource-work-fk-p-frozen.json)。r 完整单元/API（≥95%）与 s 完整隔离集成（≥85%）已经启动；专用 PostgreSQL 和集成项目均健康，实际句柄、唯一项目名及报告路径见 [r-s-running](probes/resource-work-fk-r-s-running.json)。预检完成不等于完整验收；门禁终态后还须逐项核验 skip、完整输入范围、应用正常退出、原始覆盖率导出及资源清理。V27 未合入，TODO 保留。

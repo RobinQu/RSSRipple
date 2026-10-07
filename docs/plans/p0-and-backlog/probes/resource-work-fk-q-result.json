@@ -1,0 +1,31 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v27-rebased-q3o9mg4x",
+  "exit_code": 0,
+  "passed": 207,
+  "failed": 0,
+  "skipped": 0,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "207",
+    "time": "135.256",
+    "timestamp": "2026-10-07T10:40:31.832727+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "scope": "157 work FK integration cases and 50 database migration cases. Prior o also selected two work_parent_guard_upgrade unit cases; full unit gate will include those.",
+  "candidate_mismatch": [],
+  "cleanup_exit": 0,
+  "labels": {
+    "containers": [],
+    "volumes": [],
+    "networks": []
+  },
+  "artifacts": {
+    "resource-work-fk-q-run.log.gz": "267bc098703562609f982c13e3903a973c700199744091ea5862913cd5f115ad",
+    "resource-work-fk-q-junit.xml.gz": "1d2a3265185a108ec7eded766562e94495f4e6308829c58ab44e458c8b7eb1d9",
+    "resource-work-fk-q-cleanup.log.gz": "2c6e46f971ae5f3ea650477fd406b4328616de0a97c02facb387d86a9f2426b2"
+  }
+}

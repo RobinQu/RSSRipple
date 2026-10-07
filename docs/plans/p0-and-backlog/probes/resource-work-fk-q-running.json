@@ -5,9 +5,9 @@
   "effective_files": 13,
   "source": "resource-work-fk-p-source.json",
   "scope_audit": "resource-work-fk-p-scope.json",
-  "stage": "formal rebase preflight; full gates not started",
+  "stage": "preflight complete; frozen for full gates",
   "preflight": {
-    "status": "running",
+    "status": "complete",
     "session": 88410,
     "log": "/tmp/rssripple-v27-q-preflight.log",
     "junit": "/tmp/rssripple-v27-q-preflight.xml",
@@ -15,7 +15,12 @@
     "compose": "/tmp/rssripple-v27-compose.yml",
     "port": 32880,
     "startup_exit": 0,
-    "cleanup": "pending"
+    "cleanup": "complete",
+    "exit_code": 0,
+    "passed": 207,
+    "failed": 0,
+    "skipped": 0,
+    "audit": "resource-work-fk-q-result.json"
   },
   "ruff_no_cache_exit": 0,
   "artifacts": {

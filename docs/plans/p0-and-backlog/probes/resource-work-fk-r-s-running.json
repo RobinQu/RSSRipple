@@ -1,0 +1,43 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v27-rebased-q3o9mg4x",
+  "main_base": "7da83a26a69a382cfecfe19090f603f23de0d360",
+  "effective_files": 13,
+  "frozen_count": 6183,
+  "frozen": "resource-work-fk-p-frozen.json",
+  "source": "resource-work-fk-p-source.json",
+  "scope_audit": "resource-work-fk-p-scope.json",
+  "preflight": "resource-work-fk-q-result.json",
+  "ruff_no_cache_exit": 0,
+  "unit": {
+    "status": "running",
+    "session": 29886,
+    "log": "/tmp/rssripple-v27-unit-r.log",
+    "junit": "/tmp/rssripple-v27-unit-r.xml",
+    "coverage_xml": "/tmp/rssripple-v27-unit-r-coverage.xml",
+    "coverage_data": "/tmp/rssripple-v27-unit-r.coverage",
+    "postgres_project": "rssripple-v27-unit-r",
+    "postgres_compose": "/tmp/rssripple-v27-compose.yml",
+    "postgres_port": 32881,
+    "startup_exit": 0,
+    "threshold": 95,
+    "cleanup": "pending"
+  },
+  "integration": {
+    "status": "running",
+    "session": 96075,
+    "project": "rssripple-v27-final-s",
+    "compose": "/tmp/rssripple-v27-rebased-q3o9mg4x/docker-compose.integration-isolated.yml",
+    "runner": "rssripple-v27-final-s-runner",
+    "log": "/tmp/rssripple-v27-integration-s.log",
+    "startup_exit": 0,
+    "threshold": 85,
+    "cleanup": "pending"
+  },
+  "image": "rssripple-v20-tests:local",
+  "startup_artifacts": {
+    "resource-work-fk-r-startup.log.gz": "d45b42528c67144909895b1b011676b989b9495c1bc266cfd2e511d05dad97c2",
+    "resource-work-fk-s-startup.log.gz": "40571118cedaf2553923329addd22d6da19c9792cc8450024080d75d19de521e"
+  },
+  "warning": "Require terminal zero-failure results, skip comparison to V26 q/r, full frozen input and effective scope verification, coverage exit codes, application exits, raw artifact export before cleanup, and empty project labels. Do not merge from preflight alone."
+}
