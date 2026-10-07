@@ -1,0 +1,191 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v25-contention-75o4oqkh",
+  "runtime_matches": "dedup-preservation-az-frozen.json",
+  "ba": [
+    {
+      "index": 1,
+      "exit_code": 0,
+      "seconds": 6.26,
+      "log": "/tmp/rssripple-v25-contention-ba-1.log",
+      "junit": "/tmp/rssripple-v25-contention-ba-1.xml",
+      "archived_log": "dedup-preservation-ba-1.log.gz",
+      "archived_junit": "dedup-preservation-ba-1.xml.gz"
+    },
+    {
+      "index": 2,
+      "exit_code": 0,
+      "seconds": 6.33,
+      "log": "/tmp/rssripple-v25-contention-ba-2.log",
+      "junit": "/tmp/rssripple-v25-contention-ba-2.xml",
+      "archived_log": "dedup-preservation-ba-2.log.gz",
+      "archived_junit": "dedup-preservation-ba-2.xml.gz"
+    },
+    {
+      "index": 3,
+      "exit_code": 0,
+      "seconds": 5.86,
+      "log": "/tmp/rssripple-v25-contention-ba-3.log",
+      "junit": "/tmp/rssripple-v25-contention-ba-3.xml",
+      "archived_log": "dedup-preservation-ba-3.log.gz",
+      "archived_junit": "dedup-preservation-ba-3.xml.gz"
+    },
+    {
+      "index": 4,
+      "exit_code": 0,
+      "seconds": 5.54,
+      "log": "/tmp/rssripple-v25-contention-ba-4.log",
+      "junit": "/tmp/rssripple-v25-contention-ba-4.xml",
+      "archived_log": "dedup-preservation-ba-4.log.gz",
+      "archived_junit": "dedup-preservation-ba-4.xml.gz"
+    },
+    {
+      "index": 5,
+      "exit_code": 0,
+      "seconds": 6.14,
+      "log": "/tmp/rssripple-v25-contention-ba-5.log",
+      "junit": "/tmp/rssripple-v25-contention-ba-5.xml",
+      "archived_log": "dedup-preservation-ba-5.log.gz",
+      "archived_junit": "dedup-preservation-ba-5.xml.gz"
+    },
+    {
+      "index": 6,
+      "exit_code": 0,
+      "seconds": 5.43,
+      "log": "/tmp/rssripple-v25-contention-ba-6.log",
+      "junit": "/tmp/rssripple-v25-contention-ba-6.xml",
+      "archived_log": "dedup-preservation-ba-6.log.gz",
+      "archived_junit": "dedup-preservation-ba-6.xml.gz"
+    },
+    {
+      "index": 7,
+      "exit_code": 0,
+      "seconds": 6.27,
+      "log": "/tmp/rssripple-v25-contention-ba-7.log",
+      "junit": "/tmp/rssripple-v25-contention-ba-7.xml",
+      "archived_log": "dedup-preservation-ba-7.log.gz",
+      "archived_junit": "dedup-preservation-ba-7.xml.gz"
+    },
+    {
+      "index": 8,
+      "exit_code": 0,
+      "seconds": 6.18,
+      "log": "/tmp/rssripple-v25-contention-ba-8.log",
+      "junit": "/tmp/rssripple-v25-contention-ba-8.xml",
+      "archived_log": "dedup-preservation-ba-8.log.gz",
+      "archived_junit": "dedup-preservation-ba-8.xml.gz"
+    },
+    {
+      "index": 9,
+      "exit_code": 0,
+      "seconds": 5.66,
+      "log": "/tmp/rssripple-v25-contention-ba-9.log",
+      "junit": "/tmp/rssripple-v25-contention-ba-9.xml",
+      "archived_log": "dedup-preservation-ba-9.log.gz",
+      "archived_junit": "dedup-preservation-ba-9.xml.gz"
+    },
+    {
+      "index": 10,
+      "exit_code": 0,
+      "seconds": 5.69,
+      "log": "/tmp/rssripple-v25-contention-ba-10.log",
+      "junit": "/tmp/rssripple-v25-contention-ba-10.xml",
+      "archived_log": "dedup-preservation-ba-10.log.gz",
+      "archived_junit": "dedup-preservation-ba-10.xml.gz"
+    },
+    {
+      "index": 11,
+      "exit_code": 0,
+      "seconds": 5.08,
+      "log": "/tmp/rssripple-v25-contention-ba-11.log",
+      "junit": "/tmp/rssripple-v25-contention-ba-11.xml",
+      "archived_log": "dedup-preservation-ba-11.log.gz",
+      "archived_junit": "dedup-preservation-ba-11.xml.gz"
+    },
+    {
+      "index": 12,
+      "exit_code": 0,
+      "seconds": 5.14,
+      "log": "/tmp/rssripple-v25-contention-ba-12.log",
+      "junit": "/tmp/rssripple-v25-contention-ba-12.xml",
+      "archived_log": "dedup-preservation-ba-12.log.gz",
+      "archived_junit": "dedup-preservation-ba-12.xml.gz"
+    },
+    {
+      "index": 13,
+      "exit_code": 0,
+      "seconds": 4.64,
+      "log": "/tmp/rssripple-v25-contention-ba-13.log",
+      "junit": "/tmp/rssripple-v25-contention-ba-13.xml",
+      "archived_log": "dedup-preservation-ba-13.log.gz",
+      "archived_junit": "dedup-preservation-ba-13.xml.gz"
+    },
+    {
+      "index": 14,
+      "exit_code": 0,
+      "seconds": 5.24,
+      "log": "/tmp/rssripple-v25-contention-ba-14.log",
+      "junit": "/tmp/rssripple-v25-contention-ba-14.xml",
+      "archived_log": "dedup-preservation-ba-14.log.gz",
+      "archived_junit": "dedup-preservation-ba-14.xml.gz"
+    },
+    {
+      "index": 15,
+      "exit_code": 0,
+      "seconds": 4.63,
+      "log": "/tmp/rssripple-v25-contention-ba-15.log",
+      "junit": "/tmp/rssripple-v25-contention-ba-15.xml",
+      "archived_log": "dedup-preservation-ba-15.log.gz",
+      "archived_junit": "dedup-preservation-ba-15.xml.gz"
+    }
+  ],
+  "next": "Await az full failure report; investigate four-slot retry admission without weakening 30/10 assertions or simply increasing retry count.",
+  "bb": {
+    "suite": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "1",
+      "time": "9.361",
+      "timestamp": "2026-10-07T05:50:54.738409+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "exit_code": 0,
+    "seconds": 9.36
+  },
+  "bc": {
+    "suite": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "61",
+      "time": "79.027",
+      "timestamp": "2026-10-07T05:52:44.490425+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "exit_code": 0,
+    "seconds": 79.04
+  },
+  "bd": {
+    "suite": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "1",
+      "skipped": "0",
+      "tests": "4",
+      "time": "8.877",
+      "timestamp": "2026-10-07T05:56:37.823293+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "exit_code": 1,
+    "seconds": 8.88,
+    "finding": "Four-slot admission allows new resource transaction to start before an older resource retries; real counter write conflict also observed. Not a reproduction of retry exhaustion by itself."
+  },
+  "test_sha256": "8b5e4927c70097ee8fdfc7b0f0a8c061cdc1727fa33bcaa4f48dd97dc9622999",
+  "differences_from_az": [
+    "tests/unit/test_metadata_retry_fairness.py"
+  ],
+  "az_frozen_count_verified": 5523
+}

@@ -38,3 +38,12 @@ e 已零失败。f 补损坏收据、静态 MIME/完整内容合同与两个真�
 为完成最新权限改动后的扩大回归，j 正在运行 `tests/unit/test_metadata_service.py tests/integration/posters`，句柄 `36985`，日志 `/tmp/rssripple-v26-poster-j.log`，JUnit `/tmp/rssripple-v26-poster-j.xml`。仍未启动本批完整门禁，不得据专项结果关闭 TODO；V25 候选保持冻结。
 
 扩大回归 j 已终止且退出 0：**195 passed、1 warning，195.34 秒**，覆盖完整既有 metadata service 单元与海报集成。10 个有效文件与 i 归档哈希一致，报告及退出证据见 `probes/poster-publication-j-result.json`。权限改动后的扩大回归要求已满足；重基及两道完整门禁仍待完成，运行代码未合入。
+
+
+## V25 冻结候选上的预组合 k（2026-10-07，未正式重基验收）
+
+为提前检查依赖兼容性，在独立副本 `/tmp/rssripple-v26-combined-sdheb24y` 上叠加 V25 az 的冻结输入和 V26 十文件补丁。运行代码无冲突；测试清单的两份追加内容以相同基线核对后均保留，没有覆盖 V25 的记录。范围仍是录制 JPEG 完整字节发布与失败恢复，不变更下载来源或格式策略。
+
+预组合 k 覆盖完整 metadata service、franchise、身份袋、重试槽位和海报集成：**257 passed、1 warning、338.63 秒、退出 0**，无缓存全仓 Ruff 通过；源、双方哈希、补丁和报告见 `probes/poster-publication-k-*`。本轮无 V26 Docker 项目，测试夹具完成 HTTP 线程与子进程退出。
+
+父候选 V25 az 的完整门禁已再次出现并发回填 30/10 失败，尚未终态，不能把这个预组合当作基于已验收 main 的 V26 修复。必须先查清并修复 V25，确认最终运行代码后再重基 V26，随后完整单元/API ≥95% 与集成 ≥85%、零失败及全部审计。合入顺序不变，V26 仍未合入。

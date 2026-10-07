@@ -8,8 +8,10 @@
 - 安全：仅操作唯一 Compose 项目 `rssripple-v27-legacy-c` 与临时文件库；SQL 数据绑定，无生产或外部元数据访问，无新增依赖。异常只列资源 ID/字段名，既有违规不自动删除或选边。专用项目已清理，容器/网络/卷均为空。
 - 性能：每行写入保护只检查固定三个字段；升级审阅会扫描历史行，PG 需要表锁，尚无生产规模时延结论。此前轻量迁移可能独立提交，不能把新保护安装回滚描述为整个启动流程原子回滚。
 
-Required：继续覆盖同名原生 CHECK 漂移和 PostgreSQL NOT VALID 的实际历史验证；V25/V26 接受后重基并复核作品父键屏障与 FK 重建；同步最终权威文档；完成全量单元/API ≥95% 与唯一项目完整集成 ≥85%，零失败，skips/hash/exit/cleanup 审计。任一项未完成均不得关闭 TODO。
+Required：V25/V26 接受后重基并复核作品父键屏障与 FK 重建；同步最终权威文档；完成全量单元/API ≥95% 与唯一项目完整集成 ≥85%，零失败，skips/hash/exit/cleanup 审计。任一项未完成均不得关闭 TODO。
 
 b 新库原型为 64 passed；c 旧库缺保护两失败，d Turso CONCURRENT DDL 一失败，均已归档并作为修复依据。e 两项最小升级通过；f 134 项、g 两项、h 12 项分别退出 0。正式源、日志、JUnit 及阶段结果见 `probes/resource-work-fk-*`。当前不是完整验收，**不批准合入运行代码。**
 
 最新十一文件候选与审计见 `probes/resource-work-fk-j-result.json`；i 失败和 j 修正结果分别保留，无缓存全仓 Ruff 通过，当前无 V27 后台进程。后续仍按上述 Required 推进。
+
+k–n 已补原生 CHECK 漂移、PG NOT VALID 的实际历史验证及两库迁移写入竞争。l 七项通过；n 对 Turso 旧快照错误类型的收紧断言单例通过，记录实际 schema conflict。定义检查未把仅有括号变化的错误语义当作正确，历史和已有错误定义均未被自动改写。本轮运行实现与 j 相同，无缓存 Ruff 通过，专用项目已清理。十二文件最新源及哈希见 `probes/resource-work-fk-n-result.json`。仍须按原顺序重基并通过完整门禁，不批准合入。

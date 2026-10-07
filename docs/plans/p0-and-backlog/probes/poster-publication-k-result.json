@@ -1,0 +1,78 @@
+{
+  "candidate": "/tmp/rssripple-v26-combined-sdheb24y",
+  "v25_frozen": "dedup-preservation-az-frozen.json",
+  "v26_source": "poster-publication-j-result.json",
+  "merges": [
+    {
+      "file": "docs/testing/integration-inventory.md",
+      "resolution": "Both patches only append to identical base; preserve both suffixes."
+    }
+  ],
+  "accepted": false,
+  "purpose": "Preparatory combination only; official acceptance/rebase still waits for V25.",
+  "files": {
+    "app/services/poster_cache.py": {
+      "base": null,
+      "candidate": "1b6e7ce086175e660219c7348fc7493c961aa614e336f0aa81494eca5af44ab1"
+    },
+    "app/services/metadata_service.py": {
+      "base": "7deb38a816df6666d1c72ad026d467ce81f2f4aae9efb8c40e655b96ce7bb9ee",
+      "candidate": "c33d93dde946b5e77a383dbe72994272a2b7610116749dce0e398cf43434c3d2"
+    },
+    "tests/unit/test_metadata_service.py": {
+      "base": "21c397a2d5e86263b3f26003c5ab32b001c1018beb146a26ba7d4435d0b3369d",
+      "candidate": "827d78ff1d5cc9bfbdd07c051754543d02171becb7dfa7c3e73325dfb37ff31c"
+    },
+    "tests/integration/posters/test_cache_publication.py": {
+      "base": null,
+      "candidate": "fda473cb205b37e33f2c2e87d355d4545a52f95b9c51a20183d5251bf80e853c"
+    },
+    "tests/integration/posters/test_cache_crash.py": {
+      "base": null,
+      "candidate": "ae5939a188ce495ffe0b9624a465e3d4252f3d299afbc9b53bb1916c9903ec28"
+    },
+    "tests/integration/posters/poster_crash_driver.py": {
+      "base": null,
+      "candidate": "37614f7dcb9ab68f66f9fc32f1f45ed1844a575c622ee2f1569e22531a3a7927"
+    },
+    "tests/integration/posters/test_cache_contract.py": {
+      "base": null,
+      "candidate": "1134884cc83d28dec885aa54adc9fc9402458db8d1866315821b0ddb762d5417"
+    },
+    "docs/design/conventions.md": {
+      "base": "e5245526456104f988fd5ad499ae86f21ed8285100cd65e26e987094f51e878d",
+      "candidate": "8b8e7323d42b3090b560bcd0ce329a99902594f44b9715a642ab170a27dedcd3"
+    },
+    "docs/testing/integration-inventory.md": {
+      "base": "28cb3e82c14984b3d35bf11b6cf9635f2dc3b8181567a42d33f24d539521bf7b",
+      "candidate": "c34673ed266cf2909880a67031ec274d5a53e06718877954c22f715d2e7fdc74"
+    },
+    "tests/integration/posters/test_cache_io_failures.py": {
+      "base": null,
+      "candidate": "5f4b5a5b00568f2d85b2c43774b83409993af1bf1d0a95cf13ff46719579de37"
+    }
+  },
+  "scope": "Preparatory V25 az + V26 combination; no approved parent main commit exists yet.",
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "257",
+    "time": "338.599",
+    "timestamp": "2026-10-07T05:41:27.954676+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "exit_code": 0,
+  "passed": 257,
+  "seconds": 338.63,
+  "ruff_no_cache_exit": 0,
+  "parent_differences": [
+    "app/services/metadata_service.py",
+    "docs/design/conventions.md",
+    "docs/testing/integration-inventory.md",
+    "tests/unit/test_metadata_service.py"
+  ],
+  "cleanup": "Fixtures closed HTTP server threads and joined test child processes; no V26 Docker project used.",
+  "remaining": "V25 az has a backfill failure; diagnose and fix parent, then rebase and run complete V26 gates."
+}

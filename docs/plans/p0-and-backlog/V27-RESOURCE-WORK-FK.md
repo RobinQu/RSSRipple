@@ -46,3 +46,12 @@ i 扩大回归正在运行：新旧库及服务专项与既有轻量迁移、FK 
 i 已结束：**1 failed、225 passed、277.43 秒，退出 1**。唯一失败来自旧 PostgreSQL SQL 记录器的 SimpleNamespace 假连接不能执行 SQLAlchemy inspect；不代表真实 PostgreSQL 升级失败。仅在该分支遍历测试中替换保护调用并断言准确委派，真实保护安装/冲突/回滚仍由上述双库正式集成覆盖。j 整个迁移文件 **50 passed、0 skipped、51.43 秒，退出 0**，包含三项真实 PostgreSQL 迁移；运行实现未因该失败改动。
 
 最新 11 文件候选、主干/候选哈希与补丁见 `probes/resource-work-fk-j-*`。无缓存全仓 Ruff 通过。`rssripple-v27-legacy-c` 清理退出 0，容器/网络/卷标签均空，无 V27 进程继续运行。i 的失败原样保留，j 仅消除了该测试替身缺口，不把两轮专项包装成完整门禁。下一步补原生 CHECK 漂移、PG NOT VALID 约束的历史验证，并在 V25/V26 接受后重基父键屏障实现；仍不批准合入。
+
+
+## 原生约束目录与并发边界 k–n（2026-10-07）
+
+本轮重新确认：同名保护不代表定义正确，PG NOT VALID 也不证明历史已验证；因而不能只查询名字后跳过迁移。k 六项通过，l 补 Turso 旧物理事务后 **7 passed、7.64 秒、退出 0**。覆盖两库错误 CHECK 阈值、Turso 保留同样非括号 token 却改变语义的错误 CHECK、PG NOT VALID 的合法/违规历史和真实 convalidated 标志，以及 PostgreSQL 表锁关闭扫描到提交之间的写入窗口。错误定义和历史数据保持不变，不自动清理以让测试通过。
+
+Turso 使用零行 UPDATE 建立真实 CONCURRENT 事务并读取旧快照；新触发器在另一连接普通事务中实际提交后，旧写入被 **Database schema conflict** 拒绝，新事务非法双 FK 被命名保护拒绝。m 将真实分支/错误写入 JUnit 属性；n 收紧断言，排除无关数据库错误假通过：**1 passed、1 warning、1.84 秒、退出 0**。该 warning 来自 pytest 的 record_property/xunit2 兼容提示，属性实际已保留；不扩大为运行服务在迁移期间无错误的保证，正式迁移仍应停写。
+
+本轮未修改运行实现。最新十二文件候选、哈希、补丁与报告见 `probes/resource-work-fk-n-*`。无缓存全仓 Ruff 通过，专用项目 `rssripple-v27-catalog-k` 已清理，容器/网络/卷标签均空。原生定义与 NOT VALID 阶段缺口已补齐；下一步在 V25/V26 接受后重基，复核共同修改的父键屏障/表重建，再进行完整双门禁及最终审查。V27 仍未验收合入。

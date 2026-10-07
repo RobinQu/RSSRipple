@@ -73,3 +73,14 @@ au 完整单元/API **1 failed、4170 passed、12 skipped、14 warnings，3263.0
 av 完整集成 **3634 passed、17 skipped、22 warnings，2384.74 秒，runner 退出 0**；两应用正常退出 0/0，覆盖率 **89.35%（21594/24168）**，覆盖率、导出、清理均退出 0。两轮跳过逐项与 B8 基线一致，5523 冻结输入未变。au/av 项目容器、网络和卷标签均为空；日志/JUnit/原始覆盖率/语料报告和审计见 `probes/dedup-preservation-au-audit.json`、`av-audit.json`。单元失败不能以集成通过或覆盖率达标抵消，本批仍未批准合入。
 
 最新独立候选 `/tmp/rssripple-v25-bag-70qppf5f` **43 有效文件、5523 冻结输入**。对比 av 全部输入只变更 `tests/unit/test_franchise_service.py`；运行代码、共享 fixture、集成测试、依赖与配置无变化，集成入口不收集/引用该单元模块。因此保留 av 的完整集成证据，必须重新完成单元/API az ≥95%、零失败。无缓存全仓 Ruff 通过，新专用 PG 三项预检 **3 passed、1 warning、2.27 秒、退出 0**；完整 az 已启动，句柄 **64498**，唯一项目 `rssripple-v25-unit-az`，端口 32864。原 au/av 终态不再轮询，最新续接清单见 `probes/dedup-preservation-az-av-running.json`。禁止修改该冻结副本；完整单元实际退出后仍须审计报告、跳过、哈希、清理和最终五维复核。
+
+
+## az 再次发现回填失败；ba–bd 定位（2026-10-07）
+
+az 完整单元仍在运行，但 `TestMetadataBackfill::test_backfill_caps_and_records_attempts` 已报失败；已修正的 franchise 身份袋用例通过。保留原冻结候选，必须等原始终态报告确定完整失败链路；不以之前几轮 30/10 单例通过判定稳定。
+
+独立诊断副本 `/tmp/rssripple-v25-contention-75o4oqkh` 的运行实现与 az 完全相同。ba 原单例 15 个独立进程全部退出 0；bb 使用同样 coverage 插桩，1 passed、9.36 秒；bc 整个 fetch 文件、即时警告与 coverage，61 passed、79.04 秒、退出 0。这些结果界定了复现条件，不能抵消完整门禁失败。
+
+bd 将已有实际事务/录制身份/受控退避屏障从一个槽扩到实际四槽，记录每次事务真正开始的顺序：**1 failed、3 passed、8.88 秒、退出 1**。单槽正常/取消及四槽取消对照通过；四槽正常路径中新资源在旧资源重试前开始，且观测到真实 channel_publication_counters 写冲突。因此“资源跨重试持有自己的槽位”没有阻止其他空闲槽持续接纳新资源。本红测证明准入缺口，不单独证明 az 的重试耗尽原因；运行代码尚未改动。
+
+下一步：结合 az 最终失败日志验证原因，在四槽条件下论证待重试资源与新资源的准入顺序，覆盖取消释放、失权、已在途事务及不同频道的进度；保留真实 30/10 和双库事务/发布原子性断言，禁止仅扩大重试次数或放宽计数。若修改运行逻辑，av 对旧运行代码的通过不能作为新版本验收，必须重新冻结并完成两道完整门禁。证据、精确红测和续接位置见 `probes/dedup-preservation-ba-bd-result.json`。

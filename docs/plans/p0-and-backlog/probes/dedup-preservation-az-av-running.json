@@ -17,7 +17,8 @@
     "startup_exit": 0,
     "preflight_passed": 3,
     "preflight_exit": 0,
-    "cleanup": "pending"
+    "cleanup": "pending",
+    "observed_failure": "tests/unit/test_fetch_service.py::TestMetadataBackfill::test_backfill_caps_and_records_attempts"
   },
   "integration": {
     "status": "complete",
@@ -36,5 +37,7 @@
     "cleanup_exit": 0,
     "reuse_reason": "All 5523 inputs compared: only tests/unit/test_franchise_service.py differs; no app/shared fixture/integration/config/dependency changes. Integration command collects tests/integration only, no imports or references to the changed unit module found."
   },
-  "warning": "Do not edit frozen az candidate. Poll 64498; after actual terminal collect report/raw coverage and down only rssripple-v25-unit-az. au/av and V27 legacy-c are already cleaned. No runtime V25/V26/V27 merged; V27 latest archive resource-work-fk-j."
+  "warning": "az live with observed backfill failure; retain full terminal report and do not edit frozen candidate. Only az PG remains. V26 combination is provisional, V27 phases complete but neither accepted. Any next V25 runtime change requires new full unit and integration gates.",
+  "diagnostic_candidate": "/tmp/rssripple-v25-contention-75o4oqkh",
+  "diagnostic_status": "ba 15 processes passed; bb coverage singleton passed; bc full fetch file 61 passed; bd four-slot fairness 1 failed/3 passed. No diagnosis process left running. Source/results: dedup-preservation-ba-bd-result.json."
 }
