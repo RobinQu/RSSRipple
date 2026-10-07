@@ -1,5 +1,7 @@
 # V33 搜索文本长度一致性
 
+> 最新：已在冻结 V32 ac 之上完成兼容性候选，V33 相对范围 19 文件（与 V32 合计 85 文件）。p/s 联合证据覆盖 289 个不同通过用例，独立项目已清理。V32 ad/ae 尚在运行；V33 仍待其验收后正式重基与完整双门禁，不属于已合入代码。
+
 ## 必要性与优先级（2026-10-07）
 
 基线 `5846295`。四类作品的 `search_text` 模型列为 `String(4096)`，而 `build_search_text` 拼接全部规范化标题和别名；别名 API 字段未限制总长度。轻迁移新增列使用 `TEXT`，所以 PostgreSQL 新库与部分旧库的实际类型也可能不同。本轮独立复核，不修改 V27 在跑的冻结副本。
@@ -58,3 +60,20 @@ m 将**同一 HTTP 测试文件**用于当前 main 原运行代码的独立副�
 n **10 passed，11.58 秒，退出 0**；o 既有 metadata_service 单元文件与 batch_content_analysis 集成文件 **229 passed、1 warning，299.80 秒，退出 0**，无跳过。原始日志/JUnit 见 [n/o 摘要](probes/search-text-n-o-result.json)。独立项目 rssripple-v33-metadata-n（32888）已清理，标签容器/网络/卷为空。七个运行文件与 m 候选逐字节相同，仅补测试和清单；最新 [17 文件候选](probes/search-text-o-source.json) 及完整有效文件归档已保存。
 
 元数据调用方缺口现已补验；仍待前批验收后正式重基、全仓输入冻结、完整双门禁和五轴终审，未合入运行代码。
+
+
+## p–s：与 V32 的迁移兼容性（2026-10-07）
+
+再次论证：长别名在真实 PostgreSQL 写入失败的已有红测仍成立；没有新增生产受损证据，保持 P2。V32 与 V33 同时改动四个模型和启动迁移位置，因此仅各自专项通过不足以证明共同升级。以当前 main `3f589e2` 加冻结 V32 ac 构建独立候选 `/tmp/rssripple-v33-with-v32-uw7c30cl`，不修改运行中的 V32 源码。
+
+三个重叠层次均保留：V27 工作 FK 检查、V32 UTC 默认修正、V33 搜索列扩展；仍在既有 PostgreSQL startup advisory lock 与同一 DDL 事务内。四模型同时保留 UTCNow 和 Text，不恢复旧 func.now。V29 Turso FTS 升级与 V30 加载策略保留。初始 V33 差异仍为 17 文件；全 Git 非计划输入和新 Python 文件独立比较，未仅依赖旧清单。
+
+p 执行完整 search_text、time_contract 与数据库迁移文件，**284 passed、1 failed、2 既有 warnings，316.78 秒、实际退出 1**。唯一失败是旧 `_FakeConn` 未提供新搜索列目录，真实数据库用例全部通过；补齐替身的 catalog 返回形状，不改生产校验。p 原始失败日志和范围清单保留。
+
+新增四项实际 create_tables 组合测试：同一旧库同时有 now() 默认与 VARCHAR(4096)，重建连接使用 Asia/Shanghai 会话；分别注入 UTC 默认漂移、搜索类型漂移、两类 DDL 已执行后的故障。失败须完整恢复默认与类型目录，明确解决漂移后可重试；重复启动历史 Channel 全字段不变，新 raw INSERT 仍产生 UTC，8192 字符完整落库且尾部可查。
+
+q 首次从外置文件调用 pytest 未加载项目 asyncio 配置，**4 setup errors、8.90 秒、退出 1**，不支持产品结论。r 显式 `-c pyproject.toml` 后，同一文件 **4 passed、6.02 秒、退出 0**。用例随后归入正式 search_text 测试树。s 对完整迁移文件与新组合文件复验，**54 passed、零跳过、2 既有 warnings，62.98 秒、退出 0**；之后仅规范导入顺序，全仓 Ruff 无缓存退出 0。p 的成功项与 s 按 class/name 去重，共 **289 个不同通过用例**，不把重复执行数累加为覆盖数。
+
+[最终来源](probes/search-text-s-source.json) 记录 V33 相对 V32 的 **19 文件**，与 V32 共同相对当前 main 的 **85 文件**；多出的两项为组合测试和旧迁移替身修正。运行实现没有在 p 后改变；设计迁移文档与测试清单补充组合契约。完整可恢复归档 `probes/search-text-s-combined-candidate.tar.gz`；结果、原始 JUnit、失败边界与清理见 [p–s 摘要](probes/search-text-p-s-result.json)。
+
+专用项目 `rssripple-v33-compat-p`（32907）已 down，容器/网络/卷标签为空，所有本批测试终止。另核对 V32 6647 冻结输入逐文件未变，ad/ae 原会话仍在运行。该副本用于兼容性准备，不代替 V33 在已验收主干上的正式重基、全输入冻结、完整单元/API ≥95% 与隔离集成 ≥85%、零失败、退出/跳过/导出/清理及五轴最终审查。

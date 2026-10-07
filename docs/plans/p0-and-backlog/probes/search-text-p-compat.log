@@ -1,0 +1,28 @@
+........................................................................ [ 25%]
+........................................................................ [ 50%]
+........................................................................ [ 75%]
+................................................................F....    [100%]
+=================================== FAILURES ===================================
+______________ test_light_migrations_postgres_branches_fake_conn _______________
+tests/unit/test_database_migrations.py:1335: in test_light_migrations_postgres_branches_fake_conn
+    await db_mod._apply_light_migrations(conn)
+app/database.py:640: in _apply_light_migrations
+    await ensure_search_text_columns(conn)
+app/services/search_text_schema.py:26: in ensure_search_text_columns
+    raise RuntimeError(f"Unexpected search text schema: {table}.search_text")
+E   RuntimeError: Unexpected search text schema: audio_works.search_text
+=============================== warnings summary ===============================
+tests/unit/test_database_migrations.py::test_metadata_source_convergence_rewrites_legacy_values
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+tests/unit/test_database_migrations.py::test_create_tables_turso_path
+  /home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/socket.py:221: RuntimeWarning: coroutine 'test_best_effort_savepoint_unavailable.<locals>._Conn.begin_nested' was never awaited
+    def __init__(self, family=-1, type=-1, proto=-1, fileno=None):
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_database_migrations.py::test_light_migrations_postgres_branches_fake_conn
+1 failed, 284 passed, 2 warnings in 316.78s (0:05:16)

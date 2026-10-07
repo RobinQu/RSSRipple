@@ -1,0 +1,98 @@
+"""Actual startup must atomically migrate legacy UTC defaults and search types."""
+import pytest
+from app.utils.sql_time import UTCNow
+from sqlalchemy import insert, select, text
+from tests.integration.search_text.test_startup import TABLES, column_types
+from tests.integration.search_text.test_storage import input_values, seed
+from tests.integration.time_contract.test_storage import channel_values
+from tests.integration.time_contract.test_upgrade import defaults
+
+from app import database
+from app.config import settings
+from app.models.channel import Channel
+from app.models.movie import Movie
+from tests.integration.dedup.conftest import dedup_postgres as dedup_postgres
+
+
+@pytest.mark.parametrize('fault', ['none', 'utc_default', 'search_type', 'after_both'])
+async def test_actual_startup_combines_legacy_utc_and_search(dedup_postgres, monkeypatch, fault):
+    engine, factory = dedup_postgres
+    monkeypatch.setattr(settings, 'database_url', engine.url.render_as_string(hide_password=False))
+    monkeypatch.setattr(database, 'engine', engine)
+    channel = channel_values()
+    async with engine.begin() as conn:
+        await conn.execute(insert(Channel).values(**channel))
+        quote = conn.dialect.identifier_preparer.quote
+        name = await conn.scalar(text('SELECT current_database()'))
+        await conn.execute(text(f"ALTER DATABASE {quote(name)} SET timezone TO 'Asia/Shanghai'"))
+        for table in database.Base.metadata.tables.values():
+            for column in table.columns:
+                if column.server_default is not None and isinstance(column.server_default.arg, UTCNow):
+                    await conn.execute(text(
+                        f'ALTER TABLE {quote(table.name)} ALTER COLUMN {quote(column.name)} SET DEFAULT now()'
+                    ))
+        for table in TABLES:
+            await conn.execute(text(f'ALTER TABLE {table} ALTER COLUMN search_text TYPE VARCHAR(4096)'))
+        if fault == 'utc_default':
+            await conn.execute(text("ALTER TABLE channels ALTER COLUMN created_at SET DEFAULT '2000-01-01'::timestamp"))
+        elif fault == 'search_type':
+            await conn.execute(text('ALTER TABLE work_collections ALTER COLUMN search_text TYPE INTEGER USING NULL'))
+        before_defaults = await defaults(conn)
+        before_types = await column_types(conn)
+        before_row = dict((await conn.execute(
+            select(Channel.__table__).where(Channel.id == channel['id'])
+        )).mappings().one())
+    await engine.dispose()  # A stopped old writer's prepared statements are not reused.
+    actual_indexes = database._ensure_pg_trgm_indexes
+    observed_both = []
+
+    async def after_both(conn):
+        await actual_indexes(conn)
+        assert await column_types(conn) == {table: 'text' for table in TABLES}
+        channel_defaults = [row.column_default for row in await defaults(conn)
+                            if (row.table_name, row.column_name) == ('channels', 'created_at')]
+        assert len(channel_defaults) == 1 and "'UTC'" in channel_defaults[0]
+        observed_both.append(True)
+        raise RuntimeError('synthetic failure after both migrations')
+
+    if fault == 'after_both':
+        monkeypatch.setattr(database, '_ensure_pg_trgm_indexes', after_both)
+    if fault != 'none':
+        error, message = (ValueError, 'Unexpected UTC timestamp') if fault == 'utc_default' else (
+            RuntimeError, 'Unexpected search text schema' if fault == 'search_type' else 'synthetic failure',
+        )
+        with pytest.raises(error, match=message):
+            await database.create_tables()
+        async with engine.connect() as conn:
+            assert await defaults(conn) == before_defaults
+            assert await column_types(conn) == before_types
+        assert observed_both == ([True] if fault == 'after_both' else [])
+        monkeypatch.setattr(database, '_ensure_pg_trgm_indexes', actual_indexes)
+        # Explicitly resolve only the intentionally drifted legacy field.
+        async with engine.begin() as conn:
+            if fault == 'utc_default':
+                await conn.execute(text('ALTER TABLE channels ALTER COLUMN created_at SET DEFAULT now()'))
+            elif fault == 'search_type':
+                await conn.execute(text('ALTER TABLE work_collections ALTER COLUMN search_text TYPE VARCHAR(4096)'))
+        await engine.dispose()
+    await database.create_tables()
+    await database.create_tables()
+    async with engine.begin() as conn:
+        assert await conn.scalar(text('SHOW timezone')) == 'Asia/Shanghai'
+        assert await column_types(conn) == {table: 'text' for table in TABLES}
+        row = dict((await conn.execute(
+            select(Channel.__table__).where(Channel.id == channel['id'])
+        )).mappings().one())
+        assert row == before_row, 'Do not shift any historical timestamp'
+        stamp = await conn.scalar(text(
+            "INSERT INTO app_settings (key,value) VALUES ('combined-utc-probe','synthetic') RETURNING updated_at"
+        ))
+        reference = await conn.scalar(text("SELECT CURRENT_TIMESTAMP AT TIME ZONE 'UTC'"))
+        assert stamp == reference
+    title, alias, expected = input_values(Movie, 8192)
+    async with factory() as db:
+        identity = await seed(db, Movie, title, [alias])
+    async with factory() as db:
+        row = await db.get(Movie, identity)
+        assert row.search_text == expected
+        assert list(await db.scalars(select(Movie.id).where(Movie.search_text.contains('tailmarker')))) == [identity]

@@ -1,0 +1,9 @@
+{
+  "project": "rssripple-v33-compat-p",
+  "down_exit": 0,
+  "labels": {
+    "container": [],
+    "network": [],
+    "volume": []
+  }
+}

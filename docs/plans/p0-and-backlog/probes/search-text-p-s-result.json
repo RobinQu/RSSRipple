@@ -1,0 +1,78 @@
+{
+  "accepted": false,
+  "purpose": "V33 compatibility on frozen V32 ac; neither batch claimed merged",
+  "source": "search-text-s-source.json",
+  "parent_source": "utc-contract-ac-source.json",
+  "relative_v33_files": 19,
+  "combined_with_v32_files": 85,
+  "results": {
+    "p": {
+      "actual_exit": 1,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "1",
+        "skipped": "0",
+        "tests": "285",
+        "time": "316.737",
+        "timestamp": "2026-10-07T16:55:41.103327+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    "q": {
+      "actual_exit": 1,
+      "suite": {
+        "name": "pytest",
+        "errors": "4",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "4",
+        "time": "8.902",
+        "timestamp": "2026-10-07T16:59:09.928527+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    "r": {
+      "actual_exit": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "4",
+        "time": "6.017",
+        "timestamp": "2026-10-07T17:00:31.729193+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    "s": {
+      "actual_exit": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "54",
+        "time": "62.973",
+        "timestamp": "2026-10-07T17:01:53.929780+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    }
+  },
+  "distinct_successful_cases_p_s": 289,
+  "p_failure": "Existing fake connection lacked search column catalog; corrected test double only. All real database cases passed.",
+  "q_errors": "External test invocation did not load project asyncio mode; repeated unchanged with explicit -c pyproject.toml in r.",
+  "s_changes": "Correct fake catalog and install combined startup test into formal integration tree; imports sorted after successful run, runtime unchanged.",
+  "ruff_final_exit": 0,
+  "cleanup": {
+    "project": "rssripple-v33-compat-p",
+    "down_exit": 0,
+    "labels": {
+      "container": [],
+      "network": [],
+      "volume": []
+    }
+  },
+  "v32_frozen_inputs_verified": 6647,
+  "full_gates": "V33 pending accepted V32 main rebase and its own frozen full gates; V32 ad/ae still running unchanged."
+}

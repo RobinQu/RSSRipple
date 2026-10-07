@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="4" failures="0" skipped="0" tests="4" time="8.902" timestamp="2026-10-07T16:59:09.928527+00:00" hostname="dl-workstation-albert"><testcase classname="rssripple-v33-combined-startup-test" name="test_actual_startup_combines_legacy_utc_and_search[none]" time="0.000"><error message="failed on setup with &quot;Failed: 'test_actual_startup_combines_legacy_utc_and_search[none]' requested an async fixture 'dedup_postgres', with no plugin or hook that handled it. This is an error, as pytest does not natively support it.&#10;See: https://docs.pytest.org/en/stable/deprecations.html#sync-test-depending-on-async-fixture&quot;">'test_actual_startup_combines_legacy_utc_and_search[none]' requested an async fixture 'dedup_postgres', with no plugin or hook that handled it. This is an error, as pytest does not natively support it.
+See: https://docs.pytest.org/en/stable/deprecations.html#sync-test-depending-on-async-fixture</error></testcase><testcase classname="rssripple-v33-combined-startup-test" name="test_actual_startup_combines_legacy_utc_and_search[utc_default]" time="0.000"><error message="failed on setup with &quot;AssertionError&quot;">/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+            ^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/python.py:1710: in setup
+    self._request._fillfixtures()
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:806: in _fillfixtures
+    item.funcargs[argname] = self.getfixturevalue(argname)
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:630: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:726: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:1221: in execute
+    assert not self._finalizers
+           ^^^^^^^^^^^^^^^^^^^^
+E   AssertionError</error></testcase><testcase classname="rssripple-v33-combined-startup-test" name="test_actual_startup_combines_legacy_utc_and_search[search_type]" time="0.000"><error message="failed on setup with &quot;AssertionError&quot;">/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+            ^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/python.py:1710: in setup
+    self._request._fillfixtures()
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:806: in _fillfixtures
+    item.funcargs[argname] = self.getfixturevalue(argname)
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:630: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:726: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:1221: in execute
+    assert not self._finalizers
+           ^^^^^^^^^^^^^^^^^^^^
+E   AssertionError</error></testcase><testcase classname="rssripple-v33-combined-startup-test" name="test_actual_startup_combines_legacy_utc_and_search[after_both]" time="0.000"><error message="failed on setup with &quot;AssertionError&quot;">/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+            ^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/python.py:1710: in setup
+    self._request._fillfixtures()
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:806: in _fillfixtures
+    item.funcargs[argname] = self.getfixturevalue(argname)
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:630: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:726: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:1221: in execute
+    assert not self._finalizers
+           ^^^^^^^^^^^^^^^^^^^^
+E   AssertionError</error></testcase></testsuite></testsuites>
