@@ -1,0 +1,137 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v26-poster-9664k0pl",
+  "main_base": "44e05d7990c73b00b3c5180e8b0a2da9fe7324e3",
+  "base_runtime": "c642911",
+  "files": {
+    "app/services/poster_cache.py": {
+      "candidate": "1b6e7ce086175e660219c7348fc7493c961aa614e336f0aa81494eca5af44ab1",
+      "base": null
+    },
+    "app/services/metadata_service.py": {
+      "candidate": "c33d93dde946b5e77a383dbe72994272a2b7610116749dce0e398cf43434c3d2",
+      "base": "7deb38a816df6666d1c72ad026d467ce81f2f4aae9efb8c40e655b96ce7bb9ee"
+    },
+    "tests/unit/test_metadata_service.py": {
+      "candidate": "827d78ff1d5cc9bfbdd07c051754543d02171becb7dfa7c3e73325dfb37ff31c",
+      "base": "21c397a2d5e86263b3f26003c5ab32b001c1018beb146a26ba7d4435d0b3369d"
+    },
+    "tests/integration/posters/test_cache_publication.py": {
+      "candidate": "f79dd75e2477757c91ff925b906f685a8f42afe754104a5245225084c4586a2b",
+      "base": null
+    },
+    "tests/integration/posters/test_cache_crash.py": {
+      "candidate": "ae5939a188ce495ffe0b9624a465e3d4252f3d299afbc9b53bb1916c9903ec28",
+      "base": null
+    },
+    "tests/integration/posters/poster_crash_driver.py": {
+      "candidate": "37614f7dcb9ab68f66f9fc32f1f45ed1844a575c622ee2f1569e22531a3a7927",
+      "base": null
+    },
+    "tests/integration/posters/test_cache_contract.py": {
+      "candidate": "1134884cc83d28dec885aa54adc9fc9402458db8d1866315821b0ddb762d5417",
+      "base": null
+    },
+    "docs/design/conventions.md": {
+      "candidate": "8b8e7323d42b3090b560bcd0ce329a99902594f44b9715a642ab170a27dedcd3",
+      "base": "e5245526456104f988fd5ad499ae86f21ed8285100cd65e26e987094f51e878d"
+    },
+    "docs/testing/integration-inventory.md": {
+      "candidate": "72025f4e53745818579155c50ce723b98a603caf57f63b8f9f5a7947a9339837",
+      "base": "cc1d4401ce19f2512aa3648b74e489523c2a838030c7ad712cb9221d6654321f"
+    }
+  },
+  "runs": {
+    "a": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "6",
+      "skipped": "0",
+      "tests": "7",
+      "time": "3.683",
+      "timestamp": "2026-10-07T03:29:24.967909+00:00",
+      "hostname": "dl-workstation-albert",
+      "exit_code": 1
+    },
+    "b": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "7",
+      "time": "3.784",
+      "timestamp": "2026-10-07T03:32:18.405279+00:00",
+      "hostname": "dl-workstation-albert",
+      "exit_code": 0
+    },
+    "c": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "8",
+      "skipped": "0",
+      "tests": "179",
+      "time": "177.374",
+      "timestamp": "2026-10-07T03:34:20.100499+00:00",
+      "hostname": "dl-workstation-albert",
+      "exit_code": 1
+    },
+    "d": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "2",
+      "time": "1.929",
+      "timestamp": "2026-10-07T03:36:40.229588+00:00",
+      "hostname": "dl-workstation-albert",
+      "exit_code": 0
+    },
+    "e": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "181",
+      "time": "140.106",
+      "timestamp": "2026-10-07T03:38:46.657230+00:00",
+      "hostname": "dl-workstation-albert",
+      "exit_code": 0
+    },
+    "f": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "20",
+      "time": "12.416",
+      "timestamp": "2026-10-07T03:43:35.272629+00:00",
+      "hostname": "dl-workstation-albert",
+      "exit_code": 0
+    },
+    "g": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "22",
+      "time": "13.881",
+      "timestamp": "2026-10-07T03:45:55.800032+00:00",
+      "hostname": "dl-workstation-albert",
+      "exit_code": 0
+    },
+    "h": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "11",
+      "time": "1.894",
+      "timestamp": "2026-10-07T03:48:21.797662+00:00",
+      "hostname": "dl-workstation-albert",
+      "exit_code": 0
+    }
+  },
+  "cleanup": "All local HTTP server threads and child processes terminated by verified fixtures; no V26 Compose resources used.",
+  "remaining": "V25 must finish first; rebase, final review and complete zero-failure gates still required.",
+  "ruff_no_cache_exit": 0
+}

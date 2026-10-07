@@ -1,0 +1,193 @@
+"""Recorded JPEG replay over real HTTP and actual filesystem fault injection.
+
+The source response is a recorded Bangumi poster. The local HTTP origin,
+corruption and write failures are synthetic; no provider network is contacted.
+"""
+import base64
+import gzip
+import hashlib
+import json
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from app.config import settings
+from app.services import poster_cache
+from app.services.metadata_service import download_and_cache_poster
+
+CORPUS = Path(__file__).parents[2] / "fixtures/metadata_corpus_v1/http/bangumi_complete.json.gz"
+CORPUS_SHA = "ab204d0b0c086097e9cafcd7e0bcd22b95ac5247678499fb60bcc28f22b8a716"
+BODY_SHA = "d2ae689b0ab871c4167009392a301ba2034dcbe813b24642fa7b46da76da25aa"
+KEY = "1353e89e67e0f849c5884738df5fd8bbfc2210ee1d54107b1ed1baf8e6bcf2b3"
+
+
+@pytest.fixture
+def recorded_poster(tmp_path, monkeypatch):
+    assert hashlib.sha256(CORPUS.read_bytes()).hexdigest() == CORPUS_SHA
+    response = json.loads(gzip.decompress(CORPUS.read_bytes()))["requests"][KEY]
+    body = base64.b64decode(response["body"])
+    assert len(body) == 147157 and hashlib.sha256(body).hexdigest() == BODY_SHA
+    state = SimpleNamespace(hits=0, body=body, cache=tmp_path / "cache", origin=response["request"]["url"])
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            state.hits += 1
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    origin = f"http://127.0.0.1:{server.server_port}"
+    state.url = origin + "/recorded-poster"
+    state.digest = hashlib.sha256(state.url.encode()).hexdigest()[:16]
+    state.final = state.cache / (state.digest + ".jpg")
+    monkeypatch.setattr(settings, "poster_cache_dir", str(state.cache))
+    monkeypatch.setattr(settings, "outbound_private_origins", [origin])
+    try:
+        yield state
+    finally:
+        server.shutdown()
+        worker.join(timeout=5)
+        server.server_close()
+        assert not worker.is_alive()
+
+
+async def test_recorded_success_and_verified_hit(recorded_poster):
+    state = recorded_poster
+    url = await download_and_cache_poster(state.url)
+    assert url == f"/posters/{state.digest}.jpg"
+    assert hashlib.sha256(state.final.read_bytes()).hexdigest() == BODY_SHA
+    assert await download_and_cache_poster(state.url) == url
+    assert state.hits == 1
+
+
+async def test_partial_disk_write_is_not_published(recorded_poster, monkeypatch):
+    state = recorded_poster
+    def interrupted(handle, data):
+        handle.write(data[:4])
+        raise OSError("synthetic interrupted filesystem write")
+
+    with monkeypatch.context() as fault:
+        fault.setattr(poster_cache, "_write_bytes", interrupted)
+        assert await download_and_cache_poster(state.url) is None
+    assert not state.final.exists(), "Failed writes must never publish a final poster"
+    assert not list(state.cache.iterdir()), "Remove only this operation's failed staging files"
+    assert await download_and_cache_poster(state.url) == f"/posters/{state.digest}.jpg"
+    assert hashlib.sha256(state.final.read_bytes()).hexdigest() == BODY_SHA and state.hits == 2
+
+
+@pytest.mark.parametrize("prefix", [4, 4096])
+async def test_unverified_partial_legacy_cache_is_refetched(recorded_poster, prefix):
+    state = recorded_poster
+    state.cache.mkdir()
+    state.final.write_bytes(state.body[:prefix])
+    assert await download_and_cache_poster(state.url) == f"/posters/{state.digest}.jpg"
+    assert hashlib.sha256(state.final.read_bytes()).hexdigest() == BODY_SHA
+    assert state.hits == 1
+
+
+async def test_cache_disk_writes_leave_event_loop(recorded_poster, monkeypatch):
+    state = recorded_poster
+    event_loop_thread = threading.get_ident()
+    writes = []
+    original = poster_cache._write_bytes
+
+    def track(handle, data):
+        writes.append(threading.get_ident())
+        return original(handle, data)
+
+    monkeypatch.setattr(poster_cache, "_write_bytes", track)
+    assert await download_and_cache_poster(state.url)
+    assert writes and all(thread != event_loop_thread for thread in writes)
+
+
+async def test_same_size_corrupted_cache_is_not_a_hit(recorded_poster):
+    state = recorded_poster
+    assert await download_and_cache_poster(state.url)
+    damaged = bytearray(state.body)
+    damaged[len(damaged) // 2] ^= 1
+    state.final.write_bytes(damaged)
+    assert await download_and_cache_poster(state.url)
+    assert hashlib.sha256(state.final.read_bytes()).hexdigest() == BODY_SHA and state.hits == 2
+
+
+async def test_cache_directory_failure_returns_none(recorded_poster):
+    state = recorded_poster
+    state.cache.write_bytes(b"not a directory")
+    assert await download_and_cache_poster(state.url) is None
+
+
+@pytest.mark.parametrize("phase", ["receipt_write", "data_replace", "receipt_replace"])
+async def test_publication_failure_never_accepts_partial_data(recorded_poster, monkeypatch, phase):
+    state = recorded_poster
+    original_write = poster_cache._write_bytes
+    original_replace = poster_cache.os.replace
+    writes = replaces = 0
+
+    def write(handle, data):
+        nonlocal writes
+        writes += 1
+        if phase == "receipt_write" and writes == 2:
+            handle.write(data[:4])
+            raise OSError("synthetic receipt disk failure")
+        original_write(handle, data)
+
+    def replace(source, destination):
+        nonlocal replaces
+        replaces += 1
+        fail_at = 1 if phase == "data_replace" else 2
+        if phase != "receipt_write" and replaces == fail_at:
+            raise OSError("synthetic atomic replacement failure")
+        return original_replace(source, destination)
+
+    with monkeypatch.context() as fault:
+        fault.setattr(poster_cache, "_write_bytes", write)
+        fault.setattr(poster_cache.os, "replace", replace)
+        assert await download_and_cache_poster(state.url) is None
+    assert not list(state.cache.glob("*.part"))
+    if state.final.exists():
+        assert hashlib.sha256(state.final.read_bytes()).hexdigest() == BODY_SHA
+    assert await download_and_cache_poster(state.url) == f"/posters/{state.digest}.jpg"
+    assert hashlib.sha256(state.final.read_bytes()).hexdigest() == BODY_SHA
+    assert state.hits == 2
+
+
+async def test_concurrent_writers_only_expose_complete_recorded_images(recorded_poster, monkeypatch):
+    import asyncio
+
+    state = recorded_poster
+    original = poster_cache._write_bytes
+    staged = threading.Barrier(2)
+
+    def simultaneous(handle, data):
+        if data == state.body:
+            # Both HTTP responses arrive before either image is published.
+            handle.write(data[:4])
+            handle.flush()
+            staged.wait(timeout=10)
+            assert not state.final.exists()
+            handle.write(data[4:])
+            handle.flush()
+            return
+        original(handle, data)
+
+    monkeypatch.setattr(poster_cache, "_write_bytes", simultaneous)
+    results = await asyncio.wait_for(asyncio.gather(
+        download_and_cache_poster(state.url), download_and_cache_poster(state.url),
+    ), timeout=15)
+    assert results == [f"/posters/{state.digest}.jpg"] * 2
+    assert state.hits == 2
+    assert hashlib.sha256(state.final.read_bytes()).hexdigest() == BODY_SHA
+    assert not list(state.cache.glob("*.part"))
+    assert await download_and_cache_poster(state.url) == results[0]
+    assert state.hits == 2

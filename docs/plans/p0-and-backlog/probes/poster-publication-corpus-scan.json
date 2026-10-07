@@ -1,0 +1,649 @@
+{
+  "responses_scanned": 430,
+  "images": [
+    {
+      "file": "tests/fixtures/metadata_corpus_v1/http/bangumi_complete.json.gz",
+      "key": "1353e89e67e0f849c5884738df5fd8bbfc2210ee1d54107b1ed1baf8e6bcf2b3",
+      "bytes": 147157,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/c5/16/538760_T0rxN.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v1/http/bangumi_single.json.gz",
+      "key": "1353e89e67e0f849c5884738df5fd8bbfc2210ee1d54107b1ed1baf8e6bcf2b3",
+      "bytes": 147157,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/c5/16/538760_T0rxN.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_collection_guard.json.gz",
+      "key": "260e93a91ce37c4f2f2bf86a4b174cd4da068cb1f78583aa434223d15d628381",
+      "bytes": 28006,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/95/b4/8290_p4f44.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_collection_guard.json.gz",
+      "key": "6fd7e464dc121e62ba54f302efb13d22ef0965c27825dda82c8d6cd8a7fb93cd",
+      "bytes": 95037,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/15/09/44758_JxIA1.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_collection_guard.json.gz",
+      "key": "793d670902e9c61761ad2bc4d756893925585281144cee2fb8b6296a72934f51",
+      "bytes": 40620,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/d3/de/104569_8C116.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_collection_guard.json.gz",
+      "key": "9c1816f8021512a0de7bb1c10b2ebac2bbee7d79ad3aa882cb0b131c3be077e3",
+      "bytes": 135713,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/5e/d9/111760_qmQzB.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_collection_guard.json.gz",
+      "key": "b8483286fd6e404d7bed4527bfbe940ffbf5bbcc24e6c3762e87e8dc7764b0b6",
+      "bytes": 172658,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/f5/0f/9569_3f6Zc.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_collection_guard.json.gz",
+      "key": "bac6a0f387a78d9dd3f3d356699d7b4a77b11de212ca6afc69f2e63ecc4d42a3",
+      "bytes": 56244,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/e7/73/78796_agbBL.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_collection_guard.json.gz",
+      "key": "cd9ba9e04657fb4c02d9818836572e2e31b01e21f1f882335e32964da34ef0f8",
+      "bytes": 127617,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/94/06/111761_2Igfq.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_collection_guard.json.gz",
+      "key": "cf06716978d9645dd06019dd701c4e643d566a6d1bac7e8a455325f7f6ed496c",
+      "bytes": 109787,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/62/1d/9568_KSy0M.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_collection_guard.json.gz",
+      "key": "cfb520f8ef32c7fe425e0dd746f175e143515ca29d71eecbcec5ccbbca6fc35f",
+      "bytes": 99034,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/c9/11/3816_733CB.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_collection_guard.json.gz",
+      "key": "e9fed23cdaa8de72d3479c23d6b6aea9232d065886d38da690eea0762c28ec91",
+      "bytes": 91864,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/c4/b5/46312_Fehu2.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/bangumi_complete_f6.json.gz",
+      "key": "1353e89e67e0f849c5884738df5fd8bbfc2210ee1d54107b1ed1baf8e6bcf2b3",
+      "bytes": 147157,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/c5/16/538760_T0rxN.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise.normalized.json.gz",
+      "key": "23524c5c3fe5b14f5505a6ecfeb52793dc57f51f441fcb68d0c9be1cded7878e",
+      "bytes": 535996,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/b7/56/470738_44EQk.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise.normalized.json.gz",
+      "key": "6fd7e464dc121e62ba54f302efb13d22ef0965c27825dda82c8d6cd8a7fb93cd",
+      "bytes": 95037,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/15/09/44758_JxIA1.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise.normalized.json.gz",
+      "key": "793d670902e9c61761ad2bc4d756893925585281144cee2fb8b6296a72934f51",
+      "bytes": 40620,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/d3/de/104569_8C116.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise.normalized.json.gz",
+      "key": "9c1816f8021512a0de7bb1c10b2ebac2bbee7d79ad3aa882cb0b131c3be077e3",
+      "bytes": 135713,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/5e/d9/111760_qmQzB.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise.normalized.json.gz",
+      "key": "b8483286fd6e404d7bed4527bfbe940ffbf5bbcc24e6c3762e87e8dc7764b0b6",
+      "bytes": 172658,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/f5/0f/9569_3f6Zc.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise.normalized.json.gz",
+      "key": "bac6a0f387a78d9dd3f3d356699d7b4a77b11de212ca6afc69f2e63ecc4d42a3",
+      "bytes": 56244,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/e7/73/78796_agbBL.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise.normalized.json.gz",
+      "key": "cd9ba9e04657fb4c02d9818836572e2e31b01e21f1f882335e32964da34ef0f8",
+      "bytes": 127617,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/94/06/111761_2Igfq.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise.normalized.json.gz",
+      "key": "cf06716978d9645dd06019dd701c4e643d566a6d1bac7e8a455325f7f6ed496c",
+      "bytes": 109787,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/62/1d/9568_KSy0M.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise.normalized.json.gz",
+      "key": "cfb520f8ef32c7fe425e0dd746f175e143515ca29d71eecbcec5ccbbca6fc35f",
+      "bytes": 99034,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/c9/11/3816_733CB.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise.normalized.json.gz",
+      "key": "e9fed23cdaa8de72d3479c23d6b6aea9232d065886d38da690eea0762c28ec91",
+      "bytes": 91864,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/c4/b5/46312_Fehu2.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise.normalized.json.gz",
+      "key": "f96cebb71d08d7aa61d3b2c0fb493c43e3efbda02a8b5b12d05fa718c958756c",
+      "bytes": 591271,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/5b/c9/530110_EQtrE.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/bangumi_single.json.gz",
+      "key": "1353e89e67e0f849c5884738df5fd8bbfc2210ee1d54107b1ed1baf8e6bcf2b3",
+      "bytes": 147157,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/c5/16/538760_T0rxN.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/bangumi_complete.json.gz",
+      "key": "1353e89e67e0f849c5884738df5fd8bbfc2210ee1d54107b1ed1baf8e6bcf2b3",
+      "bytes": 147157,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/c5/16/538760_T0rxN.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_season_evidence.json.gz",
+      "key": "260e93a91ce37c4f2f2bf86a4b174cd4da068cb1f78583aa434223d15d628381",
+      "bytes": 28006,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/95/b4/8290_p4f44.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_season_evidence.json.gz",
+      "key": "6fd7e464dc121e62ba54f302efb13d22ef0965c27825dda82c8d6cd8a7fb93cd",
+      "bytes": 95037,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/15/09/44758_JxIA1.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_season_evidence.json.gz",
+      "key": "793d670902e9c61761ad2bc4d756893925585281144cee2fb8b6296a72934f51",
+      "bytes": 40620,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/d3/de/104569_8C116.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_season_evidence.json.gz",
+      "key": "9c1816f8021512a0de7bb1c10b2ebac2bbee7d79ad3aa882cb0b131c3be077e3",
+      "bytes": 135713,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/5e/d9/111760_qmQzB.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_season_evidence.json.gz",
+      "key": "b8483286fd6e404d7bed4527bfbe940ffbf5bbcc24e6c3762e87e8dc7764b0b6",
+      "bytes": 172658,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/f5/0f/9569_3f6Zc.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_season_evidence.json.gz",
+      "key": "bac6a0f387a78d9dd3f3d356699d7b4a77b11de212ca6afc69f2e63ecc4d42a3",
+      "bytes": 56244,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/e7/73/78796_agbBL.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_season_evidence.json.gz",
+      "key": "cd9ba9e04657fb4c02d9818836572e2e31b01e21f1f882335e32964da34ef0f8",
+      "bytes": 127617,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/94/06/111761_2Igfq.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_season_evidence.json.gz",
+      "key": "cf06716978d9645dd06019dd701c4e643d566a6d1bac7e8a455325f7f6ed496c",
+      "bytes": 109787,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/62/1d/9568_KSy0M.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_season_evidence.json.gz",
+      "key": "cfb520f8ef32c7fe425e0dd746f175e143515ca29d71eecbcec5ccbbca6fc35f",
+      "bytes": 99034,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/c9/11/3816_733CB.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_season_evidence.json.gz",
+      "key": "e9fed23cdaa8de72d3479c23d6b6aea9232d065886d38da690eea0762c28ec91",
+      "bytes": 91864,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/c4/b5/46312_Fehu2.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise.json.gz",
+      "key": "260e93a91ce37c4f2f2bf86a4b174cd4da068cb1f78583aa434223d15d628381",
+      "bytes": 28006,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/95/b4/8290_p4f44.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise.json.gz",
+      "key": "6fd7e464dc121e62ba54f302efb13d22ef0965c27825dda82c8d6cd8a7fb93cd",
+      "bytes": 95037,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/15/09/44758_JxIA1.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise.json.gz",
+      "key": "793d670902e9c61761ad2bc4d756893925585281144cee2fb8b6296a72934f51",
+      "bytes": 40620,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/d3/de/104569_8C116.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise.json.gz",
+      "key": "9c1816f8021512a0de7bb1c10b2ebac2bbee7d79ad3aa882cb0b131c3be077e3",
+      "bytes": 135713,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/5e/d9/111760_qmQzB.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise.json.gz",
+      "key": "b8483286fd6e404d7bed4527bfbe940ffbf5bbcc24e6c3762e87e8dc7764b0b6",
+      "bytes": 172658,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/f5/0f/9569_3f6Zc.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise.json.gz",
+      "key": "bac6a0f387a78d9dd3f3d356699d7b4a77b11de212ca6afc69f2e63ecc4d42a3",
+      "bytes": 56244,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/e7/73/78796_agbBL.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise.json.gz",
+      "key": "cd9ba9e04657fb4c02d9818836572e2e31b01e21f1f882335e32964da34ef0f8",
+      "bytes": 127617,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/94/06/111761_2Igfq.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise.json.gz",
+      "key": "cf06716978d9645dd06019dd701c4e643d566a6d1bac7e8a455325f7f6ed496c",
+      "bytes": 109787,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/62/1d/9568_KSy0M.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise.json.gz",
+      "key": "cfb520f8ef32c7fe425e0dd746f175e143515ca29d71eecbcec5ccbbca6fc35f",
+      "bytes": 99034,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/c9/11/3816_733CB.jpg"
+      }
+    },
+    {
+      "file": "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise.json.gz",
+      "key": "e9fed23cdaa8de72d3479c23d6b6aea9232d065886d38da690eea0762c28ec91",
+      "bytes": 91864,
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "request": {
+        "body": "",
+        "content_type": "",
+        "method": "GET",
+        "url": "https://lain.bgm.tv/pic/cover/l/c4/b5/46312_Fehu2.jpg"
+      }
+    }
+  ]
+}
