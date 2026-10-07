@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Alert, App, Button, Checkbox, Empty, Input, Modal, Select, Space, Spin, Table, Tag } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { metadataApi } from '../api/metadata';
@@ -25,6 +26,7 @@ export default function WorkMetadataRefreshModal({
   onApplied,
 }: Props) {
   const { message } = App.useApp();
+  const { t } = useTranslation();
   const [query, setQuery] = useState(initialQuery);
   const [source, setSource] = useState<MetadataSource | null>(null);
   const [sources, setSources] = useState<MetadataSourceOption[]>([]);
@@ -66,7 +68,7 @@ export default function WorkMetadataRefreshModal({
         trusted_sites: trustedSites,
       });
       if (!result.success) {
-        message.error(result.error?.message || '元数据搜索失败');
+        message.error(result.error?.message || t('metadataRefresh.searchFailed'));
         return;
       }
       setCandidates(result.data.candidates);
@@ -86,7 +88,7 @@ export default function WorkMetadataRefreshModal({
         override_manual_edits: overrideManual,
       });
       if (result.success) setChanges(result.data.changes);
-      else message.error(result.error?.message || '无法预览元数据差异');
+      else message.error(result.error?.message || t('metadataRefresh.previewFailed'));
     } finally {
       setLoading(false);
     }
@@ -107,10 +109,10 @@ export default function WorkMetadataRefreshModal({
         override_manual_edits: overrideManual,
       });
       if (!result.success) {
-        message.error(result.error?.message || '元数据更新失败');
+        message.error(result.error?.message || t('metadataRefresh.applyFailed'));
         return;
       }
-      message.success(`已更新 ${result.data.applied.length} 个字段`);
+      message.success(t('metadataRefresh.applied', { count: result.data.applied.length }));
       await onApplied();
       onClose();
     } finally {
@@ -119,37 +121,37 @@ export default function WorkMetadataRefreshModal({
   };
 
   const columns: ColumnsType<MetadataChange> = [
-    { title: '字段', dataIndex: 'field', width: 150 },
-    { title: '当前值', dataIndex: 'current', render: (v) => String(v ?? '—') },
-    { title: '候选值', dataIndex: 'incoming', render: (v) => String(v ?? '—') },
-    { title: '操作', dataIndex: 'action', width: 100, render: (_, row) => (
+    { title: t('metadataRefresh.field'), dataIndex: 'field', width: 150 },
+    { title: t('metadataRefresh.current'), dataIndex: 'current', render: (v) => String(v ?? '—') },
+    { title: t('metadataRefresh.incoming'), dataIndex: 'incoming', render: (v) => String(v ?? '—') },
+    { title: t('common.operation'), dataIndex: 'action', width: 100, render: (_, row) => (
       <Tag color={row.action === 'update' ? 'blue' : 'gold'}>
-        {row.action === 'update' ? '更新' : '人工保护'}
+        {row.action === 'update' ? t('metadataRefresh.update') : t('metadataRefresh.protected')}
       </Tag>
     ) },
   ];
 
   return (
-    <Modal open={open} title="搜索并刷新元数据" width={860} onCancel={onClose}
+    <Modal open={open} title={t('metadataRefresh.title')} width={860} onCancel={onClose}
       footer={selected ? [
-        <Button key="back" onClick={() => { setSelected(null); setChanges([]); }}>返回候选</Button>,
-        <Button key="apply" type="primary" loading={loading} onClick={() => void apply()}>确认应用</Button>,
+        <Button key="back" onClick={() => { setSelected(null); setChanges([]); }}>{t('metadataRefresh.back')}</Button>,
+        <Button key="apply" type="primary" loading={loading} onClick={() => void apply()}>{t('metadataRefresh.apply')}</Button>,
       ] : null}>
       <Space.Compact style={{ width: '100%', marginBottom: 12 }}>
         <Input value={query} onChange={(event) => setQuery(event.target.value)} onPressEnter={() => void search()} />
         <Select value={source} onChange={setSource} style={{ width: 160 }} options={sources.map((item) => ({
           value: item.value, label: item.label, disabled: !item.available,
         }))} />
-        <Button type="primary" loading={loading} disabled={!source} onClick={() => void search()}>搜索</Button>
+        <Button type="primary" loading={loading} disabled={!source} onClick={() => void search()}>{t('common.search')}</Button>
       </Space.Compact>
       <Select mode="multiple" value={trustedSites} onChange={setTrustedSites} options={trustedOptions}
-        placeholder="可信站点（清空即禁用全网回退）" style={{ width: '100%', marginBottom: 12 }} />
+        placeholder={t('metadataRefresh.trustedSites')} style={{ width: '100%', marginBottom: 12 }} />
       {selected ? (
         <>
-          <Alert type="info" showIcon message={`候选：${selected.title_cn || selected.original_title || selected.title_en}`}
-            description={`身份：${selected.identity_source}:${selected.external_id}`} style={{ marginBottom: 12 }} />
+          <Alert type="info" showIcon message={t('metadataRefresh.candidate', { title: selected.title_cn || selected.original_title || selected.title_en })}
+            description={t('metadataRefresh.identity', { source: selected.identity_source, id: selected.external_id })} style={{ marginBottom: 12 }} />
           <Checkbox checked={overrideManual} onChange={(event) => setOverrideManual(event.target.checked)}>
-            覆盖人工编辑字段
+            {t('metadataRefresh.overrideManual')}
           </Checkbox>
           <Table rowKey="field" size="small" pagination={false} columns={columns} dataSource={changes} style={{ marginTop: 12 }} />
         </>
@@ -158,11 +160,11 @@ export default function WorkMetadataRefreshModal({
           {candidates.map((candidate, index) => (
             <Alert key={`${candidate.external_id}-${index}`} type={candidate.selectable ? 'info' : 'warning'}
               message={candidate.title_cn || candidate.original_title || candidate.title_en || candidate.external_id}
-              description={`${candidate.year ?? ''} · ${candidate.identity_source ?? '无可信身份'} · ${candidate.match_path}`}
-              action={<Button disabled={!candidate.selectable} onClick={() => void choose(candidate)}>选择</Button>} />
+              description={`${candidate.year ?? ''} · ${candidate.identity_source ?? t('metadataRefresh.noIdentity')} · ${candidate.match_path}`}
+              action={<Button disabled={!candidate.selectable} onClick={() => void choose(candidate)}>{t('metadataRefresh.select')}</Button>} />
           ))}
         </Space>
-      ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="搜索后选择一个候选" />}
+      ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('metadataRefresh.empty')} />}
     </Modal>
   );
 }

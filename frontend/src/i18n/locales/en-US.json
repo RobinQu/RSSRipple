@@ -1543,5 +1543,27 @@
     "audit": "Audit Timeline",
     "editFileAssociations": "Edit file associations",
     "associationsRefreshQueued": "File associations saved; the plan is refreshing in the background"
+  },
+  "metadataRefresh": {
+    "searchFailed": "Metadata search failed",
+    "previewFailed": "Unable to preview metadata changes",
+    "applyFailed": "Metadata update failed",
+    "field": "Field",
+    "current": "Current value",
+    "incoming": "Candidate value",
+    "update": "Update",
+    "protected": "Manually protected",
+    "title": "Search and refresh metadata",
+    "back": "Back to candidates",
+    "apply": "Apply changes",
+    "trustedSites": "Trusted sites (clear to disable web search fallback)",
+    "overrideManual": "Override manually edited fields",
+    "noIdentity": "No trusted identity",
+    "select": "Select",
+    "empty": "Search to select a candidate",
+    "candidate": "Candidate: {title}",
+    "identity": "Identity: {source}:{id}",
+    "applied_one": "Updated {count} field",
+    "applied_other": "Updated {count} fields"
   }
 }

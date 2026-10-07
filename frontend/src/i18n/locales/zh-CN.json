@@ -1542,5 +1542,26 @@
     "audit": "审计时间线",
     "editFileAssociations": "编辑文件关联",
     "associationsRefreshQueued": "文件关联已保存，正在后台刷新变更计划"
+  },
+  "metadataRefresh": {
+    "searchFailed": "元数据搜索失败",
+    "previewFailed": "无法预览元数据差异",
+    "applyFailed": "元数据更新失败",
+    "field": "字段",
+    "current": "当前值",
+    "incoming": "候选值",
+    "update": "更新",
+    "protected": "人工保护",
+    "title": "搜索并刷新元数据",
+    "back": "返回候选",
+    "apply": "确认应用",
+    "trustedSites": "可信站点（清空即禁用全网回退）",
+    "overrideManual": "覆盖人工编辑字段",
+    "noIdentity": "无可信身份",
+    "select": "选择",
+    "empty": "搜索后选择一个候选",
+    "candidate": "候选：{title}",
+    "identity": "身份：{source}:{id}",
+    "applied": "已更新 {count} 个字段"
   }
 }

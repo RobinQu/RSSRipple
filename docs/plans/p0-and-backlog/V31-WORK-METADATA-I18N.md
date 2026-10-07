@@ -1,6 +1,6 @@
 # V31 元数据刷新弹窗国际化（P1-F1，现 P2）
 
-> 最新：正式重基至 V30 验收后的 `6548bcc`，8 个有效文件/6519 个输入冻结。重基后的六个真实 Chromium 流程、TypeScript、Vite 生产构建与全前端 ESLint 均退出 0。k 完整集成已终态：3861 passed、17 skipped、89.42%，runner/覆盖率/导出均退出 0，两应用 0/0，跳过与 V30 基线一致，6519 输入与独立 8 文件范围核验通过，项目已清理；j 单元/API（70705）仍运行，未验收合入。当前入口：[预检](probes/metadata-refresh-i18n-i-result.json)、[门禁记录](probes/metadata-refresh-i18n-j-k-running.json)。
+> 最新：j/k 完整门禁和所有审计通过，单元/API 4183 项、96.86%，集成 3861 项、89.42%，最终五轴审查批准 8 文件合入本地 main。有效文件已同步主工作树，F1 从待办移除；提交对象核验见 [验收摘要](probes/metadata-refresh-i18n-j-k-accepted.json)。以下保留各阶段记录。
 
 ## 必要性与范围
 

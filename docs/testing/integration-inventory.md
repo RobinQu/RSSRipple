@@ -452,3 +452,10 @@ V27 候选 `test_legacy.py` 经实际 create_tables 连续两次升级验证相�
 ### 列表加载与公开响应边界
 
 `loading/test_list_boundaries.py` 使用独立 Turso / PostgreSQL 与录制电影身份和资源标题（合成频道、历史及季作品，不猜录制旧作品季号），覆盖空/32/512 历史规模、冷/显式预加载会话、首页/后续页/越界页及 1/4/100 页大小。断言精确 ID/总数/计数、订阅目标及公开字段集合，不返回合成下载器密码；测量只覆盖 API 工作区间，禁止加载无关资源/决策/下载实体并限制 SQL 次数。另覆盖全范围保留 22 条作品配置、按需规则加载，以及最终提交后仅活跃 Agent 入队且无未关闭事务。
+
+
+### 元数据刷新弹窗双语浏览器验证
+
+`frontend/tests/metadata-refresh.html` / `.tsx` 仅为 Vite 测试入口，不加入生产入口。`frontend/tests/metadata-refresh.cjs` 使用真实 Chromium、实际 React/Ant Design/i18next 与 API 客户端：zh-CN/en-US × 更新 0/1/2 字段六种流程，覆盖本地错误回退/服务端错误保留、候选选择、人工保护切换、弹窗内切换语言、成功消息和请求载荷。录制作品标题/身份取自固定哈希 prod_works_v1；HTTP 响应及差异/故障明确合成，因此这是组件与浏览器集成，不代表后端写库验收。
+
+先在 frontend 启动唯一回环端口的 Vite，再配置 `PROBE_URL`、`PLAYWRIGHT_MODULE`（已安装 playwright/test 的路径）、`CHROMIUM_PATH` 后运行 `node tests/metadata-refresh.cjs`。测试自行退出浏览器及 context；Vite 由启动方停止。无需生产数据库或外部网站。

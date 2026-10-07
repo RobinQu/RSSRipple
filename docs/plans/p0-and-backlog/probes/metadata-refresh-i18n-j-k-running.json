@@ -1,5 +1,5 @@
 {
-  "accepted": false,
+  "accepted": true,
   "candidate": "/tmp/rssripple-v31-rebased-0j9cdjc0",
   "main_base": "6548bcca1b77e52b3f13b3592dfbc2b9a3aea01b",
   "source": "metadata-refresh-i18n-i-source.json",
@@ -8,7 +8,7 @@
   "image": "rssripple-v29-tests:local",
   "lock_sha256": "40eb42674db4b72aedaecc7f7fc3ded572e50d51d3f440cb663a7bc2cacaa6c2",
   "unit": {
-    "status": "running",
+    "status": "passed_audited",
     "session": 70705,
     "startup_exit": 0,
     "project": "rssripple-v31-unit-j",
@@ -20,7 +20,9 @@
     "coverage_xml": "/tmp/rssripple-v31-unit-j-coverage.xml",
     "coverage_data": "/tmp/rssripple-v31-unit-j.coverage",
     "threshold": 95,
-    "cleanup": "pending"
+    "cleanup": "complete",
+    "actual_exit": 0,
+    "audit": "metadata-refresh-i18n-j-audit.json"
   },
   "integration": {
     "status": "passed_audited",
@@ -52,5 +54,6 @@
       "image": "sha256:9f79b2a0d7b37b8e52545b7d0582df5474ecbf3ff93ebdbd2633fa6cbacf3985",
       "healthy": true
     }
-  }
+  },
+  "acceptance": "metadata-refresh-i18n-j-k-accepted.json"
 }

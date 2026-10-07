@@ -164,7 +164,7 @@
     "networks": [],
     "volumes": []
   },
-  "unit_pending": true,
+  "unit_pending": false,
   "final_review_pending": true,
   "independently_derived_effective_files": [
     "docs/design/frontend.md",
@@ -175,5 +175,6 @@
     "frontend/tests/metadata-refresh.cjs",
     "frontend/tests/metadata-refresh.html",
     "frontend/tests/metadata-refresh.tsx"
-  ]
+  ],
+  "unit_audit": "metadata-refresh-i18n-j-audit.json"
 }

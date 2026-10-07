@@ -1,0 +1,24 @@
+{
+  "accepted": true,
+  "source": "metadata-refresh-i18n-i-source.json",
+  "frozen": "metadata-refresh-i18n-i-frozen.json",
+  "unit_audit": "metadata-refresh-i18n-j-audit.json",
+  "integration_audit": "metadata-refresh-i18n-k-audit.json",
+  "review": "V31-REVIEW.md",
+  "effective_files": [
+    "docs/design/frontend.md",
+    "docs/testing/integration-inventory.md",
+    "frontend/src/components/WorkMetadataRefreshModal.tsx",
+    "frontend/src/i18n/locales/en-US.json",
+    "frontend/src/i18n/locales/zh-CN.json",
+    "frontend/tests/metadata-refresh.cjs",
+    "frontend/tests/metadata-refresh.html",
+    "frontend/tests/metadata-refresh.tsx"
+  ],
+  "frozen_inputs_verified": 6519,
+  "non_plan_inputs_verified_after_copy": 3309,
+  "main_worktree_applied": true,
+  "code_commit": null,
+  "remote_pushed": false,
+  "deployed": false
+}

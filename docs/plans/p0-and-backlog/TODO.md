@@ -41,9 +41,7 @@
       d 双库 15 类查询矩阵通过；扩展分布在 PostgreSQL 通过，但 Turso 暴露无索引宽行分页正确性问题（下列独立待办）。webhook 已比较少量 pending 与大量未来重试两种分布，索引选型仍需后续验证，不能将探针通过当作迁移验收。
 - [ ] **P1-B5 队列无重试/退避/死信**：失败即终态（`app/services/task_queue.py:264-271,610-654`），队列 API 只读。
       **修复**：先补副作用幂等，再按任务类型加有限重试/退避；DLQ 为增强，不是所有任务的修复前提。
-- [ ] **P1-F1 `WorkMetadataRefreshModal` 未国际化**：整个 modal 硬编码中文
-      （`frontend/src/components/WorkMetadataRefreshModal.tsx`，被 `SeriesDetail`/`MovieDetail` 使用），
-      en-US 用户看到中文。**修复**：接入 `useTranslation` 并补 locale key。 V31 已在真实 Chromium 复现英文模式中文标题；独立 8 文件候选的中英文 × 0/1/2 字段六流程通过，含语言切换、人工保护、错误原文及载荷验证，生产构建和全前端 ESLint 通过。已重基到 6548bcc，重基后的六浏览器流程/构建/ESLint 通过，8 文件/6519 输入冻结，k 集成 3861 项/89.42% 通过并完成跳过/冻结输入/退出/导出/清理审计，j 单元/API 仍运行，未合入，见 [V31](V31-WORK-METADATA-I18N.md)。
+
 
 ### 缓存生命周期
 
