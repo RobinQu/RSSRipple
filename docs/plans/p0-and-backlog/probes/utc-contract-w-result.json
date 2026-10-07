@@ -1,0 +1,149 @@
+{
+  "accepted": false,
+  "main_base": "3175e8d8362325eecefc232f239487e99295ae24",
+  "candidate": "/tmp/rssripple-v32-rebased-qg1c8ui9",
+  "effective_files": 73,
+  "frozen_files": 6639,
+  "preflight": {
+    "actual_exit": 0,
+    "passed": 150,
+    "skipped": 0,
+    "warnings": 2,
+    "suite": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "150",
+      "time": "73.536",
+      "timestamp": "2026-10-07T16:31:24.620659+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "ruff_exit": 0,
+    "node_exit": 0,
+    "node_cases": [
+      {
+        "timezone": "UTC",
+        "passed": true,
+        "expected": [
+          "2026-11-01 05:30 Z",
+          "2026-11-01 06:30 Z"
+        ]
+      },
+      {
+        "timezone": "Asia/Shanghai",
+        "passed": true,
+        "expected": [
+          "2026-11-01 13:30 +08:00",
+          "2026-11-01 14:30 +08:00"
+        ]
+      },
+      {
+        "timezone": "America/New_York",
+        "passed": true,
+        "expected": [
+          "2026-11-01 01:30 -04:00",
+          "2026-11-01 01:30 -05:00"
+        ]
+      }
+    ]
+  },
+  "rebase": {
+    "app/api/v1/api_keys.py": "base unchanged",
+    "app/api/v1/channels.py": "three-way clean",
+    "app/api/v1/dashboard.py": "base unchanged",
+    "app/api/v1/queue.py": "base unchanged",
+    "app/api/v1/resources.py": "base unchanged",
+    "app/api/v1/works.py": "base unchanged",
+    "app/clients/rss_parser.py": "base unchanged",
+    "app/database.py": "Preserve V27 work-FK validation and then apply UTC default migration in the same PostgreSQL startup transaction.",
+    "app/models/agent.py": "three-way clean",
+    "app/models/agent_resource_request.py": "base unchanged",
+    "app/models/agent_run.py": "base unchanged",
+    "app/models/agent_suggestion.py": "base unchanged",
+    "app/models/agent_webhook.py": "base unchanged",
+    "app/models/agent_work.py": "base unchanged",
+    "app/models/api_key.py": "base unchanged",
+    "app/models/app_setting.py": "base unchanged",
+    "app/models/audio_work.py": "base unchanged",
+    "app/models/channel.py": "three-way clean",
+    "app/models/channel_raw_title_mapping.py": "base unchanged",
+    "app/models/decision_migration.py": "base unchanged",
+    "app/models/download_dispatch.py": "base unchanged",
+    "app/models/download_notification.py": "base unchanged",
+    "app/models/download_task.py": "base unchanged",
+    "app/models/downloader.py": "base unchanged",
+    "app/models/episode.py": "base unchanged",
+    "app/models/eval_job.py": "base unchanged",
+    "app/models/file_resource.py": "three-way clean",
+    "app/models/fts_outbox.py": "base unchanged",
+    "app/models/ground_truth.py": "base unchanged",
+    "app/models/library.py": "base unchanged",
+    "app/models/media_server.py": "base unchanged",
+    "app/models/metadata_cache.py": "base unchanged",
+    "app/models/movie.py": "base unchanged",
+    "app/models/notification_build_failure.py": "base unchanged",
+    "app/models/organize_audit.py": "base unchanged",
+    "app/models/organize_plan.py": "base unchanged",
+    "app/models/organize_plan_op.py": "base unchanged",
+    "app/models/organize_rule.py": "base unchanged",
+    "app/models/pending_decision.py": "base unchanged",
+    "app/models/resource_file_assignment.py": "base unchanged",
+    "app/models/resource_publication.py": "base unchanged",
+    "app/models/resource_reparse_request.py": "base unchanged",
+    "app/models/resource_work_link.py": "base unchanged",
+    "app/models/series.py": "base unchanged",
+    "app/models/storage_volume.py": "base unchanged",
+    "app/models/subtitle_group_mapping.py": "base unchanged",
+    "app/models/webhook_delivery.py": "base unchanged",
+    "app/models/work_collection.py": "base unchanged",
+    "app/models/work_external_id.py": "base unchanged",
+    "app/schemas/common.py": "base unchanged",
+    "app/schemas/notification.py": "base unchanged",
+    "app/services/resource_parser.py": "base unchanged",
+    "app/services/task_queue.py": "base unchanged",
+    "app/services/utc_schema.py": "base unchanged",
+    "app/utils/sql_time.py": "base unchanged",
+    "app/utils/time.py": "base unchanged",
+    "docs/design/api-endpoints.md": "three-way clean",
+    "docs/design/business-logic.md": "three-way clean",
+    "docs/design/conventions.md": "three-way clean",
+    "docs/design/data-models.md": "three-way clean",
+    "docs/design/db-migration.md": "retain current and append verified incoming suffix",
+    "docs/design/notifications.md": "base unchanged",
+    "docs/testing/integration-inventory.md": "retain current and append verified incoming suffix",
+    "frontend/tests/time-contract.mjs": "base unchanged",
+    "tests/integration/time_contract/conftest.py": "base unchanged",
+    "tests/integration/time_contract/test_agent_window.py": "base unchanged",
+    "tests/integration/time_contract/test_feed_input.py": "base unchanged",
+    "tests/integration/time_contract/test_http_output.py": "base unchanged",
+    "tests/integration/time_contract/test_notification_window.py": "base unchanged",
+    "tests/integration/time_contract/test_queue_output.py": "base unchanged",
+    "tests/integration/time_contract/test_storage.py": "base unchanged",
+    "tests/integration/time_contract/test_upgrade.py": "base unchanged",
+    "tests/unit/test_database_migrations.py": "three-way clean"
+  },
+  "full_gates": {
+    "unit": {
+      "session": 42577,
+      "project": "rssripple-v32-rebase-w",
+      "log": "/tmp/rssripple-v32-x-unit.log",
+      "junit": "/tmp/rssripple-v32-x-unit.xml",
+      "coverage": "/tmp/rssripple-v32-x-unit-coverage.xml",
+      "status": "running; no result yet"
+    },
+    "integration": {
+      "startup_session": 53912,
+      "project": "rssripple-v32-final-y",
+      "startup_log": "/tmp/rssripple-v32-y-startup.log",
+      "status": "running; no result yet",
+      "startup_exit": 0,
+      "runner_session": 94565,
+      "log": "/tmp/rssripple-v32-y-integration.log",
+      "image": "sha256:9f79b2a0d7b37b8e52545b7d0582df5474ecbf3ff93ebdbd2633fa6cbacf3985",
+      "app_health": "healthy",
+      "app_llm_health": "healthy"
+    }
+  },
+  "cleanup": "PostgreSQL project rssripple-v32-rebase-w remains needed for the full unit/API gate."
+}

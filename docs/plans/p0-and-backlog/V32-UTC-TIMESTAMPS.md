@@ -105,3 +105,16 @@ v 新增 Agent scan_since 双库实际 HTTP/内存队列准入 **16 passed、19.
 全仓无缓存 Ruff 退出 0；专用项目 rssripple-v32-boundaries-u 启动/清理均退出 0，容器/卷/网络标签为空，无 V32 后台测试。后继 **73 个有效文件**由完整 Git 基线重新推导，所有 app/ 文件与 t 候选哈希相同，仅扩大测试/清单。源及恢复 tar 见 [v-source](probes/utc-contract-v-source.json)，原始日志/JUnit、SDK 检查与清理见 [u–v](probes/utc-contract-u-v-result.json)。
 
 计划中的专项边界现已补齐；仍须在前序批次接受后正式重基、完整单元/API ≥95% 与完整隔离集成 ≥85%、零失败，以及最终五维/范围/退出/skip/导出/清理审计。不能以 78 项此前专项和本轮 20/16 项拼成完整门禁，V32 未合入，TODO 保留。
+
+
+## w 重基预检与 x/y 完整门禁（2026-10-07）
+
+正式候选 `/tmp/rssripple-v32-rebased-qg1c8ui9` 重基到本地 main `3175e8d`。再次论证仍为 P2：真实非 UTC 会话及偏移输入存在可复现缺陷，尚无生产污染证据；继续保留 naive UTC 存储，不推断或平移历史值。测试使用固定哈希录制资源文本和明确合成时间，录制 URL 不访问。
+
+从全部 Git 跟踪非计划输入、候选新 Python 文件及 Node 日期测试独立推导，有效范围仍为 **73 文件**。启动迁移唯一代码冲突已解决：先保留 V27 资源工作 FK 检查，再在同一 PostgreSQL 启动事务内升级 UTC 默认值。逐项比较确认 V30 的关系 lazy=raise、显式加载和频道分组计数未被回退；权威文档保留后来主干内容并追加 UTC 契约。
+
+w 完整 time_contract 与既有数据库迁移文件共 **150 passed、0 skipped、2 warnings，73.76 秒，实际退出 0**。两条警告为既有 event_loop_policy 弃用和 fake begin_nested 未 await。Ruff 无缓存检查退出 0；Node UTC、Asia/Shanghai、America/New_York 三个实际子进程均返回通过 JSON，父进程退出 0。证据及结果见 [w 预检](probes/utc-contract-w-result.json)，[源码与范围](probes/utc-contract-w-source.json)，可恢复归档 `probes/utc-contract-w-candidate.tar.gz`。
+
+冻结 **6639 个文件（3320 个非计划输入）**后启动 x 完整单元/API（95% 门禁）与 y 完整隔离集成（随后汇总覆盖率 85% 门禁）。x 会话 42577；唯一 PG 项目 `rssripple-v32-rebase-w`、宿主端口 32905。y 启动会话 53912 已实际退出 0，六个服务均健康；测试会话 94565，项目 `rssripple-v32-final-y`。实际应用镜像均为已验收锁定依赖镜像 `sha256:9f79b2a0d7b37b8e52545b7d0582df5474ecbf3ff93ebdbd2633fa6cbacf3985`。完整测试仍在运行，尚无通过结论；候选不再改动。
+
+续接先轮询原会话，不能因观察超时重启；单元日志 `/tmp/rssripple-v32-x-unit.log`，集成日志 `/tmp/rssripple-v32-y-integration.log`。必须核对真实退出、跳过基线、全部冻结输入、应用正常停止、覆盖率导出、唯一项目清理及最终五轴审查后才能合入。当前运行代码未合入、TODO 未关闭，全部目标仍继续。
