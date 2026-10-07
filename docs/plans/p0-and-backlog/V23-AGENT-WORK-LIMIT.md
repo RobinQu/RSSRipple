@@ -60,3 +60,11 @@ l 同跑作品上限和既有 decision_scope，40 passed / 2 failed，73.32 秒�
 新增 `tests/api/test_request_replay_production.py`，使用实际 app.main 的 Auth/GZip/DB 重试栈与 get_db，生产路由前仅插入临时测试端点，底层为 per-test Turso。小体与大于 1 MiB 的 JSON 请求首次实际写 Movie 并 flush 后注入合成冲突，第二次成功读取相同请求内容，最终新 DB 会话只看到一条记录；大响应保持 gzip。n 2 passed，2.56 秒，Ruff 通过。
 
 这里数据库写入/回滚真实，但冲突为显式注入，不替代 f/k 的实际 MVCC 竞争证据。临时端点与 middleware_stack 在 finally 恢复。十一文件最新候选归档见 `probes/agent-work-limit-n-*`。尚未与未验收 CORS 合并，后续重基必须再验证两类中间件组合及完整门禁。
+
+## 临时文件清理与独立组合候选（o–q）
+
+o 15 项重放单元通过。新增生命周期测试读取大于 1 MiB 的真实请求，检查自动滚动后的真实文件描述符；正常完成、普通异常与实际 task.cancel 均关闭 spool，os.fstat 返回 EBADF，无响应重复。没有用 fileno 强制滚动来伪造落盘证据。
+
+为提前验证组合，复制 V22 q 冻结输入（逐项校验，不修改原目录），再三方合并 B6，得到 `/tmp/rssripple-v23-combined-jvco65ot`。运行代码无冲突，四份权威文档仅末尾追加冲突，保留 V21/CORS/B6 内容。p 在组合中执行上限/真实冲突/完整生产回滚/CORS/重放矩阵，73 passed、1 warning，25.64 秒；q 可复用真实 Chromium 入口退出 0，未授权 logout 保留登录、允许 logout 清 Cookie，临时服务 SIGINT 退出 130。
+
+十一文件组合增量及相对 V22 q 的基线哈希见 `probes/agent-work-limit-q-*`。其前置 CORS 仍在完整门禁，不可提前合入，也不能当作已验收 main；原 B6 副本保留。下一步可冻结组合完整门禁候选，但最终合入必须先核验 CORS 已验收且主干目标哈希匹配，若前置实现改变须重新对齐并补对应验证。

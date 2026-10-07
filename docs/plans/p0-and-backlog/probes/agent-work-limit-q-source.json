@@ -1,0 +1,48 @@
+{
+  "prototype": "/tmp/rssripple-v23-combined-jvco65ot",
+  "accepted": false,
+  "base_runtime_commit": "938a7fb",
+  "prerequisite_candidate": "cors-policy-q-source.json",
+  "prerequisite_status": "full gates running; must be accepted before merge",
+  "files": {
+    "app/api/v1/agents.py": "26c9e31424fdf9548f5d0f5cb28a6dd39465b971e570c434fdab07115924192f",
+    "app/database.py": "f481534754623cebd64f287ff4222f9345077d760f3f8dacd7ef053cd6fce548",
+    "app/middleware/db_retry.py": "490ed239b802b70319c811d175a32696a687560d4d2694c3adfedf3aaa524be9",
+    "tests/api/test_agent_work_limit.py": "0e422a4ebf75ab65a13ab7c2e69323cec0d23abd0225e4b9685d6f43c5307157",
+    "tests/unit/test_request_replay.py": "bfa001b4d812f80802c80c7d01fd05847eea8cd2feb0acd2fa33879b55b84717",
+    "docs/design/api-endpoints.md": "1a229c1b3974cd0bfce04c1bf34b89cb72fb0dd45f494ddde257db227e747be2",
+    "docs/design/business-logic.md": "965410549a39a8895d8ca6ecdb144da446845c0ef1795ab3516af3c1bbbd0f63",
+    "docs/design/error-handling.md": "2c0b0e93b90f107cbf803d57396b21738fa1e7c128381066e14a7b517ce96567",
+    "docs/testing/integration-inventory.md": "13256fc2674ef747f8730ef92a932c737361ec7b7c97bb496f868e2f32021990",
+    "tests/integration/agents/test_work_limit_postgres.py": "5d0d8c244d93e345ac799479b34f2fa25fa96ec09178fd908e29b16c75eb5ee5",
+    "tests/api/test_request_replay_production.py": "13eed4e806b8ab81cd1c520e6507f0bf52830a230a463c98206b8ef520580bc8"
+  },
+  "base_hashes": {
+    "app/api/v1/agents.py": "fba2ae091014bbaf168735a5e22b2395915fa272974675bd9d0621f2da59b202",
+    "app/database.py": "410a34075e58af554ddc42fc64f5bf4ca92b5057f985c22c016dd73e1b8ba001",
+    "app/middleware/db_retry.py": null,
+    "tests/api/test_agent_work_limit.py": null,
+    "tests/unit/test_request_replay.py": null,
+    "docs/design/api-endpoints.md": "6d97e197b0ff25f978445f4f3b3ab97f6d86564ecdb3f3b3d7cc861dc70345a3",
+    "docs/design/business-logic.md": "91f17c6d8b284b8dbf8827eeb7bdafc6e751e5b478e1942c84e76b0a448e06b5",
+    "docs/design/error-handling.md": "814994f8495b792d79b09031bbb7d11adadee69ace49cf827b9557e39d3376bb",
+    "docs/testing/integration-inventory.md": "3d6fbb61aec2758aae7d281a68e10cd8072f806a3789de65facb1057bec5bfc4",
+    "tests/integration/agents/test_work_limit_postgres.py": null,
+    "tests/api/test_request_replay_production.py": null
+  },
+  "validation": {
+    "o": {
+      "passed": 15,
+      "exit": 0
+    },
+    "p": {
+      "passed": 73,
+      "exit": 0,
+      "seconds": 25.64
+    },
+    "browser_q": {
+      "exit": 0,
+      "server_sigint_exit": 130
+    }
+  }
+}
