@@ -1,0 +1,28 @@
+{
+  "date": "2026-10-07",
+  "baseline": "ab1f157daa92cb790302d526b0b724f1860fa502",
+  "branch": "main",
+  "worktree_status_before_edit": "",
+  "checks": [
+    {
+      "commit": "4c804edf79083a2e5ab82d9ccd21b728a33f0023",
+      "scope": "P0-1/2/3/7/8/9 and B9",
+      "ancestor_exit_code": 0
+    },
+    {
+      "commit": "7fd81217029b4b35dd3d20aaa1af1c7973d29484",
+      "scope": "original P0-4, reclassified P1",
+      "ancestor_exit_code": 0
+    },
+    {
+      "commit": "e535e1f775a24c2e0c7082b9a1240f5f579f5e6f",
+      "scope": "original P0-6, reclassified P1",
+      "ancestor_exit_code": 0
+    }
+  ],
+  "runtime_diff": "",
+  "original_p0_5": "P2; V27 candidate not accepted or merged",
+  "tests_rerun_for_this_check": false,
+  "remote_fetched": false,
+  "remote_pushed": false
+}
