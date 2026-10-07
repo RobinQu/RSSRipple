@@ -5,11 +5,12 @@ import json
 import os
 from pathlib import Path
 
-from app.services.decision_schema import install_decision_constraints
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import create_async_engine
+
+from app.services.decision_schema import install_decision_constraints
 
 
 async def main():

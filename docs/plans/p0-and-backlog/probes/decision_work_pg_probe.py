@@ -16,8 +16,6 @@ url = make_url(os.environ["DATABASE_URL"])
 assert url.drivername == "postgresql+asyncpg" and url.host == "127.0.0.1"
 assert (url.username, url.password, url.database) == ("organize_test",) * 3
 
-from app.services.decision_store import choice_identity
-
 import app.database as database
 import app.models  # noqa: F401
 from app.api.v1.decisions import _ai_pick_and_dispatch
@@ -26,6 +24,7 @@ from app.models.channel import Channel
 from app.models.downloader import DownloaderInstance
 from app.models.movie import Movie
 from app.models.pending_decision import PendingDecision
+from app.services.decision_store import choice_identity
 from app.services.required_fields import normalize_required_fields
 from app.utils.time import utcnow
 from tests.unit.test_agent_service import _make_resource

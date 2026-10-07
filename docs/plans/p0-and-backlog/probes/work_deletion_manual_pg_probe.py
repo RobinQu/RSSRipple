@@ -12,11 +12,11 @@ import uuid
 from pathlib import Path
 from unittest.mock import patch
 
-import app.services.work_deletion as deletion
 from sqlalchemy import update
 
 import app.database as database
 import app.models  # noqa: F401
+import app.services.work_deletion as deletion
 from app.api.v1.movies import delete_movie
 from app.models.channel import Channel
 from app.models.file_resource import FileResource

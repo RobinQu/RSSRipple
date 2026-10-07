@@ -13,13 +13,12 @@ url = make_url(os.environ["DATABASE_URL"])
 assert url.drivername == "postgresql+asyncpg" and url.host in {"127.0.0.1", "localhost"}
 assert (url.username, url.password, url.database) == ("organize_test",) * 3
 
-from tests.unit.test_retired_season_cleanup import seed  # noqa: E402
-
 import app.database as database  # noqa: E402
 import app.models  # noqa: E402,F401
 from app.models.channel import Channel  # noqa: E402
 from app.models.series import TVSeries  # noqa: E402
 from scripts import retired_season_fields as cleanup  # noqa: E402
+from tests.unit.test_retired_season_cleanup import seed  # noqa: E402
 
 
 async def main():

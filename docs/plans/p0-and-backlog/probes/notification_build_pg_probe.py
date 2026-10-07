@@ -5,17 +5,17 @@ import os
 import sys
 from datetime import datetime, timedelta
 
-from app.models.notification_build_failure import NotificationBuildFailure
 from sqlalchemy import MetaData, event, inspect, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.util.concurrency import await_only
-from tests.integration.organize.test_notification_build_retry import seed_retry_task
 
 import app.database as database
 import app.models  # noqa: F401
+from app.models.notification_build_failure import NotificationBuildFailure
 from app.services import notification_build as build
 from app.services.scheduler import _process_download_notifications
+from tests.integration.organize.test_notification_build_retry import seed_retry_task
 
 
 async def main():

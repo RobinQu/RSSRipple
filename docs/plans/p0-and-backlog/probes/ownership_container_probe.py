@@ -4,9 +4,8 @@ import sys
 import time
 from pathlib import Path
 
-from app.services.organize_ownership import OwnershipBusyError, plan_lock
-
 from app.services.organize_executor import ExecOp, run_execution
+from app.services.organize_ownership import OwnershipBusyError, plan_lock
 
 root = Path("/locks")
 plan_id = "46d368dd-24a7-4794-b7ee-5807c869c3b5"

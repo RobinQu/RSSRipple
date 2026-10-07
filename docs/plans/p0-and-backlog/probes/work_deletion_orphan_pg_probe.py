@@ -11,7 +11,6 @@ import json
 import uuid
 from pathlib import Path
 
-from scripts.review_orphan_identities import apply_review, export_review
 from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 
@@ -19,6 +18,7 @@ import app.database as database
 import app.models  # noqa: F401
 from app.models.movie import Movie
 from app.models.work_external_id import WorkExternalId
+from scripts.review_orphan_identities import apply_review, export_review
 
 
 async def main():

@@ -14,10 +14,9 @@ url = make_url(os.environ["DATABASE_URL"])
 assert url.drivername == "postgresql+asyncpg" and url.host in {"127.0.0.1", "localhost"}
 assert (url.username, url.password, url.database) == ("organize_test",) * 3
 
-from app.services.schema_foreign_keys import _COLUMNS  # noqa: E402
-
 import app.database as database  # noqa: E402
 import app.models  # noqa: E402,F401
+from app.services.schema_foreign_keys import _COLUMNS  # noqa: E402
 
 
 async def missing_count(conn):

@@ -11,12 +11,12 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-import app.services.work_deletion as deletion
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 
 import app.database as database
 import app.models  # noqa: F401
+import app.services.work_deletion as deletion
 from app.api.v1.movies import delete_movie
 from app.models.agent import Agent
 from app.models.channel import Channel
