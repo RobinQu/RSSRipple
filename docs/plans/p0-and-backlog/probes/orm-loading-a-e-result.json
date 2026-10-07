@@ -1,0 +1,1196 @@
+{
+  "accepted": false,
+  "main_base": "c3a690a3daad0a9228f1a79d4a9bfe917d5eae46",
+  "runtime_changed": false,
+  "exits": {
+    "a_turso": 0,
+    "a_postgres": 0,
+    "b_turso": 0,
+    "b_postgres": 0,
+    "c_turso": 1,
+    "d_turso": 1,
+    "e_turso": 0,
+    "e_postgres": 0
+  },
+  "failure_c_d": "RecursionError from ORM graph passed through Any in a deliberately preloaded request session; c bounded root query, d unchanged baseline. Not claimed as reproduced production request.",
+  "cleanup": {
+    "project": "rssripple-v30-loading-a",
+    "exit": 0,
+    "labels": {
+      "containers": [],
+      "networks": [],
+      "volumes": []
+    }
+  },
+  "measurements": [
+    {
+      "phase": "a",
+      "backend": "turso",
+      "scale": 32,
+      "endpoint": "channels",
+      "page_size": 1,
+      "sql_count": 13,
+      "loaded": {
+        "Channel": 1,
+        "FileResource": 32,
+        "Agent": 2,
+        "PendingDecision": 64,
+        "DownloadTask": 64,
+        "AgentWork": 2
+      },
+      "elapsed_seconds": 0.14843532908707857,
+      "response_bytes": 889
+    },
+    {
+      "phase": "a",
+      "backend": "turso",
+      "scale": 32,
+      "endpoint": "channels",
+      "page_size": 2,
+      "sql_count": 15,
+      "loaded": {
+        "Channel": 2,
+        "FileResource": 64,
+        "Agent": 4,
+        "PendingDecision": 128,
+        "DownloadTask": 128,
+        "AgentWork": 4
+      },
+      "elapsed_seconds": 0.012895689345896244,
+      "response_bytes": 1698
+    },
+    {
+      "phase": "a",
+      "backend": "turso",
+      "scale": 32,
+      "endpoint": "channels",
+      "page_size": 4,
+      "sql_count": 19,
+      "loaded": {
+        "Channel": 4,
+        "FileResource": 128,
+        "Agent": 8,
+        "PendingDecision": 256,
+        "DownloadTask": 256,
+        "AgentWork": 8
+      },
+      "elapsed_seconds": 0.018117204308509827,
+      "response_bytes": 3316
+    },
+    {
+      "phase": "a",
+      "backend": "turso",
+      "scale": 32,
+      "endpoint": "agents",
+      "page_size": 1,
+      "sql_count": 14,
+      "loaded": {
+        "Agent": 1,
+        "PendingDecision": 32,
+        "DownloadTask": 32,
+        "AgentWork": 1,
+        "DownloaderInstance": 1,
+        "Channel": 1,
+        "Movie": 1,
+        "FileResource": 32
+      },
+      "elapsed_seconds": 0.04054156318306923,
+      "response_bytes": 47287
+    },
+    {
+      "phase": "a",
+      "backend": "turso",
+      "scale": 32,
+      "endpoint": "agents",
+      "page_size": 2,
+      "sql_count": 15,
+      "loaded": {
+        "Agent": 2,
+        "PendingDecision": 64,
+        "DownloadTask": 64,
+        "AgentWork": 2,
+        "DownloaderInstance": 1,
+        "Channel": 1,
+        "Movie": 1,
+        "FileResource": 32
+      },
+      "elapsed_seconds": 0.02108020707964897,
+      "response_bytes": 94494
+    },
+    {
+      "phase": "a",
+      "backend": "turso",
+      "scale": 32,
+      "endpoint": "agents",
+      "page_size": 4,
+      "sql_count": 17,
+      "loaded": {
+        "Agent": 4,
+        "PendingDecision": 128,
+        "DownloadTask": 128,
+        "AgentWork": 4,
+        "DownloaderInstance": 1,
+        "Channel": 2,
+        "Movie": 1,
+        "FileResource": 64
+      },
+      "elapsed_seconds": 0.03164743445813656,
+      "response_bytes": 188908
+    },
+    {
+      "phase": "a",
+      "backend": "turso",
+      "scale": 512,
+      "endpoint": "channels",
+      "page_size": 1,
+      "sql_count": 13,
+      "loaded": {
+        "Channel": 1,
+        "FileResource": 512,
+        "Agent": 2,
+        "PendingDecision": 1024,
+        "DownloadTask": 1024,
+        "AgentWork": 2
+      },
+      "elapsed_seconds": 0.049375941045582294,
+      "response_bytes": 890
+    },
+    {
+      "phase": "a",
+      "backend": "turso",
+      "scale": 512,
+      "endpoint": "channels",
+      "page_size": 2,
+      "sql_count": 15,
+      "loaded": {
+        "Channel": 2,
+        "FileResource": 1024,
+        "Agent": 4,
+        "PendingDecision": 2048,
+        "DownloadTask": 2048,
+        "AgentWork": 4
+      },
+      "elapsed_seconds": 0.07305912394076586,
+      "response_bytes": 1700
+    },
+    {
+      "phase": "a",
+      "backend": "turso",
+      "scale": 512,
+      "endpoint": "channels",
+      "page_size": 4,
+      "sql_count": 19,
+      "loaded": {
+        "Channel": 4,
+        "FileResource": 2048,
+        "Agent": 8,
+        "PendingDecision": 4096,
+        "DownloadTask": 4096,
+        "AgentWork": 8
+      },
+      "elapsed_seconds": 0.2201883802190423,
+      "response_bytes": 3320
+    },
+    {
+      "phase": "a",
+      "backend": "turso",
+      "scale": 512,
+      "endpoint": "agents",
+      "page_size": 1,
+      "sql_count": 14,
+      "loaded": {
+        "Agent": 1,
+        "PendingDecision": 512,
+        "DownloadTask": 512,
+        "AgentWork": 1,
+        "DownloaderInstance": 1,
+        "Channel": 1,
+        "Movie": 1,
+        "FileResource": 512
+      },
+      "elapsed_seconds": 0.06970952451229095,
+      "response_bytes": 716514
+    },
+    {
+      "phase": "a",
+      "backend": "turso",
+      "scale": 512,
+      "endpoint": "agents",
+      "page_size": 2,
+      "sql_count": 15,
+      "loaded": {
+        "Agent": 2,
+        "PendingDecision": 1024,
+        "DownloadTask": 1024,
+        "AgentWork": 2,
+        "DownloaderInstance": 1,
+        "Channel": 1,
+        "Movie": 1,
+        "FileResource": 512
+      },
+      "elapsed_seconds": 0.1026392225176096,
+      "response_bytes": 1432948
+    },
+    {
+      "phase": "a",
+      "backend": "turso",
+      "scale": 512,
+      "endpoint": "agents",
+      "page_size": 4,
+      "sql_count": 17,
+      "loaded": {
+        "Agent": 4,
+        "PendingDecision": 2048,
+        "DownloadTask": 2048,
+        "AgentWork": 4,
+        "DownloaderInstance": 1,
+        "Channel": 2,
+        "Movie": 1,
+        "FileResource": 1024
+      },
+      "elapsed_seconds": 0.2532113203778863,
+      "response_bytes": 2865816
+    },
+    {
+      "phase": "a",
+      "backend": "postgres",
+      "scale": 32,
+      "endpoint": "channels",
+      "page_size": 1,
+      "sql_count": 13,
+      "loaded": {
+        "Channel": 1,
+        "FileResource": 32,
+        "Agent": 2,
+        "PendingDecision": 64,
+        "DownloadTask": 64,
+        "AgentWork": 2
+      },
+      "elapsed_seconds": 0.164108419790864,
+      "response_bytes": 896
+    },
+    {
+      "phase": "a",
+      "backend": "postgres",
+      "scale": 32,
+      "endpoint": "channels",
+      "page_size": 2,
+      "sql_count": 15,
+      "loaded": {
+        "Channel": 2,
+        "FileResource": 64,
+        "Agent": 4,
+        "PendingDecision": 128,
+        "DownloadTask": 128,
+        "AgentWork": 4
+      },
+      "elapsed_seconds": 0.0173404598608613,
+      "response_bytes": 1712
+    },
+    {
+      "phase": "a",
+      "backend": "postgres",
+      "scale": 32,
+      "endpoint": "channels",
+      "page_size": 4,
+      "sql_count": 19,
+      "loaded": {
+        "Channel": 4,
+        "FileResource": 128,
+        "Agent": 8,
+        "PendingDecision": 256,
+        "DownloadTask": 256,
+        "AgentWork": 8
+      },
+      "elapsed_seconds": 0.02263848390430212,
+      "response_bytes": 3344
+    },
+    {
+      "phase": "a",
+      "backend": "postgres",
+      "scale": 32,
+      "endpoint": "agents",
+      "page_size": 1,
+      "sql_count": 14,
+      "loaded": {
+        "Agent": 1,
+        "PendingDecision": 32,
+        "DownloadTask": 32,
+        "AgentWork": 1,
+        "DownloaderInstance": 1,
+        "Channel": 1,
+        "Movie": 1,
+        "FileResource": 32
+      },
+      "elapsed_seconds": 0.029933414421975613,
+      "response_bytes": 47791
+    },
+    {
+      "phase": "a",
+      "backend": "postgres",
+      "scale": 32,
+      "endpoint": "agents",
+      "page_size": 2,
+      "sql_count": 15,
+      "loaded": {
+        "Agent": 2,
+        "PendingDecision": 64,
+        "DownloadTask": 64,
+        "AgentWork": 2,
+        "DownloaderInstance": 1,
+        "Channel": 1,
+        "Movie": 1,
+        "FileResource": 32
+      },
+      "elapsed_seconds": 0.0167993800714612,
+      "response_bytes": 95502
+    },
+    {
+      "phase": "a",
+      "backend": "postgres",
+      "scale": 32,
+      "endpoint": "agents",
+      "page_size": 4,
+      "sql_count": 17,
+      "loaded": {
+        "Agent": 4,
+        "PendingDecision": 128,
+        "DownloadTask": 128,
+        "AgentWork": 4,
+        "DownloaderInstance": 1,
+        "Channel": 2,
+        "Movie": 1,
+        "FileResource": 64
+      },
+      "elapsed_seconds": 0.024122080765664577,
+      "response_bytes": 190924
+    },
+    {
+      "phase": "a",
+      "backend": "postgres",
+      "scale": 512,
+      "endpoint": "channels",
+      "page_size": 1,
+      "sql_count": 13,
+      "loaded": {
+        "Channel": 1,
+        "FileResource": 512,
+        "Agent": 2,
+        "PendingDecision": 1024,
+        "DownloadTask": 1024,
+        "AgentWork": 2
+      },
+      "elapsed_seconds": 0.09861707035452127,
+      "response_bytes": 897
+    },
+    {
+      "phase": "a",
+      "backend": "postgres",
+      "scale": 512,
+      "endpoint": "channels",
+      "page_size": 2,
+      "sql_count": 15,
+      "loaded": {
+        "Channel": 2,
+        "FileResource": 1024,
+        "Agent": 4,
+        "PendingDecision": 2048,
+        "DownloadTask": 2048,
+        "AgentWork": 4
+      },
+      "elapsed_seconds": 0.08080304227769375,
+      "response_bytes": 1714
+    },
+    {
+      "phase": "a",
+      "backend": "postgres",
+      "scale": 512,
+      "endpoint": "channels",
+      "page_size": 4,
+      "sql_count": 19,
+      "loaded": {
+        "Channel": 4,
+        "FileResource": 2048,
+        "Agent": 8,
+        "PendingDecision": 4096,
+        "DownloadTask": 4096,
+        "AgentWork": 8
+      },
+      "elapsed_seconds": 0.2348414110019803,
+      "response_bytes": 3348
+    },
+    {
+      "phase": "a",
+      "backend": "postgres",
+      "scale": 512,
+      "endpoint": "agents",
+      "page_size": 1,
+      "sql_count": 14,
+      "loaded": {
+        "Agent": 1,
+        "PendingDecision": 512,
+        "DownloadTask": 512,
+        "AgentWork": 1,
+        "DownloaderInstance": 1,
+        "Channel": 1,
+        "Movie": 1,
+        "FileResource": 512
+      },
+      "elapsed_seconds": 0.0730842836201191,
+      "response_bytes": 723738
+    },
+    {
+      "phase": "a",
+      "backend": "postgres",
+      "scale": 512,
+      "endpoint": "agents",
+      "page_size": 2,
+      "sql_count": 15,
+      "loaded": {
+        "Agent": 2,
+        "PendingDecision": 1024,
+        "DownloadTask": 1024,
+        "AgentWork": 2,
+        "DownloaderInstance": 1,
+        "Channel": 1,
+        "Movie": 1,
+        "FileResource": 512
+      },
+      "elapsed_seconds": 0.1043768422678113,
+      "response_bytes": 1447396
+    },
+    {
+      "phase": "a",
+      "backend": "postgres",
+      "scale": 512,
+      "endpoint": "agents",
+      "page_size": 4,
+      "sql_count": 17,
+      "loaded": {
+        "Agent": 4,
+        "PendingDecision": 2048,
+        "DownloadTask": 2048,
+        "AgentWork": 4,
+        "DownloaderInstance": 1,
+        "Channel": 2,
+        "Movie": 1,
+        "FileResource": 1024
+      },
+      "elapsed_seconds": 0.19851991347968578,
+      "response_bytes": 2894712
+    },
+    {
+      "phase": "b",
+      "backend": "turso",
+      "scale": 32,
+      "endpoint": "channels",
+      "page_size": 1,
+      "sql_count": 4,
+      "loaded": {
+        "Channel": 1
+      },
+      "elapsed_seconds": 0.07873347494751215,
+      "response_bytes": 889
+    },
+    {
+      "phase": "b",
+      "backend": "turso",
+      "scale": 32,
+      "endpoint": "channels",
+      "page_size": 2,
+      "sql_count": 6,
+      "loaded": {
+        "Channel": 2
+      },
+      "elapsed_seconds": 0.00426066666841507,
+      "response_bytes": 1698
+    },
+    {
+      "phase": "b",
+      "backend": "turso",
+      "scale": 32,
+      "endpoint": "channels",
+      "page_size": 4,
+      "sql_count": 10,
+      "loaded": {
+        "Channel": 4
+      },
+      "elapsed_seconds": 0.0058561451733112335,
+      "response_bytes": 3316
+    },
+    {
+      "phase": "b",
+      "backend": "turso",
+      "scale": 32,
+      "endpoint": "agents",
+      "page_size": 1,
+      "sql_count": 7,
+      "loaded": {
+        "Agent": 1,
+        "AgentWork": 1,
+        "DownloaderInstance": 1,
+        "Channel": 1,
+        "Movie": 1
+      },
+      "elapsed_seconds": 0.07433733623474836,
+      "response_bytes": 2813
+    },
+    {
+      "phase": "b",
+      "backend": "turso",
+      "scale": 32,
+      "endpoint": "agents",
+      "page_size": 2,
+      "sql_count": 8,
+      "loaded": {
+        "Agent": 2,
+        "AgentWork": 2,
+        "DownloaderInstance": 1,
+        "Channel": 1,
+        "Movie": 1
+      },
+      "elapsed_seconds": 0.009361467324197292,
+      "response_bytes": 5546
+    },
+    {
+      "phase": "b",
+      "backend": "turso",
+      "scale": 32,
+      "endpoint": "agents",
+      "page_size": 4,
+      "sql_count": 10,
+      "loaded": {
+        "Agent": 4,
+        "AgentWork": 4,
+        "DownloaderInstance": 1,
+        "Channel": 2,
+        "Movie": 1
+      },
+      "elapsed_seconds": 0.011544967070221901,
+      "response_bytes": 11012
+    },
+    {
+      "phase": "b",
+      "backend": "turso",
+      "scale": 512,
+      "endpoint": "channels",
+      "page_size": 1,
+      "sql_count": 4,
+      "loaded": {
+        "Channel": 1
+      },
+      "elapsed_seconds": 0.009066112339496613,
+      "response_bytes": 890
+    },
+    {
+      "phase": "b",
+      "backend": "turso",
+      "scale": 512,
+      "endpoint": "channels",
+      "page_size": 2,
+      "sql_count": 6,
+      "loaded": {
+        "Channel": 2
+      },
+      "elapsed_seconds": 0.007750099524855614,
+      "response_bytes": 1700
+    },
+    {
+      "phase": "b",
+      "backend": "turso",
+      "scale": 512,
+      "endpoint": "channels",
+      "page_size": 4,
+      "sql_count": 10,
+      "loaded": {
+        "Channel": 4
+      },
+      "elapsed_seconds": 0.011508625000715256,
+      "response_bytes": 3320
+    },
+    {
+      "phase": "b",
+      "backend": "turso",
+      "scale": 512,
+      "endpoint": "agents",
+      "page_size": 1,
+      "sql_count": 7,
+      "loaded": {
+        "Agent": 1,
+        "AgentWork": 1,
+        "DownloaderInstance": 1,
+        "Channel": 1,
+        "Movie": 1
+      },
+      "elapsed_seconds": 0.024097340181469917,
+      "response_bytes": 2813
+    },
+    {
+      "phase": "b",
+      "backend": "turso",
+      "scale": 512,
+      "endpoint": "agents",
+      "page_size": 2,
+      "sql_count": 8,
+      "loaded": {
+        "Agent": 2,
+        "AgentWork": 2,
+        "DownloaderInstance": 1,
+        "Channel": 1,
+        "Movie": 1
+      },
+      "elapsed_seconds": 0.014764073304831982,
+      "response_bytes": 5546
+    },
+    {
+      "phase": "b",
+      "backend": "turso",
+      "scale": 512,
+      "endpoint": "agents",
+      "page_size": 4,
+      "sql_count": 10,
+      "loaded": {
+        "Agent": 4,
+        "AgentWork": 4,
+        "DownloaderInstance": 1,
+        "Channel": 2,
+        "Movie": 1
+      },
+      "elapsed_seconds": 0.015657548792660236,
+      "response_bytes": 11012
+    },
+    {
+      "phase": "b",
+      "backend": "postgres",
+      "scale": 32,
+      "endpoint": "channels",
+      "page_size": 1,
+      "sql_count": 4,
+      "loaded": {
+        "Channel": 1
+      },
+      "elapsed_seconds": 0.1384421195834875,
+      "response_bytes": 896
+    },
+    {
+      "phase": "b",
+      "backend": "postgres",
+      "scale": 32,
+      "endpoint": "channels",
+      "page_size": 2,
+      "sql_count": 6,
+      "loaded": {
+        "Channel": 2
+      },
+      "elapsed_seconds": 0.00462484173476696,
+      "response_bytes": 1712
+    },
+    {
+      "phase": "b",
+      "backend": "postgres",
+      "scale": 32,
+      "endpoint": "channels",
+      "page_size": 4,
+      "sql_count": 10,
+      "loaded": {
+        "Channel": 4
+      },
+      "elapsed_seconds": 0.005999637767672539,
+      "response_bytes": 3344
+    },
+    {
+      "phase": "b",
+      "backend": "postgres",
+      "scale": 32,
+      "endpoint": "agents",
+      "page_size": 1,
+      "sql_count": 7,
+      "loaded": {
+        "Agent": 1,
+        "AgentWork": 1,
+        "DownloaderInstance": 1,
+        "Channel": 1,
+        "Movie": 1
+      },
+      "elapsed_seconds": 0.02219029702246189,
+      "response_bytes": 2869
+    },
+    {
+      "phase": "b",
+      "backend": "postgres",
+      "scale": 32,
+      "endpoint": "agents",
+      "page_size": 2,
+      "sql_count": 8,
+      "loaded": {
+        "Agent": 2,
+        "AgentWork": 2,
+        "DownloaderInstance": 1,
+        "Channel": 1,
+        "Movie": 1
+      },
+      "elapsed_seconds": 0.008639123290777206,
+      "response_bytes": 5658
+    },
+    {
+      "phase": "b",
+      "backend": "postgres",
+      "scale": 32,
+      "endpoint": "agents",
+      "page_size": 4,
+      "sql_count": 10,
+      "loaded": {
+        "Agent": 4,
+        "AgentWork": 4,
+        "DownloaderInstance": 1,
+        "Channel": 2,
+        "Movie": 1
+      },
+      "elapsed_seconds": 0.008933458477258682,
+      "response_bytes": 11236
+    },
+    {
+      "phase": "b",
+      "backend": "postgres",
+      "scale": 512,
+      "endpoint": "channels",
+      "page_size": 1,
+      "sql_count": 4,
+      "loaded": {
+        "Channel": 1
+      },
+      "elapsed_seconds": 0.01652036514133215,
+      "response_bytes": 897
+    },
+    {
+      "phase": "b",
+      "backend": "postgres",
+      "scale": 512,
+      "endpoint": "channels",
+      "page_size": 2,
+      "sql_count": 6,
+      "loaded": {
+        "Channel": 2
+      },
+      "elapsed_seconds": 0.007826429791748524,
+      "response_bytes": 1714
+    },
+    {
+      "phase": "b",
+      "backend": "postgres",
+      "scale": 512,
+      "endpoint": "channels",
+      "page_size": 4,
+      "sql_count": 10,
+      "loaded": {
+        "Channel": 4
+      },
+      "elapsed_seconds": 0.010676600970327854,
+      "response_bytes": 3348
+    },
+    {
+      "phase": "b",
+      "backend": "postgres",
+      "scale": 512,
+      "endpoint": "agents",
+      "page_size": 1,
+      "sql_count": 7,
+      "loaded": {
+        "Agent": 1,
+        "AgentWork": 1,
+        "DownloaderInstance": 1,
+        "Channel": 1,
+        "Movie": 1
+      },
+      "elapsed_seconds": 0.021886710077524185,
+      "response_bytes": 2869
+    },
+    {
+      "phase": "b",
+      "backend": "postgres",
+      "scale": 512,
+      "endpoint": "agents",
+      "page_size": 2,
+      "sql_count": 8,
+      "loaded": {
+        "Agent": 2,
+        "AgentWork": 2,
+        "DownloaderInstance": 1,
+        "Channel": 1,
+        "Movie": 1
+      },
+      "elapsed_seconds": 0.011414634063839912,
+      "response_bytes": 5658
+    },
+    {
+      "phase": "b",
+      "backend": "postgres",
+      "scale": 512,
+      "endpoint": "agents",
+      "page_size": 4,
+      "sql_count": 10,
+      "loaded": {
+        "Agent": 4,
+        "AgentWork": 4,
+        "DownloaderInstance": 1,
+        "Channel": 2,
+        "Movie": 1
+      },
+      "elapsed_seconds": 0.01368983555585146,
+      "response_bytes": 11236
+    },
+    {
+      "phase": "e",
+      "backend": "turso",
+      "scale": 32,
+      "endpoint": "channels",
+      "page_size": 1,
+      "sql_count": 14,
+      "loaded": {},
+      "elapsed_seconds": 0.15227969828993082,
+      "response_bytes": 889
+    },
+    {
+      "phase": "e",
+      "backend": "turso",
+      "scale": 32,
+      "endpoint": "channels",
+      "page_size": 2,
+      "sql_count": 16,
+      "loaded": {
+        "Channel": 1
+      },
+      "elapsed_seconds": 0.015439076349139214,
+      "response_bytes": 1698
+    },
+    {
+      "phase": "e",
+      "backend": "turso",
+      "scale": 32,
+      "endpoint": "channels",
+      "page_size": 4,
+      "sql_count": 20,
+      "loaded": {
+        "Channel": 3
+      },
+      "elapsed_seconds": 0.016850311309099197,
+      "response_bytes": 3316
+    },
+    {
+      "phase": "e",
+      "backend": "turso",
+      "scale": 32,
+      "endpoint": "agents",
+      "page_size": 1,
+      "sql_count": 17,
+      "loaded": {
+        "DownloaderInstance": 1,
+        "Movie": 1
+      },
+      "elapsed_seconds": 0.024965704418718815,
+      "response_bytes": 2813
+    },
+    {
+      "phase": "e",
+      "backend": "turso",
+      "scale": 32,
+      "endpoint": "agents",
+      "page_size": 2,
+      "sql_count": 18,
+      "loaded": {
+        "DownloaderInstance": 1,
+        "Movie": 1
+      },
+      "elapsed_seconds": 0.019320225343108177,
+      "response_bytes": 5546
+    },
+    {
+      "phase": "e",
+      "backend": "turso",
+      "scale": 32,
+      "endpoint": "agents",
+      "page_size": 4,
+      "sql_count": 20,
+      "loaded": {
+        "Agent": 2,
+        "AgentWork": 2,
+        "DownloaderInstance": 1,
+        "Channel": 1,
+        "Movie": 1
+      },
+      "elapsed_seconds": 0.02156792487949133,
+      "response_bytes": 11012
+    },
+    {
+      "phase": "e",
+      "backend": "turso",
+      "scale": 512,
+      "endpoint": "channels",
+      "page_size": 1,
+      "sql_count": 14,
+      "loaded": {},
+      "elapsed_seconds": 0.09437674377113581,
+      "response_bytes": 890
+    },
+    {
+      "phase": "e",
+      "backend": "turso",
+      "scale": 512,
+      "endpoint": "channels",
+      "page_size": 2,
+      "sql_count": 16,
+      "loaded": {
+        "Channel": 1
+      },
+      "elapsed_seconds": 0.07962876092642546,
+      "response_bytes": 1700
+    },
+    {
+      "phase": "e",
+      "backend": "turso",
+      "scale": 512,
+      "endpoint": "channels",
+      "page_size": 4,
+      "sql_count": 20,
+      "loaded": {
+        "Channel": 3
+      },
+      "elapsed_seconds": 0.08106233738362789,
+      "response_bytes": 3320
+    },
+    {
+      "phase": "e",
+      "backend": "turso",
+      "scale": 512,
+      "endpoint": "agents",
+      "page_size": 1,
+      "sql_count": 17,
+      "loaded": {
+        "DownloaderInstance": 1,
+        "Movie": 1
+      },
+      "elapsed_seconds": 0.07509922981262207,
+      "response_bytes": 2813
+    },
+    {
+      "phase": "e",
+      "backend": "turso",
+      "scale": 512,
+      "endpoint": "agents",
+      "page_size": 2,
+      "sql_count": 18,
+      "loaded": {
+        "DownloaderInstance": 1,
+        "Movie": 1
+      },
+      "elapsed_seconds": 0.06031062640249729,
+      "response_bytes": 5546
+    },
+    {
+      "phase": "e",
+      "backend": "turso",
+      "scale": 512,
+      "endpoint": "agents",
+      "page_size": 4,
+      "sql_count": 20,
+      "loaded": {
+        "Agent": 2,
+        "AgentWork": 2,
+        "DownloaderInstance": 1,
+        "Channel": 1,
+        "Movie": 1
+      },
+      "elapsed_seconds": 0.06271487008780241,
+      "response_bytes": 11012
+    },
+    {
+      "phase": "e",
+      "backend": "postgres",
+      "scale": 32,
+      "endpoint": "channels",
+      "page_size": 1,
+      "sql_count": 14,
+      "loaded": {},
+      "elapsed_seconds": 0.16248992085456848,
+      "response_bytes": 896
+    },
+    {
+      "phase": "e",
+      "backend": "postgres",
+      "scale": 32,
+      "endpoint": "channels",
+      "page_size": 2,
+      "sql_count": 16,
+      "loaded": {
+        "Channel": 1
+      },
+      "elapsed_seconds": 0.012659726664423943,
+      "response_bytes": 1712
+    },
+    {
+      "phase": "e",
+      "backend": "postgres",
+      "scale": 32,
+      "endpoint": "channels",
+      "page_size": 4,
+      "sql_count": 20,
+      "loaded": {
+        "Channel": 3
+      },
+      "elapsed_seconds": 0.013715735636651516,
+      "response_bytes": 3344
+    },
+    {
+      "phase": "e",
+      "backend": "postgres",
+      "scale": 32,
+      "endpoint": "agents",
+      "page_size": 1,
+      "sql_count": 17,
+      "loaded": {
+        "DownloaderInstance": 1,
+        "Movie": 1
+      },
+      "elapsed_seconds": 0.026347610168159008,
+      "response_bytes": 2869
+    },
+    {
+      "phase": "e",
+      "backend": "postgres",
+      "scale": 32,
+      "endpoint": "agents",
+      "page_size": 2,
+      "sql_count": 18,
+      "loaded": {
+        "DownloaderInstance": 1,
+        "Movie": 1
+      },
+      "elapsed_seconds": 0.014578759670257568,
+      "response_bytes": 5658
+    },
+    {
+      "phase": "e",
+      "backend": "postgres",
+      "scale": 32,
+      "endpoint": "agents",
+      "page_size": 4,
+      "sql_count": 20,
+      "loaded": {
+        "Agent": 2,
+        "AgentWork": 2,
+        "DownloaderInstance": 1,
+        "Channel": 1,
+        "Movie": 1
+      },
+      "elapsed_seconds": 0.018439059145748615,
+      "response_bytes": 11236
+    },
+    {
+      "phase": "e",
+      "backend": "postgres",
+      "scale": 512,
+      "endpoint": "channels",
+      "page_size": 1,
+      "sql_count": 14,
+      "loaded": {},
+      "elapsed_seconds": 0.08869960438460112,
+      "response_bytes": 897
+    },
+    {
+      "phase": "e",
+      "backend": "postgres",
+      "scale": 512,
+      "endpoint": "channels",
+      "page_size": 2,
+      "sql_count": 16,
+      "loaded": {
+        "Channel": 1
+      },
+      "elapsed_seconds": 0.03961838688701391,
+      "response_bytes": 1714
+    },
+    {
+      "phase": "e",
+      "backend": "postgres",
+      "scale": 512,
+      "endpoint": "channels",
+      "page_size": 4,
+      "sql_count": 20,
+      "loaded": {
+        "Channel": 3
+      },
+      "elapsed_seconds": 0.04143904894590378,
+      "response_bytes": 3348
+    },
+    {
+      "phase": "e",
+      "backend": "postgres",
+      "scale": 512,
+      "endpoint": "agents",
+      "page_size": 1,
+      "sql_count": 17,
+      "loaded": {
+        "DownloaderInstance": 1,
+        "Movie": 1
+      },
+      "elapsed_seconds": 0.04671622347086668,
+      "response_bytes": 2869
+    },
+    {
+      "phase": "e",
+      "backend": "postgres",
+      "scale": 512,
+      "endpoint": "agents",
+      "page_size": 2,
+      "sql_count": 18,
+      "loaded": {
+        "DownloaderInstance": 1,
+        "Movie": 1
+      },
+      "elapsed_seconds": 0.04002365376800299,
+      "response_bytes": 5658
+    },
+    {
+      "phase": "e",
+      "backend": "postgres",
+      "scale": 512,
+      "endpoint": "agents",
+      "page_size": 4,
+      "sql_count": 20,
+      "loaded": {
+        "Agent": 2,
+        "AgentWork": 2,
+        "DownloaderInstance": 1,
+        "Channel": 1,
+        "Movie": 1
+      },
+      "elapsed_seconds": 0.04541245009750128,
+      "response_bytes": 11236
+    }
+  ],
+  "artifacts": {
+    "orm-loading-a-turso.log.gz": "48dcf9721d35663ceeeae3a981a237a90603cc9f51c7ee8c148b74e848424b9c",
+    "orm-loading-a-turso.json.gz": "54cc220a64a41f583cb481582ac02bcfaa1267bb1e33938f0223e195864258bd",
+    "orm-loading-a-postgres.log.gz": "b21c1ad512bf78c7e792c7432df7b49710714f7450a8b7b50df76315b31fbf5d",
+    "orm-loading-a-postgres.json.gz": "66c7b1324404ffbd0df5efac5e77f7fa03ff64663544e26fb76f989ad81aff55",
+    "orm-loading-b-turso.log.gz": "18cbdba7cba4d9501b57febe5e74bcb7fb6836b2d257fb25ec3a5c34a0798fa9",
+    "orm-loading-b-turso.json.gz": "cbf30ba1afd85fa37036314fd1c7a72dc764350dfe30ff8e35e958f1d65a8984",
+    "orm-loading-b-postgres.log.gz": "0bd7b649354cd371b3132f626694e52fe58dedc4f8ef2b7f097de040f9b985a6",
+    "orm-loading-b-postgres.json.gz": "f4e6ba3f164ea252f68c01ac3ce57aa63648d390f921ce1e48d54dce04d45d1a",
+    "orm-loading-c-turso.log.gz": "12e02dbef471f971ef06ca79a83e0327b04f62b915d127931245edc46ac141fa",
+    "orm-loading-d-turso.log.gz": "17c124a1c6c82f40874e97421cc373b47cc7eddc4a5d2444f92012e96abbde68",
+    "orm-loading-e-turso.log.gz": "270adc39718155536cff227d45032e1131c59af6a2cee6249101560bd9f31bdc",
+    "orm-loading-e-turso.json.gz": "3887383b66df3480355858a0053479435814e370385c9b785085b931285f6de7",
+    "orm-loading-e-postgres.log.gz": "47bdbc1114a9a731c4d59fc1c7cf26f0dd13230bae48ead29452e61769e5fe4b",
+    "orm-loading-e-postgres.json.gz": "cc217f19d2bc855dcb11816235c5c64df26b03e1c261507604f9e1ff63db0ea5",
+    "orm-loading-a-source.py.txt": "3346665051a28052e8ff652aaeb1903f0faa2194184e1239889cd9f1fbac636a",
+    "orm-loading-b-source.py.txt": "6dc0276a01b01ae971dd4a1dcc8a9582f89adaa4c97459c6da8545a7c2455fa2",
+    "orm-loading-c-source.py.txt": "76f2b5b5b526cd62d4eea283113e44249830dcd3f90b000d1093e2d8a91230e9",
+    "orm-loading-d-source.py.txt": "643b35078878af0bf9aa72c01d96308c01dacb6127d6c621aa7b941fa30311f6",
+    "orm-loading-e-source.py.txt": "56512380dff92977e33200e31834a6de24e9f0243e47fb7028bd82e881c4ebcb",
+    "orm-loading-accesses.json.gz": "1733ecd44961ba72fc0aeaf634405b836dc4574cb93cd7775763c978f9335f22",
+    "orm-loading-cleanup.log.gz": "a3402b0a311962a49fe7ceb89deb62ff05ffb540dc456cd04e744aab0926d3b1",
+    "orm-loading-startup.log.gz": "16d333a9239767db78e1976066763903136acdc7ecb7f0fba9c25d3dd0548f5d"
+  },
+  "scope": "Exploratory actual route/real dual DB diagnostics, not formal pytest or final gates; captured raw titles/movie identity, synthetic relationships and histories."
+}

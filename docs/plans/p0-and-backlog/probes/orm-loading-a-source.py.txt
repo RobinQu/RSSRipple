@@ -1,0 +1,110 @@
+"""Measure actual list API SQL and ORM materialization on a labelled synthetic graph."""
+import asyncio
+from collections import Counter
+from datetime import datetime, timedelta
+import hashlib
+import json
+from pathlib import Path
+import sys
+import tempfile
+import time
+import uuid
+
+import httpx
+from fastapi import FastAPI
+from sqlalchemy import event, insert, text
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+
+import app.models  # noqa: F401
+from app.api.v1.agents import router as agents_router
+from app.api.v1.channels import router as channels_router
+from app.database import Base, apply_db_pragmas, get_db, normalize_database_url
+from app.models.agent import Agent
+from app.models.agent_work import AgentWork
+from app.models.channel import Channel
+from app.models.downloader import DownloaderInstance
+from app.models.download_task import DownloadTask
+from app.models.file_resource import FileResource
+from app.models.movie import Movie
+from app.models.pending_decision import PendingDecision
+from app.services.decision_store import choice_identity
+
+async def run(backend, scale):
+    directory = tempfile.TemporaryDirectory(prefix='rssripple-v30-loading-')
+    url = sys.argv[2] if backend == 'postgres' else f'sqlite+aioturso:///{directory.name}/probe.db'
+    engine = create_async_engine(normalize_database_url(url))
+    apply_db_pragmas(engine)
+    schema = 'loading_' + uuid.uuid4().hex if backend == 'postgres' else None
+    if schema:
+        async with engine.begin() as connection:
+            await connection.execute(text(f'CREATE SCHEMA {schema}'))
+        await engine.dispose()
+        engine = create_async_engine(url, connect_args={'server_settings': {'search_path': schema}})
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    uid = lambda: str(uuid.uuid4())
+    corpus_bytes = Path('tests/fixtures/prod_works_v1.json').read_bytes()
+    corpus = json.loads(corpus_bytes)['tables']
+    recorded_movie = corpus['movies'][0]
+    movie = recorded_movie['id']; downloader = uid(); now = datetime(2026, 9, 4, 12)
+    channels = [dict(id=uid(), name=f'Synthetic channel {i}', type='rss_feed', url=f'https://example.invalid/{i}', field_mapping={}, created_at=now-timedelta(seconds=i)) for i in range(4)]
+    agents=[]; resources=[]; tasks=[]; decisions=[]; works=[]
+    key,scope=choice_identity('movie',movie,None,None)
+    for ci, channel in enumerate(channels):
+        rr=[]
+        for j in range(scale):
+            title=corpus['file_resources'][j % len(corpus['file_resources'])]['title_raw']
+            resource=dict(id=uid(), channel_id=channel['id'], guid=f'synthetic:{ci}:{j}', title_raw=title, torrent_url='https://example.invalid/torrent', movie_id=movie)
+            rr.append(resource);resources.append(resource)
+        for ai in range(2):
+            agent=dict(id=uid(),name=f'Synthetic agent {ci}-{ai}',channel_id=channel['id'],downloader_id=downloader,created_at=now-timedelta(seconds=ci*2+ai))
+            agents.append(agent);works.append(dict(id=uid(),agent_id=agent['id'],movie_id=movie,content_type='movie'))
+            for j in range(scale):
+                tasks.append(dict(id=uid(),agent_id=agent['id'],file_resource_id=rr[j]['id'],downloader_id=downloader,download_dir='/synthetic',status='pending' if j<2 else 'completed'))
+                decisions.append(dict(id=uid(),agent_id=agent['id'],movie_id=movie,status='decided',decision_key=key,decision_scope=scope,candidates=[rr[0]['id'],rr[1]['id']],reason='Synthetic history '+str(j)))
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+            if not schema:await connection.execute(text('PRAGMA journal_mode=mvcc'))
+            await connection.execute(insert(Channel),channels)
+            await connection.execute(insert(DownloaderInstance),dict(id=downloader,name='Synthetic downloader',type='mock',url='https://example.invalid/rpc',download_dir='/synthetic'))
+            await connection.execute(insert(Movie),dict(id=movie,title_cn=recorded_movie['title_cn'],title_en=recorded_movie['title_en']))
+            for model,rows in [(Agent,agents),(FileResource,resources),(AgentWork,works),(DownloadTask,tasks),(PendingDecision,decisions)]:
+                for start in range(0,len(rows),128):await connection.execute(insert(model),rows[start:start+128])
+        app=FastAPI();app.include_router(agents_router,prefix='/api/v1');app.include_router(channels_router,prefix='/api/v1')
+        loaded=Counter();sql=[]
+        async def database():
+            async with factory() as session:
+                event.listen(session.sync_session,'loaded_as_persistent',lambda session,obj:loaded.update([type(obj).__name__]))
+                yield session
+        app.dependency_overrides[get_db]=database
+        @event.listens_for(engine.sync_engine,'before_cursor_execute')
+        def statement(conn,cursor,query,params,context,many):
+            sql.append(query)
+        results=[]
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://synthetic') as client:
+            for endpoint in ['channels','agents']:
+                for page_size in [1,2,4]:
+                    loaded.clear();sql.clear();start=time.perf_counter()
+                    response=await client.get('/api/v1/'+endpoint,params={'page_size':page_size});elapsed=time.perf_counter()-start
+                    assert response.status_code==200,response.text
+                    payload=response.json();assert len(payload['data'])==page_size
+                    assert payload['meta']['total']==(4 if endpoint=='channels' else 8)
+                    for row in payload['data']:
+                        if endpoint=='channels':assert (row['agent_count'],row['resource_count'])==(2,scale)
+                        else:
+                            assert row['active_task_count']==2
+                            assert len(row['works'])==1 and row['works'][0]['movie_id']==movie
+                    results.append({'endpoint':endpoint,'page_size':page_size,'sql_count':len(sql),'loaded':dict(loaded),'elapsed_seconds':elapsed,'response_bytes':len(response.content),'sql':list(sql)})
+        return {'backend':backend,'resources_per_channel':scale,'rows':{'channels':4,'agents':8,'resources':len(resources),'tasks':len(tasks),'decisions':len(decisions)},'corpus_sha256':hashlib.sha256(corpus_bytes).hexdigest(),'provenance':'Recorded resource titles and movie identity/title; all channel/agent/history/links/distribution synthetic. No provider network.','results':results}
+    finally:
+        if schema:
+            async with engine.begin() as connection:await connection.execute(text(f'DROP SCHEMA {schema} CASCADE'))
+        await engine.dispose();directory.cleanup()
+
+async def main():
+    backend=sys.argv[1];results=[]
+    for scale in [32,512]:results.append(await run(backend,scale))
+    Path(sys.argv[3]).write_text(json.dumps(results,ensure_ascii=False,indent=2)+'\n')
+    for r in results:
+        for row in r['results']:print(json.dumps({k:v for k,v in row.items() if k!='sql'}|{'backend':backend,'scale':r['resources_per_channel']},ensure_ascii=False))
+asyncio.run(main())
