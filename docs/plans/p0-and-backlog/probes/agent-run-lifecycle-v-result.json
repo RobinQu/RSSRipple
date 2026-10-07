@@ -1,0 +1,52 @@
+{
+  "accepted": false,
+  "actual_exit": 0,
+  "source": "agent-run-lifecycle-u-source.json",
+  "passed": 66,
+  "skipped": 0,
+  "warnings": 1,
+  "seconds": 118.23,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "66",
+    "time": "118.219",
+    "timestamp": "2026-10-07T15:47:08.398940+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "source_hashes_verified": true,
+  "remaining": [
+    "legacy startup/upgrade including required ownership-column failure",
+    "offline historical review tool",
+    "formal rebase/full gates/final review"
+  ],
+  "limitations": [
+    "disconnect tests close sockets; no arbitrary blackhole timeout claim",
+    "scheduler next run advanced; registered 30-second interval preserved",
+    "network boundary tests use real guard/context, not full app worker boot"
+  ],
+  "cleanup": [
+    {
+      "project": "rssripple-v34-scheduler-r",
+      "down_exit": 0,
+      "labels": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      }
+    },
+    {
+      "project": "rssripple-v34-network-u",
+      "down_exit": 0,
+      "labels": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      }
+    }
+  ],
+  "documented_candidate": "agent-run-lifecycle-w-source.json",
+  "ruff_exit": 0
+}

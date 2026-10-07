@@ -1,0 +1,38 @@
+{
+  "accepted": false,
+  "actual_exit": 0,
+  "source": "agent-run-lifecycle-u-source.json",
+  "passed": 1,
+  "seconds": 0.62,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "1",
+    "time": "0.617",
+    "timestamp": "2026-10-07T15:46:17.599583+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "scope": "Real RedisQueue context over TCP proxy, route closed after successful entry; transport error rejects checkpoint and stops heartbeat without lease renewal. Direct observer confirms broker and DB remain alive.",
+  "cleanup": [
+    {
+      "project": "rssripple-v34-scheduler-r",
+      "down_exit": 0,
+      "labels": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      }
+    },
+    {
+      "project": "rssripple-v34-network-u",
+      "down_exit": 0,
+      "labels": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      }
+    }
+  ]
+}

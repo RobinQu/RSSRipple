@@ -1,0 +1,15 @@
+{
+  "accepted": false,
+  "source": "agent-run-lifecycle-s-source.json",
+  "actual_exit": 2,
+  "passed": 0,
+  "result": "Interrupted; proxy shutdown deadlocked before network-loss assertions.",
+  "interrupt": {
+    "pids": [
+      987355
+    ],
+    "signal": "SIGINT",
+    "reason": "Confirmed proxy close ordering deadlocks on Python 3.13 Server.wait_closed before closing active transports.",
+    "second_sigint": "First cancellation entered the same deadlocked proxy.close cleanup; force pytest interruption."
+  }
+}

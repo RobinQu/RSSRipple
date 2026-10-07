@@ -1,0 +1,38 @@
+{
+  "accepted": false,
+  "actual_exit": 0,
+  "source": "agent-run-lifecycle-t-source.json",
+  "passed": 1,
+  "seconds": 0.62,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "1",
+    "time": "0.618",
+    "timestamp": "2026-10-07T15:43:44.461811+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "scope": "Real PostgreSQL route disconnected; initial checkpoint succeeds, later checks reject with actual network error, heartbeat terminates without lease renewal. Controlled heartbeat start; not arbitrary blackhole timeout.",
+  "cleanup": [
+    {
+      "project": "rssripple-v34-scheduler-r",
+      "down_exit": 0,
+      "labels": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      }
+    },
+    {
+      "project": "rssripple-v34-network-u",
+      "down_exit": 0,
+      "labels": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      }
+    }
+  ]
+}

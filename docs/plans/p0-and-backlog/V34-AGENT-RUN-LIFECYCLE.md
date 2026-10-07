@@ -1,6 +1,6 @@
 # V34 AgentRun 异常与崩溃后的终态
 
-> 最新：独立候选 `/tmp/rssripple-v34-integrated-m5mdm6bz` 现为 21 个有效文件。p 两个真实 PostgreSQL＋Redis 独立 consumer 进程场景通过（强杀、暂停后恢复；62.33 秒、退出 0），默认租约自然接管和历史回收、旧执行者不覆盖新摘要均通过。专用项目已清理。o 首轮测试错误保留；q 仅补集成清单并整理 import 顺序。此前 n 的 60 项回归与受控在途事务停止证据保留。网络未知故障、完整 scheduler 启动、旧库/离线审核与完整门禁仍待完成，未合入运行代码。[源码](probes/agent-run-lifecycle-q-source.json)、[候选](probes/agent-run-lifecycle-q-candidate.tar.gz)、[p 证据](probes/agent-run-lifecycle-p-result.json)。
+> 最新：独立候选 `/tmp/rssripple-v34-integrated-m5mdm6bz` 现为 24 个有效文件。r 四个双库实际 APScheduler/队列满载场景通过，t/u 两项真实 PG/Redis TCP 断连检查通过；扩大 v 生命周期及 B9/B7 为 66 passed、零失败/跳过、118.23 秒、退出 0。w 仅补集成清单。专用项目清理完成。旧库/离线审核、所有权列加列失败的启动保护、正式重基与完整门禁仍待验证，未合入运行代码。[源码](probes/agent-run-lifecycle-w-source.json)、[候选](probes/agent-run-lifecycle-w-candidate.tar.gz)、[v 结果](probes/agent-run-lifecycle-v-result.json)。
 
 ## 必要性与分级
 
@@ -108,3 +108,15 @@ l [进程恢复探针](probes/agent_run_recovery_probe.py) 复用原 a 探针的
 o 首轮两项失败（32.32 秒、退出 1）：测试错误地从公开 status 读取内部 execution_token，在 handler 开始前失败并等待 ready 超时，不属于运行修复的红测。改为测试观察者读取真实 Redis 内部状态，捕获 A/B 在 running 阶段的非空 token，避免把终态清空 token 当作换权证据。p 同两项通过（62.33 秒、退出 0，11 个非本专项模式 deselected）。同一个 job_id 被默认 15 秒 Redis 租约自然恢复，token 不同；默认 30 秒数据库租约过期后观察者调用生产 reaper，最终 failed+success、finished 均非空、无残留租约，成功运行 total=unrecognized=1、dispatched=0。暂停的 A 恢复后发生真实所有权拒绝，历史和摘要的完整读回与恢复前一致。
 
 录制资源固定 SHA，身份和时序明确合成。两个父测试及四个 worker 的终态与逐场景 JSON/worker 日志已存档，p 执行源码哈希验证通过。专用 rssripple-v34-redis-o 项目启动/清理退出 0，容器/网络/卷标签为空；V31 的完整门禁栈未修改。q 只在 p 源码上追加集成清单并按 Ruff 整理 import 顺序，未改变测试行为。五轴复核支持保留这些测试：断言目标和来源明确、复用现有隔离恢复入口、真实外部所有权读取、子进程/数据库有 finally 清理，所有等待有超时；尚不批准整批运行候选合入。后续仍需网络未知时拒绝继续、实际 scheduler 启动回收及旧库审核/升级，再重基与完整门禁。
+
+## r–w：实际 scheduler 与真实断连
+
+r 四项双库测试通过（7.68 秒、退出 0）：实际 init_scheduler 注册的 agent_run_reconcile 回调、30 秒间隔、coalesce/max_instances/misfire 配置均断言；暂停无关任务，仅提前目标 next_run_time，由 APScheduler 真正执行回调。单槽 MemoryQueue 保持运行中的阻塞任务，一/两个调度器仍完成回收；回收结果合计恰好一个，计数保留、有效租约和无租约旧历史不变。该证据证明实际注册与执行，不是完整 app.worker 启动测试。
+
+s 数据库 TCP 断连首轮发生测试代理死锁：Python 3.13 Server.wait_closed 等待现有连接，而代理在等待之后才关闭连接。确认标准库语义后，对唯一 s pytest 进程发送两次 SIGINT（第二次解除同一清理死锁），真实退出 2、零通过，原始源码/JUnit/log 和中断原因保留。修改为先关闭所有连接、再等待，并加 5 秒清理超时；t 同一断连用例通过（0.62 秒、退出 0）。
+
+u Redis 断连通过（0.62 秒、退出 0）。两个断连测试均先经真实 TCP 代理成功检查所有权，然后主动断开这一执行者的连接，真实检查因传输错误失败，心跳停止且数据库截止时间不延长；原 DB/Redis 仍可由独立观察者访问。Redis 场景使用生产 RedisQueue consumer 的真实执行上下文。只控制心跳开始时刻和网络关闭，不替换查询或所有权结果。此证据不覆盖无限期无响应的网络黑洞，也不保证外部操作开始后能撤销已发生副作用。
+
+v 同环境合跑生命周期（44 项）及 B9/B7（22 项）：66 passed、零失败/跳过、1 个既有 event_loop_policy 弃用警告、118.23 秒、退出 0。测试源码与 u 存档哈希一致；w 只追加权威测试清单，候选全仓 Ruff 退出 0。两个专用项目 rssripple-v34-scheduler-r / rssripple-v34-network-u 已 down 0，容器/网络/卷标签为空；V31 完整门禁不受影响。
+
+下一轮优先旧库：源码审查发现 current_run_token 的轻迁移仍在 best-effort 分支，需用实际旧库及 DDL 失败注入验证是否应阻止启动，并同步修复、重入/回滚证据。当前仅是待验证风险，不能把源码观察当作红测。离线旧 running 审核工具也未实现；旧记录无执行身份，禁止按年龄自动判死。随后正式重基到已验收 main、冻结全范围并完成完整双门禁与最终审查。

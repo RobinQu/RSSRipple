@@ -1,0 +1,38 @@
+{
+  "accepted": false,
+  "source": "agent-run-lifecycle-r-source.json",
+  "actual_exit": 0,
+  "passed": 4,
+  "seconds": 7.68,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "4",
+    "time": "7.677",
+    "timestamp": "2026-10-07T15:39:05.430601+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "scope": "Both DBs, 1/2 real APScheduler instances, occupied MemoryQueue slot; production 30-second registration checked and next run advanced only for test. Live leases and unowned legacy running preserved.",
+  "cleanup": [
+    {
+      "project": "rssripple-v34-scheduler-r",
+      "down_exit": 0,
+      "labels": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      }
+    },
+    {
+      "project": "rssripple-v34-network-u",
+      "down_exit": 0,
+      "labels": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      }
+    }
+  ]
+}
