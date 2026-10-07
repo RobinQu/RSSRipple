@@ -1,0 +1,77 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v34-integrated-m5mdm6bz",
+  "main_base": "ad71542109e6b17e48a03ed37bd396c2d461faff",
+  "files": {
+    "app/database.py": {
+      "base": "82e37f38859ba13dcc90c99b9178c419a88c06d586d9f8fdc3648978c63ceaea",
+      "candidate": "a0c4ca6d1075e7d6dce2596bdef72b3b0d757dd2316c18123ada09075119cb33"
+    },
+    "app/job_handlers.py": {
+      "base": "a721846f2e09b9d6d45deb419e4bd97bfe539b4c88fa61b2e7375b3ce4b0a5f0",
+      "candidate": "c0ca6a88a3f1d84b64fcf6918986607e0374eeb3615148f81a5863459e8a0bdc"
+    },
+    "app/models/__init__.py": {
+      "base": "4f6d75732cd786b6a220003e6771d84ccfe5d68e4e0e52c6cb1a1e7abea1972e",
+      "candidate": "b4b13a7f6e6705e17fe9ddf549509a2c887185a5657a2e7e3a20d71e02b443c8"
+    },
+    "app/models/agent.py": {
+      "base": "2f40a1e0beba244855660b97aea8d5fa846f689598c0c4c42d6ec39f4674135e",
+      "candidate": "9915707af2f48d382600fd2e82fd8f388a7ed92c311b5fa6995908eb133b5f4a"
+    },
+    "app/models/agent_run_lease.py": {
+      "base": null,
+      "candidate": "ce1733750417b40bf903f7a0f79e1efeffbc7724325604ecaa862a7e9bcc85c5"
+    },
+    "app/services/agent_run_execution.py": {
+      "base": null,
+      "candidate": "30ba1eb88f9bbde1ea41befe0a3f5fe3c87df09a645f271f12809f09fe6e88ec"
+    },
+    "app/services/agent_run_finalization.py": {
+      "base": null,
+      "candidate": "cefb50a48da6ab31b4cbcffea601e12a9356f764345877c87e17cf83b30ea69b"
+    },
+    "app/services/agent_run_lifecycle.py": {
+      "base": null,
+      "candidate": "59f0d2dafb896a9b67f3f89cf426c6a46453c3cf3b826d05d89f8dd41caf6628"
+    },
+    "app/services/agent_service.py": {
+      "base": "3e8b19af166d343e79b9acf51f3a757be7fc3be04ac841ae54d8eee8028081fb",
+      "candidate": "f72b66845b62491cb3f1dde59d02a69db0a51219553350c3f5f3c234539721d7"
+    },
+    "app/services/scheduler.py": {
+      "base": "d81e59a91f14d4d29da2eabd06e5a7b4a434af85626c8e000abe3f7299b346b5",
+      "candidate": "7a8b8e4b4cb1e29e5978f6259d5828bc95feb1a6dafd50c4e01be41700bcc7cb"
+    },
+    "docs/design/business-logic.md": {
+      "base": "a849bf30d59fb22ee37b2930cd307786aa0a49c1319e3977e6f3500d76e3e1ff",
+      "candidate": "ebacde4c804764c9c62bffe1732e3afe6fd868e00030fea8f337479889f22291"
+    },
+    "docs/design/data-models.md": {
+      "base": "e0cdcfc1ee9b3ae4b557770740bf2652d9099187f864d8187cb9810846189bf1",
+      "candidate": "3cf048065a62fce65ecd16b8abbb96932e40f7dbb92f9ba1aa8259a0806f5f96"
+    },
+    "docs/testing/integration-inventory.md": {
+      "base": "01f2a51cfc83160d887af1fbc6ae3afc46423f56a9eafa7f4ff2e349deac2ef4",
+      "candidate": "9e537eb0d8469de670028d9f24985977bd5cf97d2e1e96532b83ac129164f60f"
+    },
+    "tests/integration/agent_run_lifecycle/__init__.py": {
+      "base": null,
+      "candidate": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "tests/integration/agent_run_lifecycle/conftest.py": {
+      "base": null,
+      "candidate": "dddb50dfb70613593712dd94b6294d55012f0b262a0a71f447c99a0037067eaf"
+    },
+    "tests/integration/agent_run_lifecycle/test_handler.py": {
+      "base": null,
+      "candidate": "bdcf1eb3956c96e54e070a2fa1bad8dcf37ffa60b0a7d40071a2a7ee3e7e2390"
+    },
+    "tests/integration/agent_run_lifecycle/test_lease.py": {
+      "base": null,
+      "candidate": "8b5ea8c56d377be0e816ede9e54b8a9490a4c1d4f14bbb000287673bef7b0527"
+    }
+  },
+  "effective_files": 17,
+  "runtime_main_changed": false
+}

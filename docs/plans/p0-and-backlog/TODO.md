@@ -69,7 +69,7 @@
 
 ### 后台
 
-- [ ] `AgentRun(status=running)` 崩溃后无回收/reaper。 V34 双库真实 handler/独立子进程已复现普通异常与 os._exit(73) 四场景：后续成功运行后旧记录仍 running，探针按不变量退出 1。录制资源标题/GUID/URL，身份和故障明确合成；未宣称 Redis worker 接管。需同时修正异常收尾、持久执行归属和安全回收，禁止只按运行年龄判死。b–e 最小表事务实验确认两版 Turso 在已有写事务时同一行心跳会导致旧事务收尾冲突；独立九文件候选已实现租约状态转换，真实双库专项 h 为 20 项通过，含持锁后的续租/回收竞争；尚未接入 handler/worker/旧库升级，未完成修复或合入。项目已清理，方案、证据边界与严格矩阵见 [V34](V34-AGENT-RUN-LIFECYCLE.md)。
+- [ ] `AgentRun(status=running)` 崩溃后无回收/reaper。 V34 双库真实 handler/独立子进程已复现普通异常与 os._exit(73) 四场景：后续成功运行后旧记录仍 running，探针按不变量退出 1。录制资源标题/GUID/URL，身份和故障明确合成；未宣称 Redis worker 接管。需同时修正异常收尾、持久执行归属和安全回收，禁止只按运行年龄判死。b–e 最小表事务实验确认两版 Turso 在已有写事务时同一行心跳会导致旧事务收尾冲突；最新 18 文件候选已接入 handler/摘要归属/有界调度回收；扩大 j 的 5 个失败已保留并修正，同组合 k 为 131 项通过，l 双库四个异常/真实强退自然过期恢复场景通过。仍缺 Redis worker 接管、在途停止和旧库审核及完整门禁，未合入。项目已清理，方案、证据边界与严格矩阵见 [V34](V34-AGENT-RUN-LIFECYCLE.md)。
 - [ ] 失败 dispatch 累积重复 error `DownloadTask`（`app/services/agent_service.py:61-72,928-941`）。
 - [ ] 周期任务先消费 throttle 再入队，入队失败丢整个周期（daily ~24h，`app/services/scheduler.py:274-296`）。
 - [ ] interval job 仅 1s `misfire_grace_time` （实际默认 coalesce=True），事件循环阻塞即跳过 tick（`app/services/scheduler.py:43-131`）。

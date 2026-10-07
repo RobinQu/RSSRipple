@@ -1,0 +1,42 @@
+{
+  "accepted": false,
+  "actual_exit": 0,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "131",
+    "time": "214.961",
+    "timestamp": "2026-10-07T14:43:08.652766+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "passed": 131,
+  "seconds": 214.98,
+  "warnings": 1,
+  "pyturso": "0.8.2",
+  "source": "agent-run-lifecycle-k-source.json",
+  "recovery_probe": {
+    "actual_exit": 0,
+    "cases": 4,
+    "child_processes": 28,
+    "evidence": "agent-run-lifecycle-l-recovery-result.json"
+  },
+  "cleanup": {
+    "project": "rssripple-v34-handler-i",
+    "startup_exit": 0,
+    "down_exit": 0,
+    "labels": {
+      "containers": [],
+      "networks": [],
+      "volumes": []
+    }
+  },
+  "pending": [
+    "real Redis worker takeover and network/ownership failure",
+    "explicit in-flight driver shutdown test",
+    "legacy upgrade/offline review tool",
+    "formal full gates and final review"
+  ],
+  "runtime_main_changed": false
+}

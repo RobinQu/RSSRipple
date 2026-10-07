@@ -1,0 +1,364 @@
+{
+  "cases": [
+    {
+      "backend": "turso",
+      "failure": "exception",
+      "before": {
+        "runs": [
+          {
+            "id": "f3e5dd2f-5b52-4153-8d7b-276b0f66c89c",
+            "status": "failed",
+            "finished": true,
+            "total_resources": 0,
+            "dispatched": 0,
+            "unrecognized": 0,
+            "errors": [
+              "Run interrupted (RuntimeError); counters may be incomplete."
+            ]
+          }
+        ],
+        "lease_count": 0
+      },
+      "reaped": [],
+      "after": {
+        "runs": [
+          {
+            "id": "f3e5dd2f-5b52-4153-8d7b-276b0f66c89c",
+            "status": "failed",
+            "finished": true,
+            "total_resources": 0,
+            "dispatched": 0,
+            "unrecognized": 0,
+            "errors": [
+              "Run interrupted (RuntimeError); counters may be incomplete."
+            ]
+          },
+          {
+            "id": "9bd37fcf-3f3f-444b-a345-0dc1a1d26736",
+            "status": "success",
+            "finished": true,
+            "total_resources": 1,
+            "dispatched": 0,
+            "unrecognized": 1,
+            "errors": []
+          }
+        ],
+        "lease_count": 0
+      }
+    },
+    {
+      "backend": "turso",
+      "failure": "exit",
+      "before": {
+        "runs": [
+          {
+            "id": "8dc0d0fd-d421-443d-86be-2a2dd0a4b2e3",
+            "status": "running",
+            "finished": false,
+            "total_resources": 0,
+            "dispatched": 0,
+            "unrecognized": 0,
+            "errors": []
+          }
+        ],
+        "lease_count": 1
+      },
+      "reaped": [
+        "8dc0d0fd-d421-443d-86be-2a2dd0a4b2e3"
+      ],
+      "after": {
+        "runs": [
+          {
+            "id": "8dc0d0fd-d421-443d-86be-2a2dd0a4b2e3",
+            "status": "failed",
+            "finished": true,
+            "total_resources": 0,
+            "dispatched": 0,
+            "unrecognized": 0,
+            "errors": [
+              "Execution lease expired; run interrupted. Counters may be incomplete."
+            ]
+          },
+          {
+            "id": "5230a20c-380a-4e08-b17a-b051674bbbd1",
+            "status": "success",
+            "finished": true,
+            "total_resources": 1,
+            "dispatched": 0,
+            "unrecognized": 1,
+            "errors": []
+          }
+        ],
+        "lease_count": 0
+      }
+    },
+    {
+      "backend": "postgresql",
+      "failure": "exception",
+      "before": {
+        "runs": [
+          {
+            "id": "423dbced-5efd-4ce5-9837-4064993db844",
+            "status": "failed",
+            "finished": true,
+            "total_resources": 0,
+            "dispatched": 0,
+            "unrecognized": 0,
+            "errors": [
+              "Run interrupted (RuntimeError); counters may be incomplete."
+            ]
+          }
+        ],
+        "lease_count": 0
+      },
+      "reaped": [],
+      "after": {
+        "runs": [
+          {
+            "id": "423dbced-5efd-4ce5-9837-4064993db844",
+            "status": "failed",
+            "finished": true,
+            "total_resources": 0,
+            "dispatched": 0,
+            "unrecognized": 0,
+            "errors": [
+              "Run interrupted (RuntimeError); counters may be incomplete."
+            ]
+          },
+          {
+            "id": "b0e46008-4855-4f66-85d0-5310d34fa772",
+            "status": "success",
+            "finished": true,
+            "total_resources": 1,
+            "dispatched": 0,
+            "unrecognized": 1,
+            "errors": []
+          }
+        ],
+        "lease_count": 0
+      }
+    },
+    {
+      "backend": "postgresql",
+      "failure": "exit",
+      "before": {
+        "runs": [
+          {
+            "id": "461cd517-b80c-4e2b-9b87-c0a14477770f",
+            "status": "running",
+            "finished": false,
+            "total_resources": 0,
+            "dispatched": 0,
+            "unrecognized": 0,
+            "errors": []
+          }
+        ],
+        "lease_count": 1
+      },
+      "reaped": [
+        "461cd517-b80c-4e2b-9b87-c0a14477770f"
+      ],
+      "after": {
+        "runs": [
+          {
+            "id": "461cd517-b80c-4e2b-9b87-c0a14477770f",
+            "status": "failed",
+            "finished": true,
+            "total_resources": 0,
+            "dispatched": 0,
+            "unrecognized": 0,
+            "errors": [
+              "Execution lease expired; run interrupted. Counters may be incomplete."
+            ]
+          },
+          {
+            "id": "a9383fb3-a4a8-423e-99b4-67e0bda68c66",
+            "status": "success",
+            "finished": true,
+            "total_resources": 1,
+            "dispatched": 0,
+            "unrecognized": 1,
+            "errors": []
+          }
+        ],
+        "lease_count": 0
+      }
+    }
+  ],
+  "logs": [
+    {
+      "phase": "setup",
+      "exit": 0,
+      "stdout": "{\"setup\": true}\n",
+      "stderr": ""
+    },
+    {
+      "phase": "fail",
+      "exit": 1,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/agent_run_recovery_probe.py\", line 115, in <module>\n    print(json.dumps(asyncio.run(child(args.phase)), ensure_ascii=False))\n                     ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^\n  File \"/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py\", line 195, in run\n    return runner.run(main)\n           ~~~~~~~~~~^^^^^^\n  File \"/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py\", line 118, in run\n    return self._loop.run_until_complete(task)\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^\n  File \"/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py\", line 719, in run_until_complete\n    return future.result()\n           ~~~~~~~~~~~~~^^\n  File \"/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/agent_run_recovery_probe.py\", line 36, in child\n    return await phase(action)\n           ^^^^^^^^^^^^^^^^^^^\n  File \"/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/agent_run_orphan_probe.py\", line 109, in phase\n    return await _handle_run_agent({\"agent_id\": ids[\"agent\"], \"resource_ids\": [ids[\"resource\"]]})\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/tmp/rssripple-v34-integrated-m5mdm6bz/app/job_handlers.py\", line 220, in _handle_run_agent\n    run_result = await process_resources(\n                 ^^^^^^^^^^^^^^^^^^^^^^^^\n    ...<8 lines>...\n    )\n    ^\n  File \"/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/agent_run_orphan_probe.py\", line 106, in injected_failure\n    raise RuntimeError(\"synthetic unexpected processing failure\")\nRuntimeError: synthetic unexpected processing failure\n"
+    },
+    {
+      "phase": "inspect",
+      "exit": 0,
+      "stdout": "{\"runs\": [{\"id\": \"f3e5dd2f-5b52-4153-8d7b-276b0f66c89c\", \"status\": \"failed\", \"finished\": true, \"total_resources\": 0, \"dispatched\": 0, \"unrecognized\": 0, \"errors\": [\"Run interrupted (RuntimeError); counters may be incomplete.\"]}], \"lease_count\": 0}\n",
+      "stderr": ""
+    },
+    {
+      "phase": "recover",
+      "exit": 0,
+      "stdout": "{\"agent_id\": \"2466601b-d234-47bd-8137-10e3a6652737\", \"run_id\": \"9bd37fcf-3f3f-444b-a345-0dc1a1d26736\", \"total_resources\": 1, \"matched\": 0, \"dispatched\": 0, \"pending_decisions\": 0, \"filter_failed\": 0, \"duplicates_skipped\": 0, \"unrecognized\": 1, \"errors\": []}\n",
+      "stderr": ""
+    },
+    {
+      "phase": "inspect",
+      "exit": 0,
+      "stdout": "{\"runs\": [{\"id\": \"f3e5dd2f-5b52-4153-8d7b-276b0f66c89c\", \"status\": \"failed\", \"finished\": true, \"total_resources\": 0, \"dispatched\": 0, \"unrecognized\": 0, \"errors\": [\"Run interrupted (RuntimeError); counters may be incomplete.\"]}, {\"id\": \"9bd37fcf-3f3f-444b-a345-0dc1a1d26736\", \"status\": \"success\", \"finished\": true, \"total_resources\": 1, \"dispatched\": 0, \"unrecognized\": 1, \"errors\": []}], \"lease_count\": 0}\n",
+      "stderr": ""
+    },
+    {
+      "phase": "setup",
+      "exit": 0,
+      "stdout": "{\"setup\": true}\n",
+      "stderr": ""
+    },
+    {
+      "phase": "fail",
+      "exit": 73,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "phase": "inspect",
+      "exit": 0,
+      "stdout": "{\"runs\": [{\"id\": \"8dc0d0fd-d421-443d-86be-2a2dd0a4b2e3\", \"status\": \"running\", \"finished\": false, \"total_resources\": 0, \"dispatched\": 0, \"unrecognized\": 0, \"errors\": []}], \"lease_count\": 1}\n",
+      "stderr": ""
+    },
+    {
+      "phase": "reap",
+      "exit": 0,
+      "stdout": "[]\n",
+      "stderr": ""
+    },
+    {
+      "phase": "reap",
+      "exit": 0,
+      "stdout": "[]\n",
+      "stderr": ""
+    },
+    {
+      "phase": "reap",
+      "exit": 0,
+      "stdout": "[]\n",
+      "stderr": ""
+    },
+    {
+      "phase": "reap",
+      "exit": 0,
+      "stdout": "[\"8dc0d0fd-d421-443d-86be-2a2dd0a4b2e3\"]\n",
+      "stderr": ""
+    },
+    {
+      "phase": "recover",
+      "exit": 0,
+      "stdout": "{\"agent_id\": \"98a0ff09-d62b-47db-9835-f92f5101cb2a\", \"run_id\": \"5230a20c-380a-4e08-b17a-b051674bbbd1\", \"total_resources\": 1, \"matched\": 0, \"dispatched\": 0, \"pending_decisions\": 0, \"filter_failed\": 0, \"duplicates_skipped\": 0, \"unrecognized\": 1, \"errors\": []}\n",
+      "stderr": ""
+    },
+    {
+      "phase": "inspect",
+      "exit": 0,
+      "stdout": "{\"runs\": [{\"id\": \"8dc0d0fd-d421-443d-86be-2a2dd0a4b2e3\", \"status\": \"failed\", \"finished\": true, \"total_resources\": 0, \"dispatched\": 0, \"unrecognized\": 0, \"errors\": [\"Execution lease expired; run interrupted. Counters may be incomplete.\"]}, {\"id\": \"5230a20c-380a-4e08-b17a-b051674bbbd1\", \"status\": \"success\", \"finished\": true, \"total_resources\": 1, \"dispatched\": 0, \"unrecognized\": 1, \"errors\": []}], \"lease_count\": 0}\n",
+      "stderr": ""
+    },
+    {
+      "phase": "setup",
+      "exit": 0,
+      "stdout": "{\"setup\": true}\n",
+      "stderr": ""
+    },
+    {
+      "phase": "fail",
+      "exit": 1,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/agent_run_recovery_probe.py\", line 115, in <module>\n    print(json.dumps(asyncio.run(child(args.phase)), ensure_ascii=False))\n                     ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^\n  File \"/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py\", line 195, in run\n    return runner.run(main)\n           ~~~~~~~~~~^^^^^^\n  File \"/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py\", line 118, in run\n    return self._loop.run_until_complete(task)\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^\n  File \"/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py\", line 719, in run_until_complete\n    return future.result()\n           ~~~~~~~~~~~~~^^\n  File \"/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/agent_run_recovery_probe.py\", line 36, in child\n    return await phase(action)\n           ^^^^^^^^^^^^^^^^^^^\n  File \"/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/agent_run_orphan_probe.py\", line 109, in phase\n    return await _handle_run_agent({\"agent_id\": ids[\"agent\"], \"resource_ids\": [ids[\"resource\"]]})\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/tmp/rssripple-v34-integrated-m5mdm6bz/app/job_handlers.py\", line 220, in _handle_run_agent\n    run_result = await process_resources(\n                 ^^^^^^^^^^^^^^^^^^^^^^^^\n    ...<8 lines>...\n    )\n    ^\n  File \"/workspace/dropbox/github/robinqu/RSSRipple/docs/plans/p0-and-backlog/probes/agent_run_orphan_probe.py\", line 106, in injected_failure\n    raise RuntimeError(\"synthetic unexpected processing failure\")\nRuntimeError: synthetic unexpected processing failure\n"
+    },
+    {
+      "phase": "inspect",
+      "exit": 0,
+      "stdout": "{\"runs\": [{\"id\": \"423dbced-5efd-4ce5-9837-4064993db844\", \"status\": \"failed\", \"finished\": true, \"total_resources\": 0, \"dispatched\": 0, \"unrecognized\": 0, \"errors\": [\"Run interrupted (RuntimeError); counters may be incomplete.\"]}], \"lease_count\": 0}\n",
+      "stderr": ""
+    },
+    {
+      "phase": "recover",
+      "exit": 0,
+      "stdout": "{\"agent_id\": \"fb71ce22-3d7d-4ccb-b488-8b9aca703912\", \"run_id\": \"b0e46008-4855-4f66-85d0-5310d34fa772\", \"total_resources\": 1, \"matched\": 0, \"dispatched\": 0, \"pending_decisions\": 0, \"filter_failed\": 0, \"duplicates_skipped\": 0, \"unrecognized\": 1, \"errors\": []}\n",
+      "stderr": ""
+    },
+    {
+      "phase": "inspect",
+      "exit": 0,
+      "stdout": "{\"runs\": [{\"id\": \"423dbced-5efd-4ce5-9837-4064993db844\", \"status\": \"failed\", \"finished\": true, \"total_resources\": 0, \"dispatched\": 0, \"unrecognized\": 0, \"errors\": [\"Run interrupted (RuntimeError); counters may be incomplete.\"]}, {\"id\": \"b0e46008-4855-4f66-85d0-5310d34fa772\", \"status\": \"success\", \"finished\": true, \"total_resources\": 1, \"dispatched\": 0, \"unrecognized\": 1, \"errors\": []}], \"lease_count\": 0}\n",
+      "stderr": ""
+    },
+    {
+      "phase": "setup",
+      "exit": 0,
+      "stdout": "{\"setup\": true}\n",
+      "stderr": ""
+    },
+    {
+      "phase": "fail",
+      "exit": 73,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "phase": "inspect",
+      "exit": 0,
+      "stdout": "{\"runs\": [{\"id\": \"461cd517-b80c-4e2b-9b87-c0a14477770f\", \"status\": \"running\", \"finished\": false, \"total_resources\": 0, \"dispatched\": 0, \"unrecognized\": 0, \"errors\": []}], \"lease_count\": 1}\n",
+      "stderr": ""
+    },
+    {
+      "phase": "reap",
+      "exit": 0,
+      "stdout": "[]\n",
+      "stderr": ""
+    },
+    {
+      "phase": "reap",
+      "exit": 0,
+      "stdout": "[]\n",
+      "stderr": ""
+    },
+    {
+      "phase": "reap",
+      "exit": 0,
+      "stdout": "[]\n",
+      "stderr": ""
+    },
+    {
+      "phase": "reap",
+      "exit": 0,
+      "stdout": "[\"461cd517-b80c-4e2b-9b87-c0a14477770f\"]\n",
+      "stderr": ""
+    },
+    {
+      "phase": "recover",
+      "exit": 0,
+      "stdout": "{\"agent_id\": \"d9f77f22-9571-4f71-a96c-687d35712877\", \"run_id\": \"a9383fb3-a4a8-423e-99b4-67e0bda68c66\", \"total_resources\": 1, \"matched\": 0, \"dispatched\": 0, \"pending_decisions\": 0, \"filter_failed\": 0, \"duplicates_skipped\": 0, \"unrecognized\": 1, \"errors\": []}\n",
+      "stderr": ""
+    },
+    {
+      "phase": "inspect",
+      "exit": 0,
+      "stdout": "{\"runs\": [{\"id\": \"461cd517-b80c-4e2b-9b87-c0a14477770f\", \"status\": \"failed\", \"finished\": true, \"total_resources\": 0, \"dispatched\": 0, \"unrecognized\": 0, \"errors\": [\"Execution lease expired; run interrupted. Counters may be incomplete.\"]}, {\"id\": \"a9383fb3-a4a8-423e-99b4-67e0bda68c66\", \"status\": \"success\", \"finished\": true, \"total_resources\": 1, \"dispatched\": 0, \"unrecognized\": 1, \"errors\": []}], \"lease_count\": 0}\n",
+      "stderr": ""
+    }
+  ],
+  "database_cleanup": true,
+  "scope": "Actual handler/child exit/DB-clock expiry; no Redis or scheduler takeover",
+  "actual_exit": 0,
+  "source": "agent-run-lifecycle-k-source.json",
+  "probe_sha256": "0853223a55baa5db654dd895f38dd163745415fa4f2f288a60c7d58ed29dee24",
+  "seed_probe_sha256": "012b63b1f6ac8958e94277eeadfa7f69ae31f155930c1d01cafd3ff744ad112a"
+}

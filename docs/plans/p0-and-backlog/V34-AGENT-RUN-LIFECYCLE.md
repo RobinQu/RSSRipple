@@ -1,6 +1,6 @@
 # V34 AgentRun 异常与崩溃后的终态
 
-> 最新：独立候选 `/tmp/rssripple-v34-lifecycle-1n2n81kb`（指针 `/tmp/rssripple-v34-path`）已实现独立租约模型与数据库状态转换原语，双库扩大专项 h 为 20 passed、零跳过/失败、28.28 秒、退出 0。尚未接入 handler/worker/迁移，未完成 V34 修复或完整门禁，未合入 main 运行代码。[九文件源码清单](probes/agent-run-lifecycle-h-source.json)、[候选归档](probes/agent-run-lifecycle-h-candidate.tar.gz)、[f–h 结果](probes/agent-run-lifecycle-f-h-result.json)。
+> 最新：已重基至 `ad71542` 的独立候选 `/tmp/rssripple-v34-integrated-m5mdm6bz`（指针 `/tmp/rssripple-v34-integrated-path`），18 个有效文件已接入 handler、Agent 归属与有界调度回收。k 同组合 131 项通过，l 双库四个普通异常/真实强退自然过期恢复场景通过，测试项目已清理。真实 Redis 接管、明确在途驱动停止用例、旧库/离线审核和完整门禁仍未完成，未合入运行代码。[当前源码](probes/agent-run-lifecycle-k-source.json)、[候选归档](probes/agent-run-lifecycle-k-candidate.tar.gz)、[k/l 证据](probes/agent-run-lifecycle-k-l-result.json)。此前 h 九文件原语候选为历史阶段。
 
 ## 必要性与分级
 
@@ -81,3 +81,18 @@ f 首轮 16 个 setup error，退出 1：合成 Channel 缺少必填 field_mappi
 覆盖有效/错误 token、过期不能续租或完成、已完成后旧 token 失效、完成/回收的整事务回滚、部分计数保留、回收批次/幂等、无租约历史保留、FK 级联。竞争测试先让第一事务持有写入，再观察第二连接实际发起条件 DELETE，之后提交第一事务；涵盖双完成、双回收，以及续租仍未提交但旧截止时间已过。第二事务须等待或以新事务重试，并重检最新条件；不能把刚续租的运行误置 failed。
 
 专用 `rssripple-v34-prototype-f` 项目（32894）已清理，容器/网络/卷标签为空。候选 Ruff 无缓存通过。当前五轴审查仅支持继续原型：状态原语具备双库证据、SQL 条件参数化、扫描有界且复用现有重试机制；创建租约仍依赖第一阶段新 run 的调用前提，尚缺 handler 所有权集成、旧进程副作用边界、Agent 摘要持久归属、错误信息保留策略、旧库升级及离线历史审核。不得将这九文件单独合入并关闭待办。
+
+
+## i–l：handler 接入及调用方回归
+
+新候选从完整 Git 主干 ad71542 导出，并重基 h 九文件原语，继承已验收的 V29 驱动/FTS。三个 handler 阶段分别承担：run/租约/最新摘要 token 与资源快照同事务创建；处理与独立续租、完成单元逐次提交；停止续租后在新短事务领取完成权并同时写历史/确认请求/推进消费进度。第三阶段可重试数据库冲突，不能重放外部调用。Agent.current_run_token 的条件更新保护旧运行不覆盖新摘要。租约检查局限于 Agent 服务，保留原队列检查与直接 API 无 run 上下文语义。
+
+每 30 秒独立调度有界回收，避免被所有队列槽位占满所阻塞；多 worker 依赖同一数据库条件删除协议，默认 100/上限 1000。租约删除、历史失败与适用的 Agent 摘要同事务，保留旧错误与计数。普通异常仍有权时终结历史并按 B9 原契约退避请求；取消不退避，失权不确认或延期。历史写入中断类型，不修改请求错误说明的既有契约。模型、新列轻迁移和对应权威文档已同步，但旧库升级/无租约历史审核工具尚未验收。
+
+i 新专项 32 passed、43.41 秒、退出 0：双库实际 handler 普通异常、取消、撤销、慢任务续租、旧失败不覆盖新成功，及原租约状态/竞争矩阵。j 扩大为同一 131 项组合后 **5 failed、126 passed、1 warning、246.13 秒、退出 1**。四项为 tests.unit.conftest 在导入时全局跳过长 sleep，使需要真实时间的测试不再经过截止时间；一项为新的异常收尾错误地改变了 B9 请求错误说明。原始失败、源码与日志保留。此外 j 记录了心跳在驱动操作中被取消所触发的 InvalidStateError。
+
+修正包括：V34 测试作用域恢复真实 asyncio 计时、请求延期恢复 str(error) 既有契约、心跳停止改为 stop Event 并等待在途短数据库操作，避免取消驱动回调。k 重跑相同组合：**131 passed、零跳过/失败、1 个既有 event_loop_policy 弃用警告、214.98 秒、退出 0**。其中包括既有 B9/B7、真实 MemoryQueue 的定时调度及 handler/scheduler 调用方。扩大回归与源码审查支持上述修正，但仍需专门验证在途驱动操作的停止交错，不把成功用例未打印错误日志当作该边界的充分证明。
+
+l [进程恢复探针](probes/agent_run_recovery_probe.py) 复用原 a 探针的固定录制资源 setup 和故障边界：两库普通异常立即 failed；两库实际 os._exit(73) 后独立进程观察 running/一条租约，等待数据库时钟自然达到三秒测试租约截止，再由真实回收函数终结。替代实际 handler 成功后均为 failed + success、finished 均非空、无残余租约；成功运行 total=unrecognized=1、dispatched=0。四场景及 28 个子进程退出/输出保留，父探针退出 0。不使用年龄直接修改状态，不冒充 Redis/真实 scheduler worker 接管。临时 PG 数据库与 Turso 目录已清理；共用专用测试项目 rssripple-v34-handler-i（32897）在 k/l 实际结束后 down，容器/网络/卷标签为空。
+
+最终 18 文件由候选与 Git 全输入比较推导，含新增 Python 文件；本批仍为独立候选，没有借用 V30 在跑完整门禁。下一轮优先补真实 Redis/worker、网络未知时拒绝继续、停止交错和旧库审核路径，再正式重基/冻结/完整门禁。不得从 TODO 移除此问题。

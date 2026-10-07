@@ -1,0 +1,27 @@
+{
+  "actual_exit": 0,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "32",
+    "time": "43.394",
+    "timestamp": "2026-10-07T14:28:12.443085+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "passed": 32,
+  "seconds": 43.41,
+  "source": "agent-run-lifecycle-i-source.json",
+  "cleanup": {
+    "project": "rssripple-v34-handler-i",
+    "startup_exit": 0,
+    "down_exit": 0,
+    "labels": {
+      "containers": [],
+      "networks": [],
+      "volumes": []
+    }
+  },
+  "scope": "actual handlers and DB leases; not real process loss/Redis worker recovery; no full gates"
+}

@@ -1,0 +1,32 @@
+{
+  "actual_exit": 1,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "5",
+    "skipped": "0",
+    "tests": "131",
+    "time": "246.091",
+    "timestamp": "2026-10-07T14:35:04.001195+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "passed": 126,
+  "failed": 5,
+  "seconds": 246.13,
+  "source": "agent-run-lifecycle-j-source.json",
+  "failures": [
+    "four wall-clock timing assertions affected by global test sleep patch",
+    "B9 error_message contract regression"
+  ],
+  "additional_log_issue": "heartbeat cancellation during driver operation logged InvalidStateError; graceful stop required",
+  "cleanup": {
+    "project": "rssripple-v34-handler-i",
+    "startup_exit": 0,
+    "down_exit": 0,
+    "labels": {
+      "containers": [],
+      "networks": [],
+      "volumes": []
+    }
+  }
+}
