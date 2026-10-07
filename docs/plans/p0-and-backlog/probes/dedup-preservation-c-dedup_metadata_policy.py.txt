@@ -1,0 +1,62 @@
+"""Select a canonical work without discarding curated metadata."""
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import Any
+
+from app.models.movie import Movie
+from app.models.series import TVSeries
+from app.services.metadata_service import MANUAL_EDITABLE_FIELDS
+
+Work = TVSeries | Movie
+
+
+def _populated(value: Any) -> bool:
+    # False and zero are known values, unlike empty metadata containers/text.
+    return value is not None and value != "" and value != []
+
+
+def protected_values(rows: Sequence[Work]) -> tuple[dict[str, Any], list[str]]:
+    """No per-field edit timestamps exist: conflicting manual values cannot rank."""
+    values: dict[str, Any] = {}
+    conflicts: set[str] = set()
+    for row in rows:
+        for name in row.manually_edited_fields or []:
+            if name not in MANUAL_EDITABLE_FIELDS or not hasattr(row, name):
+                continue
+            value = getattr(row, name)
+            if name in values and values[name] != value:
+                conflicts.add(name)
+            else:
+                values[name] = value
+    return values, sorted(conflicts)
+
+
+def select_survivor(rows: Sequence[Work]) -> Work:
+    """Prefer curated, then complete records; stable chronology breaks ties."""
+    def key(row: Work) -> tuple:
+        fields = [name for name in MANUAL_EDITABLE_FIELDS if hasattr(row, name)]
+        protected = set(row.manually_edited_fields or []) & set(fields)
+        complete = sum(_populated(getattr(row, name)) for name in fields)
+        return -len(protected), -complete, row.created_at, row.id
+
+    return min(rows, key=key)
+
+
+def apply_metadata(survivor: Work, rows: Sequence[Work], protected: dict[str, Any]) -> None:
+    """Transfer manual intent including null, then fill absent automatic values."""
+    for name, value in protected.items():
+        setattr(survivor, name, value)
+    survivor.manually_edited_fields = sorted(protected) or None
+    ordered = sorted(rows, key=lambda row: (row.created_at, row.id))
+    # Identity source pairs and aliases have dedicated canonicalization rules.
+    fields = MANUAL_EDITABLE_FIELDS - {"external_id", "external_source", "aliases"}
+    for name in fields:
+        if name in protected or not hasattr(survivor, name):
+            continue
+        if _populated(getattr(survivor, name)):
+            continue
+        for row in ordered:
+            if hasattr(row, name) and _populated(getattr(row, name)):
+                setattr(survivor, name, getattr(row, name))
+                break

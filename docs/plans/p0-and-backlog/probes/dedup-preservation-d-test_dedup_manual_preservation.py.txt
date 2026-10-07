@@ -1,0 +1,118 @@
+"""Recorded titles plus explicitly synthetic duplicate/manual-edit histories."""
+from __future__ import annotations
+
+import json
+import uuid
+from datetime import datetime, timedelta
+from pathlib import Path
+
+import pytest
+from sqlalchemy import select
+
+from app.models.movie import Movie
+from app.models.series import TVSeries
+from app.models.work_collection import WorkCollection
+from app.services.metadata_dedup import merge_duplicate_movies, merge_duplicate_series
+
+CORPUS = Path(__file__).parents[1] / "fixtures" / "prod_works_v1.json"
+
+
+@pytest.mark.parametrize("kind", ["movie", "series"])
+@pytest.mark.parametrize("scenario", ["manual_newer", "manual_null", "complete_newer", "plain_control"])
+async def test_dedup_preserves_curated_metadata(db_session, kind, scenario):
+    tables = json.loads(CORPUS.read_text())["tables"]
+    recorded = tables["movies" if kind == "movie" else "tv_series"][0]
+    model = Movie if kind == "movie" else TVSeries
+    created = datetime(2026, 1, 1)
+    rows = []
+    for offset in range(2):
+        attrs = {
+            key: recorded[key]
+            for key in ("title_cn", "title_en", "original_title", "external_id", "external_source")
+        }
+        attrs.update(id=str(uuid.uuid4()), created_at=created + timedelta(days=offset))
+        if kind == "series":
+            collection = WorkCollection(id=str(uuid.uuid4()), title_cn=recorded["title_cn"])
+            db_session.add(collection)
+            await db_session.flush()
+            attrs.update(collection_id=collection.id, season_number=1)
+        rows.append(model(**attrs))
+    older, newer = rows
+    if scenario == "manual_newer":
+        older.description = "synthetic stale automatic description"
+        newer.description = "synthetic user correction"
+        newer.manually_edited_fields = ["description"]
+    elif scenario == "manual_null":
+        older.description = None
+        older.manually_edited_fields = ["description"]
+        newer.description = "synthetic automatic refill"
+    elif scenario == "complete_newer":
+        newer.is_anime = recorded["is_anime"]
+        assert newer.is_anime is not None
+    else:
+        newer.description = recorded["description"]
+    db_session.add_all(rows)
+    await db_session.commit()
+    merge = merge_duplicate_movies if kind == "movie" else merge_duplicate_series
+    await merge(db_session)
+    await db_session.commit()
+    db_session.expire_all()
+    survivor = (await db_session.execute(select(model))).scalar_one()
+    if scenario == "manual_newer":
+        assert survivor.description == "synthetic user correction"
+        assert "description" in (survivor.manually_edited_fields or [])
+    elif scenario == "manual_null":
+        assert survivor.description is None
+        assert "description" in (survivor.manually_edited_fields or [])
+    elif scenario == "complete_newer":
+        assert survivor.is_anime == recorded["is_anime"]
+    else:
+        assert survivor.description == recorded["description"]
+
+
+@pytest.mark.parametrize("kind", ["movie", "series"])
+@pytest.mark.parametrize("conflict", [False, True])
+async def test_manual_fields_across_duplicates(db_session, kind, conflict):
+    model = Movie if kind == "movie" else TVSeries
+    created = datetime(2026, 1, 1)
+    rows = []
+    for offset in range(2):
+        attrs = dict(
+            id=str(uuid.uuid4()), title_en="Synthetic protection test",
+            created_at=created + timedelta(days=offset),
+        )
+        if kind == "series":
+            collection = WorkCollection(id=str(uuid.uuid4()), title_cn="合成合集", title_en="Synthetic collection")
+            db_session.add(collection)
+            await db_session.flush()
+            attrs.update(collection_id=collection.id, season_number=1)
+        rows.append(model(**attrs))
+    first, second = rows
+    first.description = "user first"
+    first.manually_edited_fields = ["description"]
+    if conflict:
+        second.description = "user second"
+        second.manually_edited_fields = ["description"]
+    else:
+        second.rating = 0
+        second.is_anime = False
+        second.manually_edited_fields = ["rating", "is_anime"]
+    db_session.add_all(rows)
+    await db_session.commit()
+    merge = merge_duplicate_movies if kind == "movie" else merge_duplicate_series
+    report = await merge(db_session)
+    await db_session.commit()
+    db_session.expire_all()
+    after = (await db_session.execute(select(model))).scalars().all()
+    if conflict:
+        assert len(after) == 2
+        assert {r.description for r in after} == {"user first", "user second"}
+        assert any("manual-conflict" in note for note in report.notes)
+    else:
+        assert len(after) == 1
+        assert after[0].description == "user first"
+        assert after[0].rating == 0
+        assert after[0].is_anime is False
+        assert set(after[0].manually_edited_fields) == {"description", "rating", "is_anime"}
+        again = await merge(db_session)
+        assert again.series_removed == 0 and again.movies_removed == 0

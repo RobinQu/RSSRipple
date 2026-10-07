@@ -1,0 +1,1211 @@
+"""Tests for the metadata dedup service.
+
+Covers the merge-duplicate-series/movie flow that repairs rows created before
+canonical-external-id upsert was in place.
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import UTC, datetime, timedelta
+
+import pytest
+
+from app.models.agent import Agent
+from app.models.agent_work import AgentWork
+from app.models.channel import Channel
+from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
+from app.models.downloader import DownloaderInstance
+from app.models.file_resource import FileResource
+from app.models.movie import Movie
+from app.models.resource_file_assignment import ResourceFileAssignment
+from app.models.resource_work_link import ResourceWorkLink
+from app.models.series import TVSeries
+from app.models.work_collection import WorkCollection
+from app.services import metadata_dedup as dedup
+
+
+def _uuid() -> str:
+    return str(uuid.uuid4())
+
+
+async def test_rehome_series_as_movie_moves_batch_links_and_assignments(
+    db_session, channel
+):
+    """Online wrong-table repair preserves association provenance and cannot
+    violate the resource/work unique constraints."""
+    from sqlalchemy import select
+
+    series = TVSeries(
+        id=_uuid(), title_cn="异形基地", external_id="tmdb:4722",
+        external_source="tmdb", content_type="movie",
+    )
+    movie = Movie(
+        id=_uuid(), title_cn="异形基地", external_id="tmdb:4722",
+        external_source="tmdb", content_type="movie",
+    )
+    resource = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="body-snatchers-pack",
+        title_raw="Body Snatchers (1993)", torrent_url="magnet:?xt=1",
+        is_batch=True, batch_scope="movies", series_id=series.id,
+    )
+    db_session.add_all([series, movie, resource])
+    await db_session.flush()
+    db_session.add_all([
+        ResourceWorkLink(
+            id=_uuid(), resource_id=resource.id, series_id=series.id,
+            source="manual",
+        ),
+        ResourceWorkLink(
+            id=_uuid(), resource_id=resource.id, movie_id=movie.id,
+            source="auto",
+        ),
+        ResourceFileAssignment(
+            id=_uuid(), resource_id=resource.id, file_path="film.mkv",
+            series_id=series.id, season=1, episode_start=1, episode_end=1,
+            source="manual",
+        ),
+    ])
+    await db_session.flush()
+
+    await dedup.rehome_series_as_movie(db_session, series, movie)
+
+    await db_session.refresh(resource)
+    assert resource.series_id is None
+    assert resource.movie_id == movie.id
+    links = (await db_session.execute(select(ResourceWorkLink))).scalars().all()
+    assert len(links) == 1
+    assert links[0].movie_id == movie.id
+    assert links[0].source == "manual"
+    assignment = (await db_session.execute(
+        select(ResourceFileAssignment)
+    )).scalar_one()
+    assert assignment.series_id is None
+    assert assignment.movie_id == movie.id
+    assert assignment.season is None
+    assert assignment.episode_start is None
+    assert assignment.episode_end is None
+
+
+TEST_FIELD_MAPPING = {
+    "list_locator": {"source": "entries"},
+    "field_mappings": {"torrent_url": {"source": "link"}},
+}
+
+
+@pytest.fixture
+async def channel(db_session):
+    ch = Channel(
+        id=_uuid(),
+        name="ch",
+        type="rss_feed",
+        url="https://example.com/rss",
+        field_mapping=TEST_FIELD_MAPPING,
+        metadata_agent_enabled=False,
+    )
+    db_session.add(ch)
+    await db_session.flush()
+    return ch
+
+
+async def _make_series(db_session, *, external_id: str, title_cn: str, title_en: str,
+                       created_at: datetime, poster: str | None = None,
+                       aliases: list[str] | None = None) -> TVSeries:
+    s = TVSeries(
+        id=_uuid(),
+        title_cn=title_cn,
+        title_en=title_en,
+        original_title=title_en,
+        aliases=aliases,
+        external_id=external_id,
+        external_source="exa",
+        poster_url=poster,
+        content_type="tv",
+        created_at=created_at,
+        updated_at=created_at,
+    )
+    db_session.add(s)
+    await db_session.flush()
+    return s
+
+
+async def _make_pending_conflict(db, channel_id, agent_id, work, *, episode=None):
+    """Synthetic two-candidate conflict with actual work and resource rows."""
+    from app.models.pending_decision import PendingDecision
+    from app.services.decision_store import choice_identity
+
+    is_series = isinstance(work, TVSeries)
+    if is_series and work.collection_id is None:
+        collection = WorkCollection(title_cn="Synthetic dedup collection")
+        db.add(collection)
+        await db.flush()
+        work.collection_id = collection.id
+    resources = [FileResource(
+        id=_uuid(), channel_id=channel_id, guid=_uuid(), title_raw="Synthetic candidate",
+        torrent_url="magnet:?xt=synthetic", series_id=work.id if is_series else None,
+        movie_id=None if is_series else work.id, season=1 if is_series else None,
+        episode=episode if is_series else None, episode_confidence="manual",
+    ) for _ in range(2)]
+    db.add_all(resources)
+    await db.flush()
+    key, scope = choice_identity("series" if is_series else "movie", work.id,
+                                 1 if is_series else None, episode if is_series else None)
+    return PendingDecision(
+        id=_uuid(), agent_id=agent_id, series_id=work.id if is_series else None,
+        movie_id=None if is_series else work.id, season=1 if is_series else None,
+        episode=episode, candidates=[r.id for r in resources], reason="Synthetic conflict",
+        status="pending", decision_key=key, decision_scope=scope,
+    )
+
+
+async def test_merge_duplicate_series_collapses_and_repoints(db_session, channel):
+    """Three rows for the same work; oldest survives, FKs re-pointed."""
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    s1 = await _make_series(
+        db_session, external_id="TMDB:82684",
+        title_cn="关于我转生变成史莱姆这档事 第四季",
+        title_en="That Time I Got Reincarnated as a Slime Season 4",
+        created_at=t0, poster="/posters/keep.jpg",
+    )
+    s2 = await _make_series(
+        db_session, external_id="TMDB 82684",
+        title_cn="关于我转生变成史莱姆这档事 第四季",
+        title_en="That Time I Got Reincarnated as a Slime Season 4",
+        created_at=t0 + timedelta(minutes=1),
+    )
+    s3 = await _make_series(
+        db_session, external_id="TMDB TV 82684 / season 4",
+        title_cn="关于我转生变成史莱姆这档事 第四季",
+        title_en="That Time I Got Reincarnated as a Slime Season 4",
+        created_at=t0 + timedelta(minutes=2),
+        aliases=["转生史莱姆"],
+    )
+
+    # Point one FileResource at each series.
+    for s in (s1, s2, s3):
+        r = FileResource(
+            id=_uuid(),
+            channel_id=channel.id,
+            guid=f"g-{s.id}",
+            title_raw="raw",
+            torrent_url="magnet:?xt=1",
+            series_id=s.id,
+        )
+        db_session.add(r)
+    await db_session.flush()
+
+    report = await dedup.merge_duplicate_series(db_session)
+    await db_session.flush()
+
+    assert report.series_groups == 1
+    assert report.series_removed == 2
+    assert report.file_resources_updated == 2
+
+    # Survivor is s1 (oldest); duplicates gone.
+    remaining = (await db_session.execute(
+        __import__("sqlalchemy").select(TVSeries)
+    )).scalars().all()
+    assert len(remaining) == 1
+    survivor = remaining[0]
+    assert survivor.id == s1.id
+    assert survivor.external_id == "tmdb:82684"  # canonicalized
+    assert survivor.poster_url == "/posters/keep.jpg"
+    assert "转生史莱姆" in (survivor.aliases or [])
+
+    # All FileResources point at survivor.
+    from sqlalchemy import select
+    resources = (await db_session.execute(select(FileResource))).scalars().all()
+    assert all(r.series_id == s1.id for r in resources)
+
+
+async def test_merge_duplicate_series_repoints_agent_works_and_mappings(db_session, channel):
+    """AgentWork and ChannelRawTitleMapping FKs must be re-pointed too."""
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    s1 = await _make_series(
+        db_session, external_id="TMDB:1",
+        title_cn="剧A", title_en="Show A", created_at=t0,
+    )
+    s2 = await _make_series(
+        db_session, external_id="TMDB 1",
+        title_cn="剧A", title_en="Show A", created_at=t0 + timedelta(seconds=1),
+    )
+
+    # Fixture setup for AgentWork
+    dl = DownloaderInstance(
+        id=_uuid(), name="dl", type="transmission",
+        url="http://x", download_dir="/tmp",
+    )
+    db_session.add(dl)
+    await db_session.flush()
+    agent = Agent(
+        id=_uuid(), name="a", channel_id=channel.id, downloader_id=dl.id,
+        task_expire_days=30, llm_enabled=False,
+        scope_channel_wide=False, conflict_resolution="ask",
+    )
+    db_session.add(agent)
+    await db_session.flush()
+
+    aw = AgentWork(
+        id=_uuid(), agent_id=agent.id, content_type="tv",
+        series_id=s2.id, enable_episode_dedup=True,
+    )
+    db_session.add(aw)
+
+    m = ChannelRawTitleMapping(
+        id=_uuid(), channel_id=channel.id,
+        raw_title="raw title",
+        search_title_key="剧a",
+        content_type="tv",
+        series_id=s2.id,
+    )
+    db_session.add(m)
+    await db_session.flush()
+
+    report = await dedup.merge_duplicate_series(db_session)
+    await db_session.flush()
+
+    assert report.agent_works_updated == 1
+    assert report.mappings_updated == 1
+    await db_session.refresh(aw)
+    await db_session.refresh(m)
+    assert aw.series_id == s1.id
+    assert m.series_id == s1.id
+
+
+async def test_merge_duplicate_series_drops_conflicting_children(db_session, channel):
+    """Regression: duplicates owning child rows whose natural key the survivor
+    already has (Episode uq, mapping uq, AgentWork) must not abort the merge.
+    Pending choices instead retain their source rows and combine candidates."""
+    from sqlalchemy import select
+
+    from app.models.episode import Episode
+    from app.models.pending_decision import PendingDecision
+
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    s1 = await _make_series(
+        db_session, external_id="TMDB:1",
+        title_cn="剧A", title_en="Show A", created_at=t0,
+    )
+    s2 = await _make_series(
+        db_session, external_id="TMDB 1",
+        title_cn="剧A", title_en="Show A", created_at=t0 + timedelta(seconds=1),
+    )
+    dl = DownloaderInstance(
+        id=_uuid(), name="dl", type="transmission", url="http://x", download_dir="/tmp",
+    )
+    db_session.add(dl)
+    await db_session.flush()
+    agent = Agent(
+        id=_uuid(), name="a", channel_id=channel.id, downloader_id=dl.id,
+        task_expire_days=30, llm_enabled=False,
+        scope_channel_wide=False, conflict_resolution="ask",
+    )
+    db_session.add(agent)
+    await db_session.flush()
+
+    # Both series own (1,1); s1 additionally (1,2), s2 additionally (1,3).
+    # (Mapping collisions can't exist — its uq is series-independent.)
+    db_session.add_all([
+        Episode(id=_uuid(), series_id=s1.id, season=1, episode=1, title="s1e1"),
+        Episode(id=_uuid(), series_id=s1.id, season=1, episode=2),
+        Episode(id=_uuid(), series_id=s2.id, season=1, episode=1, title="s2e1"),
+        Episode(id=_uuid(), series_id=s2.id, season=1, episode=3),
+        AgentWork(
+            id=_uuid(), agent_id=agent.id, content_type="tv",
+            series_id=s1.id, enable_episode_dedup=True,
+        ),
+        AgentWork(
+            id=_uuid(), agent_id=agent.id, content_type="tv",
+            series_id=s2.id, enable_episode_dedup=True,
+        ),
+        ChannelRawTitleMapping(
+            id=_uuid(), channel_id=channel.id, raw_title="raw",
+            search_title_key="剧a", content_type="tv", series_id=s2.id,
+        ),
+        await _make_pending_conflict(db_session, channel.id, agent.id, s1, episode=1),
+        await _make_pending_conflict(db_session, channel.id, agent.id, s2, episode=1),
+    ])
+    await db_session.flush()
+
+    report = await dedup.merge_duplicate_series(db_session)
+    await db_session.flush()
+
+    assert report.series_removed == 1
+    episodes = (await db_session.execute(
+        select(Episode).where(Episode.series_id == s1.id)
+    )).scalars().all()
+    assert sorted((e.season, e.episode) for e in episodes) == [(1, 1), (1, 2), (1, 3)]
+    # Survivor's own (1,1) wins over the duplicate's.
+    e11 = next(e for e in episodes if e.episode == 1)
+    assert e11.title == "s1e1"
+    assert len((await db_session.execute(select(AgentWork))).scalars().all()) == 1
+    mappings = (await db_session.execute(select(ChannelRawTitleMapping))).scalars().all()
+    assert len(mappings) == 1
+    assert mappings[0].series_id == s1.id
+    decisions = (await db_session.execute(select(PendingDecision))).scalars().all()
+    assert len(decisions) == 3  # two source records retained plus their replacement
+    assert all(d.series_id == s1.id for d in decisions)
+    pending = [d for d in decisions if d.status == "pending"]
+    assert len(pending) == 1 and len(set(pending[0].candidates)) == 4
+    assert sum(d.status == "expired" for d in decisions) == 2
+
+
+async def test_merge_skips_year_conflicting_group(db_session):
+    """Regression: rows sharing a normalized title but premiered years apart
+    (remake/reboot/同名系列, e.g. a 1995 film page and a 2026 TV series page)
+    must NOT be merged — the oldest row would otherwise swallow the newer
+    work and re-point its resources."""
+    from sqlalchemy import select
+
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    old = TVSeries(
+        id=_uuid(), title_cn="攻殼機動隊", title_en="Ghost in the Shell",
+        original_title="攻殻機動隊", external_id="wikipedia:190601",
+        external_source="wikipedia", content_type="tv",
+        start_date=datetime(1995, 11, 18, tzinfo=UTC).date(),
+        created_at=t0, updated_at=t0,
+    )
+    new = TVSeries(
+        id=_uuid(), title_cn="攻壳机动队", title_en="THE GHOST IN THE SHELL",
+        original_title="攻殻機動隊 THE GHOST IN THE SHELL",
+        external_id="wikipedia:9390967", external_source="wikipedia",
+        content_type="tv",
+        start_date=datetime(2026, 7, 7, tzinfo=UTC).date(),
+        created_at=t0 + timedelta(days=1), updated_at=t0,
+    )
+    db_session.add_all([old, new])
+    await db_session.flush()
+
+    report = await dedup.merge_duplicate_series(db_session)
+    await db_session.flush()
+
+    assert report.series_removed == 0
+    assert any("year-conflicting" in n for n in report.notes)
+    assert len((await db_session.execute(select(TVSeries))).scalars().all()) == 2
+
+
+async def test_merge_duplicate_series_is_idempotent(db_session, channel):
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    await _make_series(
+        db_session, external_id="TMDB:1", title_cn="剧A", title_en="Show A",
+        created_at=t0,
+    )
+    await _make_series(
+        db_session, external_id="TMDB 1", title_cn="剧A", title_en="Show A",
+        created_at=t0 + timedelta(seconds=1),
+    )
+
+    r1 = await dedup.merge_duplicate_series(db_session)
+    await db_session.flush()
+    r2 = await dedup.merge_duplicate_series(db_session)
+    await db_session.flush()
+
+    assert r1.series_removed == 1
+    assert r2.series_removed == 0
+
+
+async def test_merge_duplicate_movies(db_session):
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    m1 = Movie(
+        id=_uuid(), title_cn="电影A", title_en="Movie A",
+        external_id="TMDB:100", external_source="exa", content_type="movie",
+        created_at=t0, updated_at=t0,
+    )
+    m2 = Movie(
+        id=_uuid(), title_cn="电影A", title_en="Movie A",
+        external_id="TMDB 100", external_source="exa", content_type="movie",
+        created_at=t0 + timedelta(seconds=1), updated_at=t0 + timedelta(seconds=1),
+    )
+    db_session.add_all([m1, m2])
+    await db_session.flush()
+
+    report = await dedup.merge_duplicate_movies(db_session)
+    await db_session.flush()
+
+    assert report.movie_groups == 1
+    assert report.movies_removed == 1
+    from sqlalchemy import select
+    survivors = (await db_session.execute(select(Movie))).scalars().all()
+    assert len(survivors) == 1
+    assert survivors[0].id == m1.id
+    assert survivors[0].external_id == "tmdb:100"
+
+
+# ---------------------------------------------------------------------------
+# Cross-table (Movie <-> TVSeries) dedup
+# ---------------------------------------------------------------------------
+
+
+async def test_cross_type_movie_with_episode_resources_folds_into_series(db_session, channel):
+    """The Slime case: same wikipedia entity filed as both Movie and TVSeries.
+    Episode-bearing resources on the Movie side prove it's a series."""
+    movie = Movie(
+        id=_uuid(), title_cn="關於我轉生變成史萊姆這檔事",
+        external_id="wikipedia:5139056", external_source="wikipedia",
+        content_type="movie",
+    )
+    series = TVSeries(
+        id=_uuid(), title_en="That Time I Got Reincarnated as a Slime",
+        external_id="wikipedia:5139056", external_source="wikipedia",
+        content_type="tv",
+    )
+    db_session.add_all([movie, series])
+    await db_session.flush()
+    r = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="g1", title_raw="raw",
+        torrent_url="magnet:?xt=1", movie_id=movie.id, episode=88, is_batch=False,
+    )
+    db_session.add(r)
+    await db_session.flush()
+
+    report = await dedup.merge_cross_type_duplicates(db_session)
+    await db_session.flush()
+
+    assert report.cross_type_merges == 1
+    from sqlalchemy import select
+    assert (await db_session.execute(select(Movie))).scalars().all() == []
+    await db_session.refresh(r)
+    assert r.series_id == series.id
+    assert r.movie_id is None
+    # Survivor enriched from the loser's title slots.
+    assert series.title_cn == "關於我轉生變成史萊姆這檔事"
+
+
+async def test_cross_type_no_episode_evidence_keeps_movie(db_session, channel):
+    """A genuine film duplicated into both tables (no episodes anywhere):
+    the Movie survives."""
+    movie = Movie(
+        id=_uuid(), title_cn="剧场版甲", title_en="Film A",
+        external_id="tmdb:777", external_source="tmdb", content_type="movie",
+    )
+    series = TVSeries(
+        id=_uuid(), title_cn="剧场版甲", external_id="tmdb:777",
+        external_source="tmdb", content_type="tv",
+    )
+    db_session.add_all([movie, series])
+    await db_session.flush()
+    r = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="g2", title_raw="raw",
+        torrent_url="magnet:?xt=1", series_id=series.id,
+    )
+    db_session.add(r)
+    await db_session.flush()
+
+    report = await dedup.merge_cross_type_duplicates(db_session)
+    await db_session.flush()
+
+    assert report.cross_type_merges == 1
+    from sqlalchemy import select
+    assert (await db_session.execute(select(TVSeries))).scalars().all() == []
+    await db_session.refresh(r)
+    assert r.movie_id == movie.id
+    assert r.series_id is None
+
+
+async def test_cross_type_shared_title_without_external_id(db_session, channel):
+    """Pairs can also be detected via shared normalized title (trad/simp fold)."""
+    movie = Movie(
+        id=_uuid(), title_cn="關於我轉生變成史萊姆這檔事",
+        external_id="wikipedia:5139056", external_source="wikipedia",
+        content_type="movie",
+    )
+    series = TVSeries(
+        id=_uuid(), title_cn="关于我转生变成史莱姆这档事",  # simplified twin
+        external_id="exa:abc", external_source="exa", content_type="tv",
+    )
+    db_session.add_all([movie, series])
+    await db_session.flush()
+    r = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="g3", title_raw="raw",
+        torrent_url="magnet:?xt=1", movie_id=movie.id, episode=1, is_batch=False,
+    )
+    db_session.add(r)
+    await db_session.flush()
+
+    report = await dedup.merge_cross_type_duplicates(db_session)
+    await db_session.flush()
+
+    assert report.cross_type_merges == 1
+    from sqlalchemy import select
+    assert (await db_session.execute(select(Movie))).scalars().all() == []
+    await db_session.refresh(r)
+    assert r.series_id == series.id
+
+
+# ---------------------------------------------------------------------------
+# Batch 3: collection_id preservation across merges
+# ---------------------------------------------------------------------------
+
+
+async def test_merge_movies_inherits_collection_when_survivor_has_none(db_session):
+    """Survivor without a collection inherits the duplicate's membership."""
+    coll_id = _uuid()
+    db_session.add(WorkCollection(id=coll_id, title_cn="狮子王（系列）"))
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    m1 = Movie(
+        id=_uuid(), title_cn="狮子王", external_id="exa:a", external_source="exa",
+        content_type="movie", created_at=t0, updated_at=t0,
+    )
+    m2 = Movie(
+        id=_uuid(), title_cn="狮子王", external_id="exa:b", external_source="exa",
+        content_type="movie", created_at=t0 + timedelta(minutes=1),
+        updated_at=t0, collection_id=coll_id,
+    )
+    db_session.add_all([m1, m2])
+    await db_session.flush()
+
+    await dedup.merge_duplicate_movies(db_session)
+    await db_session.flush()
+
+    from sqlalchemy import select
+    survivor = (await db_session.execute(select(Movie))).scalars().one()
+    assert survivor.id == m1.id  # oldest survives
+    assert survivor.collection_id == coll_id
+
+
+async def test_merge_movies_keeps_survivor_collection(db_session):
+    """A survivor with its own collection keeps it over the duplicate's."""
+    keep_id, dup_id = _uuid(), _uuid()
+    db_session.add_all([
+        WorkCollection(id=keep_id, title_cn="A"),
+        WorkCollection(id=dup_id, title_cn="B"),
+    ])
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    m1 = Movie(
+        id=_uuid(), title_cn="狮子王", external_id="exa:a", external_source="exa",
+        content_type="movie", created_at=t0, updated_at=t0, collection_id=keep_id,
+    )
+    m2 = Movie(
+        id=_uuid(), title_cn="狮子王", external_id="exa:b", external_source="exa",
+        content_type="movie", created_at=t0 + timedelta(minutes=1),
+        updated_at=t0, collection_id=dup_id,
+    )
+    db_session.add_all([m1, m2])
+    await db_session.flush()
+
+    await dedup.merge_duplicate_movies(db_session)
+    await db_session.flush()
+
+    from sqlalchemy import select
+    survivor = (await db_session.execute(select(Movie))).scalars().one()
+    assert survivor.collection_id == keep_id
+
+
+async def test_merge_series_inherits_collection_when_survivor_has_none(db_session):
+    coll_id = _uuid()
+    db_session.add(WorkCollection(id=coll_id, title_cn="攻壳机动队（系列）"))
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    s1 = TVSeries(
+        id=_uuid(), title_cn="攻壳机动队", external_id="exa:a", external_source="exa",
+        content_type="tv", created_at=t0, updated_at=t0,
+    )
+    s2 = TVSeries(
+        id=_uuid(), title_cn="攻壳机动队", external_id="exa:b", external_source="exa",
+        content_type="tv", created_at=t0 + timedelta(minutes=1),
+        updated_at=t0, collection_id=coll_id,
+    )
+    db_session.add_all([s1, s2])
+    await db_session.flush()
+
+    await dedup.merge_duplicate_series(db_session)
+    await db_session.flush()
+
+    from sqlalchemy import select
+    survivor = (await db_session.execute(select(TVSeries))).scalars().one()
+    assert survivor.id == s1.id
+    assert survivor.collection_id == coll_id
+
+
+# ---------------------------------------------------------------------------
+# Batch 4: per-season works (作品单季化)
+# ---------------------------------------------------------------------------
+
+
+async def test_merge_duplicate_series_isolated_by_season_number(db_session):
+    """Same title on different season works must never cluster (per-season
+    works: 不同季标题再像也不合并); same-season duplicates still merge."""
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    s1 = await _make_series(
+        db_session, external_id="bangumi:111", title_cn="无职转生",
+        title_en="Mushoku Tensei", created_at=t0,
+    )
+    s1.season_number = 1
+    s1_dup = await _make_series(
+        db_session, external_id="bangumi:112", title_cn="无职转生",
+        title_en="Mushoku Tensei", created_at=t0 + timedelta(minutes=1),
+    )
+    s1_dup.season_number = 1
+    s2 = await _make_series(
+        db_session, external_id="bangumi:501963", title_cn="无职转生",
+        title_en="Mushoku Tensei", created_at=t0 + timedelta(minutes=2),
+    )
+    s2.season_number = 2
+    await db_session.flush()
+
+    report = await dedup.merge_duplicate_series(db_session)
+    await db_session.flush()
+
+    assert report.series_groups == 1
+    assert report.series_removed == 1
+    from sqlalchemy import select
+    remaining = (await db_session.execute(select(TVSeries))).scalars().all()
+    assert sorted(s.season_number for s in remaining) == [1, 2]
+    assert {s.id for s in remaining} == {s1.id, s2.id}  # oldest survives
+
+
+async def test_merge_duplicate_series_legacy_rows_cluster_together(db_session):
+    """Legacy unsplit series-level rows (multi-season evidence in the inert
+    columns) cluster among themselves, never into a per-season row."""
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    legacy1 = await _make_series(
+        db_session, external_id="tmdb:82684", title_cn="无职转生",
+        title_en="Mushoku Tensei", created_at=t0,
+    )
+    legacy1.seasons = [
+        {"season_number": 1, "episode_count": 23},
+        {"season_number": 2, "episode_count": 24},
+    ]
+    legacy2 = await _make_series(
+        db_session, external_id="tmdb:82684", title_cn="无职转生",
+        title_en="Mushoku Tensei", created_at=t0 + timedelta(minutes=1),
+    )
+    legacy2.number_of_seasons = 3
+    per_season = await _make_series(
+        db_session, external_id="bangumi:501963", title_cn="无职转生",
+        title_en="Mushoku Tensei", created_at=t0 + timedelta(minutes=2),
+    )
+    per_season.season_number = 3
+    await db_session.flush()
+
+    report = await dedup.merge_duplicate_series(db_session)
+    await db_session.flush()
+
+    assert report.series_groups == 1
+    assert report.series_removed == 1
+    from sqlalchemy import select
+    remaining = (await db_session.execute(select(TVSeries))).scalars().all()
+    assert len(remaining) == 2
+    assert legacy1.id in {s.id for s in remaining}
+    assert per_season.id in {s.id for s in remaining}
+
+
+async def test_merge_series_repoints_work_links_and_assignments(
+    db_session, channel
+):
+    """ResourceWorkLink / ResourceFileAssignment follow the survivor instead
+    of being silently CASCADE-deleted with the duplicate; unique-key
+    collisions collapse with manual provenance preserved."""
+    from sqlalchemy import select
+
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    s1 = await _make_series(
+        db_session, external_id="TMDB:82684", title_cn="剧A",
+        title_en="Show A", created_at=t0,
+    )
+    s2 = await _make_series(
+        db_session, external_id="TMDB 82684", title_cn="剧A",
+        title_en="Show A", created_at=t0 + timedelta(minutes=1),
+    )
+    res1 = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="pack-1", title_raw="raw",
+        torrent_url="magnet:?xt=1", is_batch=True, batch_scope="multi_season",
+    )
+    res2 = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="pack-2", title_raw="raw",
+        torrent_url="magnet:?xt=2", is_batch=True, batch_scope="multi_season",
+    )
+    db_session.add_all([res1, res2])
+    await db_session.flush()
+    # res1 links BOTH works (collision on uq_resource_link_series after
+    # re-point); the dup's link is manual and must win.
+    db_session.add_all([
+        ResourceWorkLink(
+            id=_uuid(), resource_id=res1.id, series_id=s1.id, source="auto",
+        ),
+        ResourceWorkLink(
+            id=_uuid(), resource_id=res1.id, series_id=s2.id, source="manual",
+        ),
+        ResourceWorkLink(
+            id=_uuid(), resource_id=res2.id, series_id=s2.id, source="llm",
+        ),
+        ResourceFileAssignment(
+            id=_uuid(), resource_id=res2.id, file_path="ShowA/E01.mkv",
+            series_id=s2.id, season=1, episode_start=1, episode_end=1,
+            source="manual",
+        ),
+    ])
+    await db_session.flush()
+
+    report = await dedup.merge_duplicate_series(db_session)
+    await db_session.flush()
+
+    assert report.work_links_updated == 1  # res2's link re-pointed
+    assert report.file_assignments_updated == 1
+    links = (await db_session.execute(select(ResourceWorkLink))).scalars().all()
+    assert len(links) == 2
+    by_resource = {link.resource_id: link for link in links}
+    assert by_resource[res1.id].series_id == s1.id
+    assert by_resource[res1.id].source == "manual"  # manual provenance kept
+    assert by_resource[res2.id].series_id == s1.id
+    assignment = (await db_session.execute(
+        select(ResourceFileAssignment)
+    )).scalar_one()
+    assert assignment.series_id == s1.id
+    assert assignment.season == 1
+
+
+# ---------------------------------------------------------------------------
+# Batch 5: enrichment / collision branches
+# ---------------------------------------------------------------------------
+
+
+async def test_merge_duplicate_series_repoints_unique_pending_decision(db_session, channel):
+    """A duplicate's PendingDecision whose key the survivor does not own is
+    re-pointed (not dropped) — the non-collision branch."""
+    from sqlalchemy import select
+
+    from app.models.pending_decision import PendingDecision
+
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    s1 = await _make_series(
+        db_session, external_id="TMDB:1", title_cn="剧A", title_en="Show A",
+        created_at=t0,
+    )
+    s2 = await _make_series(
+        db_session, external_id="TMDB 1", title_cn="剧A", title_en="Show A",
+        created_at=t0 + timedelta(seconds=1),
+    )
+    dl = DownloaderInstance(
+        id=_uuid(), name="dl", type="transmission", url="http://x", download_dir="/tmp",
+    )
+    db_session.add(dl)
+    await db_session.flush()
+    agent = Agent(
+        id=_uuid(), name="a", channel_id=channel.id, downloader_id=dl.id,
+        task_expire_days=30, llm_enabled=False,
+        scope_channel_wide=False, conflict_resolution="ask",
+    )
+    db_session.add(agent)
+    await db_session.flush()
+    # Unique key (agent, season=1, episode=2, pending) — no collision.
+    original = await _make_pending_conflict(db_session, channel.id, agent.id, s2, episode=2)
+    original_id, candidates = original.id, set(original.candidates)
+    db_session.add(original)
+    await db_session.flush()
+
+    report = await dedup.merge_duplicate_series(db_session)
+    await db_session.flush()
+
+    assert report.pending_decisions_updated == 1
+    rows = list(await db_session.scalars(select(PendingDecision)))
+    assert len(rows) == 2
+    d = next(row for row in rows if row.status == "pending")
+    assert d.series_id == s1.id and d.episode == 2
+    assert d.decision_scope["work_id"] == s1.id
+    assert set(d.candidates) == candidates
+    assert next(row for row in rows if row.id == original_id).status == "expired"
+
+
+async def test_pick_canonical_external_id_fallback():
+    """Prefer canonical tmdb/imdb ids; otherwise the shortest non-empty
+    external_id wins, including rows whose canonicalization yields nothing."""
+    from types import SimpleNamespace
+
+    from app.services import metadata_dedup as dedup
+
+    cands = [
+        SimpleNamespace(
+            external_id="wikipedia:42", external_source="wikipedia", content_type="tv",
+        ),
+        SimpleNamespace(external_id="   ", external_source="exa", content_type="tv"),
+    ]
+    assert dedup._pick_canonical_external_id(cands) == "   "
+
+    cands2 = [
+        SimpleNamespace(external_id="exa:99", external_source="exa", content_type="tv"),
+        SimpleNamespace(external_id="TMDB:55", external_source="exa", content_type="tv"),
+    ]
+    assert dedup._pick_canonical_external_id(cands2) == "tmdb:55"
+
+
+async def test_merge_series_group_single_row_noop(db_session):
+    """A one-row group is skipped entirely (guard in _merge_series_group)."""
+    s = TVSeries(id=_uuid(), title_cn="孤本", external_source="exa", content_type="tv")
+    db_session.add(s)
+    await db_session.flush()
+
+    report = dedup.DedupReport()
+    await dedup._merge_series_group(db_session, [s], report)
+
+    assert report.series_groups == 0
+    assert report.series_removed == 0
+
+
+async def test_merge_series_group_enriches_survivor_fields(db_session):
+    """Survivor inherits title/poster/description/rating/genre/episode-count
+    slots the duplicates carried and it lacks."""
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    survivor = TVSeries(
+        id=_uuid(), aliases=["共享"], external_source="exa", external_id="exa:s1",
+        content_type="tv", created_at=t0, updated_at=t0,
+    )
+    dup = TVSeries(
+        id=_uuid(), title_cn="标题", title_en="Title", original_title="Original",
+        description="desc", poster_url="https://cdn/x.jpg", rating=8.5,
+        genre=["Animation"], number_of_episodes=12, number_of_seasons=2,
+        external_source="exa", external_id="exa:s2", content_type="tv",
+        created_at=t0 + timedelta(minutes=1), updated_at=t0,
+    )
+    db_session.add_all([survivor, dup])
+    await db_session.flush()
+
+    report = dedup.DedupReport()
+    await dedup._merge_series_group(db_session, [survivor, dup], report, survivor=survivor)
+
+    assert report.series_groups == 1
+    assert report.series_removed == 1
+    assert survivor.title_cn == "标题"
+    assert survivor.title_en == "Title"
+    assert survivor.original_title == "Original"
+    assert survivor.poster_url == "https://cdn/x.jpg"
+    assert survivor.description == "desc"
+    assert survivor.rating == 8.5
+    assert survivor.genre == ["Animation"]
+    assert survivor.number_of_episodes == 12
+    assert survivor.number_of_seasons is None
+    assert set(survivor.aliases or []) >= {"标题", "Title", "Original", "共享"}
+
+
+async def test_merge_movie_group_single_row_noop(db_session):
+    m = Movie(id=_uuid(), title_cn="孤本电影", external_source="exa", content_type="movie")
+    db_session.add(m)
+    await db_session.flush()
+
+    report = dedup.DedupReport()
+    await dedup._merge_movie_group(db_session, [m], report)
+
+    assert report.movie_groups == 0
+    assert report.movies_removed == 0
+
+
+async def test_merge_movie_group_enriches_survivor_fields(db_session):
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    survivor = Movie(
+        id=_uuid(), aliases=["共享"], external_source="exa", external_id="exa:m1",
+        content_type="movie", created_at=t0, updated_at=t0,
+    )
+    dup = Movie(
+        id=_uuid(), title_cn="电影标题", title_en="Film Title",
+        original_title="Film Original", description="desc",
+        poster_url="https://cdn/y.jpg", rating=7.5, genre=["Action"], runtime=110,
+        external_source="exa", external_id="exa:m2", content_type="movie",
+        created_at=t0 + timedelta(minutes=1), updated_at=t0,
+    )
+    db_session.add_all([survivor, dup])
+    await db_session.flush()
+
+    report = dedup.DedupReport()
+    await dedup._merge_movie_group(db_session, [survivor, dup], report, survivor=survivor)
+
+    assert report.movie_groups == 1
+    assert report.movies_removed == 1
+    assert survivor.title_cn == "电影标题"
+    assert survivor.title_en == "Film Title"
+    assert survivor.original_title == "Film Original"
+    assert survivor.poster_url == "https://cdn/y.jpg"
+    assert survivor.description == "desc"
+    assert survivor.rating == 7.5
+    assert survivor.genre == ["Action"]
+    assert survivor.runtime == 110
+    assert set(survivor.aliases or []) >= {"电影标题", "Film Title", "Film Original", "共享"}
+
+
+async def test_merge_duplicate_movies_skips_year_conflicting_group(db_session):
+    """Same-title movies premiered years apart are never merged."""
+    from datetime import date
+
+    from sqlalchemy import select
+
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    m1 = Movie(
+        id=_uuid(), title_cn="攻壳机动队", external_id="tmdb:1", external_source="tmdb",
+        content_type="movie", release_date=date(1995, 11, 18), created_at=t0,
+        updated_at=t0,
+    )
+    m2 = Movie(
+        id=_uuid(), title_cn="攻壳机动队", external_id="tmdb:2", external_source="tmdb",
+        content_type="movie", release_date=date(2026, 7, 7),
+        created_at=t0 + timedelta(days=1), updated_at=t0,
+    )
+    db_session.add_all([m1, m2])
+    await db_session.flush()
+
+    report = await dedup.merge_duplicate_movies(db_session)
+    await db_session.flush()
+
+    assert report.movie_groups == 0
+    assert report.movies_removed == 0
+    assert any("year-conflicting" in n for n in report.notes)
+    assert len((await db_session.execute(select(Movie))).scalars().all()) == 2
+
+
+async def test_merge_duplicate_metadata_runs_all_phases(db_session):
+    """merge_duplicate_metadata folds series + movies + cross-type passes."""
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    await _make_series(
+        db_session, external_id="TMDB:1", title_cn="剧A", title_en="Show A",
+        created_at=t0,
+    )
+    await _make_series(
+        db_session, external_id="TMDB 1", title_cn="剧A", title_en="Show A",
+        created_at=t0 + timedelta(seconds=1),
+    )
+    m1 = Movie(
+        id=_uuid(), title_cn="电影A", title_en="Movie A", external_id="TMDB:100",
+        external_source="exa", content_type="movie", created_at=t0, updated_at=t0,
+    )
+    m2 = Movie(
+        id=_uuid(), title_cn="电影A", title_en="Movie A", external_id="TMDB 100",
+        external_source="exa", content_type="movie",
+        created_at=t0 + timedelta(seconds=1), updated_at=t0,
+    )
+    db_session.add_all([m1, m2])
+    await db_session.flush()
+
+    report = await dedup.merge_duplicate_metadata(db_session)
+    await db_session.flush()
+
+    assert report.series_groups == 1
+    assert report.series_removed == 1
+    assert report.movie_groups == 1
+    assert report.movies_removed == 1
+
+
+async def test_merge_duplicate_movies_repoints_agent_works_and_decisions(db_session, channel):
+    """Movie dedup re-points non-colliding AgentWork/PendingDecision rows and
+    drops rows whose (agent, key) the survivor already owns."""
+    from sqlalchemy import select
+
+    from app.models.pending_decision import PendingDecision
+
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    m1 = Movie(
+        id=_uuid(), title_cn="电影A", title_en="Movie A", external_id="TMDB:100",
+        external_source="exa", content_type="movie", created_at=t0, updated_at=t0,
+    )
+    m2 = Movie(
+        id=_uuid(), title_cn="电影A", title_en="Movie A", external_id="TMDB 100",
+        external_source="exa", content_type="movie",
+        created_at=t0 + timedelta(seconds=1), updated_at=t0,
+    )
+    dl = DownloaderInstance(
+        id=_uuid(), name="dl", type="transmission", url="http://x", download_dir="/tmp",
+    )
+    db_session.add(dl)
+    await db_session.flush()
+    agent_a = Agent(
+        id=_uuid(), name="a", channel_id=channel.id, downloader_id=dl.id,
+        task_expire_days=30, llm_enabled=False,
+        scope_channel_wide=False, conflict_resolution="ask",
+    )
+    agent_b = Agent(
+        id=_uuid(), name="b", channel_id=channel.id, downloader_id=dl.id,
+        task_expire_days=30, llm_enabled=False,
+        scope_channel_wide=False, conflict_resolution="ask",
+    )
+    db_session.add_all([m1, m2, agent_a, agent_b])
+    await db_session.flush()
+    db_session.add_all([
+        AgentWork(
+            id=_uuid(), agent_id=agent_a.id, content_type="movie", movie_id=m1.id,
+            enable_episode_dedup=True,
+        ),
+        AgentWork(
+            id=_uuid(), agent_id=agent_a.id, content_type="movie", movie_id=m2.id,
+            enable_episode_dedup=True,
+        ),
+        AgentWork(
+            id=_uuid(), agent_id=agent_b.id, content_type="movie", movie_id=m2.id,
+            enable_episode_dedup=True,
+        ),
+        await _make_pending_conflict(db_session, channel.id, agent_a.id, m1, episode=None),
+        await _make_pending_conflict(db_session, channel.id, agent_a.id, m2, episode=None),
+        await _make_pending_conflict(db_session, channel.id, agent_b.id, m2, episode=5),
+    ])
+    await db_session.flush()
+
+    report = await dedup.merge_duplicate_movies(db_session)
+    await db_session.flush()
+
+    assert report.agent_works_updated == 1
+    assert report.pending_decisions_updated == 2
+    aws = (await db_session.execute(select(AgentWork))).scalars().all()
+    assert len(aws) == 2
+    assert {aw.agent_id for aw in aws} == {agent_a.id, agent_b.id}
+    assert all(aw.movie_id == m1.id for aw in aws)
+    ds = (await db_session.execute(select(PendingDecision))).scalars().all()
+    assert len(ds) == 5
+    pending = [d for d in ds if d.status == "pending"]
+    assert len(pending) == 2
+    assert sorted(len(set(d.candidates)) for d in pending) == [2, 4]
+    assert sum(d.status == "expired" for d in ds) == 3
+    assert all(d.movie_id == m1.id for d in ds)
+    assert {d.episode for d in ds} == {None, 5}
+
+
+async def test_cross_type_series_enriched_from_movie(db_session, channel):
+    """The Movie folds into the series and its extra fields are inherited."""
+    from sqlalchemy import select
+
+    movie = Movie(
+        id=_uuid(), title_cn="关于我转生变成史莱姆这档事", title_en="Slime",
+        external_id="wikipedia:5139056", external_source="wikipedia",
+        content_type="movie", poster_url="https://cdn/p.jpg", description="desc",
+        rating=8.8, genre=["Animation"],
+    )
+    series = TVSeries(
+        id=_uuid(), title_en="That Time I Got Reincarnated as a Slime",
+        external_id="wikipedia:5139056", external_source="wikipedia",
+        content_type="tv",
+    )
+    db_session.add_all([movie, series])
+    await db_session.flush()
+    r = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="g-enrich", title_raw="raw",
+        torrent_url="magnet:?xt=1", movie_id=movie.id, episode=88, is_batch=False,
+    )
+    db_session.add(r)
+    await db_session.flush()
+
+    report = await dedup.merge_cross_type_duplicates(db_session)
+    await db_session.flush()
+
+    assert report.cross_type_merges == 1
+    assert (await db_session.execute(select(Movie))).scalars().all() == []
+    assert series.title_cn == "关于我转生变成史莱姆这档事"
+    assert series.poster_url == "https://cdn/p.jpg"
+    assert series.description == "desc"
+    assert series.rating == 8.8
+    assert series.genre == ["Animation"]
+
+
+async def test_cross_type_movie_enriched_from_series(db_session, channel):
+    """No-episode evidence keeps the Movie; it inherits the series' fields."""
+    from sqlalchemy import select
+
+    movie = Movie(
+        id=_uuid(), title_cn="剧场版甲", external_id="tmdb:777",
+        external_source="tmdb", content_type="movie",
+    )
+    series = TVSeries(
+        id=_uuid(), title_cn="剧场版甲", title_en="Film A", original_title="Film Original",
+        external_id="tmdb:777", external_source="tmdb", content_type="tv",
+        poster_url="https://cdn/q.jpg", description="desc", rating=9.0,
+        genre=["Animation"],
+    )
+    db_session.add_all([movie, series])
+    await db_session.flush()
+    r = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="g-enrich2", title_raw="raw",
+        torrent_url="magnet:?xt=1", series_id=series.id,
+    )
+    db_session.add(r)
+    await db_session.flush()
+
+    report = await dedup.merge_cross_type_duplicates(db_session)
+    await db_session.flush()
+
+    assert report.cross_type_merges == 1
+    assert (await db_session.execute(select(TVSeries))).scalars().all() == []
+    assert movie.title_en == "Film A"
+    assert movie.original_title == "Film Original"
+    assert movie.poster_url == "https://cdn/q.jpg"
+    assert movie.description == "desc"
+    assert movie.rating == 9.0
+    assert movie.genre == ["Animation"]
+
+
+async def test_cross_type_skips_series_removed_by_earlier_movie(db_session):
+    """A series already folded into one movie is skipped when a later movie
+    would otherwise pair with it again."""
+    from sqlalchemy import select
+
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    m1 = Movie(
+        id=_uuid(), title_cn="电影一", external_id="tmdb:999", external_source="tmdb",
+        content_type="movie", created_at=t0, updated_at=t0,
+    )
+    m2 = Movie(
+        id=_uuid(), title_cn="电影二", external_id="tmdb:999", external_source="tmdb",
+        content_type="movie", created_at=t0, updated_at=t0,
+    )
+    s1 = TVSeries(
+        id=_uuid(), title_cn="剧一", external_id="tmdb:999", external_source="tmdb",
+        content_type="tv", created_at=t0, updated_at=t0,
+    )
+    s2 = TVSeries(
+        id=_uuid(), title_cn="剧二", external_id="tmdb:999", external_source="tmdb",
+        content_type="tv", created_at=t0, updated_at=t0,
+    )
+    db_session.add_all([m1, m2, s1, s2])
+    await db_session.flush()
+
+    report = await dedup.merge_cross_type_duplicates(db_session)
+    await db_session.flush()
+
+    assert report.cross_type_merges == 2
+    assert (await db_session.execute(select(TVSeries))).scalars().all() == []
+    remaining_movies = (await db_session.execute(select(Movie))).scalars().all()
+    assert {m.id for m in remaining_movies} == {m1.id, m2.id}
+
+
+async def test_cross_type_unmatched_movie_kept(db_session):
+    """A movie that pairs with no series is simply left alone."""
+    from sqlalchemy import select
+
+    movie = Movie(
+        id=_uuid(), title_cn="电影X", external_id="tmdb:777", external_source="tmdb",
+        content_type="movie",
+    )
+    series = TVSeries(
+        id=_uuid(), title_cn="剧Y", external_id="tmdb:999", external_source="tmdb",
+        content_type="tv",
+    )
+    db_session.add_all([movie, series])
+    await db_session.flush()
+
+    report = await dedup.merge_cross_type_duplicates(db_session)
+    await db_session.flush()
+
+    assert report.cross_type_merges == 0
+    assert (await db_session.execute(select(Movie))).scalars().all() == [movie]
+    assert (await db_session.execute(select(TVSeries))).scalars().all() == [series]
+
+
+async def test_cross_type_early_return_when_table_empty(db_session):
+    """No series rows -> cross-type pass short-circuits."""
+    movie = Movie(
+        id=_uuid(), title_cn="电影X", external_id="tmdb:1", external_source="tmdb",
+        content_type="movie",
+    )
+    db_session.add(movie)
+    await db_session.flush()
+
+    report = await dedup.merge_cross_type_duplicates(db_session)
+
+    assert report.cross_type_merges == 0
+
+
+async def test_dedup_keeps_original_legacy_evidence_and_does_not_add_retired_protection(db_session):
+    from app.services.metadata_service import mark_manually_edited
+
+    survivor = TVSeries(title_cn="Synthetic legacy", number_of_seasons=3, seasons=[{"season_number": 1}])
+    duplicate = TVSeries(title_cn="Synthetic duplicate", number_of_seasons=4)
+    db_session.add_all([survivor, duplicate])
+    await db_session.flush()
+    mark_manually_edited(survivor, {"title_cn": "Synthetic legacy", "number_of_seasons": 3})
+    await dedup._merge_series_group(db_session, [survivor, duplicate], dedup.DedupReport(), survivor=survivor)
+    await db_session.commit()
+    assert survivor.number_of_seasons == 3
+    assert survivor.seasons == [{"season_number": 1}]
+    assert survivor.manually_edited_fields == ["title_cn"]

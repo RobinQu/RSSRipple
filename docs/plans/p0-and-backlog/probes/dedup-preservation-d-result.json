@@ -1,0 +1,23 @@
+{
+  "base": "458a0f8",
+  "candidate": "/tmp/rssripple-v25-dedup-vdloqrh0",
+  "exit": 0,
+  "junit": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "43",
+    "time": "45.508",
+    "timestamp": "2026-10-07T01:48:50.177409+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "sha256": {
+    "app/services/dedup_metadata_policy.py": "ba46e5f13a1c3f4f0e74e9be1ad91e275dc96c0b2ab3a252ac2efb5d933629e0",
+    "app/services/metadata_dedup.py": "9d0d330a8328450b0c1979796147b1183c6ba76a3ad50c76cddb5f36ed32092b",
+    "tests/unit/test_dedup_manual_preservation.py": "a6f7acd5aa7a0ad9b97804fb4b7460761a55d53795b73fd8313d4bb5c4941672",
+    "tests/unit/test_metadata_dedup.py": "54ad6b5e80493f75f67789babfc7c66154df90ebd98a50381005b52b7a100a26"
+  },
+  "accepted": false,
+  "limits": "Same-type prototype only; cross-type, caller conflict semantics, concurrent edits, identity pairing, formal dual-backend and full gates remain."
+}

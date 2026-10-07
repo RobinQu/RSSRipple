@@ -431,3 +431,7 @@ V22 q/r 完整验收后已合入本地 main `69e931d`：单元/API 4089 项、96
 ## 无缓存 lint 复核（2026-10-07）
 
 B8 重基副本的干净 Ruff 检查发现 26 个历史 probes Python 文件的 I001；main 的缓存检查此前返回通过，但 `ruff check . --no-cache` 重现相同错误。已仅修正顶层 import 排序/空白，逐文件 AST 对比确认 import 集合及非 import 语句完全一致，未修改生产代码或旧测试报告。无缓存全仓 Ruff 与 diff-check 现通过；历史脚本原样可由 `a816f61` 取回，追溯见 probes/uncached-lint-20261007.json。后续最终 lint 使用 --no-cache，避免沿用该缓存结论。
+
+## V25 去重人工数据保护（2026-10-07，未验收）
+
+在 B8 ab/ac 冻结门禁运行期间独立复核剩余 P1 去重问题。录制作品标题/身份加合成重复及人工编辑历史，经真实 Turso 提交/重读，复现六例人工值、人工清空及三态动漫信息丢失，两例普通补齐对照通过。必要性确立，保留 P1。同类型候选补保护值转移、冲突保留及完整度排序，d 扩大回归 43 passed、1 warning、45.51 秒，退出 0。中间 b/c 的实现/fixture 失败原样留存；尚未完成跨类型、调用方冲突结果、并发人工编辑及双库完整验收，未合入运行代码。下一步与标准见 [V25](V25-DEDUP-METADATA-PRESERVATION.md)，原型及日志/JUnit 见 probes/dedup-preservation-*。B8 仍单独按 V24 验收，不混用两批结果。
