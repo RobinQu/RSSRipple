@@ -18,7 +18,22 @@
   "frozen_inputs_verified": 6519,
   "non_plan_inputs_verified_after_copy": 3309,
   "main_worktree_applied": true,
-  "code_commit": null,
+  "code_commit": "19068277a5fcf2c09eb533a4288eb9eaa020f9f2",
   "remote_pushed": false,
-  "deployed": false
+  "deployed": false,
+  "commit_non_plan_scope_verified": [
+    "docs/design/frontend.md",
+    "docs/testing/integration-inventory.md",
+    "frontend/src/components/WorkMetadataRefreshModal.tsx",
+    "frontend/src/i18n/locales/en-US.json",
+    "frontend/src/i18n/locales/zh-CN.json",
+    "frontend/tests/metadata-refresh.cjs",
+    "frontend/tests/metadata-refresh.html",
+    "frontend/tests/metadata-refresh.tsx"
+  ],
+  "commit_file_sha256_verified": true,
+  "full_non_plan_input_hashes_verified": 3309,
+  "ruff_no_cache_exit": 0,
+  "diff_check_exit": 0,
+  "original_p0_and_v30_ancestors_verified": true
 }
