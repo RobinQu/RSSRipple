@@ -68,3 +68,9 @@ o 15 项重放单元通过。新增生命周期测试读取大于 1 MiB 的真�
 为提前验证组合，复制 V22 q 冻结输入（逐项校验，不修改原目录），再三方合并 B6，得到 `/tmp/rssripple-v23-combined-jvco65ot`。运行代码无冲突，四份权威文档仅末尾追加冲突，保留 V21/CORS/B6 内容。p 在组合中执行上限/真实冲突/完整生产回滚/CORS/重放矩阵，73 passed、1 warning，25.64 秒；q 可复用真实 Chromium 入口退出 0，未授权 logout 保留登录、允许 logout 清 Cookie，临时服务 SIGINT 退出 130。
 
 十一文件组合增量及相对 V22 q 的基线哈希见 `probes/agent-work-limit-q-*`。其前置 CORS 仍在完整门禁，不可提前合入，也不能当作已验收 main；原 B6 副本保留。下一步可冻结组合完整门禁候选，但最终合入必须先核验 CORS 已验收且主干目标哈希匹配，若前置实现改变须重新对齐并补对应验证。
+
+## 完整门禁 r/s 已启动
+
+组合候选 `/tmp/rssripple-v23-combined-jvco65ot`，3252 输入冻结；十一文件增量仍与 q 源码清单一致，前置 CORS 3247 冻结输入也未变。全仓 Ruff 通过。完整单元/API r 会话 48627，专用 PG rssripple-v23-unit-pg-r（32862）；独立集成 s 会话 26798，唯一项目 rssripple-v23-final-s，依赖启动退出 0。正式报告将在测试与两路应用正常结束后运行。
+
+实时路径/句柄与收尾契约见 `probes/agent-work-limit-r-s-running.json`。CORS q/r 自身仍在跑；B6 可提前执行组合门禁以验证交互，但最终必须先验收 CORS，再核对 main 与 B6 base_hashes 完全一致。前置若修改则按差异重新对齐验证，不能以 B6 组合通过掩盖 CORS 独立失败。当前不合入、TODO 不关闭。
