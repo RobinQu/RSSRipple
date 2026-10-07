@@ -8,9 +8,25 @@
   "frozen_inputs": 6384,
   "non_plan_inputs_verified_after_copy": 3304,
   "main_worktree_applied": true,
-  "code_commit": null,
+  "code_commit": "64a083d9ffd03c90d444843092533caa80c9afaf",
   "ruff_no_cache_exit": 0,
   "diff_check_exit": 0,
   "remote_pushed": false,
-  "production_deployed": false
+  "production_deployed": false,
+  "commit_non_plan_scope_verified": [
+    "app/services/fts.py",
+    "app/services/fts_index_upgrade.py",
+    "docs/design/conventions.md",
+    "docs/design/db-migration.md",
+    "docs/testing/integration-inventory.md",
+    "pyproject.toml",
+    "tests/fixtures/turso_080rc2_fts.db.gz",
+    "tests/fixtures/turso_080rc2_fts.json",
+    "tests/integration/database/test_turso_decision_order.py",
+    "tests/integration/database/test_turso_fts_upgrade.py",
+    "uv.lock"
+  ],
+  "commit_file_sha256_verified": true,
+  "full_non_plan_input_hashes_verified": 3304,
+  "original_p0_ancestors_verified": true
 }
