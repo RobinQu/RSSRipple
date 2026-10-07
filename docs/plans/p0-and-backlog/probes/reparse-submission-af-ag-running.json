@@ -1,0 +1,51 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v24-isolation-4br76c92",
+  "effective_files": 25,
+  "frozen_count": 5332,
+  "unit": {
+    "status": "running",
+    "session": 35488,
+    "log": "/tmp/rssripple-v24-unit-af.log",
+    "junit": "/tmp/rssripple-v24-unit-af.xml",
+    "coverage": "/tmp/rssripple-v24-unit-af-coverage.xml",
+    "coverage_data": "/tmp/rssripple-v24-unit-af.coverage",
+    "threshold": 95,
+    "postgres_project": "rssripple-v24-unit-af",
+    "postgres_compose": "/tmp/rssripple-v25-compose.yml",
+    "postgres_container": "rssripple-v24-unit-af-postgres-1",
+    "postgres_port": 32855,
+    "postgres_preflight_passed": 3
+  },
+  "integration": {
+    "status": "running",
+    "session": 21973,
+    "project": "rssripple-v24-final-ag",
+    "startup_exit": 0,
+    "log": "/tmp/rssripple-v24-integration-ag.log",
+    "threshold": 85,
+    "cleanup": "pending"
+  },
+  "image": "rssripple-v20-tests:local",
+  "image_id": "sha256:82b848a7ced66ed29f4556606eb97da654fa9332edb34c9d01cffcbb2e5c1a12",
+  "sequence_reproduction": {
+    "ad": {
+      "exit": 1,
+      "passed": 15,
+      "failed": 6,
+      "seconds": 62.51
+    },
+    "ae": {
+      "exit": 0,
+      "passed": 21,
+      "seconds": 11.83
+    },
+    "project": "rssripple-v24-isolation-ad",
+    "cleanup_exit": 0,
+    "containers": [],
+    "networks": [],
+    "volumes": []
+  },
+  "prior_failed_gate": "reparse-submission-ab-ac-audit.json",
+  "warning": "Frozen candidate: do not edit. Poll these handles. Integration runner terminal -> SIGINT app/app-llm -> verify both exits -> final coverage -> export before down --volumes --remove-orphans. Unit PG down only after unit terminal."
+}

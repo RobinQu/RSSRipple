@@ -1,0 +1,318 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v24-rebased-nqrx1t3y",
+  "frozen_count": 5332,
+  "frozen_changes": [],
+  "unit": {
+    "exit": 0,
+    "passed": 4128,
+    "suite": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "15",
+      "tests": "4143",
+      "time": "2567.990",
+      "timestamp": "2026-10-07T01:37:07.986302+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "coverage": {
+      "version": "7.14.3",
+      "timestamp": "1791339593341",
+      "lines-valid": "24026",
+      "lines-covered": "23302",
+      "line-rate": "0.9699",
+      "branches-covered": "0",
+      "branches-valid": "0",
+      "branch-rate": "0",
+      "complexity": "0"
+    },
+    "skips": [
+      {
+        "class": "tests.unit.test_database_migrations",
+        "name": "test_create_tables_postgres_path",
+        "message": "PostgreSQL unavailable: ConnectionRefusedError(111, \"Connect call failed ('127.0.0.1', 5432)\")",
+        "text": "/tmp/rssripple-v24-rebased-nqrx1t3y/tests/unit/test_database_migrations.py:953: PostgreSQL unavailable: ConnectionRefusedError(111, \"Connect call failed ('127.0.0.1', 5432)\")"
+      },
+      {
+        "class": "tests.unit.test_database_migrations",
+        "name": "test_light_migrations_postgres_legacy_shapes",
+        "message": "PostgreSQL unavailable: ConnectionRefusedError(111, \"Connect call failed ('127.0.0.1', 5432)\")",
+        "text": "/tmp/rssripple-v24-rebased-nqrx1t3y/tests/unit/test_database_migrations.py:974: PostgreSQL unavailable: ConnectionRefusedError(111, \"Connect call failed ('127.0.0.1', 5432)\")"
+      },
+      {
+        "class": "tests.unit.test_database_migrations",
+        "name": "test_light_migrations_postgres_legacy_delivery_columns_nullable",
+        "message": "PostgreSQL unavailable: ConnectionRefusedError(111, \"Connect call failed ('127.0.0.1', 5432)\")",
+        "text": "/tmp/rssripple-v24-rebased-nqrx1t3y/tests/unit/test_database_migrations.py:1034: PostgreSQL unavailable: ConnectionRefusedError(111, \"Connect call failed ('127.0.0.1', 5432)\")"
+      },
+      {
+        "class": "tests.unit.test_decision_migration",
+        "name": "test_postgres_startup_rejects_unreviewed_then_accepts_review",
+        "message": "PostgreSQL startup DDL branch; embedded startup tested through CLI subprocess",
+        "text": "/tmp/rssripple-v24-rebased-nqrx1t3y/tests/unit/test_decision_migration.py:351: PostgreSQL startup DDL branch; embedded startup tested through CLI subprocess"
+      },
+      {
+        "class": "tests.api.test_api_coverage3.TestResourcesMore",
+        "name": "test_search_metadata_via_manual",
+        "message": "resource-scoped metadata search replaced by /api/v1/metadata/search",
+        "text": "/tmp/rssripple-v24-rebased-nqrx1t3y/tests/api/test_api_coverage3.py:136: resource-scoped metadata search replaced by /api/v1/metadata/search"
+      },
+      {
+        "class": "tests.api.test_api_coverage3.TestResourcesMore",
+        "name": "test_link_metadata_error_path",
+        "message": "resource-scoped metadata link replaced by work metadata apply/associations",
+        "text": "/tmp/rssripple-v24-rebased-nqrx1t3y/tests/api/test_api_coverage3.py:151: resource-scoped metadata link replaced by work metadata apply/associations"
+      },
+      {
+        "class": "tests.api.test_api_coverage3.TestResourcesMore",
+        "name": "test_link_metadata_movie",
+        "message": "resource-scoped metadata link replaced by work metadata apply/associations",
+        "text": "/tmp/rssripple-v24-rebased-nqrx1t3y/tests/api/test_api_coverage3.py:162: resource-scoped metadata link replaced by work metadata apply/associations"
+      },
+      {
+        "class": "tests.api.test_resources.TestResourceSearchLink",
+        "name": "test_search_404",
+        "message": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+        "text": "/tmp/rssripple-v24-rebased-nqrx1t3y/tests/api/test_resources.py:368: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+      },
+      {
+        "class": "tests.api.test_resources.TestResourceSearchLink",
+        "name": "test_search_returns_results",
+        "message": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+        "text": "/tmp/rssripple-v24-rebased-nqrx1t3y/tests/api/test_resources.py:373: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+      },
+      {
+        "class": "tests.api.test_resources.TestResourceSearchLink",
+        "name": "test_search_result_none_genre_coerced",
+        "message": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+        "text": "/tmp/rssripple-v24-rebased-nqrx1t3y/tests/api/test_resources.py:387: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+      },
+      {
+        "class": "tests.api.test_resources.TestResourceSearchLink",
+        "name": "test_search_forwards_source_and_fallback_sites",
+        "message": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+        "text": "/tmp/rssripple-v24-rebased-nqrx1t3y/tests/api/test_resources.py:400: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+      },
+      {
+        "class": "tests.api.test_resources.TestResourceSearchLink",
+        "name": "test_search_llm_error_returns_502",
+        "message": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+        "text": "/tmp/rssripple-v24-rebased-nqrx1t3y/tests/api/test_resources.py:425: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+      },
+      {
+        "class": "tests.api.test_resources.TestResourceSearchLink",
+        "name": "test_link_creates_series",
+        "message": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+        "text": "/tmp/rssripple-v24-rebased-nqrx1t3y/tests/api/test_resources.py:435: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+      },
+      {
+        "class": "tests.api.test_resources.TestResourceSearchLink",
+        "name": "test_link_404",
+        "message": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+        "text": "/tmp/rssripple-v24-rebased-nqrx1t3y/tests/api/test_resources.py:451: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+      },
+      {
+        "class": "tests.api.test_resources.TestResourceSearchLink",
+        "name": "test_link_movie_clears_ambiguous",
+        "message": "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+        "text": "/tmp/rssripple-v24-rebased-nqrx1t3y/tests/api/test_resources.py:456: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+      }
+    ],
+    "failures": [],
+    "acceptance_blocker": "Three additional PostgreSQL migration skips: dedicated unit PostgreSQL was not provisioned. Full unit/API must rerun with RSSRIPPLE_TEST_POSTGRES_URL.",
+    "skip_comparison_B6": {
+      "added": [
+        [
+          "tests.unit.test_database_migrations",
+          "test_create_tables_postgres_path",
+          "PostgreSQL unavailable: ConnectionRefusedError(111, \"Connect call failed ('127.0.0.1', 5432)\")"
+        ],
+        [
+          "tests.unit.test_database_migrations",
+          "test_light_migrations_postgres_legacy_delivery_columns_nullable",
+          "PostgreSQL unavailable: ConnectionRefusedError(111, \"Connect call failed ('127.0.0.1', 5432)\")"
+        ],
+        [
+          "tests.unit.test_database_migrations",
+          "test_light_migrations_postgres_legacy_shapes",
+          "PostgreSQL unavailable: ConnectionRefusedError(111, \"Connect call failed ('127.0.0.1', 5432)\")"
+        ]
+      ],
+      "removed": []
+    }
+  },
+  "integration": {
+    "exit": 1,
+    "passed": 3361,
+    "suite": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "5",
+      "skipped": "17",
+      "tests": "3383",
+      "time": "2163.849",
+      "timestamp": "2026-10-07T01:38:29.522785+00:00",
+      "hostname": "1764534ba7e0"
+    },
+    "coverage": {
+      "version": "7.14.3",
+      "timestamp": "1791339396833",
+      "lines-valid": "24026",
+      "lines-covered": "21444",
+      "line-rate": "0.8925",
+      "branches-covered": "0",
+      "branches-valid": "0",
+      "branch-rate": "0",
+      "complexity": "0"
+    },
+    "skips": [
+      {
+        "class": "tests.integration.http.test_api_coverage2.TestMagnetResolve",
+        "name": "test_terminal_retry_flow",
+        "message": "no magnet resolution reached a terminal state in time",
+        "text": "/app/tests/integration/http/test_api_coverage2.py:819: no magnet resolution reached a terminal state in time"
+      },
+      {
+        "class": "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+        "name": "test_mapping_structure",
+        "message": "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+        "text": "/app/tests/integration/http/test_channel_workflow.py:227: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+      },
+      {
+        "class": "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+        "name": "test_mapping_has_torrent_url",
+        "message": "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+        "text": "/app/tests/integration/http/test_channel_workflow.py:232: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+      },
+      {
+        "class": "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+        "name": "test_mapping_has_title_field",
+        "message": "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+        "text": "/app/tests/integration/http/test_channel_workflow.py:238: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+      },
+      {
+        "class": "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+        "name": "test_all_rules_have_source_key",
+        "message": "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+        "text": "/app/tests/integration/http/test_channel_workflow.py:243: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+      },
+      {
+        "class": "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+        "name": "test_confidence_not_low",
+        "message": "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+        "text": "/app/tests/integration/http/test_channel_workflow.py:248: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+      },
+      {
+        "class": "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+        "name": "test_fetch_succeeded",
+        "message": "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+        "text": "/app/tests/integration/http/test_channel_workflow.py:257: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+      },
+      {
+        "class": "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+        "name": "test_fetch_created_resources",
+        "message": "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+        "text": "/app/tests/integration/http/test_channel_workflow.py:263: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+      },
+      {
+        "class": "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+        "name": "test_resources_have_torrent_url",
+        "message": "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+        "text": "/app/tests/integration/http/test_channel_workflow.py:269: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+      },
+      {
+        "class": "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+        "name": "test_resources_have_title_raw",
+        "message": "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+        "text": "/app/tests/integration/http/test_channel_workflow.py:275: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+      },
+      {
+        "class": "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+        "name": "test_channel_stream_analyze_also_works",
+        "message": "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+        "text": "/app/tests/integration/http/test_channel_workflow.py:281: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+      },
+      {
+        "class": "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+        "name": "test_no_duplicates_on_refetch",
+        "message": "LLM_API_KEY not set — skipping LLM-dependent workflow tests",
+        "text": "/app/tests/integration/http/test_channel_workflow.py:290: LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+      },
+      {
+        "class": "tests.integration.http.test_metadata_api.TestMetadataLink",
+        "name": "test_link_metadata_creates_series",
+        "message": "No metadata API keys configured — cannot perform search+link",
+        "text": "/app/tests/integration/http/test_metadata_api.py:189: No metadata API keys configured — cannot perform search+link"
+      },
+      {
+        "class": "tests.integration.http.test_task_queue.TestRedisDistributedDedup",
+        "name": "test_status_key_shared_after_enqueue",
+        "message": "No distinct Redis-backed app instance configured",
+        "text": "/app/tests/integration/http/test_task_queue.py:365: No distinct Redis-backed app instance configured"
+      },
+      {
+        "class": "tests.integration.http.test_task_queue.TestRedisDistributedDedup",
+        "name": "test_redis_job_state_persists_after_done",
+        "message": "No distinct Redis-backed app instance configured",
+        "text": "/app/tests/integration/http/test_task_queue.py:383: No distinct Redis-backed app instance configured"
+      },
+      {
+        "class": "tests.integration.magnet.test_magnet_resolve_e2e",
+        "name": "test_live_magnet_resolution",
+        "message": "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)",
+        "text": "/app/tests/integration/magnet/test_magnet_resolve_e2e.py:376: live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)"
+      },
+      {
+        "class": "tests.integration.magnet.test_magnet_resolve_e2e",
+        "name": "test_live_fetch_to_resolve_end_to_end",
+        "message": "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)",
+        "text": "/app/tests/integration/magnet/test_magnet_resolve_e2e.py:387: live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)"
+      }
+    ],
+    "failures": [
+      {
+        "class": "tests.integration.resources.test_reparse_captured",
+        "name": "test_postgres_captured_reparse",
+        "message": "AttributeError: '_StubQueue' object at app.services.task_queue.task_queue has no attribute 'enqueue'"
+      },
+      {
+        "class": "tests.integration.resources.test_reparse_captured",
+        "name": "test_turso_captured_reparse",
+        "message": "AttributeError: '_StubQueue' object at app.services.task_queue.task_queue has no attribute 'enqueue'"
+      },
+      {
+        "class": "tests.integration.resources.test_reparse_crash",
+        "name": "test_process_crash_preserves_and_recovers_reparse_request[during_handler]",
+        "message": "TimeoutError"
+      },
+      {
+        "class": "tests.integration.resources.test_reparse_postgres",
+        "name": "test_postgres_overlapping_reparse_creates_one_request",
+        "message": "AttributeError: '_StubQueue' object at app.services.task_queue.task_queue has no attribute 'enqueue'"
+      },
+      {
+        "class": "tests.integration.resources.test_reparse_redis_worker",
+        "name": "test_worker_cancellation_requeues_and_preserves_request",
+        "message": "TimeoutError"
+      }
+    ],
+    "apps_exit": [
+      0,
+      0
+    ],
+    "coverage_exit": 0,
+    "export_exit": 0,
+    "cleanup_exit": 0,
+    "containers": [],
+    "networks": [],
+    "volumes": [],
+    "skip_comparison_B6": {
+      "added": [],
+      "removed": []
+    }
+  },
+  "fts_case": "Passed in final authoritative JUnit; initial progress-tail interpretation was incorrect.",
+  "next_candidate": "/tmp/rssripple-v24-isolation-4br76c92",
+  "next_action": "Sequence reproduction ad; repair singleton restoration and real timers; repeat full gates with unit PostgreSQL. No runtime merge."
+}

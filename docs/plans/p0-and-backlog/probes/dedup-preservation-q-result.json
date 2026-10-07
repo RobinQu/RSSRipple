@@ -1,0 +1,179 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v25-dedup-vdloqrh0",
+  "base_runtime": "accd024",
+  "main_base": "6f18844",
+  "files": {
+    "app/services/dedup_metadata_policy.py": {
+      "candidate": "da3f3e0a106f08e67875df05b02e905e603c69b6aab28c3df42e2f1b0ac91534",
+      "base": null
+    },
+    "app/services/dedup_work_lock.py": {
+      "candidate": "ed9c293881ad0bfc98d04f93ba5ad0a1744f1cd3598a088cb363de1f822e6cd4",
+      "base": null
+    },
+    "app/services/metadata_dedup.py": {
+      "candidate": "d2d08a36efa34580af9740b1882fc3f650d483ed451cbb5cb3049a9793768b8a",
+      "base": "3b1a5e647c4c6f43e310c1015d02f45e4ab246b0a765df0b1edd82c620adec4a"
+    },
+    "app/services/work_deletion.py": {
+      "candidate": "06a97bcf047e43101eaa09299ab0a7ee34ac8e2522eb62dd3c73b5e16ece9dba",
+      "base": "e2aa9bce182af9ddce868ac45ceb6bddcef7abceb0bd9a7502659303b026732a"
+    },
+    "app/services/franchise_service.py": {
+      "candidate": "61b2fc45339ce80da8ecbf39fc9aa83d2b4ae76929632de072df0ce1b648ecf0",
+      "base": "b6dab236f59c07dc05c25c4ef1a878e6c845180e52791b88910185bb9c087308"
+    },
+    "app/services/scheduler.py": {
+      "candidate": "be37ec273c5e8c89bdfde807d550e9ac4baf13bf0955ffebea2e4275a8638249",
+      "base": "f122647ed4d7a6a37ae8f1fc294a36b2f4458472bcb02904341c68705aaac3f2"
+    },
+    "app/api/v1/works.py": {
+      "candidate": "eb821b8d2a38feeecf8bac11f2df2bc2139e55538cf2f24ddc5440787631ff8b",
+      "base": "9cb21095511a98e32cb8bc39f8b56503f5effb63de351b6c43f91a545ee76822"
+    },
+    "scripts/post_split_leftover_repair.py": {
+      "candidate": "65d7386d26109f93e3ef190acd2fb69f8304f7cd6dc30f91178d950fea2efeb2",
+      "base": "010d08eeccb286b3c3733ca2e73576c8a67e9856540b2d534946dd44917695af"
+    },
+    "tests/unit/test_metadata_dedup.py": {
+      "candidate": "54ad6b5e80493f75f67789babfc7c66154df90ebd98a50381005b52b7a100a26",
+      "base": "b8a65ecf16e241b5863887bd08b4fe648c10995cf7748e19f46852c5cbb2a3ae"
+    },
+    "tests/unit/test_dedup_manual_preservation.py": {
+      "candidate": "a6f7acd5aa7a0ad9b97804fb4b7460761a55d53795b73fd8313d4bb5c4941672",
+      "base": null
+    },
+    "tests/unit/test_dedup_cross_manual.py": {
+      "candidate": "115662b20ee1ed7982297b5f26fdee467d84df38babc89d6c40558dfe79bffc7",
+      "base": null
+    },
+    "tests/api/test_merge_manual_conflict.py": {
+      "candidate": "20e91d8056e38ca4f752fbdcf7e77c9a3f1a2befe350a0fef32bf724f1e23305",
+      "base": null
+    },
+    "tests/integration/dedup/conftest.py": {
+      "candidate": "b008cd22d8ee318f5b064653fa4f5b1e69e65cea4658d046754ee6b232f90ae7",
+      "base": null
+    },
+    "tests/integration/dedup/test_concurrent_manual_edit.py": {
+      "candidate": "5fc79b2a71a15f2e12db4274faa004b33d6fcd6b8c287c22f577dfd5e31c8215",
+      "base": null
+    },
+    "docs/design/business-logic.md": {
+      "candidate": "9394fcb12068254d3a466926b1a373fd31e7f2d1d865dd3ebbadbc88d46b8d06",
+      "base": "965410549a39a8895d8ca6ecdb144da446845c0ef1795ab3516af3c1bbbd0f63"
+    },
+    "docs/design/api-endpoints.md": {
+      "candidate": "e8dd5ee275ec81601d3b03181f3db02bf38d3f0282ae8a4205ef90e12ed40ff7",
+      "base": "1a229c1b3974cd0bfce04c1bf34b89cb72fb0dd45f494ddde257db227e747be2"
+    },
+    "docs/testing/integration-inventory.md": {
+      "candidate": "0fe4158661e0555900185c355ba34e8d7dbc4f0f4e608072b1ffe50bf9516a66",
+      "base": "13256fc2674ef747f8730ef92a932c737361ec7b7c97bb496f868e2f32021990"
+    },
+    "tests/unit/test_dedup_identity_pair.py": {
+      "candidate": "ec2eddcdd44fe2bffbfb9a827010c63ecb845f763b1f9639005110690bc44718",
+      "base": null
+    },
+    "tests/integration/dedup/test_group_revalidation.py": {
+      "candidate": "4a627a7d69461a8c568ff17fe1570f2c821e1b80a0d6e76ec4e0006f09083830",
+      "base": null
+    },
+    "tests/integration/dedup/test_captured_assignments.py": {
+      "candidate": "ddeee418c0836f0f3499ca98176a16834bfd9582272c8f92b45fadb7492224cf",
+      "base": null
+    }
+  },
+  "results": {
+    "l": {
+      "exit": 1,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "5",
+        "skipped": "0",
+        "tests": "5",
+        "time": "7.826",
+        "timestamp": "2026-10-07T02:07:48.449496+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    "m": {
+      "exit": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "82",
+        "time": "107.003",
+        "timestamp": "2026-10-07T02:09:15.844960+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    "n": {
+      "exit": 1,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "4",
+        "skipped": "0",
+        "tests": "4",
+        "time": "2.034",
+        "timestamp": "2026-10-07T02:11:15.736821+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    "o": {
+      "exit": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "9",
+        "time": "5.828",
+        "timestamp": "2026-10-07T02:12:28.686729+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    "p": {
+      "exit": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "11",
+        "time": "7.931",
+        "timestamp": "2026-10-07T02:15:09.666904+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    "q": {
+      "exit": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "126",
+        "time": "114.893",
+        "timestamp": "2026-10-07T02:20:03.936247+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    }
+  },
+  "corpus_sha256": "d11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32",
+  "captured_scope": "Resource e15c597b-0f4a-4e8e-8c9d-0f8fea2222fd: 24 original assignments, 20 S1 + 4 S0; explicit synthetic season containers, duplicate and curator edit. No production network/download.",
+  "postgres_project": "rssripple-v25-dedup-n",
+  "cleanup": {
+    "scratch_remaining": [],
+    "down_exit": 0,
+    "containers": [],
+    "networks": [],
+    "volumes": []
+  },
+  "next": "Complete repository/franchise/offline caller transactional tests, broaden formal matrix, final review and full gates after B8 accepted rebase."
+}

@@ -90,3 +90,13 @@ u 首轮双库均失败：夹具没有写入创建 publication，生产事务按
 aa 以 `git archive accd024 app` 提取实际旧代码，在独立 PG/Turso 中先运行新代码、创建并确认请求，再由旧代码执行 create_tables 和 HTTP 资源列表读取；四个子进程均退出 0，空的新表与人工忽略保持。仅证明请求排空后的模式/读路径兼容，不宣称滚动部署或在途任务回退安全。脚本、日志与结果见 probes/reparse-rollback-aa-*。x/y/z 与旧代码兼容的测试服务均已清理。
 
 最终预审见 [V24-REVIEW](V24-REVIEW.md)。24 文件候选与 5332 冻结输入见 probes/reparse-submission-ab-*；开始完整 ab/ac 门禁，测试期间禁止修改候选。
+
+## ab/ac 完整门禁未通过及测试隔离修复
+
+- ab 单元/API：4128 passed、15 skipped、14 warnings，2568.18 秒，退出 0；23302/24026 = 96.99%。对照已接受 B6，多出 3 个 PostgreSQL 迁移跳过，原因是本轮未配置专用单元测试 PostgreSQL。不能作为正式验收通过；下一轮需带 `RSSRIPPLE_TEST_POSTGRES_URL` 重跑完整套件。
+- ac 完整集成：3361 passed、5 failed、17 skipped、22 warnings，2164.25 秒，退出 1；最终覆盖 21444/24026 = 89.25%。跳过与 B6 基线完全一致，但零失败要求未满足。两应用 SIGINT 退出 0/0，覆盖率/导出/清理均退出 0；所有原始报告已归档。5332 冻结输入全部不变。
+- 最终 JUnit 中 FTS 并发测试通过；此前中间进度的 FTS 失败判断有误，以最终原始报告为准。五个实际失败全部在新增 reparse 集成目录：三项缺少队列 enqueue（残留 `_StubQueue`），两项 Redis 恢复超时。
+
+顺序复核确认 `test_worker_entrypoint.wired_worker` 只替换 create_queue，却未恢复 `_run` 自行重绑的全局 task_queue；其他目录导入 unit/API conftest 又永久加速 asyncio.sleep。隔离新副本 `/tmp/rssripple-v24-isolation-4br76c92` 按 worker-entrypoint→resources 顺序 ad 复现 **6 failed、15 passed，62.51 秒**；定时竞态失败数量与完整轮不同，不能据此删除恢复断言。修正 worker fixture 恢复原单例，并在 resources fixture 使用原生 asyncio.tasks.sleep 后，ae 相同顺序 **21 passed，11.83 秒，退出 0**。未改业务实现，未增加超时或弱化断言。专用 ad 项目已导出报告并清理无残留。
+
+af/ag 候选为 25 个有效文件、5332 冻结输入，全仓无缓存 Ruff 通过。af 单元门禁前显式连接独立项目 `rssripple-v24-unit-af`，三项先前跳过的 PG 迁移预检 **3 passed，2.20 秒**。完整单元/API af 与新项目 `rssripple-v24-final-ag` 的完整集成 ag 已启动，均尚未结束，不得关闭 B8。运行句柄、清理协议和日志路径见 [af/ag 运行记录](probes/reparse-submission-af-ag-running.json)；上一失败轮见 [ab/ac 审计](probes/reparse-submission-ab-ac-audit.json)。

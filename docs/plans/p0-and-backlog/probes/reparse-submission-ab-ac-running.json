@@ -8,7 +8,7 @@
   "image": "rssripple-v20-tests:local",
   "image_id": "sha256:82b848a7ced66ed29f4556606eb97da654fa9332edb34c9d01cffcbb2e5c1a12",
   "unit": {
-    "status": "running",
+    "status": "finished_not_accepted",
     "session": 88062,
     "log": "/tmp/rssripple-v24-unit-ab.log",
     "junit": "/tmp/rssripple-v24-unit-ab.xml",
@@ -16,16 +16,24 @@
     "coverage_data": "/tmp/rssripple-v24-unit-ab.coverage",
     "threshold": 95,
     "database_url": "sqlite+aioturso:///:memory:",
-    "postgres_container": null
+    "postgres_container": null,
+    "exit": 0,
+    "passed": 4128,
+    "skipped": 15
   },
   "integration": {
-    "status": "running",
+    "status": "failed",
     "session": 1432,
     "project": "rssripple-v24-final-ac",
     "startup_exit": 0,
     "log": "/tmp/rssripple-v24-integration-ac.log",
     "threshold": 85,
-    "cleanup": "pending"
+    "cleanup": "complete",
+    "exit": 1,
+    "passed": 3361,
+    "failed": 5,
+    "skipped": 17
   },
-  "warning": "Frozen candidate: do not edit or restart. Poll actual handles. After runner terminal SIGINT app/app-llm, verify exits, final coverage-report, export before down --volumes --remove-orphans for this unique project only."
+  "warning": "Frozen candidate: do not edit or restart. Poll actual handles. After runner terminal SIGINT app/app-llm, verify exits, final coverage-report, export before down --volumes --remove-orphans for this unique project only.",
+  "audit": "reparse-submission-ab-ac-audit.json"
 }
