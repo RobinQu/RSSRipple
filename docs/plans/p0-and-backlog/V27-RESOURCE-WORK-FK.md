@@ -120,3 +120,10 @@ r 单元/API 继续运行，另发现音频详情 API 的 audio_work_id+series_i
 
 
 r 单元/API 现已退出 1：**4179 passed、2 failed、12 skipped、15 warnings，3441.21 秒**；覆盖率 **23596/24356 = 96.88%**。JUnit 确认恰为已修正的 Bangumi 双 FK、音频详情双 FK 两个旧夹具失败，没有额外失败。12 项 skips 与 V26 q 完全一致，全部冻结输入未变；专用 PostgreSQL 清理退出 0，项目容器/网络/卷标签为空。原始 coverage/JUnit/日志及失败消息见 [r-audit](probes/resource-work-fk-r-audit.json)。r/s 都是失败轮，完整验收未达成；现在可冻结 16 文件后继，重新运行完整双门禁。
+
+
+## aa 冻结后继与 ab/ac 完整重验启动
+
+原 r/s 已终态失败且全部审计/清理完成。三处夹具修正保持 Bangumi 来源独立性、音频真实提交与音频详情冷会话关联序列化覆盖；本轮重新确认无需放宽工作 FK 约束。以本地 main `d90273b` 复制全部跟踪文件并保留文件模式，叠加已专项验证的 z 十六文件；相对当前主干完整非计划输入独立推导恰为 **16 文件**，app/tests/scripts 新 Python 文件无遗漏。运行实现与原 p 相同。
+
+最终候选 `/tmp/rssripple-v27-final-3qnte9ze`，冻结 **6,297 个输入文件**。无缓存全仓 Ruff 退出 0。完整单元/API ab（≥95%）与隔离集成 ac（≥85%）均已启动，专用 PostgreSQL/集成项目健康；实际句柄、项目名和原始报告路径见 [ab-ac-running](probes/resource-work-fk-ab-ac-running.json)，源码/范围/冻结清单见 aa 系列。运行中不得修改该候选，必须重新通过零失败完整双门禁与全部退出/skip/hash/导出/清理审计后才可合入。

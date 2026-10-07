@@ -1,0 +1,27 @@
+{
+  "candidate": "/tmp/rssripple-v27-final-3qnte9ze",
+  "main_base": "d90273b847c293a3210887f6cd8ecdeefe6a2882",
+  "derived_effective_files": [
+    "app/database.py",
+    "app/models/file_resource.py",
+    "app/services/resource_work_schema.py",
+    "docs/design/data-models.md",
+    "docs/design/db-migration.md",
+    "docs/testing/integration-inventory.md",
+    "tests/api/test_audio_works.py",
+    "tests/integration/metadata/test_metadata_audio_resolver_coverage.py",
+    "tests/integration/resource_work_fk/conftest.py",
+    "tests/integration/resource_work_fk/test_catalog_guards.py",
+    "tests/integration/resource_work_fk/test_constraint.py",
+    "tests/integration/resource_work_fk/test_legacy.py",
+    "tests/integration/resource_work_fk/test_parent_guard_interaction.py",
+    "tests/integration/resource_work_fk/test_service_transitions.py",
+    "tests/unit/test_bangumi_relations.py",
+    "tests/unit/test_database_migrations.py"
+  ],
+  "frozen_count": 6297,
+  "non_plan_inputs": 3299,
+  "new_python_files_covered": true,
+  "runtime_identical_to_p": true,
+  "tracked_file_modes_copied_from_main": true
+}
