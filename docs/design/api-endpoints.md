@@ -119,6 +119,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 | PUT | `/channels/{id}` | 更新频道（含 field_mapping/metadata_agent_enabled 等所有字段，一次性保存；`required_metadata_fields` 只增不删，见下） |
 | DELETE | `/channels/{id}` | 删除频道（级联删除其 file_resources、agents、tasks、mappings） |
 | POST | `/channels/{id}/fetch?force=false` | 手动触发抓取（入队，返回 task_id）；`force=false` 只抓新条目并按常规冷却回填未匹配资源，`force=true` 无上限重跑频道全部既有条目，绕过 metadata 缓存/本地作品短路并重做 torrent 文件关联富化 |
+| POST | `/channels/{id}/cleanup-unresolved` | 按频道年龄阈值清理未处理且未关联的旧资源，返回 `{deleted}`；绕过自动清理开关，但保留合集/作品关联、已绑定或人工文件指派、人工集号、下载任务和已匹配资源；PostgreSQL 忙碌资源本轮跳过 |
 | GET | `/channels/{id}/fetch-status` | 轮询抓取任务状态（running/success/failed + 进度信息） |
 | POST | `/channels/{id}/analyze` | 非流式 LLM 分析 RSS，返回 field_mapping（阻塞等待直到完成或超时） |
 | POST | `/channels/{id}/analyze-stream` | SSE 流式 LLM 分析（`status/delta/reset/done/error` 事件；连接建立即冲刷响应头，RSS 抓取与 LLM 生成的 delta 实时下发，重试前发 `reset` 通知前端清空半程文本） |

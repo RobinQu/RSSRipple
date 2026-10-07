@@ -879,3 +879,10 @@ TMDB 双语言搜索保留失败与空响应区别：不完整搜索无候选时
 维基任一搜索变体请求失败且最终没有成功候选时，也属于不完整查询，不能仅因另一语言成功空响应就缓存未命中；有可接地成功候选则继续接受，不受其他语言错误影响。
 
 Web 回退的空结果同样不能覆盖 Wikipedia 主源请求失败：搜索/页面查询不完整且 web 最终未命中时，保留瞬态错误，不写负缓存，后续恢复必须再次查询。Web 返回成功候选时可恢复匹配；主源和 web 均成功但为空时仍可按明确未命中缓存。
+
+
+### 过期未识别资源清理（resource_cleanup）
+
+自动清理仅扫描显式启用的频道；手动 `cleanup-unresolved` 只绕过启用开关，仍使用频道年龄阈值和相同的保护条件。只有三个作品 FK、collection_id、metadata_matched_at 均为空，且不存在 work-links、已绑定文件指派、人工文件指派、下载任务，episode_confidence 也不是 manual 的旧资源才可删除。未绑定的 auto/llm 文件分析结果不单独阻止清理。挂合集待确认资源与编辑向导保存的多作品关联必须保留。
+
+PostgreSQL 按主键游标前进，分批锁定最多 500 个候选父行（FOR UPDATE SKIP LOCKED），再以新语句重新检查条件并删除；跳过正在被外键写入持锁的资源，避免等待编辑事务后用旧快照级联删除刚提交的关联。锁定与复查依赖应用默认 READ COMMITTED。服务不自行提交，仍由调用方持有事务。Turso 保留单条带完整条件的删除，但不能只依赖 FK 和重试：旧 CONCURRENT 写快照可能删除新关联的父行而不报冲突。因此 resource_work_links、resource_file_assignments、download_tasks 的 INSERT/UPDATE 触发器会对对应 file_resources 执行 id=id 等值 UPDATE，推进 MVCC 行版本而不改动身份、时间或业务字段。这样陈旧清理写入会变为可回滚/重试的写冲突；重试必须重开整个事务，不能复用失败 session。清理只删除 DB 资源记录，不删除缓存或媒体文件。

@@ -95,6 +95,12 @@ __all__ = [
 # Register ORM event hooks that keep search indexes in sync (Turso fts_outbox
 # enqueue + PostgreSQL search_text maintenance). Imported last so the model
 # classes above are already defined.
+# Fresh schemas need the same Turso FK concurrency protection as upgrades.
+from sqlalchemy import event as _event  # noqa: E402
+
 import app.services.organize_config_events as _organize_config_events  # noqa: E402, F401
 import app.services.work_search_events as _work_search_events  # noqa: E402, F401
+from app.database import Base as _Base  # noqa: E402
+from app.services.resource_parent_guard import on_metadata_created as _parent_guard_created  # noqa: E402
 
+_event.listen(_Base.metadata, "after_create", _parent_guard_created)

@@ -863,3 +863,8 @@ baseline 和 cursor 分别表示历史准入与消费确认，不要求 cursor>=
 AuthRateLimitBucket 使用 UUID v4 主键；bucket_key 为唯一 String(72)，global 为全局桶，peer: 后接服务器解析来源地址的 SHA-256。attempts 为正整数；resets_at 为 UTC DateTime 并建索引。表不保存验证码或密钥。全局及来源的条件 upsert 在同一短事务中完成，提交后才执行 OTP 验证；验证失败不得回滚额度。过期来源桶按 resets_at/id 排序每次最多删除 100 行。
 
 Turso 单进程内，同一引擎的额度短事务串行执行，防止全局桶的 MVCC 写冲突耗尽重试。锁不保存计数或决定是否放行；持久化数据库始终是额度依据。PostgreSQL 继续由条件 upsert 和行锁协调跨进程并发，外部写冲突仍使用独立事务重试。
+
+
+### Turso 资源父行并发保护
+
+Turso CONCURRENT 的 child FK 写入不具备 PostgreSQL KEY SHARE 的父行保护。`resource_work_links`、`resource_file_assignments`、`download_tasks` 的 INSERT/UPDATE 各有一个 `trg_resource_parent_*` 触发器，对 NEW 指向的 FileResource 执行 `UPDATE file_resources SET id=id`。此等值写入只推进 MVCC 行版本，不改变 ID、updated_at 或其他业务值；它使并发旧快照删除发生写冲突，避免已提交 child 变成孤儿。三种表的 INSERT/UPDATE、SAVEPOINT/先前写入两种旧快照均须验收。PostgreSQL 不安装这些触发器，使用原生 FK 锁与清理服务的锁定/复查。

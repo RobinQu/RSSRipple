@@ -417,6 +417,12 @@ async def _apply_light_migrations(conn) -> None:
     is_turso = conn.dialect.name == "sqlite"
     is_postgres = conn.dialect.name == "postgresql"
 
+
+    # Required consistency guard, not a best-effort metadata backfill.
+    from app.services.resource_parent_guard import ensure_resource_parent_guards
+
+    await conn.run_sync(ensure_resource_parent_guards)
+
     if is_postgres:
         # Media files commonly exceed PostgreSQL INTEGER's 2 GiB ceiling.
         # Turso INTEGER is already a signed 64-bit value.
