@@ -1,0 +1,15 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v29-sort-0flp49gg",
+  "source": "turso-pagination-n-source.json",
+  "venv": "/tmp/rssripple-v29-venv",
+  "install_exit": 0,
+  "install_artifact": "turso-pagination-env-o.log.gz",
+  "install_sha256": "94bb201f8f0fd6d25db08d8d37e71646702f49fc3a4fa4e23f6fe9c4d2a344f5",
+  "session": 30886,
+  "status": "running",
+  "log": "/tmp/rssripple-v29-locked-p.log",
+  "junit": "/tmp/rssripple-v29-locked-p.xml",
+  "command": "DATABASE_URL=sqlite+aioturso:///:memory: PYTHONPATH=. /tmp/rssripple-v29-venv/bin/python -m pytest tests/unit/test_database_migrations.py tests/unit/test_fts.py tests/integration/metadata/test_fts_coverage.py tests/integration/database/test_turso_decision_order.py tests/integration/database/test_turso_fts_upgrade.py tests/integration/organize/test_turso_snapshot_recovery.py -q --tb=short --junitxml=/tmp/rssripple-v29-locked-p.xml",
+  "note": "Targeted locked-environment regression only; no Docker resources, no full-gate acceptance."
+}
