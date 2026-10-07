@@ -1,0 +1,19 @@
+{
+  "candidate": "/tmp/rssripple-v26-rebased-773gfii3",
+  "main_base": "cf1c7855ab2b7a92929214321d3242cab0ce2b6b",
+  "derived_effective_files": [
+    "app/services/metadata_service.py",
+    "app/services/poster_cache.py",
+    "docs/design/conventions.md",
+    "docs/testing/integration-inventory.md",
+    "tests/integration/posters/poster_crash_driver.py",
+    "tests/integration/posters/test_cache_contract.py",
+    "tests/integration/posters/test_cache_crash.py",
+    "tests/integration/posters/test_cache_io_failures.py",
+    "tests/integration/posters/test_cache_publication.py",
+    "tests/unit/test_metadata_service.py"
+  ],
+  "frozen_count": 6084,
+  "manifest_matches_complete_scope": true,
+  "parent_omitted_script_verified": true
+}

@@ -1,0 +1,48 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v26-rebased-773gfii3",
+  "main_base": "cf1c7855ab2b7a92929214321d3242cab0ce2b6b",
+  "effective_files": 10,
+  "frozen_count": 6084,
+  "frozen": "poster-publication-p-frozen.json",
+  "source": "poster-publication-p-source.json",
+  "scope_audit": "poster-publication-p-scope.json",
+  "ruff_no_cache_exit": 0,
+  "unit": {
+    "status": "running",
+    "session": 93832,
+    "log": "/tmp/rssripple-v26-unit-q.log",
+    "junit": "/tmp/rssripple-v26-unit-q.xml",
+    "coverage": "/tmp/rssripple-v26-unit-q-coverage.xml",
+    "coverage_data": "/tmp/rssripple-v26-unit-q.coverage",
+    "postgres_project": "rssripple-v26-unit-q",
+    "postgres_compose": "/tmp/rssripple-v25-compose.yml",
+    "postgres_port": 32877,
+    "startup_exit": 0,
+    "preflight_exit": 0,
+    "preflight_passed": 11,
+    "threshold": 95,
+    "cleanup": "pending"
+  },
+  "integration": {
+    "status": "running",
+    "session": 10204,
+    "project": "rssripple-v26-final-r",
+    "compose": "/tmp/rssripple-v26-rebased-773gfii3/docker-compose.integration-isolated.yml",
+    "runner": "rssripple-v26-final-r-runner",
+    "log": "/tmp/rssripple-v26-integration-r.log",
+    "startup_exit": 0,
+    "threshold": 85,
+    "cleanup": "pending"
+  },
+  "image": "rssripple-v20-tests:local",
+  "prior_failed_round": "m/n/o: n exit1 two offline repair failures; all prior projects cleaned",
+  "warning": "Require both zero-failure terminal gates and skips/hash/coverage/exit/export/cleanup audit. Export named runner data before removal. Full scope must match derived Git diff, not only prior manifest.",
+  "startup_artifacts": {
+    "poster-publication-p-ruff.log.gz": "f3af4d142827f5aad2eb0c72d556d325488a57fb6219aac10afeb51085667d53",
+    "poster-publication-p-preflight.log.gz": "e92d71b57347402dc2983ee83e0b857d6c67d5ab19dfc1c43474baaabeb45bc2",
+    "poster-publication-p-preflight.xml.gz": "e3f96a4615ce319b4d11cf7ce22cc26ea9a885f89fc9ba92a4fb668208a46547",
+    "poster-publication-p-unit-startup.log.gz": "9991f82d68fd4f3294337ed4e2cb139bba788ff71ae6cc3a62e0db674fa66fe2",
+    "poster-publication-p-integration-startup.log.gz": "625f349d3b2f99695901ae3de1f663e0f23608621f5a71e260316120366d7c5d"
+  }
+}
