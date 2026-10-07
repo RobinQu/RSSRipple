@@ -72,3 +72,17 @@ Turso 兼容层遇到写锁/写写冲突时淘汰该物理连接，避免 SAVEPO
 OTP 额度由数据库共享并跨 web 进程持久化，适用于 PostgreSQL 分布式及 Turso 单进程部署。来源使用 ASGI request.client.host；应用不解析请求自带 X-Forwarded-For。反向代理部署必须把服务器 forwarded-allow-ips 限定为可信代理地址，禁止允许任意客户端；若服务器不接受代理来源，代理后的请求会共享来源额度。全局 30 次/60 秒是轮换来源的后盾，每来源 5 次/60 秒。全局上限可被主动请求耗尽，属于单管理员登录的可用性权衡；已登录会话和 API key 不消耗此额度。验证码、密钥不写入额度表。
 
 Turso 按其单进程独占契约，在同一引擎内串行额度短事务，避免认证突发相互争写全局桶；此锁不是内存限流计数器。额度、窗口与重启后的拒绝状态仍由数据库保存，PostgreSQL 的跨进程预算不依赖本地锁。
+
+### 浏览器跨域来源
+
+`CORS_ALLOWED_ORIGINS` 为 JSON 精确 HTTP(S) origin 列表，默认 `[]`，同源 SPA 不需配置。例如 `["https://ui.example.com"]` 允许该前端读取 API 响应。禁止通配、null、凭证、非根路径、query/fragment 和控制字符；默认端口规范化，配置非法则启动失败。它与 `OUTBOUND_PRIVATE_ORIGINS` 的服务端出站例外无关。
+
+允许来源的预检不要求登录，实际请求仍验证 Cookie/API key。CORS 包裹完整认证、重试和错误处理栈，包含 401 及未捕获 500。未允许来源不返回 Allow-Origin；这不是阻止请求执行的 CSRF 校验。登录 Cookie 仍为 SameSite=Lax，配置跨域白名单不会自动使跨站 Cookie 可用。
+
+### 浏览器状态变更来源防护
+
+对 `/api/v1/` 的非 GET/HEAD/OPTIONS 请求，在认证和业务副作用前核验来源：Origin 必须为当前请求同源或 `CORS_ALLOWED_ORIGINS` 精确白名单；拒绝 null、非法或重复 Origin。没有 Origin 时核验 Referer 的 origin；两者皆无时拒绝 Sec-Fetch-Site 明确 cross-site/same-site。完全没有浏览器来源信息的程序端调用保持兼容；来源可信不能代替认证。显式 API-key 头不会绕过不可信来源限制，避免伪造空头使 Cookie 保护失效。
+
+拒绝返回 403 `FORBIDDEN`、统一响应结构，不执行登录/退出或业务写入，不发送清 Cookie 头。CORS 仍决定浏览器是否可读该响应；不可信来源一般只能观察 fetch 失败。反向代理需正确传递并由受信代理配置还原外部 scheme/Host；不得把任意外部 Forwarded 头直接当可信 origin。
+
+来源防护对 Origin 和备用 Referer 均要求单值，重复来源头按 403 拒绝。

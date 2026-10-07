@@ -381,3 +381,10 @@ M3 候选 `metadata/test_wiki_failure_cache.py`：专用 PostgreSQL scratch data
 
 
 清理并发扩展：PostgreSQL 验证 501 条跨批处理、忙碌行跳过、完整回滚和 NOWAIT 锁释放；Turso 对三类保留资源的子表 INSERT/UPDATE，分别建立真实 SAVEPOINT 与先前写入的旧快照，验证整笔冲突重试后父子行保留。新建/重复升级检查六个触发器；父表 DROP 后、RENAME 前注入故障，检查旧表、父子数据和触发器一起恢复，再验证成功升级。API 入口用真实 get_db 提交，scheduler 调用实际 _cleanup_expired；HTTP 使用 ASGI，明确不宣称浏览器或网络服务器级端到端验证。
+### CORS 边界专项
+
+`security/test_cors_policy.py` 使用生产 ASGI 中间件栈与明确合成来源/凭证，验证预检、未授权来源、401/422/404/500、无 Origin、默认空白名单及 SSE；异常/流端点为临时测试路由，不访问真实业务数据。`test_cors_config.py` 验证配置默认、JSON 环境输入和拒绝非法 origin。手工 Cookie 只检查头处理，不能当浏览器 SameSite/CSRF 证据；浏览器专项使用下述可复用入口。
+
+CORS/来源防护扩展覆盖不可信 Origin/Referer/Fetch Metadata、真实 logout Set-Cookie 副作用、同源与白名单退出、合法请求模型自动 422。Chromium 的独立回环探针使用生产 TOTP 登录及临时 Turso：拒绝来源 logout 后仍 authenticated=true，白名单 logout 后 authenticated=false。该探针记录在 V22 计划证据中，已整理为下述可移植入口；不把浏览器 API 无法返回的请求头作为 Cookie 未发送证据。
+
+可复用浏览器入口为 `tests/browser/cors_fixture_server.py` 与 `tests/browser/cors_policy.cjs`，运行及依赖说明见同目录 README。真实临时数据库在退出时删除，浏览器与页面服务 finally 关闭。专项新增重复 Origin/Referer、伪造转发头、受信代理还原的 HTTPS scope、GZip/Vary 与 poster 挂载认证。

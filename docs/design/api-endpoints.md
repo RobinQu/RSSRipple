@@ -541,3 +541,13 @@ Agent 新建/编辑的 rules-preview 回填若发生内部候选持久化错误�
 ### OTP 请求额度与 429
 
 POST /api/v1/auth/otp 在验证码验证前预留持久额度：每来源 5 次/60 秒，全局 30 次/60 秒。窗口从首次预留开始；到期重置，不因拒绝延长。成功登录和验证失败均计数，来源超限的请求也计入全局额度；全局拒绝不新增来源桶。超过任一额度返回 429，error.code=RATE_LIMITED，Retry-After 为至少 1 的剩余秒数，不签发 Cookie。通过 OTPRequest 校验的字符串都计数；schema 错误直接 422，不执行 OTP 验证或预留。GET /auth/status、POST /auth/logout 不受该额度限制。
+
+### CORS 响应规则
+
+浏览器跨域读取仅允许启动配置 `CORS_ALLOWED_ORIGINS` 中的精确来源，默认禁用跨域读取。允许的 OPTIONS 预检无需认证；实际 API 请求仍按既有 Cookie/API key 认证，401/422/404/500 保留统一错误结构并附带允许来源的 CORS 头。没有 Origin 的程序端请求保持原行为。白名单不改变 SameSite=Lax 或替代 CSRF 校验，详见 conventions.md。
+
+### 浏览器状态变更来源防护
+
+对 `/api/v1/` 的非 GET/HEAD/OPTIONS 请求，在认证和业务副作用前核验来源：Origin 必须为当前请求同源或 `CORS_ALLOWED_ORIGINS` 精确白名单；拒绝 null、非法或重复 Origin。没有 Origin 时核验 Referer 的 origin；两者皆无时拒绝 Sec-Fetch-Site 明确 cross-site/same-site。完全没有浏览器来源信息的程序端调用保持兼容；来源可信不能代替认证。显式 API-key 头不会绕过不可信来源限制，避免伪造空头使 Cookie 保护失效。
+
+拒绝返回 403 `FORBIDDEN`、统一响应结构，不执行登录/退出或业务写入，不发送清 Cookie 头。CORS 仍决定浏览器是否可读该响应；不可信来源一般只能观察 fetch 失败。反向代理需正确传递并由受信代理配置还原外部 scheme/Host；不得把任意外部 Forwarded 头直接当可信 origin。

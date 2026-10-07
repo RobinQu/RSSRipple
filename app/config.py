@@ -58,9 +58,12 @@ class Settings(BaseSettings):
     # or metadata. Exact HTTP(S) origins only, never CIDRs or hostname globs.
     outbound_private_origins: list[str] = []
 
-    @field_validator("outbound_private_origins")
+    # Browser cross-origin access is disabled unless explicitly configured.
+    cors_allowed_origins: list[str] = []
+
+    @field_validator("outbound_private_origins", "cors_allowed_origins")
     @classmethod
-    def validate_outbound_private_origins(cls, values: list[str]) -> list[str]:
+    def validate_http_origins(cls, values: list[str]) -> list[str]:
         normalized = []
         for value in values:
             try:
@@ -75,7 +78,7 @@ class Settings(BaseSettings):
                 valid = False
             if not valid:
                 raise ValueError(
-                    "outbound_private_origins requires exact HTTP(S) origins "
+                    "Origin lists require exact HTTP(S) origins "
                     "without credentials, paths or wildcards"
                 )
             default_port = 443 if parsed.scheme == "https" else 80

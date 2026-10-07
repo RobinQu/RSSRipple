@@ -8,7 +8,6 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -18,6 +17,7 @@ from starlette.middleware.gzip import GZipMiddleware
 import app.models  # noqa: F401
 from app.config import settings
 from app.database import async_session_factory, create_tables, install_db_retry_middleware
+from app.middleware.cors import CorsFastAPI
 
 logger = logging.getLogger(__name__)
 
@@ -227,7 +227,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     return JSONResponse(status_code=500, content=body)
 
 
-app = FastAPI(
+app = CorsFastAPI(
     title=settings.app_name,
     version="0.2.0",
     lifespan=lifespan,
@@ -239,13 +239,6 @@ app = FastAPI(
 )
 
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 # Auth gate for /api/v1/* and /posters/* (no-op when AUTH_ENABLED=false).
