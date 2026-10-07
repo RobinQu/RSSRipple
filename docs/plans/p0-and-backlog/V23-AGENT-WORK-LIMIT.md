@@ -54,3 +54,9 @@ k 对应扩大 Turso 三种场景：第一请求取得父行写屏障后暂停�
 l 同跑作品上限和既有 decision_scope，40 passed / 2 failed，73.32 秒；两失败均发生在夹具读取 DB 生成 updated_at，未 await refresh 导致 MissingGreenlet，尚未发送待验证拒绝请求。修正夹具后仅重跑受影响两项 m，2 passed / 10 deselected，3.51 秒。运行实现未为这次夹具修正变化。
 
 新场景提交超限作品同时变更 name/channel/status 并携带空或非空 dispatch_resource_ids，真实 API 返回 422；重新查数据库确认字段、updated_at、last_consumed_at、原订阅 ID、publication generation/baseline/cursor 均保留，没有 DownloadTask。回填入口使用会抛 AssertionError 的 spy，既有 API fixture 的 queue mock 均未调用；不将这两项 mock 断言描述为真实下载器或队列端到端证据。五维原型审查见 [V23-REVIEW](V23-REVIEW.md)。当前十文件 m 候选归档尚未完整验收，待对齐 CORS 验收主干。
+
+## 完整生产栈的请求重放与回滚（n）
+
+新增 `tests/api/test_request_replay_production.py`，使用实际 app.main 的 Auth/GZip/DB 重试栈与 get_db，生产路由前仅插入临时测试端点，底层为 per-test Turso。小体与大于 1 MiB 的 JSON 请求首次实际写 Movie 并 flush 后注入合成冲突，第二次成功读取相同请求内容，最终新 DB 会话只看到一条记录；大响应保持 gzip。n 2 passed，2.56 秒，Ruff 通过。
+
+这里数据库写入/回滚真实，但冲突为显式注入，不替代 f/k 的实际 MVCC 竞争证据。临时端点与 middleware_stack 在 finally 恢复。十一文件最新候选归档见 `probes/agent-work-limit-n-*`。尚未与未验收 CORS 合并，后续重基必须再验证两类中间件组合及完整门禁。

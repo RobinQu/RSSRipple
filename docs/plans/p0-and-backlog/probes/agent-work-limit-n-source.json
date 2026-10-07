@@ -1,0 +1,37 @@
+{
+  "prototype": "/tmp/rssripple-v23-work-limit-ji74j3mq",
+  "base_runtime_commit": "6bf8c1c",
+  "accepted": false,
+  "files": {
+    "app/api/v1/agents.py": "26c9e31424fdf9548f5d0f5cb28a6dd39465b971e570c434fdab07115924192f",
+    "app/database.py": "c75202a3a9c7eb2cad12060b04a359edae81d63a5fb5625c0430044fa6f34955",
+    "app/middleware/db_retry.py": "490ed239b802b70319c811d175a32696a687560d4d2694c3adfedf3aaa524be9",
+    "tests/api/test_agent_work_limit.py": "0e422a4ebf75ab65a13ab7c2e69323cec0d23abd0225e4b9685d6f43c5307157",
+    "tests/unit/test_request_replay.py": "1d10bbeb0298728242bdccd99b253757d44b0ef2727f3cc5ff8e686a1f9bb39f",
+    "docs/design/api-endpoints.md": "9dc688856ffa0feb29e7da91d8f6d1a2357b46f8961e0b9f1d94844c3d9cdb73",
+    "docs/design/business-logic.md": "117a497fbaabba5f540a7c14685c5d1982bb0786b8c71f03ba2595bb6b84c16e",
+    "docs/design/error-handling.md": "07b4c36da41a3ac89349ae5d24614ce02c67420062ef7eabd660b203d8f4d8fe",
+    "docs/testing/integration-inventory.md": "738f9d645ab7b1edca08c9e19897cddc37cbddd14594b41e409bcd5a71defe5c",
+    "tests/integration/agents/test_work_limit_postgres.py": "5d0d8c244d93e345ac799479b34f2fa25fa96ec09178fd908e29b16c75eb5ee5",
+    "tests/api/test_request_replay_production.py": "13eed4e806b8ab81cd1c520e6507f0bf52830a230a463c98206b8ef520580bc8"
+  },
+  "base_hashes": {
+    "app/api/v1/agents.py": "fba2ae091014bbaf168735a5e22b2395915fa272974675bd9d0621f2da59b202",
+    "app/database.py": "fce844a848c7326e8fa0d642e241a8a1abc834815dc9df877b1bbca2a41202f4",
+    "app/middleware/db_retry.py": null,
+    "tests/api/test_agent_work_limit.py": null,
+    "tests/unit/test_request_replay.py": null,
+    "docs/design/api-endpoints.md": "b401921e6fc7c23e2e99b4272f144b5fb16f63d2e72dfa5ce4200e083f94f2f9",
+    "docs/design/business-logic.md": "3abcd56733f800dc031de31dcf185b1859f97182dbe3b16e22d3cabcb22e3ee7",
+    "docs/design/error-handling.md": "f49395ac467af2d0168f84d2846a5196be70a1410477dbfa250a6b8357b53f2b",
+    "docs/testing/integration-inventory.md": "de96961fd322cff52f945d460b6d1e2bb135a13a96dc3f1c74d8002b7fafeaef",
+    "tests/integration/agents/test_work_limit_postgres.py": null,
+    "tests/api/test_request_replay_production.py": null
+  },
+  "production_stack_n": {
+    "passed": 2,
+    "exit": 0,
+    "seconds": 2.56,
+    "conflict": "explicitly injected; real writes/rollback and production ASGI"
+  }
+}
