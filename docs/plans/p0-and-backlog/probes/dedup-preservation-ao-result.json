@@ -1,0 +1,18 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v25-retry-gybsr9wy",
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "2",
+    "skipped": "0",
+    "tests": "2",
+    "time": "2.049",
+    "timestamp": "2026-10-07T04:22:34.220175+00:00",
+    "hostname": "dl-workstation-albert",
+    "exit_code": 1
+  },
+  "source_sha256": "6bd03b9fc26d7fb26712648546c1a03affe366273252eeee8c739b6845abca73",
+  "finding": "A failed resource releases its concurrency permit during backoff; a queued later resource executes before its retry. Database writes and publication rollback/retry are real; the first conflict and ordering barriers are synthetic. Existing identity-bag test also assumes oldest survivor.",
+  "proposal": "Retain one permit per resource through bounded transaction retries; every attempt still uses a new session and backoff holds no DB locks. No increased retry count. Verify cancellation, ownership and both databases before full gates."
+}

@@ -1,0 +1,50 @@
+{
+  "project": "rssripple-v25-final-an",
+  "runner_container": "4013f2a256d9",
+  "signal": "SIGINT",
+  "signal_exit": 0,
+  "reason": "Superseded by new runtime fixing retry permit lifetime and selected-primary bag indexing; no acceptance from this partial run.",
+  "replacement_candidate": "/tmp/rssripple-v25-retry-gybsr9wy",
+  "runner_exit": 2,
+  "passed": 567,
+  "skipped": 13,
+  "apps_exit": [
+    0,
+    0
+  ],
+  "seconds": 1519.59,
+  "coverage_exit": 2,
+  "export_exit": 0,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "13",
+    "tests": "580",
+    "time": "1519.509",
+    "timestamp": "2026-10-07T04:12:01.552291+00:00",
+    "hostname": "4013f2a256d9"
+  },
+  "coverage": {
+    "lines-covered": "15048",
+    "lines-valid": "24167",
+    "line-rate": "0.6227"
+  },
+  "accepted": false,
+  "artifacts": [
+    "dedup-preservation-an-integration.xml.gz",
+    "dedup-preservation-an-coverage.xml.gz",
+    "dedup-preservation-an-run.log.gz",
+    "dedup-preservation-an-coverage.log.gz",
+    "dedup-preservation-an-coverage.integration.gz",
+    "dedup-preservation-an-coverage.integration-llm.gz",
+    "dedup-preservation-an-coverage.scripts.gz",
+    "dedup-preservation-an-coverage.combined.gz",
+    "dedup-preservation-an-coverage.test-runner.gz"
+  ],
+  "cleanup": "complete",
+  "cleanup_exit": 0,
+  "containers": [],
+  "networks": [],
+  "volumes": []
+}

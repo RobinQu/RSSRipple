@@ -1,0 +1,108 @@
+{
+  "accepted": false,
+  "runs": {
+    "ao": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "2",
+      "skipped": "0",
+      "tests": "2",
+      "time": "2.049",
+      "timestamp": "2026-10-07T04:22:34.220175+00:00",
+      "hostname": "dl-workstation-albert",
+      "exit_code": 1
+    },
+    "ap": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "1",
+      "skipped": "0",
+      "tests": "73",
+      "time": "45.116",
+      "timestamp": "2026-10-07T04:23:38.594459+00:00",
+      "hostname": "dl-workstation-albert",
+      "exit_code": 1
+    },
+    "aq-unit": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "1",
+      "skipped": "0",
+      "tests": "3",
+      "time": "2.421",
+      "timestamp": "2026-10-07T04:25:58.742516+00:00",
+      "hostname": "dl-workstation-albert",
+      "exit_code": 1
+    },
+    "aq": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "20",
+      "time": "11.583",
+      "timestamp": "2026-10-07T04:26:41.201570+00:00",
+      "hostname": "dl-workstation-albert",
+      "exit_code": 0
+    },
+    "ar": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "142",
+      "time": "79.021",
+      "timestamp": "2026-10-07T04:28:08.808028+00:00",
+      "hostname": "dl-workstation-albert",
+      "exit_code": 0
+    },
+    "at": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "34",
+      "time": "17.419",
+      "timestamp": "2026-10-07T04:31:53.999522+00:00",
+      "hostname": "dl-workstation-albert",
+      "exit_code": 0
+    },
+    "as-1": {
+      "run": 1,
+      "exit": 0,
+      "seconds": 3.74,
+      "log": "/tmp/rssripple-v25-dedup-as-1.log",
+      "junit": "/tmp/rssripple-v25-dedup-as-1.xml"
+    },
+    "as-2": {
+      "run": 2,
+      "exit": 0,
+      "seconds": 3.9,
+      "log": "/tmp/rssripple-v25-dedup-as-2.log",
+      "junit": "/tmp/rssripple-v25-dedup-as-2.xml"
+    },
+    "as-3": {
+      "run": 3,
+      "exit": 0,
+      "seconds": 3.87,
+      "log": "/tmp/rssripple-v25-dedup-as-3.log",
+      "junit": "/tmp/rssripple-v25-dedup-as-3.xml"
+    },
+    "as-4": {
+      "run": 4,
+      "exit": 0,
+      "seconds": 4.05,
+      "log": "/tmp/rssripple-v25-dedup-as-4.log",
+      "junit": "/tmp/rssripple-v25-dedup-as-4.xml"
+    },
+    "as-5": {
+      "run": 5,
+      "exit": 0,
+      "seconds": 3.86,
+      "log": "/tmp/rssripple-v25-dedup-as-5.log",
+      "junit": "/tmp/rssripple-v25-dedup-as-5.xml"
+    }
+  },
+  "evidence_scope": "Recorded resource ID/title/GUID from prod_works_v1 with fixed SHA; metadata result, channel, conflict and scheduling history explicitly synthetic. Real production transaction/publication/retry code on both backends.",
+  "review": "Retry permit held through bounded backoff; cancelled attempts leave no publication and release permit. Selected legacy primary registered after identity bag union using existing no-steal helper. Full gates still required."
+}

@@ -1,0 +1,2945 @@
+--- /dev/null
++++ b/app/services/dedup_metadata_policy.py
+@@ -0,0 +1,108 @@
++"""Select a canonical work without discarding curated metadata."""
++from __future__ import annotations
++
++from collections.abc import Sequence
++from datetime import UTC
++from typing import Any
++
++from app.models.movie import Movie
++from app.models.series import TVSeries
++from app.services.metadata_service import MANUAL_EDITABLE_FIELDS
++
++Work = TVSeries | Movie
++
++
++def _populated(value: Any) -> bool:
++    # False and zero are known values, unlike empty metadata containers/text.
++    return value is not None and value != "" and value != []
++
++
++def protected_values(rows: Sequence[Work]) -> tuple[dict[str, Any], list[str]]:
++    """No per-field edit timestamps exist: conflicting manual values cannot rank."""
++    values: dict[str, Any] = {}
++    conflicts: set[str] = set()
++    for row in rows:
++        for name in row.manually_edited_fields or []:
++            if name not in MANUAL_EDITABLE_FIELDS or not hasattr(row, name):
++                conflicts.add(name)
++                continue
++            value = getattr(row, name)
++            if name in values and values[name] != value:
++                conflicts.add(name)
++            else:
++                values[name] = value
++    return values, sorted(conflicts)
++
++
++class DedupConflictError(ValueError):
++    """A merge cannot represent all saved manual intent on its target."""
++
++    def __init__(self, rows: Sequence[Work], fields: list[str]) -> None:
++        self.fields = sorted(set(fields))
++        self.work_ids = sorted(row.id for row in rows)
++        super().__init__("manual-conflict fields=" + ",".join(self.fields)
++                         + " ids=" + ",".join(self.work_ids))
++
++
++def require_protected_values(rows: Sequence[Work], target: Work) -> dict[str, Any]:
++    values, conflicts = protected_values(rows)
++    conflicts.extend(name for name in values if not hasattr(target, name))
++    expected_type = "movie" if isinstance(target, Movie) else "tv"
++    if "content_type" in values and values["content_type"] not in {None, expected_type}:
++        conflicts.append("content_type")
++    if conflicts:
++        raise DedupConflictError(rows, conflicts)
++    primary_identity_owner(rows, target, values)
++    return values
++
++
++def primary_identity_owner(rows: Sequence[Work], target: Work, protected: dict[str, Any]) -> Work:
++    """Never combine an id from one work with another work's source."""
++    identity_fields = {"external_id", "external_source"} & protected.keys()
++    ordered = [target, *sorted((row for row in rows if row is not target), key=_chronology)]
++    if identity_fields:
++        for row in ordered:
++            if all(getattr(row, name) == protected[name] for name in identity_fields):
++                return row
++        raise DedupConflictError(rows, sorted(identity_fields))
++    return next((row for row in ordered if row.external_id), target)
++
++
++def _chronology(row: Work) -> tuple:
++    created = row.created_at
++    if created.tzinfo is None:
++        created = created.replace(tzinfo=UTC)
++    return created.astimezone(UTC), row.id
++
++
++def select_survivor(rows: Sequence[Work]) -> Work:
++    """Prefer curated, then complete records; stable chronology breaks ties."""
++    def key(row: Work) -> tuple:
++        fields = [name for name in MANUAL_EDITABLE_FIELDS if hasattr(row, name)]
++        protected = set(row.manually_edited_fields or []) & set(fields)
++        complete = sum(_populated(getattr(row, name)) for name in fields)
++        return -len(protected), -complete, *_chronology(row)
++
++    return min(rows, key=key)
++
++
++def apply_metadata(survivor: Work, rows: Sequence[Work], protected: dict[str, Any]) -> None:
++    """Transfer manual intent including null, then fill absent automatic values."""
++    for name, value in protected.items():
++        setattr(survivor, name, value)
++    survivor.manually_edited_fields = sorted(protected) or None
++    ordered = sorted(rows, key=_chronology)
++    # Identity source pairs and aliases have dedicated canonicalization rules.
++    fields = MANUAL_EDITABLE_FIELDS - {"external_id", "external_source", "aliases", "content_type"}
++    for name in fields:
++        if name in protected or not hasattr(survivor, name):
++            continue
++        if _populated(getattr(survivor, name)):
++            continue
++        for row in ordered:
++            if hasattr(row, name) and _populated(getattr(row, name)):
++                setattr(survivor, name, getattr(row, name))
++                break
++
++    if "content_type" not in protected:
++        survivor.content_type = "movie" if isinstance(survivor, Movie) else "tv"
+--- /dev/null
++++ b/app/services/dedup_work_lock.py
+@@ -0,0 +1,40 @@
++"""Protect work metadata and references throughout one merge transaction."""
++from sqlalchemy import select, update
++from sqlalchemy.exc import DBAPIError, OperationalError
++
++from app.models.movie import Movie
++from app.services.decision_rekey import lock_work_choice_agents
++from app.services.work_deletion import lock_work_references
++
++
++async def lock_merge_works(db, rows):
++    # Existing transaction-local edits must reach storage before populate_existing.
++    await db.flush()
++    ordered = sorted(rows, key=lambda row: (row.__tablename__, row.id))
++    groups = [("movie" if isinstance(row, Movie) else "series", [row.id]) for row in ordered]
++    await lock_work_choice_agents(db, groups)
++    postgres = db.get_bind().dialect.name == "postgresql"
++    try:
++        for row in ordered:
++            model = type(row)
++            if not postgres:
++                # A stale Turso reader must collide with a committed editor before
++                # deleting that editor's work. Keep updated_at unchanged.
++                await db.execute(update(model).where(model.id == row.id).values(
++                    id=model.id, updated_at=model.updated_at,
++                ).execution_options(synchronize_session=False))
++            current = await db.scalar(select(model).where(model.id == row.id)
++                                      .with_for_update(nowait=True)
++                                      .execution_options(populate_existing=True))
++            if current is None:
++                raise OperationalError("dedup changed target", {}, RuntimeError(
++                    "database is locked: work changed; retry whole transaction",
++                ))
++            await lock_work_references(db, "movie" if isinstance(row, Movie) else "series", row.id)
++    except DBAPIError as exc:
++        if getattr(exc.orig, "sqlstate", None) != "55P03":
++            raise
++        # Retry boundaries must discard this now-aborted transaction first.
++        raise OperationalError("dedup lock unavailable", {}, RuntimeError(
++            "database is locked: work is being edited; retry whole transaction",
++        )) from exc
+--- a/app/services/metadata_dedup.py
++++ b/app/services/metadata_dedup.py
+@@ -38,7 +38,15 @@
+ from app.models.resource_file_assignment import ResourceFileAssignment
+ from app.models.resource_work_link import ResourceWorkLink
+ from app.models.series import TVSeries
+-from app.services.external_ids import merge_external_id_bags
++from app.services.dedup_metadata_policy import (
++    DedupConflictError,
++    apply_metadata,
++    primary_identity_owner,
++    require_protected_values,
++    select_survivor,
++)
++from app.services.dedup_work_lock import lock_merge_works
++from app.services.external_ids import add_external_id, merge_external_id_bags
+ from app.services.metadata_episode_reconcile import is_unsplit_legacy_series
+ from app.services.metadata_service import canonicalize_external_id
+ from app.services.text_normalizer import normalize_title
+@@ -146,6 +154,9 @@
+     episode evidence) is deliberately checked by the caller, while this
+     function owns the canonical reference migration and identity-bag merge.
+     """
++    await lock_merge_works(db, [series, movie])
++    protected = require_protected_values([series, movie], movie)
++
+     from app.services.decision_rekey import lock_work_choice_agents, rekey_agent_choices
+ 
+     choice_agents = await lock_work_choice_agents(db, [("series", [series.id]), ("movie", [movie.id])])
+@@ -175,7 +186,7 @@
+         .values(series_id=None, movie_id=movie.id)
+     )
+     await rekey_agent_choices(db, choice_agents)
+-    await merge_external_id_bags(db, movie, [series])
++    await _merge_work_metadata(db, movie, [series], protected)
+     await db.flush()
+     await db.delete(series)
+     await db.flush()
+@@ -414,17 +425,69 @@
+     await rekey_agent_choices(db, choice_agents)
+ 
+ 
++def _group_still_matches(rows):
++    series = isinstance(rows[0], TVSeries)
++    groups = _cluster_by_shared_title(rows, bucket_of=_series_cluster_bucket if series else None)
++    dates = [row.start_date if series else row.release_date for row in rows]
++    return len(groups) == 1 and not _year_conflict(dates)
++
++
++def _same_cross_type_work(movie, series, movie_keys, series_keys):
++    movie_id = canonicalize_external_id(movie.external_id, movie.external_source, "movie")
++    series_id = canonicalize_external_id(series.external_id, series.external_source, "tv")
++    if (movie_id and series_id and movie_id == series_id) or (
++        movie.external_id and movie.external_id == series.external_id
++    ):
++        return True
++    return bool(movie_keys & series_keys) and not _year_conflict([movie.release_date, series.start_date])
++
++
++async def _merge_work_metadata(db, survivor, duplicates, protected):
++    rows = [survivor, *duplicates]
++    owner = primary_identity_owner(rows, survivor, protected)
++    identity = owner.external_id if "external_id" in protected else _pick_canonical_external_id([owner])
++    source = owner.external_source
++    aliases = _merge_aliases(rows) if "aliases" not in protected else protected["aliases"]
++    if (identity, source) != (survivor.external_id, survivor.external_source):
++        from app.services.metadata_source_registry import REGISTRY_SOURCES
++
++        old_identity = _pick_canonical_external_id([survivor])
++        old_source = survivor.external_source
++        if old_source not in REGISTRY_SOURCES and old_identity:
++            old_source = old_identity.split(":", 1)[0]
++        await add_external_id(db, "movie" if isinstance(survivor, Movie) else "series",
++                              survivor.id, old_source, old_identity)
++    apply_metadata(survivor, rows, protected)
++    survivor.external_id, survivor.external_source = identity, source
++    survivor.aliases = aliases
++    await merge_external_id_bags(db, survivor, duplicates)
++    # Completeness-based selection can keep a legacy row whose primary id
++    # has never been bagged. Keep that id reachable through the bag as well;
++    # add_external_id retains the shared no-steal policy for other owners.
++    await add_external_id(db, "movie" if isinstance(survivor, Movie) else "series",
++                          survivor.id, source, identity)
++
++
+ async def _merge_series_group(
+     db: AsyncSession,
+     rows: list[TVSeries],
+     report: DedupReport,
+     survivor: TVSeries | None = None,
++    *,
++    automatic: bool = False,
++    allow_season_change: bool = False,
+ ) -> None:
+     if len(rows) < 2:
+         return
++    await lock_merge_works(db, rows)
++    if automatic and not _group_still_matches(rows):
++        report.notes.append("[candidate-changed] " + ",".join(sorted(row.id for row in rows)))
++        return
++    if not allow_season_change and len({row.season_number for row in rows}) > 1:
++        raise DedupConflictError(rows, ["season_number"])
+     if survivor is None:
+-        rows.sort(key=lambda r: (r.created_at, r.id))
+-        survivor = rows[0]
++        survivor = select_survivor(rows)
++    protected = require_protected_values(rows, survivor)
+     duplicates = [r for r in rows if r.id != survivor.id]
+     dup_ids = [d.id for d in duplicates]
+ 
+@@ -433,37 +496,11 @@
+ 
+     inherited_collection_id = survivor.collection_id
+ 
+-    # Enrich survivor from duplicates
+-    survivor.aliases = _merge_aliases(rows)
+-    canonical_ext = _pick_canonical_external_id(rows)
+-    if canonical_ext:
+-        survivor.external_id = canonical_ext
+-    # Prefer any non-None poster/description/etc from duplicates when survivor lacks it
+-    for d in duplicates:
+-        if not survivor.title_cn and d.title_cn:
+-            survivor.title_cn = d.title_cn
+-        if not survivor.title_en and d.title_en:
+-            survivor.title_en = d.title_en
+-        if not survivor.original_title and d.original_title:
+-            survivor.original_title = d.original_title
+-        if not (survivor.poster_url or "").startswith("/posters/") and d.poster_url:
+-            survivor.poster_url = d.poster_url
+-        if not survivor.description and d.description:
+-            survivor.description = d.description
+-        if survivor.rating is None and d.rating is not None:
+-            survivor.rating = d.rating
+-        if not survivor.genre and d.genre:
+-            survivor.genre = d.genre
+-        if survivor.number_of_episodes is None and d.number_of_episodes is not None:
+-            survivor.number_of_episodes = d.number_of_episodes
+-        # Collection membership survives the merge: the survivor keeps its
+-        # own; only inherit a duplicate's when the survivor has none.
+-        if inherited_collection_id is None and d.collection_id is not None:
+-            inherited_collection_id = d.collection_id
+-
+-    # P3: union the identity bags so the survivor stays reachable by every
+-    # external id any merged row was ever known under.
+-    await merge_external_id_bags(db, survivor, duplicates)
++    for duplicate in duplicates:
++        if inherited_collection_id is None and duplicate.collection_id is not None:
++            inherited_collection_id = duplicate.collection_id
++
++    await _merge_work_metadata(db, survivor, duplicates, protected)
+ 
+     # Delete duplicates
+     for d in duplicates:
+@@ -543,45 +580,28 @@
+     rows: list[Movie],
+     report: DedupReport,
+     survivor: Movie | None = None,
++    *,
++    automatic: bool = False,
+ ) -> None:
+     if len(rows) < 2:
+         return
++    await lock_merge_works(db, rows)
++    if automatic and not _group_still_matches(rows):
++        report.notes.append("[candidate-changed] " + ",".join(sorted(row.id for row in rows)))
++        return
+     if survivor is None:
+-        rows.sort(key=lambda r: (r.created_at, r.id))
+-        survivor = rows[0]
++        survivor = select_survivor(rows)
++    protected = require_protected_values(rows, survivor)
+     duplicates = [r for r in rows if r.id != survivor.id]
+     dup_ids = [d.id for d in duplicates]
+ 
+     await _repoint_movie_children(db, dup_ids, survivor.id, report)
+ 
+-    survivor.aliases = _merge_aliases(rows)
+-    canonical_ext = _pick_canonical_external_id(rows)
+-    if canonical_ext:
+-        survivor.external_id = canonical_ext
+-    for d in duplicates:
+-        if not survivor.title_cn and d.title_cn:
+-            survivor.title_cn = d.title_cn
+-        if not survivor.title_en and d.title_en:
+-            survivor.title_en = d.title_en
+-        if not survivor.original_title and d.original_title:
+-            survivor.original_title = d.original_title
+-        if not (survivor.poster_url or "").startswith("/posters/") and d.poster_url:
+-            survivor.poster_url = d.poster_url
+-        if not survivor.description and d.description:
+-            survivor.description = d.description
+-        if survivor.rating is None and d.rating is not None:
+-            survivor.rating = d.rating
+-        if not survivor.genre and d.genre:
+-            survivor.genre = d.genre
+-        if survivor.runtime is None and d.runtime is not None:
+-            survivor.runtime = d.runtime
+-        # Collection membership survives the merge: the survivor keeps its
+-        # own; only inherit a duplicate's when the survivor has none.
+-        if survivor.collection_id is None and d.collection_id is not None:
+-            survivor.collection_id = d.collection_id
+-
+-    # P3: union the identity bags (see _merge_series_group).
+-    await merge_external_id_bags(db, survivor, duplicates)
++    for duplicate in duplicates:
++        if survivor.collection_id is None and duplicate.collection_id is not None:
++            survivor.collection_id = duplicate.collection_id
++
++    await _merge_work_metadata(db, survivor, duplicates, protected)
+ 
+     for d in duplicates:
+         await db.delete(d)
+@@ -617,7 +637,10 @@
+                     )
+                 )
+                 continue
+-            await _merge_series_group(db, group, report)
++            try:
++                await _merge_series_group(db, group, report, automatic=True)
++            except DedupConflictError as exc:
++                report.notes.append(str(exc))
+     return report
+ 
+ 
+@@ -636,7 +659,10 @@
+                     )
+                 )
+                 continue
+-            await _merge_movie_group(db, group, report)
++            try:
++                await _merge_movie_group(db, group, report, automatic=True)
++            except DedupConflictError as exc:
++                report.notes.append(str(exc))
+     return report
+ 
+ 
+@@ -695,23 +721,14 @@
+         if movie.id in removed_movies:
+             continue
+         m_keys = _title_keys(movie)
+-        m_canon = canonicalize_external_id(movie.external_id, movie.external_source, "movie")
+         for series in series_all:
+             if series.id in removed_series:
+                 continue
+-            s_canon = canonicalize_external_id(
+-                series.external_id, series.external_source, "tv"
+-            )
+-            same_entity = bool(
+-                (m_canon and s_canon and m_canon == s_canon)
+-                or (movie.external_id and movie.external_id == series.external_id)
+-            )
+-            if not same_entity and m_keys & series_keys[series.id]:
+-                # Title-key pairing alone is not proof across very different
+-                # premier years (remakes/reboots in one franchise) — external
+-                # id equality above stays unguarded.
+-                same_entity = not _year_conflict([movie.release_date, series.start_date])
+-            if not same_entity:
++            if not _same_cross_type_work(movie, series, m_keys, series_keys[series.id]):
++                continue
++            await lock_merge_works(db, [series, movie])
++            if not _same_cross_type_work(movie, series, _title_keys(movie), _title_keys(series)):
++                report.notes.append(f"[candidate-changed] {movie.id},{series.id}")
+                 continue
+ 
+             # Survivor decision: episode evidence (or Episode rows) => series.
+@@ -723,6 +740,12 @@
+             movie_ep = await _episode_resource_count(db, FileResource.movie_id, movie.id)
+             series_ep = await _episode_resource_count(db, FileResource.series_id, series.id)
+             keep_series = bool(series_ep_rows or movie_ep or series_ep)
++            target = series if keep_series else movie
++            try:
++                protected = require_protected_values([series, movie], target)
++            except DedupConflictError as exc:
++                report.notes.append(str(exc))
++                continue
+ 
+             from app.services.decision_rekey import lock_work_choice_agents, rekey_agent_choices
+ 
+@@ -758,23 +781,11 @@
+                 report.work_links_updated += links_n
+                 report.file_assignments_updated += assignments_n
+ 
+-                series.aliases = _merge_aliases([series, movie])
+-                for attr in ("title_cn", "title_en", "original_title"):
+-                    if not getattr(series, attr) and getattr(movie, attr):
+-                        setattr(series, attr, getattr(movie, attr))
+-                if not (series.poster_url or "").startswith("/posters/") and movie.poster_url:
+-                    series.poster_url = movie.poster_url
+-                if not series.description and movie.description:
+-                    series.description = movie.description
+-                if series.rating is None and movie.rating is not None:
+-                    series.rating = movie.rating
+-                if not series.genre and movie.genre:
+-                    series.genre = movie.genre
+ 
+                 # P3: union identity bags; otherwise the movie's bag rows
+                 # would dangle at a deleted work id.
+                 await rekey_agent_choices(db, choice_agents)
+-                await merge_external_id_bags(db, series, [movie])
++                await _merge_work_metadata(db, series, [movie], protected)
+ 
+                 await db.delete(movie)
+                 removed_movies.add(movie.id)
+@@ -815,22 +826,10 @@
+                 report.work_links_updated += links_n
+                 report.file_assignments_updated += assignments_n
+ 
+-                movie.aliases = _merge_aliases([movie, series])
+-                for attr in ("title_cn", "title_en", "original_title"):
+-                    if not getattr(movie, attr) and getattr(series, attr):
+-                        setattr(movie, attr, getattr(series, attr))
+-                if not (movie.poster_url or "").startswith("/posters/") and series.poster_url:
+-                    movie.poster_url = series.poster_url
+-                if not movie.description and series.description:
+-                    movie.description = series.description
+-                if movie.rating is None and series.rating is not None:
+-                    movie.rating = series.rating
+-                if not movie.genre and series.genre:
+-                    movie.genre = series.genre
+ 
+                 # P3: union identity bags (symmetric to the branch above).
+                 await rekey_agent_choices(db, choice_agents)
+-                await merge_external_id_bags(db, movie, [series])
++                await _merge_work_metadata(db, movie, [series], protected)
+ 
+                 await db.delete(series)
+                 removed_series.add(series.id)
+--- a/app/services/work_deletion.py
++++ b/app/services/work_deletion.py
+@@ -55,29 +55,34 @@
+         )
+         if target is None:
+             return None, agent_ids
+-        from app.models.agent_work import AgentWork
+-        from app.models.file_resource import FileResource
+-        from app.models.pending_decision import PendingDecision
+-
+-        field = kind + "_id"
+-        # Existing source-only edits need child locks: they do not recheck the
+-        # work FK. Every reverse-order lock is NOWAIT to release this work lock
+-        # rather than wait behind a resource/decision owner awaiting the work.
+-        resources = select(FileResource.id).where(or_(
+-            getattr(FileResource, field) == work_id,
+-            FileResource.work_links.any(getattr(ResourceWorkLink, field) == work_id),
+-            FileResource.file_assignments.any(getattr(ResourceFileAssignment, field) == work_id),
+-        ))
+-        await db.execute(resources.order_by(FileResource.id).with_for_update(nowait=True))
+-        for child in (ResourceWorkLink, ResourceFileAssignment, ChannelRawTitleMapping, AgentWork, PendingDecision):
+-            await db.execute(
+-                select(child.id)
+-                .where(getattr(child, field) == work_id)
+-                .order_by(child.id)
+-                .with_for_update(nowait=True)
+-            )
++        await lock_work_references(db, kind, work_id)
+         return target, agent_ids
+     except DBAPIError as exc:
+         if getattr(exc.orig, "sqlstate", None) != "55P03" and "concurrent decision identity change" not in str(exc):
+             raise
+         raise WorkDeletionBusyError from exc
++
++
++async def lock_work_references(db, kind, work_id):
++    """Lock existing references before a work deletion or merge."""
++    from app.models.agent_work import AgentWork
++    from app.models.file_resource import FileResource
++    from app.models.pending_decision import PendingDecision
++
++    field = kind + "_id"
++    # Existing source-only edits need child locks: they do not recheck the
++    # work FK. Every reverse-order lock is NOWAIT to release this work lock
++    # rather than wait behind a resource/decision owner awaiting the work.
++    resources = select(FileResource.id).where(or_(
++        getattr(FileResource, field) == work_id,
++        FileResource.work_links.any(getattr(ResourceWorkLink, field) == work_id),
++        FileResource.file_assignments.any(getattr(ResourceFileAssignment, field) == work_id),
++    ))
++    await db.execute(resources.order_by(FileResource.id).with_for_update(nowait=True))
++    for child in (ResourceWorkLink, ResourceFileAssignment, ChannelRawTitleMapping, AgentWork, PendingDecision):
++        await db.execute(
++            select(child.id)
++            .where(getattr(child, field) == work_id)
++            .order_by(child.id)
++            .with_for_update(nowait=True)
++        )
+--- a/app/services/franchise_service.py
++++ b/app/services/franchise_service.py
+@@ -666,6 +666,8 @@
+         if year is not None:
+             by_year.setdefault(year, []).append(m)
+ 
++    from app.services.dedup_metadata_policy import DedupConflictError
++    from app.services.dedup_work_lock import lock_merge_works
+     from app.services.metadata_dedup import DedupReport, _merge_movie_group
+ 
+     merged = 0
+@@ -679,18 +681,24 @@
+             if partner is None:
+                 break
+             rows = [survivor, partner]
+-            # creator-wins: the merge machine re-picks a canonical primary;
+-            # restore the survivor's own identity afterwards.
+-            keep_id, keep_source = survivor.external_id, survivor.external_source
++            await lock_merge_works(db, rows)
++            current_years = [await _movie_year(db, resource.id, row) for row in rows]
++            if (None in current_years or len(set(current_years)) != 1
++                    or not _same_ip_movies(survivor, partner)):
++                group = [row for row in group if row is not partner]
++                continue
+             report = DedupReport()
+-            await _merge_movie_group(db, rows, report, survivor=survivor)
+-            survivor.external_id = keep_id
+-            survivor.external_source = keep_source
++            try:
++                await _merge_movie_group(db, rows, report, survivor=survivor)
++            except DedupConflictError as exc:
++                logger.warning("[franchise] merge skipped: %s", exc)
++                group = [row for row in group if row is not partner]
++                continue
+             merged += 1
+             group = [survivor, *[m for m in group[1:] if m is not partner]]
+             logger.info(
+                 "[franchise] deduped same-date movie rows for resource %s: "
+                 "kept %s (%s:%s), merged %s",
+-                resource.id, survivor.id, keep_source, keep_id, partner.id,
++                resource.id, survivor.id, survivor.external_source, survivor.external_id, partner.id,
+             )
+     return merged
+--- a/app/services/scheduler.py
++++ b/app/services/scheduler.py
+@@ -625,6 +625,9 @@
+             await db.rollback()
+             logger.warning("Metadata dedup failed: %s", e)
+             return
++    for note in report.notes:
++        if note.startswith("manual-conflict"):
++            logger.warning("Metadata dedup skipped: %s", note)
+     if report.series_removed or report.movies_removed:
+         logger.info(
+             "Metadata dedup: removed %d series, %d movie duplicates",
+--- a/app/api/v1/works.py
++++ b/app/api/v1/works.py
+@@ -5,6 +5,7 @@
+ from uuid import uuid4
+ 
+ from fastapi import APIRouter, Depends, HTTPException, Query
++from fastapi.responses import JSONResponse
+ from pydantic import BaseModel, field_validator
+ from sqlalchemy import or_, select
+ from sqlalchemy.ext.asyncio import AsyncSession
+@@ -14,7 +15,8 @@
+ from app.models.audio_work import AudioWork
+ from app.models.movie import Movie
+ from app.models.series import TVSeries
+-from app.schemas.common import paginated_response, success_response
++from app.schemas.common import error_response_dict, paginated_response, success_response
++from app.services.dedup_metadata_policy import DedupConflictError
+ from app.services.metadata_sources import SUPPORTED_METADATA_SOURCES, is_metadata_source_available
+ 
+ router = APIRouter()
+@@ -181,10 +183,17 @@
+ 
+     report = DedupReport()
+     rows = [survivor, *duplicates]
+-    if body.survivor_type == "series":
+-        await _merge_series_group(db, rows, report, survivor=survivor)
+-    else:
+-        await _merge_movie_group(db, rows, report, survivor=survivor)
++    try:
++        if body.survivor_type == "series":
++            await _merge_series_group(db, rows, report, survivor=survivor)
++        else:
++            await _merge_movie_group(db, rows, report, survivor=survivor)
++    except DedupConflictError as exc:
++        await db.rollback()
++        return JSONResponse(status_code=409, content=error_response_dict(
++            "INVALID_STATE", "作品包含冲突或无法迁移的人工字段，请先修订后再合并",
++            {"fields": exc.fields, "work_ids": exc.work_ids},
++        ))
+     await db.commit()
+     return success_response({
+         "survivor_type": body.survivor_type,
+--- a/scripts/post_split_leftover_repair.py
++++ b/scripts/post_split_leftover_repair.py
+@@ -54,6 +54,8 @@
+ from app.models.series import TVSeries
+ from app.models.work_external_id import WorkExternalId
+ from app.services.bangumi_client import bangumi_configured, get_subject_episodes
++from app.services.dedup_metadata_policy import require_protected_values
++from app.services.dedup_work_lock import lock_merge_works
+ from app.services.external_ids import add_external_id
+ from app.services.metadata_bangumi import _episode_list_from
+ from app.services.metadata_dedup import DedupReport, _merge_series_group
+@@ -90,6 +92,8 @@
+         )
+         if not apply:
+             continue
++        await lock_merge_works(db, [survivor, shell])
++        require_protected_values([survivor, shell], survivor)
+         # The shell's episode rows duplicate the same season's content (the
+         # survivor already carries the authoritative bangumi-numbered rows);
+         # drop them before the merge so no mixed-numbering rows survive.
+@@ -99,7 +103,9 @@
+         for ep in shell_eps:
+             await db.delete(ep)
+         report = DedupReport()
+-        await _merge_series_group(db, [survivor, shell], report, survivor=survivor)
++        await _merge_series_group(
++            db, [survivor, shell], report, survivor=survivor, allow_season_change=True,
++        )
+         await db.flush()  # shell row gone → (collection, season) slot is free
+         survivor.season_number = season
+         for ep in (await db.execute(
+--- a/tests/unit/test_metadata_dedup.py
++++ b/tests/unit/test_metadata_dedup.py
+@@ -860,7 +860,7 @@
+     await db_session.flush()
+ 
+     report = dedup.DedupReport()
+-    await dedup._merge_series_group(db_session, [survivor, dup], report)
++    await dedup._merge_series_group(db_session, [survivor, dup], report, survivor=survivor)
+ 
+     assert report.series_groups == 1
+     assert report.series_removed == 1
+@@ -905,7 +905,7 @@
+     await db_session.flush()
+ 
+     report = dedup.DedupReport()
+-    await dedup._merge_movie_group(db_session, [survivor, dup], report)
++    await dedup._merge_movie_group(db_session, [survivor, dup], report, survivor=survivor)
+ 
+     assert report.movie_groups == 1
+     assert report.movies_removed == 1
+--- /dev/null
++++ b/tests/unit/test_dedup_manual_preservation.py
+@@ -0,0 +1,118 @@
++"""Recorded titles plus explicitly synthetic duplicate/manual-edit histories."""
++from __future__ import annotations
++
++import json
++import uuid
++from datetime import datetime, timedelta
++from pathlib import Path
++
++import pytest
++from sqlalchemy import select
++
++from app.models.movie import Movie
++from app.models.series import TVSeries
++from app.models.work_collection import WorkCollection
++from app.services.metadata_dedup import merge_duplicate_movies, merge_duplicate_series
++
++CORPUS = Path(__file__).parents[1] / "fixtures" / "prod_works_v1.json"
++
++
++@pytest.mark.parametrize("kind", ["movie", "series"])
++@pytest.mark.parametrize("scenario", ["manual_newer", "manual_null", "complete_newer", "plain_control"])
++async def test_dedup_preserves_curated_metadata(db_session, kind, scenario):
++    tables = json.loads(CORPUS.read_text())["tables"]
++    recorded = tables["movies" if kind == "movie" else "tv_series"][0]
++    model = Movie if kind == "movie" else TVSeries
++    created = datetime(2026, 1, 1)
++    rows = []
++    for offset in range(2):
++        attrs = {
++            key: recorded[key]
++            for key in ("title_cn", "title_en", "original_title", "external_id", "external_source")
++        }
++        attrs.update(id=str(uuid.uuid4()), created_at=created + timedelta(days=offset))
++        if kind == "series":
++            collection = WorkCollection(id=str(uuid.uuid4()), title_cn=recorded["title_cn"])
++            db_session.add(collection)
++            await db_session.flush()
++            attrs.update(collection_id=collection.id, season_number=1)
++        rows.append(model(**attrs))
++    older, newer = rows
++    if scenario == "manual_newer":
++        older.description = "synthetic stale automatic description"
++        newer.description = "synthetic user correction"
++        newer.manually_edited_fields = ["description"]
++    elif scenario == "manual_null":
++        older.description = None
++        older.manually_edited_fields = ["description"]
++        newer.description = "synthetic automatic refill"
++    elif scenario == "complete_newer":
++        newer.is_anime = recorded["is_anime"]
++        assert newer.is_anime is not None
++    else:
++        newer.description = recorded["description"]
++    db_session.add_all(rows)
++    await db_session.commit()
++    merge = merge_duplicate_movies if kind == "movie" else merge_duplicate_series
++    await merge(db_session)
++    await db_session.commit()
++    db_session.expire_all()
++    survivor = (await db_session.execute(select(model))).scalar_one()
++    if scenario == "manual_newer":
++        assert survivor.description == "synthetic user correction"
++        assert "description" in (survivor.manually_edited_fields or [])
++    elif scenario == "manual_null":
++        assert survivor.description is None
++        assert "description" in (survivor.manually_edited_fields or [])
++    elif scenario == "complete_newer":
++        assert survivor.is_anime == recorded["is_anime"]
++    else:
++        assert survivor.description == recorded["description"]
++
++
++@pytest.mark.parametrize("kind", ["movie", "series"])
++@pytest.mark.parametrize("conflict", [False, True])
++async def test_manual_fields_across_duplicates(db_session, kind, conflict):
++    model = Movie if kind == "movie" else TVSeries
++    created = datetime(2026, 1, 1)
++    rows = []
++    for offset in range(2):
++        attrs = dict(
++            id=str(uuid.uuid4()), title_en="Synthetic protection test",
++            created_at=created + timedelta(days=offset),
++        )
++        if kind == "series":
++            collection = WorkCollection(id=str(uuid.uuid4()), title_cn="合成合集", title_en="Synthetic collection")
++            db_session.add(collection)
++            await db_session.flush()
++            attrs.update(collection_id=collection.id, season_number=1)
++        rows.append(model(**attrs))
++    first, second = rows
++    first.description = "user first"
++    first.manually_edited_fields = ["description"]
++    if conflict:
++        second.description = "user second"
++        second.manually_edited_fields = ["description"]
++    else:
++        second.rating = 0
++        second.is_anime = False
++        second.manually_edited_fields = ["rating", "is_anime"]
++    db_session.add_all(rows)
++    await db_session.commit()
++    merge = merge_duplicate_movies if kind == "movie" else merge_duplicate_series
++    report = await merge(db_session)
++    await db_session.commit()
++    db_session.expire_all()
++    after = (await db_session.execute(select(model))).scalars().all()
++    if conflict:
++        assert len(after) == 2
++        assert {r.description for r in after} == {"user first", "user second"}
++        assert any("manual-conflict" in note for note in report.notes)
++    else:
++        assert len(after) == 1
++        assert after[0].description == "user first"
++        assert after[0].rating == 0
++        assert after[0].is_anime is False
++        assert set(after[0].manually_edited_fields) == {"description", "rating", "is_anime"}
++        again = await merge(db_session)
++        assert again.series_removed == 0 and again.movies_removed == 0
+--- /dev/null
++++ b/tests/unit/test_dedup_cross_manual.py
+@@ -0,0 +1,57 @@
++"""Synthetic cross-type histories; actual persistence and production merge paths."""
++import uuid
++
++import pytest
++from sqlalchemy import select
++
++from app.models.episode import Episode
++from app.models.movie import Movie
++from app.models.series import TVSeries
++from app.models.work_collection import WorkCollection
++from app.services.metadata_dedup import merge_cross_type_duplicates, rehome_series_as_movie
++
++
++@pytest.mark.parametrize("path", ["keep_movie", "keep_series", "rehome"])
++@pytest.mark.parametrize("case", ["transfer_null", "conflict", "unsupported"])
++async def test_cross_type_preserves_manual_intent(db_session, path, case):
++    collection = WorkCollection(id=str(uuid.uuid4()), title_cn="合成合集")
++    db_session.add(collection)
++    await db_session.flush()
++    series = TVSeries(id=str(uuid.uuid4()), title_en="Synthetic cross work", collection_id=collection.id)
++    movie = Movie(id=str(uuid.uuid4()), title_en="Synthetic cross work")
++    source, target = (movie, series) if path == "keep_series" else (series, movie)
++    if case == "unsupported":
++        name = "runtime" if path == "keep_series" else "number_of_episodes"
++        setattr(source, name, 12)
++        source.manually_edited_fields = [name]
++    else:
++        source.description = None
++        source.manually_edited_fields = ["description"]
++        target.description = "synthetic description"
++        if case == "conflict":
++            target.manually_edited_fields = ["description"]
++    db_session.add_all([series, movie])
++    await db_session.flush()
++    if path == "keep_series":
++        db_session.add(Episode(series_id=series.id, season=1, episode=1))
++    await db_session.commit()
++    source_id, target_id = source.id, target.id
++    if path == "rehome":
++        if case == "transfer_null":
++            await rehome_series_as_movie(db_session, series, movie)
++        else:
++            with pytest.raises(ValueError, match="manual"):
++                await rehome_series_as_movie(db_session, series, movie)
++    else:
++        report = await merge_cross_type_duplicates(db_session)
++        assert report.cross_type_merges == (1 if case == "transfer_null" else 0)
++    await db_session.commit()
++    db_session.expire_all()
++    actual = await db_session.get(type(target), target_id)
++    if case == "transfer_null":
++        assert actual.description is None
++        assert "description" in actual.manually_edited_fields
++        assert (await db_session.execute(select(type(source)))).scalars().all() == []
++    else:
++        assert await db_session.get(type(source), source_id) is not None
++        assert actual.description == target.description
+--- /dev/null
++++ b/tests/api/test_merge_manual_conflict.py
+@@ -0,0 +1,26 @@
++"""Manual merge confirmation does not authorize discarding conflicting edits."""
++import pytest
++from sqlalchemy import select
++
++from app.models.movie import Movie
++
++
++@pytest.mark.parametrize("same_value", [False, True])
++async def test_merge_reports_conflict_without_false_success(client, db_session, same_value):
++    rows = [Movie(title_en="Synthetic merge", description=value, manually_edited_fields=["description"])
++            for value in ["first", "first" if same_value else "second"]]
++    db_session.add_all(rows)
++    await db_session.commit()
++    survivor_id, duplicate_id = [row.id for row in rows]
++    response = await client.post('/api/v1/works/merge', json={
++        'survivor_type': 'movie', 'survivor_id': survivor_id,
++        'duplicate_ids': [duplicate_id], 'confirm': True,
++    })
++    assert response.status_code == (200 if same_value else 409), response.text
++    if not same_value:
++        assert response.json()['error']['code'] == 'INVALID_STATE'
++        assert response.json()['error']['details']['fields'] == ['description']
++    db_session.expire_all()
++    actual = (await db_session.execute(select(Movie))).scalars().all()
++    assert len(actual) == (1 if same_value else 2)
++    assert {row.description for row in actual} == ({'first'} if same_value else {'first', 'second'})
+--- /dev/null
++++ b/tests/integration/dedup/conftest.py
+@@ -0,0 +1,67 @@
++"""Scratch PostgreSQL databases on an explicitly isolated test server."""
++import os
++import uuid
++from urllib.parse import urlsplit, urlunsplit
++
++import asyncpg
++import pytest
++from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
++
++import app.models  # noqa: F401
++from app.database import Base
++
++
++@pytest.fixture
++async def dedup_postgres(monkeypatch):
++    url = os.environ.get("DEDUP_TEST_POSTGRES_URL") or os.environ.get("QUEUE_RECOVERY_POSTGRES_URL")
++    if not url:
++        if os.environ.get("QUEUE_RECOVERY_REQUIRED") == "1":
++            pytest.fail("Dedup tests require isolated PostgreSQL")
++        pytest.skip("Set DEDUP_TEST_POSTGRES_URL to isolated PostgreSQL")
++    parts = urlsplit(url)
++    assert parts.path in {"/dedup_probe", "/queue_recovery"}
++    name = "dedup_" + uuid.uuid4().hex
++    admin = await asyncpg.connect(url)
++    engine = None
++    try:
++        await admin.execute(f'CREATE DATABASE "{name}"')
++        engine = create_async_engine(urlunsplit(parts._replace(scheme="postgresql+asyncpg", path="/" + name)))
++        async with engine.begin() as connection:
++            await connection.run_sync(Base.metadata.create_all)
++        factory = async_sessionmaker(engine, expire_on_commit=False)
++        monkeypatch.setattr("app.database.async_session_factory", factory)
++        yield engine, factory
++    finally:
++        if engine is not None:
++            await engine.dispose()
++        await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
++        await admin.close()
++
++
++@pytest.fixture
++async def dedup_turso(tmp_path, monkeypatch):
++    from sqlalchemy import text
++
++    from app.config import settings
++    from app.database import apply_db_pragmas, normalize_database_url
++    from app.services import fts
++
++    url = normalize_database_url(f"sqlite+aioturso:///{tmp_path / 'dedup.db'}")
++    engine = create_async_engine(url)
++    apply_db_pragmas(engine)
++    factory = async_sessionmaker(engine, expire_on_commit=False)
++    monkeypatch.setattr("app.database.async_session_factory", factory)
++    monkeypatch.setattr(settings, "database_url", url)
++    sidecar = create_async_engine(
++        f"sqlite+aioturso:///{tmp_path / 'dedup_fts.db'}?experimental_features=index_method",
++        pool_size=1, max_overflow=0,
++    )
++    monkeypatch.setattr(fts, "_FTS_ENGINE", sidecar)
++    try:
++        async with engine.begin() as connection:
++            await connection.run_sync(Base.metadata.create_all)
++            await connection.execute(text("PRAGMA journal_mode='mvcc'"))
++        yield engine, factory
++    finally:
++        await sidecar.dispose()
++        await engine.dispose()
+--- /dev/null
++++ b/tests/integration/dedup/test_concurrent_manual_edit.py
+@@ -0,0 +1,107 @@
++"""Dedup must re-read committed edits rather than deleting a stale ORM row."""
++from datetime import datetime, timedelta
++
++import pytest
++from sqlalchemy import select, update
++from sqlalchemy.exc import DBAPIError
++
++from app.database import _is_retryable_lock_error
++from app.models.movie import Movie
++from app.models.series import TVSeries
++from app.models.work_collection import WorkCollection
++from app.services.metadata_dedup import DedupReport, _merge_movie_group, _merge_series_group
++
++
++@pytest.mark.parametrize("kind", ["movie", "series"])
++async def test_edit_committed_after_dedup_read_is_preserved(dedup_postgres, kind):
++    await _committed_edit(dedup_postgres, kind, expect_conflict=False)
++
++
++@pytest.mark.parametrize("kind", ["movie", "series"])
++async def test_turso_stale_merge_retries_current_manual_values(dedup_turso, kind):
++    await _committed_edit(dedup_turso, kind, expect_conflict=True)
++
++
++async def _committed_edit(database, kind, *, expect_conflict):
++    _, factory = database
++    model = Movie if kind == "movie" else TVSeries
++    async with factory() as seed:
++        transaction_anchor = WorkCollection(title_cn="合成事务锚点")
++        seed.add(transaction_anchor)
++        rows = []
++        for offset in range(2):
++            attrs = dict(title_en="Synthetic concurrent edit", description="old automatic value",
++                         created_at=datetime(2026, 1, 1) + timedelta(days=offset))
++            if kind == "series":
++                collection = WorkCollection(title_cn="合成并发合集")
++                seed.add(collection)
++                await seed.flush()
++                attrs.update(collection_id=collection.id, season_number=1)
++            rows.append(model(**attrs))
++        seed.add_all(rows)
++        await seed.commit()
++        old_id, new_id = [row.id for row in rows]
++    async with factory() as merge_db:
++        if expect_conflict:
++            # Turso defers native BEGIN until the first write. Establish a
++            # genuine MVCC snapshot using an unrelated row before reading.
++            await merge_db.execute(update(WorkCollection).where(
++                WorkCollection.id == transaction_anchor.id,
++            ).values(title_cn="合成已开启事务"))
++        older = await merge_db.get(model, old_id)
++        newer = await merge_db.get(model, new_id)
++        assert newer.manually_edited_fields is None
++        async with factory() as edit_db:
++            edited = await edit_db.get(model, new_id)
++            edited.description = "new manual correction"
++            edited.manually_edited_fields = ["description"]
++            await edit_db.commit()
++        merge = _merge_movie_group if kind == "movie" else _merge_series_group
++        conflicted = False
++        try:
++            await merge(merge_db, [older, newer], DedupReport(), survivor=older)
++            await merge_db.commit()
++        except DBAPIError as exc:
++            assert _is_retryable_lock_error(exc)
++            conflicted = True
++            await merge_db.rollback()
++    assert conflicted == expect_conflict
++    if conflicted:
++        async with factory() as retry:
++            older = await retry.get(model, old_id)
++            newer = await retry.get(model, new_id)
++            assert newer.description == "new manual correction"
++            await merge(retry, [older, newer], DedupReport(), survivor=older)
++            await retry.commit()
++    async with factory() as check:
++        result = (await check.execute(select(model))).scalar_one()
++        assert result.description == "new manual correction"
++        assert "description" in result.manually_edited_fields
++
++
++async def test_postgres_busy_editor_rolls_back_merge_before_retry(dedup_postgres):
++    _, factory = dedup_postgres
++    async with factory() as seed:
++        rows = [Movie(title_en="Synthetic busy editor", description="automatic") for _ in range(2)]
++        seed.add_all(rows)
++        await seed.commit()
++        ids = [row.id for row in rows]
++    async with factory() as merger, factory() as editor:
++        target, source = [await merger.get(Movie, identity) for identity in ids]
++        editing = await editor.get(Movie, ids[1])
++        editing.description = "manual before merge"
++        editing.manually_edited_fields = ["description"]
++        await editor.flush()  # Keep the real PostgreSQL row lock until commit.
++        with pytest.raises(DBAPIError) as failure:
++            await _merge_movie_group(merger, [target, source], DedupReport(), survivor=target)
++        assert _is_retryable_lock_error(failure.value)
++        await merger.rollback()
++        await editor.commit()
++    async with factory() as retry:
++        target, source = [await retry.get(Movie, identity) for identity in ids]
++        await _merge_movie_group(retry, [target, source], DedupReport(), survivor=target)
++        await retry.commit()
++    async with factory() as check:
++        row = (await check.execute(select(Movie))).scalar_one()
++        assert row.description == "manual before merge"
++        assert row.manually_edited_fields == ["description"]
+--- a/docs/design/business-logic.md
++++ b/docs/design/business-logic.md
+@@ -894,3 +894,20 @@
+ 重解析补发每 5 秒调度一次，每批按 next_attempt_at/id 最多认领 50 项；PostgreSQL SKIP LOCKED，Turso 冲突仅重试数据库认领，不跨队列调用持有事务。认领推进下次检查 30 秒，commit→enqueue 崩溃由后续扫描补发。投递异常仅保存固定错误类别、从 30 秒指数退避至最多 1800 秒；资源恢复待确认可见性。投递成功或 key 忙清除投递错误，保留请求等待 handler 确认；队列状态缺失不直接删除请求。未确认请求再次投递仍用稳定资源 key 去重，不以时间猜测执行退休。
+ 
+ 重解析取消不是普通失败：CancelledError 等 BaseException 中断时保留持久请求，由 RedisQueue 重排描述符并交接消费者；仅成功或普通 Exception 终态才确认自身请求，且确认仍需有效所有权。真实 Redis worker.stop 取消回归覆盖原任务 ID 重放和最终确认。
++
++
++### 去重人工字段保护
++
++同类型去重在迁移引用前检查人工字段，将兼容的人工值及保护标记转移到幸存行，包括主动清空、False 和 0；自动补齐不得覆盖。默认幸存行按人工字段数、完整度、创建时间和 ID 稳定选择，显式幸存行保留调用者选择。同字段人工值冲突、目标模型无法承载的人工字段或未知历史保护标记，自动去重保留原行并记录冲突，显式合并返回 409。跨类型删除与在线 rehome 同样检查，不能删除不可迁移的人工数据。
++
++合并沿用决策身份/Agent 锁顺序，PG 作品与引用行 NOWAIT；Turso 作品无值变更 UPDATE 建立写屏障，随后重读作品再合并，保持 updated_at 不变。锁冲突必须回滚原事务后重试；不从旧 ORM 缓存覆盖已提交人工修订。身份配对与锁后分组重查遵循下述规则。
++
++主身份与分组约束：主身份 ID 与来源从同一原行整体选择；人工身份约束必须同时有原行支持，不能拼成未出现过的身份。变更幸存行主身份前保留原主身份袋，franchise 不再事后覆盖已转移的人工身份。人工 content_type 与目标类型不兼容时保留冲突原行。同类型自动去重在锁后重查标题簇、年份及季号；跨类型锁后重算身份/标题匹配。显式季作品合并也在锁后拒绝跨季，仅离线季拆分修复使用显式内部改季参数。
++
++调用方事务边界：在线 MetadataAgent/旧链接路径以及抓取后的 franchise 去重分别位于保存点中；普通异常仅回滚该步骤，刷新被回滚而过期的资源后继续原有外层流程。队列失权和可重试数据库锁冲突继续向外抛出，由任务边界整体回滚。Turso 在首个保存点前执行不匹配任何行的 DML，使驱动按配置开启实际事务，防止 RELEASE SAVEPOINT 提前提交，保证后续失权仍可撤销已 flush 的元数据。离线修复继续由脚本整体事务提交，人工冲突在删除 shell episodes 前拒绝。
++
++并发引用保护：Turso 新关联写入与去重删除必须共享作品父行版本屏障；仅让去重更新父行不足以检测之后提交的引用。触发器覆盖指向电影/季作品的已声明 FK，捕获 ORM 与 SQL 两种写入，冲突后整事务回滚重试。PostgreSQL 依赖去重 FOR UPDATE 与引用写入的 FK 锁；真实编辑向导、人工编辑与删除交错均纳入双库集成。
++
++元数据事务重试按资源占用并发槽位：一个资源从首次尝试到有限重试结束始终持有同一 semaphore permit，不在退避时释放给排队的新资源。每次尝试仍创建独立会话，失败事务回滚并关闭后才退避，不跨退避持有数据库锁；取消/失权仍向外传播并释放槽位。并发上限和数据库重试次数保持原配置，不承诺跨进程无限负载下无冲突。
++
++主身份入袋：去重完成身份袋并集后，幂等登记最终选择的主身份，覆盖存留行只有旧主列而尚无袋行的情况；继续复用 add_external_id 的 registry 校验及 no-steal 规则。主身份为空或非注册来源时不创建无效袋行。
+--- a/docs/design/api-endpoints.md
++++ b/docs/design/api-endpoints.md
+@@ -554,3 +554,8 @@
+ ### Agent 更新有效作品数
+ 
+ PUT `/agents/{id}` 在字段/作品替换及回填副作用前按更新后状态检查：scope_channel_wide=false 时最多 10 个 AgentWork。works 未传或 null 保留原列表，空数组清空；切范围也检查保留的作品数。超限返回 422 VALIDATION_ERROR，保留原字段、关联与消费进度。频道全范围仍可保留超过 10 条配置。
++
++
++### V25 候选：作品合并的人工冲突
++
++`POST /works/merge` 的 `confirm=true` 仅确认合并动作，不授权丢弃相互冲突的人工修订。发生冲突或人工字段无法迁移时整体回滚并返回 409 `INVALID_STATE`；`error.details.fields` 为字段名，`work_ids` 为相关作品 ID，不回显字段值。先通过作品编辑修订冲突，再重试合并。尚未验收合入，见 V25。
+--- a/docs/testing/integration-inventory.md
++++ b/docs/testing/integration-inventory.md
+@@ -404,3 +404,22 @@
+ 覆盖真实 PostgreSQL 锁等待下重复 HTTP 提交；实际 Redis producer/worker 所有权与成败收尾；子进程 DB commit 后 os._exit(97)、处理中 SIGKILL(-9) 的补发/同一 Redis job 恢复；生产 create_tables 双库两次升级、历史标记保留、唯一约束、请求事务回滚和资源 FK 级联。元数据提供者为明确合成替身，这些测试不等于真实元数据管线回放；没有将请求事务回滚宣称为应用版本回滚验证。
+ 
+ 录制输入重解析覆盖：`test_reparse_captured.py` 在 PG/Turso 使用语料 `affd5114-f61d-40b6-95f1-0d0b937495ab` 原始已录制标题与 SHA-256 为 `6936d731675641e065b7af4c3780b3c36c27b2782e65fc3989a6557b0cff75c3` 的原始 torrent。完整生产 `_process_resource_metadata` 执行缓存读取、合集识别、12 条文件指派、metadata publication 和提交，任务确认后因身份仍未知恢复待确认。身份提供者明确替换为离线未匹配结果，队列投递使用替身；未下载媒体，不宣称 RSS 原文存在或实际外部元数据搜索通过。
++
++
++### V25 候选：去重与并发人工编辑
++
++`tests/integration/dedup/` 使用独立 PostgreSQL scratch 数据库及独立 Turso 主库/FTS 文件。覆盖电影/剧集在去重读入后人工编辑提交、Turso 真正开启 MVCC 事务后的写冲突和新事务重试、PG 编辑持锁时合并回滚再试。必须检验最终持久化字段及人工标记，不能以异常出现或函数返回当作成功。Turso 仅 SELECT 不一定开启原生事务，测试通过无关行写入明确建立旧快照。完整集成要求 PostgreSQL 可用，禁止静默跳过必需后端。其余严格覆盖矩阵见 V25，尚未完成完整验收。
++
++V25 后续用例：`test_group_revalidation.py` 以真实 PostgreSQL 编辑事务覆盖候选发现至锁定间的标题/季号改变及手动 API；`test_captured_assignments.py` 在双库回放录制 Nisekoi 单资源 24 文件子图，保持文件 ID、路径、大小、季集证据和来源，验证合并后的作品/身份袋/文件引用。历史共享作品按录制 S0/S1 指派放进明确合成季容器；人工编辑/重复行亦为合成，不宣称原始历史图已符合单季终态。
++
++V25 新增 `dedup/test_caller_transactions.py`：PostgreSQL/Turso 两后端覆盖在线 rehome 人工冲突/成功、franchise 引用迁移后异常/成功，以及 agent/旧链接路径中保存点内外失权的完整回滚。复用已有实际生产入口测试断言，外部发现输入显式合成；与 `test_captured_assignments.py` 的真实录制 24 文件子图互补，不把合成故障历史描述为生产事故。
++
++V25 `dedup/test_late_writers.py` 覆盖持锁后的人工编辑、直接关联写入、实际编辑向导关联以及删除，双库八例；Turso 两条新关联路径先复现失败，作品父行屏障后恢复。`test_group_revalidation.py` 增加年份及跨类型身份在锁前变化，共七例 PostgreSQL 真实两事务验证。
++
++`dedup/test_manual_field_matrix.py` 逐一覆盖人工可编辑字段在电影/季作品上的适用范围：人工值、主动 NULL、冲突、文本空串与列表清空；显式幸存行选择下验证持久化结果和保护标记。PostgreSQL/Turso 共 218 项；数据为显式合成字段/编辑历史，与录制子图验收互补。
++
++V25 全量回归补正：既有 `metadata/test_metadata_dedup_coverage.py` 的固定保留对象使用明确人工标题标记，继续覆盖字段补齐与子行冲突，避免沿用最早创建必保留的旧策略。`organize/test_publication_feed.py` 使用隔离临时文件库，生产/观察会话必须为不同物理连接，在 DEFERRED 与 CONCURRENT 两模式验证创建/metadata 发布失败原子性及队列失联恢复。禁止使用同一内存 StaticPool 连接冒充独立事务观察者。
++
++V25 `dedup/test_retry_fairness.py` 在 PostgreSQL/Turso 以固定哈希录制资源 ID/标题/GUID 验证元数据事务重试期间的槽位保留和取消释放：发现结果、首轮发布后锁冲突及排队屏障为显式合成，事务/发布/回滚均走实际代码。断言失败尝试不留下计数和 metadata 发布，最终每个完成资源仅提交一次；取消资源保留未尝试状态，后续资源可以完成。
++
++`dedup/test_primary_identity_bag.py` 双库各覆盖季作品与电影：自动完整度排序保留较新的主身份完整对象，合并后按主身份反查命中、原袋并集完整、被删除对象无残留袋行。该身份案例为显式合成，不声明生产已发生主身份漏登记。
+--- /dev/null
++++ b/tests/unit/test_dedup_identity_pair.py
+@@ -0,0 +1,61 @@
++"""Primary identity changes must retain a recorded source/id pair and old aliases."""
++import pytest
++from sqlalchemy import select
++
++from app.models.movie import Movie
++from app.models.series import TVSeries
++from app.models.work_collection import WorkCollection
++from app.models.work_external_id import WorkExternalId
++from app.services.metadata_dedup import (
++    DedupReport,
++    _merge_movie_group,
++    _merge_series_group,
++    merge_cross_type_duplicates,
++)
++
++
++@pytest.mark.parametrize("kind", ["movie", "series"])
++@pytest.mark.parametrize("manual", [False, True])
++async def test_identity_pair_and_original_bag_survive(db_session, kind, manual):
++    model = Movie if kind == "movie" else TVSeries
++    rows = []
++    for source, identity in [('wikipedia', 'wikipedia:en:12345'), ('tmdb', 'tmdb:12345')]:
++        attrs = dict(title_en="Synthetic identity pair", external_source=source, external_id=identity)
++        if kind == 'series':
++            collection = WorkCollection(title_cn="合成身份合集")
++            db_session.add(collection)
++            await db_session.flush()
++            attrs.update(collection_id=collection.id, season_number=1)
++        rows.append(model(**attrs))
++    target, duplicate = rows
++    if manual:
++        duplicate.manually_edited_fields = ['external_id']
++    db_session.add_all(rows)
++    await db_session.commit()
++    target_id = target.id
++    merge = _merge_movie_group if kind == 'movie' else _merge_series_group
++    await merge(db_session, rows, DedupReport(), survivor=target)
++    await db_session.commit()
++    db_session.expire_all()
++    target = await db_session.get(model, target_id)
++    assert (target.external_source, target.external_id) == (
++        ('tmdb', 'tmdb:12345') if manual else ('wikipedia', 'wikipedia:en:12345')
++    )
++    if manual:
++        assert target.manually_edited_fields == ['external_id']
++        bag = (await db_session.execute(select(WorkExternalId).where(
++            WorkExternalId.work_id == target_id,
++        ))).scalars().all()
++        assert ('wikipedia', 'wikipedia:en:12345') in {(row.source, row.external_id) for row in bag}
++
++
++async def test_incompatible_protected_content_type_does_not_cross_tables(db_session):
++    series = TVSeries(title_en="Synthetic manual type", content_type='tv', manually_edited_fields=['content_type'])
++    movie = Movie(title_en="Synthetic manual type", content_type='movie')
++    db_session.add_all([series, movie])
++    await db_session.commit()
++    report = await merge_cross_type_duplicates(db_session)
++    await db_session.commit()
++    assert report.cross_type_merges == 0
++    assert await db_session.get(TVSeries, series.id) is not None
++    assert movie.content_type == 'movie'
+--- /dev/null
++++ b/tests/integration/dedup/test_group_revalidation.py
+@@ -0,0 +1,95 @@
++"""A candidate discovered before an edit must be revalidated under its lock."""
++from datetime import date
++
++import httpx
++import pytest
++from fastapi import FastAPI
++from sqlalchemy import select
++
++from app.api.v1 import works
++from app.models.movie import Movie
++from app.models.series import TVSeries
++from app.models.work_collection import WorkCollection
++from app.services import metadata_dedup as dedup
++
++
++@pytest.mark.parametrize('case', ['movie_title', 'movie_year', 'series_season', 'series_year', 'cross_title', 'cross_identity', 'api_season'])
++async def test_committed_group_change_prevents_stale_merge(dedup_postgres, monkeypatch, case):
++    _, factory = dedup_postgres
++    async with factory() as seed:
++        collection = WorkCollection(title_cn='合成分组合集')
++        seed.add(collection)
++        await seed.flush()
++        if case in {'movie_title', 'movie_year'}:
++            rows = [Movie(title_en='Synthetic old group'), Movie(title_en='Synthetic old group')]
++        elif case in {'cross_title', 'cross_identity'}:
++            rows = [Movie(title_en='Synthetic old group'), TVSeries(title_en='Synthetic old group', collection_id=collection.id)]
++        else:
++            other = WorkCollection(title_cn='合成另一合集')
++            seed.add(other)
++            await seed.flush()
++            rows = [TVSeries(title_en='Synthetic old group', collection_id=c.id, season_number=1)
++                    for c in [collection, other]]
++        if case.endswith('year'):
++            for row in rows:
++                setattr(row, 'release_date' if isinstance(row, Movie) else 'start_date', date(2000, 1, 1))
++        if case == 'cross_identity':
++            for index, row in enumerate(rows):
++                row.title_en = f'Synthetic identity-only candidate {index}'
++                row.external_source = 'wikipedia'
++                row.external_id = 'wikipedia:en:123456'
++        seed.add_all(rows)
++        await seed.commit()
++        first_id, changed_id = [row.id for row in rows]
++        changed_model = type(rows[1])
++    original = dedup.lock_merge_works
++    edited = False
++
++    async def concurrent_edit(db, targets):
++        nonlocal edited
++        if not edited:
++            edited = True
++            async with factory() as editor:
++                changed = await editor.get(changed_model, changed_id)
++                if case.endswith('title'):
++                    changed.title_en = 'Different work after correction'
++                    changed.manually_edited_fields = ['title_en']
++                elif case.endswith('year'):
++                    field = 'release_date' if isinstance(changed, Movie) else 'start_date'
++                    setattr(changed, field, date(2008, 1, 1))
++                    changed.manually_edited_fields = [field]
++                elif case == 'cross_identity':
++                    changed.external_id = 'wikipedia:en:654321'
++                    changed.manually_edited_fields = ['external_id']
++                else:
++                    changed.season_number = 2
++                await editor.commit()
++        await original(db, targets)
++
++    monkeypatch.setattr(dedup, 'lock_merge_works', concurrent_edit)
++    if case == 'api_season':
++        app = FastAPI()
++        app.include_router(works.router, prefix='/api/v1')
++        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://synthetic') as client:
++            response = await client.post('/api/v1/works/merge', json={
++                'survivor_type': 'series', 'survivor_id': first_id,
++                'duplicate_ids': [changed_id], 'confirm': True,
++            })
++        assert response.status_code == 409, response.text
++    else:
++        async with factory() as db:
++            merge = {'movie_title': dedup.merge_duplicate_movies,
++                     'movie_year': dedup.merge_duplicate_movies,
++                     'series_year': dedup.merge_duplicate_series,
++                     'series_season': dedup.merge_duplicate_series,
++                     'cross_identity': dedup.merge_cross_type_duplicates,
++                     'cross_title': dedup.merge_cross_type_duplicates}[case]
++            report = await merge(db)
++            await db.commit()
++            assert report.movies_removed + report.series_removed + report.cross_type_merges == 0
++    assert edited
++    async with factory() as check:
++        assert await check.get(type(rows[0]), first_id) is not None
++        assert await check.get(changed_model, changed_id) is not None
++        if not case.startswith('cross_'):
++            assert len((await check.execute(select(changed_model))).scalars().all()) == 2
+--- /dev/null
++++ b/tests/integration/dedup/test_captured_assignments.py
+@@ -0,0 +1,99 @@
++"""Captured Nisekoi 24-file subgraph, with explicitly synthetic merge/edit history.
++
++The pre-season-split export binds S1 and specials to one row. This fixture
++separates its explicitly recorded S0/S1 placements into synthetic season
++containers; file identity, sizes, episode evidence and provenance stay intact.
++It does not assert that the historic graph was already single-season compliant.
++"""
++import hashlib
++import json
++from pathlib import Path
++
++from sqlalchemy import select
++
++from app.models.channel import Channel
++from app.models.file_resource import FileResource
++from app.models.resource_file_assignment import ResourceFileAssignment
++from app.models.resource_work_link import ResourceWorkLink
++from app.models.series import TVSeries
++from app.models.work_collection import WorkCollection
++from app.models.work_external_id import WorkExternalId
++from app.services.metadata_dedup import DedupReport, _merge_series_group
++
++CORPUS = Path(__file__).parents[2] / 'fixtures' / 'prod_works_v1.json'
++CORPUS_HASH = 'd11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32'
++WORK_ID = 'd008e00f-5e44-4747-ae2d-1d0ed5958837'
++RESOURCE_ID = 'e15c597b-0f4a-4e8e-8c9d-0f8fea2222fd'
++
++
++async def test_captured_assignments_postgres(dedup_postgres):
++    await _replay(dedup_postgres)
++
++
++async def test_captured_assignments_turso(dedup_turso):
++    await _replay(dedup_turso)
++
++
++def _file_values(row):
++    fields = ['id', 'resource_id', 'file_path', 'file_size', 'work_title_hint',
++              'season', 'episode_start', 'episode_end', 'source']
++    return {name: row[name] for name in fields}
++
++
++async def _replay(database):
++    assert hashlib.sha256(CORPUS.read_bytes()).hexdigest() == CORPUS_HASH
++    data = json.loads(CORPUS.read_text())['tables']
++    work = next(row for row in data['tv_series'] if row['id'] == WORK_ID)
++    resource = next(row for row in data['file_resources'] if row['id'] == RESOURCE_ID)
++    assignments = [row for row in data['resource_file_assignments'] if row['resource_id'] == RESOURCE_ID]
++    assert len(assignments) == 24
++    assert {row['season'] for row in assignments} == {0, 1}
++    assert all(row['series_id'] == WORK_ID for row in assignments)
++    _, factory = database
++    async with factory() as db:
++        channel = Channel(name='Synthetic captured dedup channel', type='rss_feed', url='https://example.invalid', field_mapping={})
++        collections = [WorkCollection(title_cn='合成季容器'), WorkCollection(title_cn='合成重复容器')]
++        db.add_all([channel, *collections])
++        await db.flush()
++        fields = {name: work[name] for name in ['title_cn', 'title_en', 'original_title', 'aliases', 'external_id', 'external_source']}
++        original = TVSeries(id=WORK_ID, **fields, season_number=1, collection_id=collections[0].id)
++        special = TVSeries(title_cn=work['title_cn'], season_number=0, collection_id=collections[0].id)
++        target = TVSeries(title_cn=work['title_cn'], season_number=1, collection_id=collections[1].id,
++                          description='Synthetic curator correction', manually_edited_fields=['description'])
++        db.add_all([original, special, target])
++        await db.flush()
++        target_id, special_id = target.id, special.id
++        copied = {name: resource[name] for name in ['id', 'guid', 'title_raw', 'torrent_url', 'is_batch', 'batch_scope', 'file_size']}
++        db.add(FileResource(**copied, channel_id=channel.id, series_id=original.id))
++        await db.flush()
++        for row in assignments:
++            db.add(ResourceFileAssignment(**_file_values(row), series_id=original.id if row['season'] == 1 else special.id))
++        links = [row for row in data['resource_work_links'] if row['resource_id'] == RESOURCE_ID and row.get('series_id') == WORK_ID]
++        assert links
++        for row in links:
++            db.add(ResourceWorkLink(id=row['id'], resource_id=RESOURCE_ID, series_id=WORK_ID, source=row['source']))
++        bags = [row for row in data['work_external_ids'] if row['work_id'] == WORK_ID and row['work_type'] == 'series']
++        assert bags
++        for row in bags:
++            db.add(WorkExternalId(id=row['id'], work_id=WORK_ID, work_type='series', source=row['source'], external_id=row['external_id']))
++        await db.commit()
++        await _merge_series_group(db, [original, target], DedupReport(), survivor=target)
++        await db.commit()
++    async with factory() as check:
++        result = await check.get(TVSeries, target_id)
++        assert result.description == 'Synthetic curator correction'
++        assert result.manually_edited_fields == ['description']
++        assert await check.get(TVSeries, WORK_ID) is None
++        persisted = (await check.execute(select(ResourceFileAssignment))).scalars().all()
++        assert len(persisted) == 24
++        expected = {row['id']: _file_values(row) for row in assignments}
++        for row in persisted:
++            assert {name: getattr(row, name) for name in expected[row.id]} == expected[row.id]
++            assert row.series_id == (target_id if row.season == 1 else special_id)
++        res = await check.get(FileResource, RESOURCE_ID)
++        assert res.title_raw == resource['title_raw'] and res.series_id == target_id
++        actual_links = (await check.execute(select(ResourceWorkLink))).scalars().all()
++        assert {(row.id, row.source, row.series_id) for row in actual_links} == {(row['id'], row['source'], target_id) for row in links}
++        actual_bags = (await check.execute(select(WorkExternalId))).scalars().all()
++        assert {(row.source, row.external_id, row.work_id) for row in actual_bags} >= {(row['source'], row['external_id'], target_id) for row in bags}
++    assert hashlib.sha256(CORPUS.read_bytes()).hexdigest() == CORPUS_HASH
+--- a/app/services/fetch_service.py
++++ b/app/services/fetch_service.py
+@@ -216,11 +216,16 @@
+     from app.services.task_queue import ExecutionOwnershipLostError
+ 
+     try:
+-        await retry_on_lock(
+-            lambda: _process_resource_metadata_once(
+-                resource_id, channel_id, semaphore, force_refresh=force_refresh
++        # One slot belongs to the resource until its bounded retries finish.
++        # Releasing it after a conflict lets queued new work repeatedly pass
++        # the retrying resource and exhaust its retry budget under contention.
++        # Each attempt still owns a fresh session; backoff holds no DB locks.
++        async with semaphore:
++            await retry_on_lock(
++                lambda: _process_resource_metadata_once(
++                    resource_id, channel_id, force_refresh=force_refresh
++                )
+             )
+-        )
+     except ExecutionOwnershipLostError:
+         raise
+     except Exception as exc:
+@@ -230,15 +235,14 @@
+ async def _process_resource_metadata_once(
+     resource_id: str,
+     channel_id: str,
+-    semaphore: asyncio.Semaphore,
+     *,
+     force_refresh: bool = False,
+ ) -> None:
+     """Run metadata + poster download for one FileResource in its own session.
+ 
+     Used by both the new-resource path and the backfill path so each
+-    resource's slow LLM/search work runs concurrently under ``semaphore``
+-    and in an isolated short-lived DB session - the caller's shared fetch
++    resource's slow LLM/search work runs within its caller-held concurrency
++    slot and in an isolated short-lived DB session - the caller's shared fetch
+     session is never held across the agent loop (which spans many LLM +
+     external search calls and can take tens of seconds), avoiding the
+     "database is locked" / unresponsive-edit symptom that motivated
+@@ -252,205 +256,229 @@
+     from app.services.task_queue import ExecutionOwnershipLostError, require_execution_ownership
+     from app.services.torrent_inspect import ensure_torrent_cached, maybe_inspect_torrent
+ 
+-    async with semaphore:
+-        await require_execution_ownership()
+-        async with async_session_factory() as task_db:
+-            metadata_committed = False
+-            try:
+-                result = await task_db.execute(
+-                    select(FileResource)
+-                    .options(selectinload(FileResource.file_assignments))
+-                    .where(FileResource.id == resource_id)
+-                )
+-                resource = result.scalar_one_or_none()
+-                channel = await task_db.get(Channel, channel_id)
+-                if resource is None or channel is None:
+-                    return
+-                # Cache the .torrent for every resource (http(s) direct links
+-                # only) so later file-listing lookups never re-download.
+-                await ensure_torrent_cached(resource)
++    await require_execution_ownership()
++    async with async_session_factory() as task_db:
++        metadata_committed = False
++        try:
++            result = await task_db.execute(
++                select(FileResource)
++                .options(selectinload(FileResource.file_assignments))
++                .where(FileResource.id == resource_id)
++            )
++            resource = result.scalar_one_or_none()
++            channel = await task_db.get(Channel, channel_id)
++            if resource is None or channel is None:
++                return
++            # Cache the .torrent for every resource (http(s) direct links
++            # only) so later file-listing lookups never re-download.
++            await ensure_torrent_cached(resource)
++            await require_execution_ownership()
++            # magnet: links have no .torrent to fetch — kick off background
++            # metadata resolution (libtorrent, metadata-only) so the torrent
++            # cache / Channel A inspection can work later. Never blocks fetch.
++            if (resource.torrent_url or "").startswith("magnet:"):
++                try:
++                    from app.services import magnet_resolve
++
++                    await magnet_resolve.enqueue_resolution(resource.id)
++                except Exception:  # noqa: BLE001 — best-effort, never block fetch
++                    logger.debug(
++                        "[magnet] enqueue failed for %s", resource.id, exc_info=True
++                    )
++            # Channel A torrent inspection: deterministic .torrent
++            # file-listing analysis may reclassify the resource as a
++            # batch the title regexes missed. Runs before metadata
++            # matching; batches still need work linking, so matching
++            # continues regardless of the verdict. No commit here — the
++            # metadata-phase commit below persists any changes.
++            await maybe_inspect_torrent(task_db, resource, channel)
++            work_key = normalize_title(resource.search_title or extract_search_title(resource))
++            async with _work_metadata_lock(work_key):
+                 await require_execution_ownership()
+-                # magnet: links have no .torrent to fetch — kick off background
+-                # metadata resolution (libtorrent, metadata-only) so the torrent
+-                # cache / Channel A inspection can work later. Never blocks fetch.
+-                if (resource.torrent_url or "").startswith("magnet:"):
++                if task_db.bind.dialect.name == "sqlite":
++                    # Turso starts its physical transaction on DML, not
++                    # SELECT. Without it, releasing the first SAVEPOINT
++                    # commits changes that an ownership-loss rollback must
++                    # still be able to undo. Match no rows and take no row
++                    # locks; keep the driver's configured isolation level.
++                    from sqlalchemy import text
++
++                    await task_db.execute(text(
++                        "UPDATE file_resources SET id = id WHERE 1 = 0"
++                    ))
++                if channel.metadata_agent_enabled:
+                     try:
+-                        from app.services import magnet_resolve
+-
+-                        await magnet_resolve.enqueue_resolution(resource.id)
+-                    except Exception:  # noqa: BLE001 — best-effort, never block fetch
+-                        logger.debug(
+-                            "[magnet] enqueue failed for %s", resource.id, exc_info=True
+-                        )
+-                # Channel A torrent inspection: deterministic .torrent
+-                # file-listing analysis may reclassify the resource as a
+-                # batch the title regexes missed. Runs before metadata
+-                # matching; batches still need work linking, so matching
+-                # continues regardless of the verdict. No commit here — the
+-                # metadata-phase commit below persists any changes.
+-                await maybe_inspect_torrent(task_db, resource, channel)
+-                work_key = normalize_title(resource.search_title or extract_search_title(resource))
+-                async with _work_metadata_lock(work_key):
+-                    await require_execution_ownership()
+-                    if channel.metadata_agent_enabled:
+-                        try:
++                        async with task_db.begin_nested():
+                             await get_agent().process(
+                                 resource, channel, task_db, force_refresh=force_refresh
+                             )
+-                        except ExecutionOwnershipLostError:
++                    except ExecutionOwnershipLostError:
++                        raise
++                    except Exception as e:
++                        if _is_retryable_lock_error(e):
+                             raise
+-                        except Exception as e:
+-                            logger.warning("MetadataAgent failed for %s: %s", resource_id, e)
+-                            base_title = _simple_title_clean(resource.title_raw)
+-                            if base_title:
+-                                resource.search_title = base_title
+-                    else:
+-                        try:
++                        # SAVEPOINT rollback expires rows changed by a failed
++                        # write-back; reload before continuing the outer task.
++                        await task_db.refresh(resource)
++                        logger.warning("MetadataAgent failed for %s: %s", resource_id, e)
++                        base_title = _simple_title_clean(resource.title_raw)
++                        if base_title:
++                            resource.search_title = base_title
++                else:
++                    try:
++                        async with task_db.begin_nested():
+                             await fetch_and_link_metadata(task_db, resource, channel)
+-                        except ExecutionOwnershipLostError:
++                    except ExecutionOwnershipLostError:
++                        raise
++                    except Exception as e:
++                        if _is_retryable_lock_error(e):
+                             raise
+-                        except Exception as e:
+-                            logger.warning("Metadata linking failed for %s: %s", resource_id, e)
+-                    await require_execution_ownership()
+-                    # Final shape guard shared by every metadata route. Cache
+-                    # hits and known-work title shortcuts bypass the repository
+-                    # write-back branch and may otherwise restore a flat FK
+-                    # after torrent inspection linked a franchise collection.
+-                    from app.services.franchise_service import (
+-                        enforce_franchise_resource_invariant,
++                        await task_db.refresh(resource)
++                        logger.warning("Metadata linking failed for %s: %s", resource_id, e)
++                await require_execution_ownership()
++                # Final shape guard shared by every metadata route. Cache
++                # hits and known-work title shortcuts bypass the repository
++                # write-back branch and may otherwise restore a flat FK
++                # after torrent inspection linked a franchise collection.
++                from app.services.franchise_service import (
++                    enforce_franchise_resource_invariant,
++                )
++                if enforce_franchise_resource_invariant(resource):
++                    logger.info(
++                        "[metadata-task] cleared flat work FK restored on "
++                        "franchise resource %s",
++                        resource.id,
+                     )
+-                    if enforce_franchise_resource_invariant(resource):
+-                        logger.info(
+-                            "[metadata-task] cleared flat work FK restored on "
+-                            "franchise resource %s",
+-                            resource.id,
++                # Every metadata path converges here.  Run the DB-backed
++                # sibling-history policy after linking as a final safety
++                # net, including cached and force-refresh agent paths.
++                if resource.series_id and not resource.is_batch:
++                    from app.models.series import TVSeries
++                    from app.services.episode_history import (
++                        apply_episode_history_reconcile,
++                        apply_season_history_default,
++                    )
++                    from app.services.metadata_episode_reconcile import (
++                        seasons_map_for_work,
++                    )
++
++                    series_row = await task_db.get(TVSeries, resource.series_id)
++                    if series_row is not None:
++                        await apply_episode_history_reconcile(
++                            task_db,
++                            resource,
++                            seasons_map=seasons_map_for_work(series_row),
+                         )
+-                    # Every metadata path converges here.  Run the DB-backed
+-                    # sibling-history policy after linking as a final safety
+-                    # net, including cached and force-refresh agent paths.
+-                    if resource.series_id and not resource.is_batch:
+-                        from app.models.series import TVSeries
+-                        from app.services.episode_history import (
+-                            apply_episode_history_reconcile,
+-                            apply_season_history_default,
++                        await apply_season_history_default(task_db, resource)
++                # Torrent inspection precedes metadata matching, so its
++                # deterministic rows may still be work-less.  Once this
++                # pass has linked exactly one work, bind those rows now.
++                from app.services.batch_content_analysis import (
++                    bind_single_work_assignments,
++                )
++                await bind_single_work_assignments(task_db, resource)
++                # Bangumi series-graph expansion (B1): a franchise /
++                # multi_season pack linked to a Bangumi base entry unfolds
++                # its sibling seasons / movies / specials via the
++                # related-subjects endpoint. Best-effort and expansion-only
++                # — failures keep the original link verdict.
++                if resource.is_batch and resource.batch_scope in (
++                    "franchise", "multi_season",
++                ):
++                    try:
++                        from app.services.bangumi_relations import (
++                            expand_bangumi_series_graph,
+                         )
+-                        from app.services.metadata_episode_reconcile import (
+-                            seasons_map_for_work,
++
++                        await expand_bangumi_series_graph(task_db, resource)
++                    except ExecutionOwnershipLostError:
++                        raise
++                    except Exception as e:  # noqa: BLE001 — never a downgrade
++                        logger.warning(
++                            "[bangumi-graph] expansion failed for %s: %s",
++                            resource_id, e, exc_info=True,
+                         )
+-
+-                        series_row = await task_db.get(TVSeries, resource.series_id)
+-                        if series_row is not None:
+-                            await apply_episode_history_reconcile(
+-                                task_db,
+-                                resource,
+-                                seasons_map=seasons_map_for_work(series_row),
+-                            )
+-                            await apply_season_history_default(task_db, resource)
+-                    # Torrent inspection precedes metadata matching, so its
+-                    # deterministic rows may still be work-less.  Once this
+-                    # pass has linked exactly one work, bind those rows now.
+-                    from app.services.batch_content_analysis import (
+-                        bind_single_work_assignments,
+-                    )
+-                    await bind_single_work_assignments(task_db, resource)
+-                    # Bangumi series-graph expansion (B1): a franchise /
+-                    # multi_season pack linked to a Bangumi base entry unfolds
+-                    # its sibling seasons / movies / specials via the
+-                    # related-subjects endpoint. Best-effort and expansion-only
+-                    # — failures keep the original link verdict.
+-                    if resource.is_batch and resource.batch_scope in (
+-                        "franchise", "multi_season",
+-                    ):
+-                        try:
+-                            from app.services.bangumi_relations import (
+-                                expand_bangumi_series_graph,
+-                            )
+-
+-                            await expand_bangumi_series_graph(task_db, resource)
+-                        except ExecutionOwnershipLostError:
+-                            raise
+-                        except Exception as e:  # noqa: BLE001 — never a downgrade
+-                            logger.warning(
+-                                "[bangumi-graph] expansion failed for %s: %s",
+-                                resource_id, e, exc_info=True,
+-                            )
+-                        # Cluster binding second pass: torrent inspection runs
+-                        # BEFORE metadata linking, so works created or
+-                        # season-relocated by the series graph above were not
+-                        # visible to it. The pass is idempotent — unbound
+-                        # clusters resolve against the expanded members, and
+-                        # already-bound auto rows mirror any season relocation
+-                        # (e.g. "Final Stage" created as s1 by franchise
+-                        # linking, then relocated to s6 by the graph).
+-                        try:
+-                            from app.services.cluster_work_binding import (
+-                                bind_hint_clusters,
+-                            )
+-
+-                            await bind_hint_clusters(task_db, resource, channel)
+-                        except ExecutionOwnershipLostError:
+-                            raise
+-                        except Exception as e:  # noqa: BLE001 — enrichment only
+-                            logger.warning(
+-                                "[cluster-bind] post-graph pass failed for %s: %s",
+-                                resource_id, e,
+-                            )
+-                        # C4: member resolution (web fallback, English titles)
+-                        # and the series graph (Japanese titles) can each
+-                        # create a row for the SAME film. Deterministic
+-                        # same-resource same-date movie dedup — no date
+-                        # evidence, no merge.
+-                        try:
+-                            from app.services.franchise_service import (
+-                                dedupe_resource_movies,
+-                            )
+-
++                    # Cluster binding second pass: torrent inspection runs
++                    # BEFORE metadata linking, so works created or
++                    # season-relocated by the series graph above were not
++                    # visible to it. The pass is idempotent — unbound
++                    # clusters resolve against the expanded members, and
++                    # already-bound auto rows mirror any season relocation
++                    # (e.g. "Final Stage" created as s1 by franchise
++                    # linking, then relocated to s6 by the graph).
++                    try:
++                        from app.services.cluster_work_binding import (
++                            bind_hint_clusters,
++                        )
++
++                        await bind_hint_clusters(task_db, resource, channel)
++                    except ExecutionOwnershipLostError:
++                        raise
++                    except Exception as e:  # noqa: BLE001 — enrichment only
++                        logger.warning(
++                            "[cluster-bind] post-graph pass failed for %s: %s",
++                            resource_id, e,
++                        )
++                    # C4: member resolution (web fallback, English titles)
++                    # and the series graph (Japanese titles) can each
++                    # create a row for the SAME film. Deterministic
++                    # same-resource same-date movie dedup — no date
++                    # evidence, no merge.
++                    try:
++                        from app.services.franchise_service import (
++                            dedupe_resource_movies,
++                        )
++
++                        async with task_db.begin_nested():
+                             await dedupe_resource_movies(
+                                 task_db, resource, channel=channel
+                             )
+-                        except ExecutionOwnershipLostError:
++                    except ExecutionOwnershipLostError:
++                        raise
++                    except Exception as e:  # noqa: BLE001 — enrichment only
++                        if _is_retryable_lock_error(e):
+                             raise
+-                        except Exception as e:  # noqa: BLE001 — enrichment only
+-                            logger.warning(
+-                                "[franchise] movie dedup failed for %s: %s",
+-                                resource_id, e,
+-                            )
+-                    from app.services.resource_publication import publish_resource
+-
+-                    await require_execution_ownership()
+-                    await publish_resource(task_db, resource.id, kind="metadata")
+-                    # Commit inside the lock: the next same-work task's lookup
+-                    # must see this task's series/movie row.
+-                    await require_execution_ownership()
+-                    await task_db.commit()
+-                    metadata_committed = True
+-
+-                # Poster download for newly-linked entities (kept in the same
+-                # task session so a network call never blocks other writers).
+-                if resource.series_id:
+-                    series = await task_db.get(TVSeries, resource.series_id)
+-                    if series and series.poster_url and series.poster_url.startswith("http"):
+-                        local = await download_and_cache_poster(series.poster_url)
+-                        if local:
+-                            series.poster_url = local
+-                elif resource.movie_id:
+-                    movie = await task_db.get(Movie, resource.movie_id)
+-                    if movie and movie.poster_url and movie.poster_url.startswith("http"):
+-                        local = await download_and_cache_poster(movie.poster_url)
+-                        if local:
+-                            movie.poster_url = local
++                        await task_db.refresh(resource)
++                        logger.warning(
++                            "[franchise] movie dedup failed for %s: %s",
++                            resource_id, e,
++                        )
++                from app.services.resource_publication import publish_resource
++
++                await require_execution_ownership()
++                await publish_resource(task_db, resource.id, kind="metadata")
++                # Commit inside the lock: the next same-work task's lookup
++                # must see this task's series/movie row.
+                 await require_execution_ownership()
+                 await task_db.commit()
+-            except Exception as e:
+-                logger.warning("[metadata-task] failed for %s: %s", resource_id, e)
+-                try:
+-                    await task_db.rollback()
+-                except Exception:
+-                    pass
+-                if isinstance(e, ExecutionOwnershipLostError):
+-                    raise
+-                if not metadata_committed and _is_retryable_lock_error(e):
+-                    raise
++                metadata_committed = True
++
++            # Poster download for newly-linked entities (kept in the same
++            # task session so a network call never blocks other writers).
++            if resource.series_id:
++                series = await task_db.get(TVSeries, resource.series_id)
++                if series and series.poster_url and series.poster_url.startswith("http"):
++                    local = await download_and_cache_poster(series.poster_url)
++                    if local:
++                        series.poster_url = local
++            elif resource.movie_id:
++                movie = await task_db.get(Movie, resource.movie_id)
++                if movie and movie.poster_url and movie.poster_url.startswith("http"):
++                    local = await download_and_cache_poster(movie.poster_url)
++                    if local:
++                        movie.poster_url = local
++            await require_execution_ownership()
++            await task_db.commit()
++        except Exception as e:
++            logger.warning("[metadata-task] failed for %s: %s", resource_id, e)
++            try:
++                await task_db.rollback()
++            except Exception:
++                pass
++            if isinstance(e, ExecutionOwnershipLostError):
++                raise
++            if not metadata_committed and _is_retryable_lock_error(e):
++                raise
+ 
+ 
+ async def _backfill_unmatched_resources(
+--- /dev/null
++++ b/tests/unit/test_dedup_caller_transactions.py
+@@ -0,0 +1,133 @@
++"""Production fetch commits must not preserve a partially failed merge.
++
++Metadata discovery/torrent inspection are explicit synthetic boundaries;
++repository, dedup, publication, transaction commits and queries are real.
++"""
++import asyncio
++from datetime import date
++from types import SimpleNamespace
++from unittest.mock import AsyncMock
++
++import pytest
++from sqlalchemy import select
++
++from app.models.channel import Channel
++from app.models.file_resource import FileResource
++from app.models.movie import Movie
++from app.models.resource_file_assignment import ResourceFileAssignment
++from app.models.resource_work_link import ResourceWorkLink
++from app.models.series import TVSeries
++from app.models.work_collection import WorkCollection
++from app.services import fetch_service
++from app.services.metadata_repository import _apply_to_resource
++from app.services.metadata_resource_meta import ResourceMetadata
++from app.services.publication_migration import bootstrap_publications
++
++
++async def _channel(db, *, agent):
++    channel = Channel(name='Synthetic caller transaction', type='rss_feed', url='https://example.invalid',
++                      field_mapping={}, metadata_agent_enabled=agent, metadata_source='wikipedia')
++    collection = WorkCollection(title_cn='合成调用方合集')
++    db.add_all([channel, collection])
++    await db.flush()
++    return channel, collection
++
++
++def _external_boundaries(monkeypatch):
++    monkeypatch.setattr('app.services.torrent_inspect.ensure_torrent_cached', AsyncMock(return_value=None))
++    monkeypatch.setattr('app.services.torrent_inspect.maybe_inspect_torrent', AsyncMock(return_value=False))
++    monkeypatch.setattr('app.services.metadata_service.download_and_cache_poster', AsyncMock(return_value=None))
++    monkeypatch.setattr('app.services.bangumi_relations.expand_bangumi_series_graph', AsyncMock(return_value=None))
++    monkeypatch.setattr('app.services.cluster_work_binding.bind_hint_clusters', AsyncMock(return_value=None))
++
++
++@pytest.mark.parametrize('conflict', [True, False])
++async def test_fetch_online_rehome_commits_only_complete_graph(db_session, monkeypatch, conflict):
++    _external_boundaries(monkeypatch)
++    channel, collection = await _channel(db_session, agent=True)
++    series = TVSeries(title_en='Synthetic misfiled film', external_source='wikipedia',
++                      external_id='wikipedia:en:123456', content_type='movie', collection_id=collection.id,
++                      description='curator description', manually_edited_fields=['description'])
++    if conflict:
++        series.number_of_episodes = 7
++        series.manually_edited_fields = ['description', 'number_of_episodes']
++    db_session.add(series)
++    await db_session.flush()
++    resource = FileResource(channel_id=channel.id, guid='synthetic-rehome', title_raw='Synthetic misfiled film',
++                            torrent_url='https://example.invalid/film.torrent', series_id=series.id)
++    db_session.add(resource)
++    await db_session.flush()
++    db_session.add(ResourceWorkLink(resource_id=resource.id, series_id=series.id, source='manual'))
++    await bootstrap_publications(db_session, writers_stopped=True)
++    await db_session.commit()
++    rid, cid, sid = resource.id, channel.id, series.id
++    meta = ResourceMetadata(clean_title='Synthetic misfiled film', found=True, content_type='movie',
++                            matched_entity={'title_en':'Synthetic misfiled film', 'external_source':'wikipedia',
++                                            'external_id':'wikipedia:en:123456', 'content_type':'movie'})
++
++    async def synthetic_discovery(resource, channel, db, **kwargs):
++        await _apply_to_resource(meta, resource, channel, db)
++        return meta
++
++    monkeypatch.setattr('app.services.metadata_agent.get_agent', lambda: SimpleNamespace(process=synthetic_discovery))
++    await fetch_service._process_resource_metadata(rid, cid, asyncio.Semaphore(1))
++    # End the seed session snapshot; inspect data committed by the real task.
++    db_session.expire_all()
++    resource = await db_session.get(FileResource, rid)
++    movies = (await db_session.execute(select(Movie))).scalars().all()
++    links = (await db_session.execute(select(ResourceWorkLink))).scalars().all()
++    if conflict:
++        assert movies == [], 'Caught rehome conflict must not commit a newly-created target'
++        assert resource.series_id == sid and resource.movie_id is None
++        assert links[0].series_id == sid and links[0].source == 'manual'
++        assert (await db_session.get(TVSeries, sid)).description == 'curator description'
++    else:
++        assert len(movies) == 1
++        assert movies[0].description == 'curator description'
++        assert movies[0].manually_edited_fields == ['description']
++        assert resource.series_id is None and resource.movie_id == movies[0].id
++        assert links[0].series_id is None and links[0].movie_id == movies[0].id
++        assert await db_session.get(TVSeries, sid) is None
++
++
++@pytest.mark.parametrize('fail_after_repoint', [True, False])
++async def test_fetch_franchise_merge_is_atomic(db_session, monkeypatch, fail_after_repoint):
++    _external_boundaries(monkeypatch)
++    channel, collection = await _channel(db_session, agent=False)
++    movies = [Movie(title_en='Synthetic franchise film', external_source=source, external_id=identity,
++                    content_type='movie', release_date=date(2001,1,1), collection_id=collection.id)
++              for source, identity in [('wikipedia','wikipedia:en:123456'), ('bangumi','bangumi:654321')]]
++    db_session.add_all(movies)
++    await db_session.flush()
++    resource = FileResource(channel_id=channel.id, guid='synthetic-franchise', title_raw='Synthetic franchise pack',
++                            torrent_url='https://example.invalid/pack.torrent', is_batch=True,
++                            batch_scope='franchise', collection_id=collection.id)
++    db_session.add(resource)
++    await db_session.flush()
++    original = {}
++    for index, movie in enumerate(movies):
++        row = ResourceFileAssignment(resource_id=resource.id, file_path=f'synthetic-{index}.mkv',
++                                     movie_id=movie.id, source='manual')
++        db_session.add_all([row, ResourceWorkLink(resource_id=resource.id, movie_id=movie.id, source='manual')])
++        original[row.file_path] = movie.id
++    await bootstrap_publications(db_session, writers_stopped=True)
++    await db_session.commit()
++    rid, cid = resource.id, channel.id
++    target_id = movies[0].id
++    monkeypatch.setattr(fetch_service, 'fetch_and_link_metadata', AsyncMock(return_value=None))
++    if fail_after_repoint:
++        monkeypatch.setattr('app.services.metadata_dedup._merge_work_metadata', AsyncMock(side_effect=RuntimeError('Injected failure after actual reference migration')))
++    await fetch_service._process_resource_metadata(rid, cid, asyncio.Semaphore(1))
++    db_session.expire_all()
++    actual = (await db_session.execute(select(ResourceFileAssignment))).scalars().all()
++    links = (await db_session.execute(select(ResourceWorkLink))).scalars().all()
++    movie_rows = (await db_session.execute(select(Movie))).scalars().all()
++    if fail_after_repoint:
++        assert {row.file_path: row.movie_id for row in actual} == original
++        assert {row.movie_id for row in links} == set(original.values())
++        assert len(movie_rows) == 2
++    else:
++        assert len(movie_rows) == 1
++        assert {row.movie_id for row in actual} == {target_id}
++        assert len(links) == 1 and links[0].movie_id == target_id
++    assert all(row.source == 'manual' for row in actual + links)
+--- /dev/null
++++ b/tests/unit/test_dedup_offline_repair.py
+@@ -0,0 +1,59 @@
++"""The existing offline entrypoint must not persist a partial season repair."""
++from unittest.mock import AsyncMock
++
++import pytest
++from sqlalchemy import select
++
++import app.database as database
++from app.models.episode import Episode
++from app.models.series import TVSeries
++from app.models.work_collection import WorkCollection
++from app.services.dedup_metadata_policy import DedupConflictError
++from scripts import post_split_leftover_repair as repair
++
++
++@pytest.mark.parametrize('case', ['success', 'manual_conflict', 'late_failure'])
++async def test_offline_repair_preserves_atomicity(db_session, monkeypatch, case):
++    collection = WorkCollection(title_cn='合成离线修复合集')
++    db_session.add(collection)
++    await db_session.flush()
++    survivor = TVSeries(title_cn='合成续篇', season_number=0, collection_id=collection.id,
++                        description='curator source', manually_edited_fields=['description'])
++    shell = TVSeries(title_cn='合成迁移壳', season_number=2, collection_id=collection.id)
++    if case == 'manual_conflict':
++        shell.description = 'different curator'
++        shell.manually_edited_fields = ['description']
++    db_session.add_all([survivor, shell])
++    await db_session.flush()
++    episodes = [Episode(series_id=survivor.id, season=0, episode=1, title='Synthetic original'),
++                Episode(series_id=shell.id, season=2, episode=1, title='Synthetic shell')]
++    db_session.add_all(episodes)
++    await db_session.commit()
++    source_id, shell_id = survivor.id, shell.id
++    original_episodes = {(row.id, row.series_id, row.season, row.episode, row.title) for row in episodes}
++    monkeypatch.setattr(repair, 'async_session_factory', database.async_session_factory)
++    monkeypatch.setattr(repair, 'load_runtime_config', AsyncMock())
++    monkeypatch.setattr(repair, 'bangumi_configured', lambda: False)
++    monkeypatch.setattr(repair, '_OREGAIRU_PAIRS', [(source_id, shell_id, 2)])
++    if case == 'late_failure':
++        monkeypatch.setattr(repair, '_case_d_catseye', AsyncMock(side_effect=RuntimeError('Synthetic later repair failure')))
++        with pytest.raises(RuntimeError, match='later repair failure'):
++            await repair.main(apply=True)
++    elif case == 'manual_conflict':
++        with pytest.raises(DedupConflictError):
++            await repair.main(apply=True)
++    else:
++        await repair.main(apply=True)
++    db_session.expire_all()
++    after = (await db_session.execute(select(Episode))).scalars().all()
++    remaining = (await db_session.execute(select(TVSeries))).scalars().all()
++    if case == 'success':
++        assert len(remaining) == 1 and remaining[0].id == source_id
++        assert remaining[0].season_number == 2
++        assert len(after) == 1 and after[0].series_id == source_id and after[0].season == 2
++        assert after[0].title == 'Synthetic original'
++    else:
++        assert len(remaining) == 2
++        assert {row.id:row.season_number for row in remaining} == {source_id:0, shell_id:2}
++        assert {(row.id, row.series_id, row.season, row.episode, row.title) for row in after} == original_episodes
++    assert next(row for row in remaining if row.id == source_id).description == 'curator source'
+--- /dev/null
++++ b/tests/integration/dedup/test_caller_transactions.py
+@@ -0,0 +1,66 @@
++"""Both real backends must roll back caught failures in the fetch pipeline.
++
++Discovery responses are synthetic. The production repository, dedup, resource
++references, publication, and outer commit are exercised without mocks.
++"""
++import pytest
++
++from tests.unit.test_dedup_caller_transactions import (
++    test_fetch_franchise_merge_is_atomic as _franchise_case,
++)
++from tests.unit.test_dedup_caller_transactions import (
++    test_fetch_online_rehome_commits_only_complete_graph as _rehome_case,
++)
++from tests.unit.test_queue_metadata_ownership import (
++    test_resource_metadata_loss_rolls_back_flushed_fields_and_publication as _loss_case,
++)
++
++
++@pytest.mark.parametrize("conflict", [True, False])
++async def test_fetch_rehome_postgres(dedup_postgres, monkeypatch, conflict):
++    _, factory = dedup_postgres
++    async with factory() as db:
++        await _rehome_case(db, monkeypatch, conflict)
++
++
++@pytest.mark.parametrize("fail_after_repoint", [True, False])
++async def test_fetch_franchise_postgres(dedup_postgres, monkeypatch, fail_after_repoint):
++    _, factory = dedup_postgres
++    async with factory() as db:
++        await _franchise_case(db, monkeypatch, fail_after_repoint)
++
++
++@pytest.mark.parametrize("conflict", [True, False])
++async def test_fetch_rehome_turso(dedup_turso, monkeypatch, conflict):
++    _, factory = dedup_turso
++    async with factory() as db:
++        await _rehome_case(db, monkeypatch, conflict)
++
++
++@pytest.mark.parametrize("fail_after_repoint", [True, False])
++async def test_fetch_franchise_turso(dedup_turso, monkeypatch, fail_after_repoint):
++    _, factory = dedup_turso
++    async with factory() as db:
++        await _franchise_case(db, monkeypatch, fail_after_repoint)
++
++
++@pytest.mark.parametrize("agent_enabled", [False, True])
++@pytest.mark.parametrize("raises_loss", [False, True])
++async def test_savepoint_ownership_loss_postgres(
++    dedup_postgres, monkeypatch, agent_enabled, raises_loss,
++):
++    _, factory = dedup_postgres
++    async with factory() as db:
++        await _loss_case(db, monkeypatch, agent_enabled, raises_loss)
++
++
++@pytest.mark.parametrize("agent_enabled", [False, True])
++@pytest.mark.parametrize("raises_loss", [False, True])
++async def test_savepoint_ownership_loss_turso(
++    dedup_turso, monkeypatch, agent_enabled, raises_loss,
++):
++    _, factory = dedup_turso
++    async with factory() as db:
++        await _loss_case(db, monkeypatch, agent_enabled, raises_loss)
++
++
+--- a/tests/unit/test_fetch_service.py
++++ b/tests/unit/test_fetch_service.py
+@@ -776,10 +776,17 @@
+ 
+ 
+ class TestMetadataBackfill:
+-    async def test_backfill_caps_and_records_attempts(self, db_session, channel, fake_queue):
++    async def test_backfill_caps_and_records_attempts(self, db_session, channel, fake_queue, monkeypatch):
+         """40 never-tried unmatched resources → exactly MAX_BACKFILL_PER_FETCH
+         re-processed, each stamped with a not_found attempt."""
++        import asyncio
++
+         from sqlalchemy import select
++
++        # This exercises concurrent real transactions and publication-counter
++        # contention. The global fast-sleep stub removes real retry backoff and
++        # can exhaust retries while another transaction is still committing.
++        monkeypatch.setattr(asyncio, "sleep", asyncio.tasks.sleep)
+         for i in range(40):
+             db_session.add(FileResource(
+                 id=_uuid(), channel_id=channel.id, guid=f"g{i}",
+--- /dev/null
++++ b/tests/integration/dedup/test_late_writers.py
+@@ -0,0 +1,106 @@
++"""Synthetic concurrent writes after merge locks, using actual database sessions."""
++import pytest
++from sqlalchemy import select, text
++from sqlalchemy.exc import DBAPIError
++
++from app.database import _is_retryable_lock_error
++from app.models.channel import Channel
++from app.models.file_resource import FileResource
++from app.models.movie import Movie
++from app.models.resource_work_link import ResourceWorkLink
++from app.services import metadata_dedup as dedup
++
++
++@pytest.mark.parametrize("action", ["manual_edit", "new_reference", "wizard_reference", "delete"])
++async def test_late_writer_postgres(dedup_postgres, monkeypatch, action):
++    await _late_writer(dedup_postgres, monkeypatch, action)
++
++
++@pytest.mark.parametrize("action", ["manual_edit", "new_reference", "wizard_reference", "delete"])
++async def test_late_writer_turso(dedup_turso, monkeypatch, action):
++    await _late_writer(dedup_turso, monkeypatch, action)
++
++
++async def _late_writer(database, monkeypatch, action):
++    engine, factory = database
++    postgres = engine.dialect.name == "postgresql"
++    async with factory() as seed:
++        channel = Channel(name="Synthetic late writer", type="rss_feed", url="https://example.invalid", field_mapping={})
++        target, source = [Movie(title_en="Synthetic late merge", description="automatic") for _ in range(2)]
++        seed.add_all([channel, target, source])
++        await seed.flush()
++        resource = FileResource(channel_id=channel.id, guid="synthetic", title_raw="Synthetic",
++                                torrent_url="https://example.invalid/test.torrent")
++        seed.add(resource)
++        await seed.commit()
++        target_id, source_id, resource_id = target.id, source.id, resource.id
++    original = dedup.lock_merge_works
++    attempted = committed = False
++
++    async def late_writer(db, rows):
++        nonlocal attempted, committed
++        await original(db, rows)
++        if attempted:
++            return
++        attempted = True
++        async with factory() as writer:
++            if postgres:
++                # Bound a genuine blocking lock acquisition; no mocked lock or sleep.
++                await writer.execute(text("SET LOCAL lock_timeout = '250ms'"))
++            try:
++                row = await writer.get(Movie, source_id)
++                if action == "manual_edit":
++                    row.description = "late curator value"
++                    row.manually_edited_fields = ["description"]
++                elif action == "delete":
++                    await writer.delete(row)
++                elif action == "wizard_reference":
++                    from app.schemas.file_resource import ResourceAssociationUpdateRequest
++                    from app.services.resource_association import apply_association_update
++
++                    resource = await writer.get(FileResource, resource_id)
++                    body = ResourceAssociationUpdateRequest(
++                        is_batch=True, works=[{"work_type": "movie", "work_id": source_id}],
++                    )
++                    await apply_association_update(writer, resource, body)
++                else:
++                    writer.add(ResourceWorkLink(resource_id=resource_id, movie_id=source_id, source="manual"))
++                await writer.commit()
++                committed = True
++            except DBAPIError as error:
++                if postgres:
++                    assert getattr(error.orig, "sqlstate", None) == "55P03"
++                else:
++                    assert _is_retryable_lock_error(error)
++                await writer.rollback()
++
++    monkeypatch.setattr(dedup, "lock_merge_works", late_writer)
++    conflicted = False
++    async with factory() as merger:
++        target, source = [await merger.get(Movie, identity) for identity in [target_id, source_id]]
++        try:
++            await dedup._merge_movie_group(merger, [target, source], dedup.DedupReport(), survivor=target)
++            await merger.commit()
++        except DBAPIError as error:
++            assert _is_retryable_lock_error(error)
++            conflicted = True
++            await merger.rollback()
++    assert attempted
++    if postgres:
++        assert not committed and not conflicted
++    if conflicted and action != "delete":
++        async with factory() as retry:
++            target, source = [await retry.get(Movie, identity) for identity in [target_id, source_id]]
++            await dedup._merge_movie_group(retry, [target, source], dedup.DedupReport(), survivor=target)
++            await retry.commit()
++    async with factory() as check:
++        target = await check.get(Movie, target_id)
++        source = await check.get(Movie, source_id)
++        assert target is not None
++        if committed and action == "manual_edit":
++            assert target.description == "late curator value"
++            assert target.manually_edited_fields == ["description"]
++        if committed and action in {"new_reference", "wizard_reference"}:
++            link = (await check.scalars(select(ResourceWorkLink))).one()
++            assert link.movie_id == target_id and link.source == "manual"
++        assert source is None
+--- a/app/services/resource_parent_guard.py
++++ b/app/services/resource_parent_guard.py
+@@ -1,9 +1,8 @@
+-"""Turso parent-row write barriers for resource-retaining child records.
++"""Turso parent-row version barriers for resource and work references.
+ 
+-Turso CONCURRENT transactions do not give child FK inserts PostgreSQL's
+-parent KEY SHARE lock. A cleanup using an older write snapshot can otherwise
+-commit a parent deletion without seeing a newly committed child. Touching the
+-parent's row version makes that schedule a retryable write-write conflict.
++Turso CONCURRENT child inserts do not acquire PostgreSQL's parent KEY SHARE
++lock. Parent touches make cleanup/merge deletion conflict with late child
++writers instead of leaving a committed reference outside the deleter's snapshot.
+ """
+ 
+ from sqlalchemy import inspect
+@@ -13,26 +12,49 @@
+     "resource_file_assignments": "resource_id",
+     "download_tasks": "file_resource_id",
+ }
++_WORK_PARENTS = {"movies", "tv_series"}
++
++
++def _guard_specs():
++    """Use declared FKs so a new work-reference model cannot omit its barrier."""
++    from app.database import Base
++
++    for table, column in _CHILDREN.items():
++        yield f"trg_resource_parent_{table}", table, column, "file_resources"
++    for table in Base.metadata.sorted_tables:
++        for column in table.columns:
++            for foreign_key in column.foreign_keys:
++                parent = foreign_key.column.table.name
++                if parent in _WORK_PARENTS and foreign_key.column.name == "id":
++                    yield f"trg_work_parent_{table.name}_{column.name}", table.name, column.name, parent
+ 
+ 
+ def ensure_resource_parent_guards(connection) -> None:
+-    """Install idempotent guards on fresh and upgraded embedded databases."""
++    """Install resource/work barriers on fresh and upgraded embedded databases.
++
++    The historical entry point remains shared by metadata creation and schema
++    repair; legacy tables without a new FK column are handled on the next pass.
++    """
+     if connection.dialect.driver != "aioturso":
+         return
+-    tables = set(inspect(connection).get_table_names())
+-    if "file_resources" not in tables:
+-        return
+-    for table, foreign_key in _CHILDREN.items():
+-        if table not in tables:
++    inspector = inspect(connection)
++    tables = set(inspector.get_table_names())
++    columns = {}
++    quote = connection.dialect.identifier_preparer.quote
++    for name, table, column, parent in _guard_specs():
++        if table not in tables or parent not in tables:
++            continue
++        if table not in columns:
++            columns[table] = {item["name"] for item in inspector.get_columns(table)}
++        if column not in columns[table]:
+             continue
+         for operation in ("INSERT", "UPDATE"):
+-            # Identifiers are fixed internal names. The equal-value UPDATE is
+-            # intentional: advance Turso's MVCC row version without changing
+-            # a resource's identity, timestamp, or user-visible metadata.
++            # Equal-value DML advances MVCC versions without changing user
++            # metadata or timestamps. Quoted names come from internal models.
+             connection.exec_driver_sql(
+-                f"CREATE TRIGGER IF NOT EXISTS trg_resource_parent_{table}_{operation.lower()} "
+-                f"BEFORE {operation} ON {table} BEGIN "
+-                f"UPDATE file_resources SET id = id WHERE id = NEW.{foreign_key}; END"
++                f"CREATE TRIGGER IF NOT EXISTS {quote(name + '_' + operation.lower())} "
++                f"BEFORE {operation} ON {quote(table)} BEGIN "
++                f"UPDATE {quote(parent)} SET id = id WHERE id = NEW.{quote(column)}; END"
+             )
+ 
+ 
+@@ -41,14 +63,15 @@
+ 
+ 
+ def drop_resource_parent_guards(connection) -> None:
+-    """Temporarily remove our guards inside an atomic parent-table rebuild.
++    """Remove our barriers during atomic parent rebuild; restore before commit.
+ 
+-    Turso validates triggers on other tables during RENAME; they cannot refer
+-    to the temporarily absent parent. The caller reinstalls before commit,
+-    and rolling back that DDL transaction restores the original guards.
++    Turso validates triggers during RENAME, including triggers on other tables
++    that reference a temporarily absent parent. Transaction rollback restores
++    the old guards if the rebuild fails.
+     """
+     if connection.dialect.driver != "aioturso":
+         return
+-    for table in _CHILDREN:
++    quote = connection.dialect.identifier_preparer.quote
++    for name, _table, _column, _parent in _guard_specs():
+         for operation in ("insert", "update"):
+-            connection.exec_driver_sql(f"DROP TRIGGER IF EXISTS trg_resource_parent_{table}_{operation}")
++            connection.exec_driver_sql(f"DROP TRIGGER IF EXISTS {quote(name + '_' + operation)}")
+--- a/app/services/schema_foreign_keys.py
++++ b/app/services/schema_foreign_keys.py
+@@ -61,7 +61,7 @@
+         if await conn.scalar(text("PRAGMA foreign_keys")) != 0:
+             raise RuntimeError("Cannot suspend foreign keys for atomic schema repair")
+         try:
+-            if "file_resources" in missing:
++            if {"file_resources", "movies", "tv_series"}.intersection(missing):
+                 from app.services.resource_parent_guard import drop_resource_parent_guards
+ 
+                 await conn.run_sync(drop_resource_parent_guards)
+@@ -93,7 +93,7 @@
+                 await conn.execute(text(f"ALTER TABLE {quote(temporary)} RENAME TO {quote(table)}"))
+                 for statement in objects:
+                     await conn.execute(text(statement))
+-            if "file_resources" in missing:
++            if {"file_resources", "movies", "tv_series"}.intersection(missing):
+                 from app.services.resource_parent_guard import ensure_resource_parent_guards
+ 
+                 await conn.run_sync(ensure_resource_parent_guards)
+--- a/docs/design/db-migration.md
++++ b/docs/design/db-migration.md
+@@ -347,3 +347,9 @@
+ 该结果仅表示已隐藏，不证明是孤立任务。是否恢复待确认须结合原用户意图或可验证任务历史逐条决定；缺少证据时保留，不以队列状态过期或无记录推断可清理。新请求 UUID 不追认旧标记归属。
+ 
+ 应用回退须先停止新重解析提交，保持新 worker/scheduler 运行至持久请求数为零，并确认原 Redis key 没有 queued/running 遗留任务，再停止新 worker。以 `SELECT COUNT(*) FROM resource_reparse_requests` 检查数据库侧；不能仅根据表为空推断队列已清空。回退应用时保留新表，不执行 DROP TABLE，不删除历史忽略数据；存在未完成请求时禁止直接回退到不认识该表的旧 worker。回退旧版本也会恢复其已知人工忽略收尾缺陷，因此应优先前滚修复。专项还以提交 accd024 的实际旧代码，在排空请求的 PG/Turso 数据库上运行 create_tables 和旧 HTTP 资源读取，验证新表和人工标记保留。这只证明排空后的模式/读路径兼容，不证明滚动部署或带活跃任务回退安全。
++
++### Turso 作品父行版本屏障
++
++Turso CONCURRENT 的外键引用写入不提供 PostgreSQL 的父行 KEY SHARE 锁。去重持有旧快照时，新人工关联可以先提交，随后作品删除仍成功，造成关联指向已删除作品；真实编辑向导入口已复现。复用已有资源父行触发器安装入口，对 ORM 声明的指向 `movies.id` / `tv_series.id` 的外键建立 INSERT/UPDATE 屏障，在同一事务内等值更新父行 ID，使该交错产生可重试写冲突。原资源父行屏障保持覆盖。
++
++新建库 after_create 与既有轻迁移入口幂等安装；只处理数据库中已存在的表和列。修复 `file_resources`、`movies` 或 `tv_series` 外键所需的原子表重建先移除所有这些屏障，完成后恢复，失败则由同一 DDL 事务回滚。父行 ID、元数据和更新时间不变；PostgreSQL 不安装此触发器，继续使用原生行锁。该保护只覆盖实际声明的外键，不将多态身份袋误称为外键引用。
+--- /dev/null
++++ b/tests/unit/test_work_parent_guard_upgrade.py
+@@ -0,0 +1,25 @@
++"""Legacy Turso startup must install work barriers before accepting new writes."""
++import pytest
++from sqlalchemy import text
++from sqlalchemy.ext.asyncio import async_sessionmaker
++
++from app.database import create_tables
++from tests.integration.dedup.test_late_writers import _late_writer
++
++
++@pytest.mark.parametrize("action", ["new_reference", "wizard_reference"])
++async def test_existing_database_gets_work_barriers(db_engine, monkeypatch, action):
++    # Represent the accepted pre-V25 schema: resource guards exist, work
++    # guards do not. Exercise startup twice, then actual concurrent writes.
++    async with db_engine.begin() as conn:
++        names = (await conn.scalars(text(
++            "SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'trg_work_parent_%'"
++        ))).all()
++        assert names
++        quote = conn.dialect.identifier_preparer.quote
++        for name in names:
++            await conn.execute(text(f"DROP TRIGGER {quote(name)}"))
++    await create_tables()
++    await create_tables()
++    factory = async_sessionmaker(db_engine, expire_on_commit=False)
++    await _late_writer((db_engine, factory), monkeypatch, action)
+--- /dev/null
++++ b/tests/integration/dedup/test_manual_field_matrix.py
+@@ -0,0 +1,102 @@
++"""Every editable field survives real same-type merge transactions on both DBs.
++
++Values and duplicate/edit history are synthetic; captured graph coverage lives
++in test_captured_assignments. Explicit survivor selection exercises user choice
++without assuming differently curated titles still form an automatic group.
++"""
++from datetime import date
++
++import pytest
++
++from app.models.movie import Movie
++from app.models.series import TVSeries
++from app.models.work_collection import WorkCollection
++from app.services.metadata_dedup import (
++    DedupConflictError,
++    DedupReport,
++    _merge_movie_group,
++    _merge_series_group,
++)
++from app.services.metadata_service import MANUAL_EDITABLE_FIELDS
++
++VALUES = {
++    "title_cn": "合成人工标题", "title_en": "Synthetic curated title",
++    "original_title": "Synthetic original", "aliases": ["Synthetic curated alias"],
++    "description": "Synthetic curator description", "poster_url": "https://example.invalid/curated.jpg",
++    "rating": 0.0, "genre": ["Animation"], "status": "Ended", "is_anime": False,
++    "number_of_episodes": 0, "start_date": date(2001, 1, 1), "end_date": date(2001, 2, 1),
++    "release_date": date(2001, 1, 1), "runtime": 0, "content_type": "movie",
++    "external_id": "wikipedia:en:777777", "external_source": "bangumi",
++}
++assert set(VALUES) == MANUAL_EDITABLE_FIELDS
++CASES = [
++    (kind, field, state)
++    for kind, model in [("movie", Movie), ("series", TVSeries)]
++    for field in sorted(VALUES) if hasattr(model, field)
++    for state in (["value", "null", "conflict", "empty"]
++                  if isinstance(VALUES[field], (str, list)) and field not in {"content_type", "external_id", "external_source"}
++                  else ["value", "null", "conflict"])
++]
++
++
++@pytest.mark.parametrize("kind,field,state", CASES)
++async def test_manual_field_postgres(dedup_postgres, kind, field, state):
++    await _matrix(dedup_postgres, kind, field, state)
++
++
++@pytest.mark.parametrize("kind,field,state", CASES)
++async def test_manual_field_turso(dedup_turso, kind, field, state):
++    await _matrix(dedup_turso, kind, field, state)
++
++
++async def _matrix(database, kind, field, state):
++    _, factory = database
++    model = Movie if kind == "movie" else TVSeries
++    value = ("movie" if kind == "movie" else "tv") if field == "content_type" else VALUES[field]
++    manual_value = None if state in {"null", "conflict"} else value
++    if state == "empty":
++        manual_value = [] if isinstance(value, list) else ""
++    async with factory() as seed:
++        rows = [model(title_en="Synthetic matrix", external_source="wikipedia",
++                      external_id=f"wikipedia:en:{111111 + index}") for index in range(2)]
++        if kind == "series":
++            for row in rows:
++                collection = WorkCollection(title_cn="合成字段矩阵合集")
++                seed.add(collection)
++                await seed.flush()
++                row.collection_id = collection.id
++                row.season_number = 1
++        target, source = rows
++        setattr(target, field, value)
++        setattr(source, field, manual_value)
++        if field == "external_source":
++            target.external_id = "bangumi:111111"
++            if manual_value == "bangumi":
++                source.external_id = "bangumi:777777"
++        source.manually_edited_fields = [field]
++        if state == "conflict":
++            target.manually_edited_fields = [field]
++        seed.add_all(rows)
++        await seed.commit()
++        target_id, source_id = target.id, source.id
++    merge = _merge_movie_group if kind == "movie" else _merge_series_group
++    async with factory() as db:
++        target, source = [await db.get(model, identity) for identity in [target_id, source_id]]
++        if state == "conflict":
++            with pytest.raises(DedupConflictError) as error:
++                await merge(db, [target, source], DedupReport(), survivor=target)
++            assert field in error.value.fields
++            await db.rollback()
++        else:
++            await merge(db, [target, source], DedupReport(), survivor=target)
++            await db.commit()
++    async with factory() as check:
++        target, source = [await check.get(model, identity) for identity in [target_id, source_id]]
++        if state == "conflict":
++            assert getattr(target, field) == value
++            assert source is not None and getattr(source, field) is None
++            assert target.manually_edited_fields == source.manually_edited_fields == [field]
++        else:
++            assert source is None
++            assert getattr(target, field) == manual_value
++            assert target.manually_edited_fields == [field]
+--- a/tests/unit/test_scheduler.py
++++ b/tests/unit/test_scheduler.py
+@@ -669,10 +669,13 @@
+ 
+ 
+ @pytest.mark.asyncio
+-async def test_dedup_metadata_commits_report(db_session, monkeypatch):
+-    class _Report:
+-        series_removed = 2
+-        movies_removed = 1
++async def test_dedup_metadata_commits_report(db_session, monkeypatch, caplog):
++    from app.services.metadata_dedup import DedupReport
++
++    report = DedupReport(
++        series_removed=2, movies_removed=1,
++        notes=["manual-conflict fields=description ids=synthetic"],
++    )
+ 
+     factory = _ctx_factory(db_session)
+     import app.database as dbmod
+@@ -680,9 +683,10 @@
+ 
+     with patch(
+         "app.services.metadata_dedup.merge_duplicate_metadata",
+-        new=AsyncMock(return_value=_Report()),
++        new=AsyncMock(return_value=report),
+     ):
+         await sch._dedup_metadata()
++    assert "Metadata dedup skipped: manual-conflict fields=description ids=synthetic" in caplog.text
+ 
+     with patch(
+         "app.services.metadata_dedup.merge_duplicate_metadata",
+--- a/tests/integration/metadata/test_metadata_dedup_coverage.py
++++ b/tests/integration/metadata/test_metadata_dedup_coverage.py
+@@ -231,7 +231,8 @@
+     db_session.add(coll)
+ 
+     survivor = await _series(
+-        db_session, title_cn="重复剧", created_at=datetime(2020, 1, 1)
++        db_session, title_cn="重复剧", manually_edited_fields=["title_cn"],
++        created_at=datetime(2020, 1, 1)
+     )
+     dup = await _series(
+         db_session,
+@@ -383,7 +384,8 @@
+     # No shared title_cn: the cluster forms because the duplicate's alias
+     # matches the survivor's title_en; the survivor then inherits title_cn.
+     survivor = await _series(
+-        db_session, title_en="Same Show", created_at=datetime(2020, 1, 1)
++        db_session, title_en="Same Show", manually_edited_fields=["title_en"],
++        created_at=datetime(2020, 1, 1)
+     )
+     dup = await _series(
+         db_session,
+@@ -427,7 +429,8 @@
+     # The survivor carries only a title_en; it must inherit the duplicate's
+     # title_cn (and cluster with it through the shared normalized title_en).
+     survivor = await _movie(
+-        db_session, title_en="Dup Movie EN", created_at=datetime(2020, 1, 1)
++        db_session, title_en="Dup Movie EN", manually_edited_fields=["title_en"],
++        created_at=datetime(2020, 1, 1)
+     )
+     dup = await _movie(
+         db_session,
+@@ -510,7 +513,8 @@
+     # Mirror of the title_cn inheritance case: here the survivor keeps
+     # title_cn as the cluster key and picks up the duplicate's title_en.
+     survivor = await _movie(
+-        db_session, title_cn="继承电影", created_at=datetime(2020, 1, 1)
++        db_session, title_cn="继承电影", manually_edited_fields=["title_cn"],
++        created_at=datetime(2020, 1, 1)
+     )
+     dup = await _movie(
+         db_session,
+--- a/tests/integration/organize/test_publication_feed.py
++++ b/tests/integration/organize/test_publication_feed.py
+@@ -11,11 +11,14 @@
+ 
+ 
+ @pytest.mark.parametrize("failure,queue_recovery", [("", False), ("created", False), ("metadata", False), ("", True)])
+-async def test_feed_publication_atomicity_and_consumption(failure, queue_recovery, tmp_path, record_testsuite_property):
++@pytest.mark.parametrize("isolation", ["DEFERRED", "CONCURRENT"])
++async def test_feed_publication_atomicity_and_consumption(
++    failure, queue_recovery, isolation, tmp_path, record_testsuite_property,
++):
+     output = tmp_path / "result.json"
+     env = dict(
+         os.environ,
+-        DATABASE_URL="sqlite+aioturso:///:memory:?isolation_level=DEFERRED",
++        DATABASE_URL=f"sqlite+aioturso:///{tmp_path / 'publication-feed.db'}?isolation_level={isolation}",
+         FAIL_KIND=failure,
+         QUEUE_RECOVERY="1" if queue_recovery else "0",
+         PROBE_RESULT_PATH=str(output),
+--- a/tests/integration/organize/publication_feed_driver.py
++++ b/tests/integration/organize/publication_feed_driver.py
+@@ -3,14 +3,14 @@
+ import asyncio
+ import json
+ import os
++import tempfile
+ from pathlib import Path
+ from unittest.mock import AsyncMock, patch
+ from xml.sax.saxutils import escape
+ 
+-assert os.environ.get("DATABASE_URL") == "sqlite+aioturso:///:memory:?isolation_level=DEFERRED"
+-
+ import feedparser
+-from sqlalchemy import event, select
++from sqlalchemy import event, select, text
++from sqlalchemy.engine import make_url
+ from sqlalchemy.orm import selectinload
+ 
+ import app.database as database
+@@ -26,6 +26,13 @@
+ from app.models.work_collection import WorkCollection
+ from app.services.torrent_inspect import parse_torrent_payload
+ from tests.metadata_corpus.dataset import ROOT, asset, digest, load_corpus, read_json
++
++probe_url = make_url(os.environ["DATABASE_URL"])
++assert probe_url.drivername == "sqlite+aioturso"
++probe_path = Path(probe_url.database).resolve()
++assert probe_path.name == "publication-feed.db"
++assert probe_path.is_relative_to(Path(tempfile.gettempdir()).resolve())
++assert probe_url.query["isolation_level"] in {"DEFERRED", "CONCURRENT"}
+ 
+ CASE = "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b"
+ 
+@@ -49,6 +56,7 @@
+     parsed_feed = feedparser.parse(rss)
+     assert not parsed_feed.bozo and len(parsed_feed.entries) == 1
+     async with database.engine.begin() as conn:
++        await conn.execute(text("PRAGMA journal_mode='mvcc'"))
+         await conn.run_sync(database.Base.metadata.create_all)
+     async with database.async_session_factory() as db:
+         channel = Channel(
+@@ -80,6 +88,14 @@
+     async def reviewed_link(db, resource, channel):
+         # Explicit reviewed metadata adapter, not a claim of cold metadata inference.
+         async with database.async_session_factory() as observer:
++            producer_connection = await db.connection()
++            observer_connection = await observer.connection()
++            # An in-memory StaticPool would let observer.close() roll back
++            # the producer's physical transaction. This must be a real reader.
++            assert (
++                producer_connection.sync_connection.connection.driver_connection
++                is not observer_connection.sync_connection.connection.driver_connection
++            )
+             assert await observer.get(FileResource, resource.id) is not None
+             assert (
+                 await observer.scalar(
+--- /dev/null
++++ b/tests/unit/test_metadata_retry_fairness.py
+@@ -0,0 +1,122 @@
++"""A metadata resource retains its concurrency slot across transaction retries."""
++import asyncio
++import hashlib
++import json
++from pathlib import Path
++from unittest.mock import AsyncMock
++
++import pytest
++from sqlalchemy import select
++from sqlalchemy.exc import OperationalError
++
++from app.models.channel import Channel
++from app.models.file_resource import FileResource
++from app.models.resource_publication import ResourcePublication
++from app.services import fetch_service, resource_publication
++from app.services.publication_migration import bootstrap_publications
++from app.utils.time import utcnow
++from tests.unit.test_dedup_caller_transactions import _external_boundaries
++
++
++@pytest.mark.parametrize('cancel_during_backoff', [False, True])
++async def test_retry_finishes_before_waiting_resource_takes_its_slot(
++    db_session, monkeypatch, cancel_during_backoff,
++):
++    _external_boundaries(monkeypatch)
++    monkeypatch.setattr('app.services.task_queue.task_queue.enqueue', AsyncMock())
++    channel = Channel(name='Synthetic retry ordering', url='https://example.invalid/feed',
++                      field_mapping={}, metadata_agent_enabled=False)
++    db_session.add(channel)
++    await db_session.flush()
++    corpus = (Path(__file__).parents[1] / 'fixtures/prod_works_v1.json').read_bytes()
++    assert hashlib.sha256(corpus).hexdigest() == 'd11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32'
++    recorded = json.loads(corpus)['tables']['file_resources'][:2]
++    # Recorded resource identities/titles, synthetic channel, metadata result
++    # and transaction conflict. No remote metadata or torrent request is made.
++    resources = [FileResource(id=row['id'], channel_id=channel.id, guid=row['guid'],
++                              title_raw=row['title_raw'],
++                              torrent_url=f'https://example.invalid/{row["id"]}.torrent')
++                 for row in recorded]
++    db_session.add_all(resources)
++    await bootstrap_publications(db_session, writers_stopped=True)
++    await db_session.commit()
++    first_id, second_id = [r.id for r in resources]
++    channel_id = channel.id
++    starts = []
++    entered_backoff = asyncio.Event()
++    release_backoff = asyncio.Event()
++    later_waiting = asyncio.Event()
++    delay = 0.123456789
++    real_sleep = asyncio.tasks.sleep
++
++    class ObservedSemaphore(asyncio.Semaphore):
++        async def __aenter__(self):
++            if asyncio.current_task().get_name() == 'later-resource':
++                later_waiting.set()
++            return await super().__aenter__()
++
++    async def controlled_sleep(seconds):
++        if seconds == delay:
++            entered_backoff.set()
++            await release_backoff.wait()
++        else:
++            await real_sleep(seconds)
++
++    async def discovery(db, resource, channel):
++        starts.append(resource.id)
++        resource.metadata_attempts += 1
++        resource.metadata_failure_type = 'not_found'
++        resource.last_metadata_attempt_at = utcnow()
++
++    publish = resource_publication.publish_resource
++    injected = False
++
++    async def fail_after_publication(db, resource_id, **kwargs):
++        nonlocal injected
++        result = await publish(db, resource_id, **kwargs)
++        if resource_id == first_id and not injected:
++            injected = True
++            raise OperationalError('synthetic publication conflict', {}, RuntimeError('database is locked'))
++        return result
++
++    monkeypatch.setattr(fetch_service, 'fetch_and_link_metadata', discovery)
++    monkeypatch.setattr(resource_publication, 'publish_resource', fail_after_publication)
++    monkeypatch.setattr('app.database._backoff_delay', lambda attempt: delay)
++    monkeypatch.setattr(asyncio, 'sleep', controlled_sleep)
++    semaphore = ObservedSemaphore(1)
++    tasks = []
++    try:
++        tasks.append(asyncio.create_task(fetch_service._process_resource_metadata(
++            first_id, channel_id, semaphore), name='retrying-resource'))
++        async with asyncio.timeout(10):
++            await entered_backoff.wait()
++        tasks.append(asyncio.create_task(fetch_service._process_resource_metadata(
++            second_id, channel_id, semaphore), name='later-resource'))
++        async with asyncio.timeout(10):
++            await later_waiting.wait()
++        if cancel_during_backoff:
++            tasks[0].cancel()
++            with pytest.raises(asyncio.CancelledError):
++                await tasks[0]
++        release_backoff.set()
++        async with asyncio.timeout(15):
++            await asyncio.gather(*tasks[1:] if cancel_during_backoff else tasks)
++    finally:
++        release_backoff.set()
++        for task in tasks:
++            if not task.done():
++                task.cancel()
++        await asyncio.gather(*tasks, return_exceptions=True)
++
++    db_session.expire_all()
++    rows = list(await db_session.scalars(select(FileResource)))
++    assert {row.id: row.metadata_attempts for row in rows} == {
++        first_id: 0 if cancel_during_backoff else 1, second_id: 1,
++    }
++    publications = list(await db_session.scalars(select(ResourcePublication)))
++    expected = [(first_id, 'created'), (second_id, 'created'), (second_id, 'metadata')]
++    if not cancel_during_backoff:
++        expected.append((first_id, 'metadata'))
++    assert sorted((row.resource_id, row.kind) for row in publications) == sorted(expected)
++    assert starts == ([first_id, second_id] if cancel_during_backoff else [first_id, first_id, second_id])
++    assert not semaphore.locked()
+--- a/tests/unit/test_external_ids.py
++++ b/tests/unit/test_external_ids.py
+@@ -11,6 +11,7 @@
+ from datetime import datetime
+ from unittest.mock import AsyncMock, patch
+ 
++import pytest
+ from sqlalchemy import select
+ 
+ from app.database import _apply_light_migrations
+@@ -26,7 +27,7 @@
+     list_external_ids,
+     merge_external_id_bags,
+ )
+-from app.services.metadata_dedup import merge_duplicate_series
++from app.services.metadata_dedup import merge_duplicate_movies, merge_duplicate_series
+ from app.services.metadata_source_registry import build_source_links
+ 
+ 
+@@ -244,26 +245,35 @@
+ # ---------------------------------------------------------------------------
+ 
+ 
+-async def test_dedup_merge_unions_bags(db_session):
+-    s1 = _series(title_cn="同名片", created_at=datetime(2024, 1, 1))
+-    s2 = _series(title_cn="同名片", created_at=datetime(2024, 1, 2))
++@pytest.mark.parametrize("kind", ["series", "movie"])
++async def test_dedup_merge_unions_bags(db_session, kind):
++    model = TVSeries if kind == "series" else Movie
++    content_type = "tv" if kind == "series" else "movie"
++    s1 = model(id=_uuid(), title_cn="同名片", content_type=content_type, created_at=datetime(2024, 1, 1))
++    s2 = model(id=_uuid(), title_cn="同名片", content_type=content_type, created_at=datetime(2024, 1, 2))
+     db_session.add_all([s1, s2])
+     await db_session.flush()
+-    # s1 is the survivor (older). s2's bag ids AND its primary column id all
+-    # join the survivor's bag; the duplicate's rows are re-pointed.
+-    await add_external_id(db_session, "series", s1.id, "wikipedia", "wikipedia:1")
+-    await add_external_id(db_session, "series", s2.id, "tmdb", "tmdb:2")
++    # The newer s2 has the more complete primary identity and survives.
++    # Both bags and its primary id remain reachable; s1 must leave no rows.
++    await add_external_id(db_session, kind, s1.id, "wikipedia", "wikipedia:1")
++    await add_external_id(db_session, kind, s2.id, "tmdb", "tmdb:2")
+     s2.external_id = "bangumi:99"
+     s2.external_source = "bangumi"
+     await db_session.flush()
+ 
+-    report = await merge_duplicate_series(db_session)
+-    assert report.series_removed == 1
+-    assert await _bag_pairs(db_session, "series", s1.id) == {
++    merge = merge_duplicate_series if kind == "series" else merge_duplicate_movies
++    report = await merge(db_session)
++    assert (report.series_removed if kind == "series" else report.movies_removed) == 1
++    await db_session.flush()
++    assert await db_session.get(model, s1.id) is None
++    assert await db_session.get(model, s2.id) is not None
++    assert await _bag_pairs(db_session, kind, s2.id) == {
+         ("wikipedia", "wikipedia:1"), ("tmdb", "tmdb:2"), ("bangumi", "bangumi:99"),
+     }
++    found = await find_work_by_external_id(db_session, kind, "bangumi", "bangumi:99")
++    assert found is not None and found.id == s2.id
+     # No dangling rows for the deleted duplicate.
+-    assert await list_external_ids(db_session, "series", s2.id) == []
++    assert await list_external_ids(db_session, kind, s1.id) == []
+ 
+ 
+ async def test_merge_external_id_bags_direct(db_session):
+--- a/tests/unit/test_collection_member_season_evidence.py
++++ b/tests/unit/test_collection_member_season_evidence.py
+@@ -120,13 +120,12 @@
+             await agent._set_cache(resource.title_raw, 'tmdb', ResourceMetadata.from_dict(payload), db_session)
+             await db_session.commit()
+         if entry == 'pipeline':
+-            import asyncio
+ 
+             from app.services.fetch_service import _process_resource_metadata_once
+             monkeypatch.setattr('app.services.metadata_agent.get_agent', lambda: agent)
+             monkeypatch.setattr('app.services.torrent_inspect.ensure_torrent_cached', AsyncMock())
+             monkeypatch.setattr('app.services.torrent_inspect.maybe_inspect_torrent', AsyncMock())
+-            await _process_resource_metadata_once(rid, sample_channel.id, asyncio.Semaphore(1), force_refresh=True)
++            await _process_resource_metadata_once(rid, sample_channel.id, force_refresh=True)
+         else:
+             await agent.process(resource, sample_channel, db_session, force_refresh=entry != 'cache')
+         if entry == 'cache':
+--- a/tests/unit/test_manual_mapping_batches.py
++++ b/tests/unit/test_manual_mapping_batches.py
+@@ -1,6 +1,5 @@
+ """Synthetic franchise bindings in real database transactions."""
+ 
+-import asyncio
+ import uuid
+ from unittest.mock import AsyncMock
+ 
+@@ -88,7 +87,7 @@
+         monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", AsyncMock())
+         monkeypatch.setattr("app.services.bangumi_relations.expand_bangumi_series_graph", AsyncMock())
+         monkeypatch.setattr("app.services.cluster_work_binding.bind_hint_clusters", AsyncMock())
+-        await _process_resource_metadata_once(resource_id, sample_channel.id, asyncio.Semaphore(1), force_refresh=force_refresh)
++        await _process_resource_metadata_once(resource_id, sample_channel.id, force_refresh=force_refresh)
+     elif entry == "agent":
+         await UnifiedMetadataAgent().process(resource, sample_channel, db_session, force_refresh=force_refresh)
+     elif entry == "legacy":
+--- /dev/null
++++ b/tests/integration/dedup/test_retry_fairness.py
+@@ -0,0 +1,20 @@
++"""Recorded resource identities with synthetic retry/cancellation ordering."""
++import pytest
++
++from tests.unit.test_metadata_retry_fairness import (
++    test_retry_finishes_before_waiting_resource_takes_its_slot as _case,
++)
++
++
++@pytest.mark.parametrize('cancel_during_backoff', [False, True])
++async def test_metadata_retry_postgres(dedup_postgres, monkeypatch, cancel_during_backoff):
++    _, factory = dedup_postgres
++    async with factory() as db:
++        await _case(db, monkeypatch, cancel_during_backoff)
++
++
++@pytest.mark.parametrize('cancel_during_backoff', [False, True])
++async def test_metadata_retry_turso(dedup_turso, monkeypatch, cancel_during_backoff):
++    _, factory = dedup_turso
++    async with factory() as db:
++        await _case(db, monkeypatch, cancel_during_backoff)
+--- /dev/null
++++ b/tests/integration/dedup/test_primary_identity_bag.py
+@@ -0,0 +1,18 @@
++"""Selected primary identity is indexed even when it was absent from the bag."""
++import pytest
++
++from tests.unit.test_external_ids import test_dedup_merge_unions_bags as _case
++
++
++@pytest.mark.parametrize("kind", ["series", "movie"])
++async def test_selected_primary_postgres(dedup_postgres, kind):
++    _, factory = dedup_postgres
++    async with factory() as db:
++        await _case(db, kind)
++
++
++@pytest.mark.parametrize("kind", ["series", "movie"])
++async def test_selected_primary_turso(dedup_turso, kind):
++    _, factory = dedup_turso
++    async with factory() as db:
++        await _case(db, kind)
+--- a/docs/design/data-models.md
++++ b/docs/design/data-models.md
+@@ -364,7 +364,7 @@
+ - **存储约定**：`source` 存 registry 源名，`external_id` 存完整 canonical `source:id`；裸 id（如纯 pageid）写入/查询时一律补 `source:` 前缀归一；非 registry 源（如 `llm_search`）跳过。
+ - **wikipedia id 带语言版本**：pageid 是每个语言版本各自编号的，canonical 形式为 `wikipedia:{lang}:{pageid}`（如 `wikipedia:zh:7301786`）；早期存量为无语言的 `wikipedia:{pageid}`。写入点（auto-link/judge/audio resolver/upsert 入口 `_qualify_incoming_wikipedia_id` 经 `wikipedia_url` 宿主推导）一律产出带语言形式；袋查询与作品列查询双形式兼容（`wikipedia_match_keys`：带语言精确匹配两种形式，裸 id 额外 LIKE 匹配任意语言）；同作品加带语言 id 命中裸行时原地升级为带语言形式；不同作品的同数字 pageid（跨语言撞号）不互抢（记 warning）。展示链接按语言渲染 `https://{lang}.wikipedia.org/?curid={pid}`，label 为 `Wikipedia (zh/en/ja)`；存量迁移走 `scripts/wikipedia_lang_backfill.py`（dry-run 默认 + `--apply`，标题锚定主页面语言 → langlinks 重解析各语言 pageid → 重写主 id/袋行并回填 `wikipedia_url`/`wikipedia_page_id`）。
+ - **no-steal**：`UniqueConstraint(source, external_id)` 保证一个 id 至多映射一个作品；把已属于作品 A 的 id 加给作品 B 时不改指、记 warning（该对成为去重候选）。
+-- **写入点**：upsert 成功时写入 matched_entity 的主 id + `alt_external_ids`（如 wikipedia langlinks pageids），按注册表粒度分别落季作品袋/合集袋（`_bag_entity_ids_by_granularity`）；去重合并（`_merge_series_group`/`_merge_movie_group`/跨表合并）对袋取并集（存留方继承重复方的主 id 与袋行；wikipedia 行按 pageid 去重，与存储形式无关）。
++- **写入点**：upsert 成功时写入 matched_entity 的主 id + `alt_external_ids`（如 wikipedia langlinks pageids），按注册表粒度分别落季作品袋/合集袋（`_bag_entity_ids_by_granularity`）；去重合并（`_merge_series_group`/`_merge_movie_group`/跨表合并）对袋取并集（存留方继承重复方的主 id 与袋行，并幂等登记最终选定的有效注册来源主身份，保留 no-steal；wikipedia 行按 pageid 去重，与存储形式无关）。
+ - **回填**：`_apply_light_migrations` 启动时从存量 TVSeries/Movie 行的主 external_id 播种（幂等；仅 registry 源）。
+ - **读取**：`find_work_by_external_id` 只按同 `work_type` 反查——另一类型的袋命中在 upsert 中被忽略（跨表收敛由 metadata_repository 跨表守卫与每日去重负责）。
+ 

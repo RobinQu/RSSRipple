@@ -1,0 +1,6 @@
+{
+  "once_body_ast_preserved_after_removing_outer_semaphore": true,
+  "old_sha256": "7db26b3d3e97575ecc76765885bb97df364d5222eb039d44f4fc9c69fb7d87d8",
+  "new_sha256": "b1487d54d945a57b6816022e4ff41e9204d986efc9de526402dde240cc6c4a48",
+  "scope": "Only the concurrency permit moved from one attempt to the complete resource retry boundary; imports and transaction body AST unchanged, ignoring docstring."
+}

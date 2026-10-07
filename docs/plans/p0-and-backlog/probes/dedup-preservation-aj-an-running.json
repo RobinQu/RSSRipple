@@ -22,16 +22,30 @@
   },
   "integration": {
     "project": "rssripple-v25-final-an",
-    "status": "running",
+    "status": "superseded",
     "startup_session": 14656,
     "startup_log": "/tmp/rssripple-v25-integration-an-startup-retry.log",
     "first_startup_exit": 1,
     "first_startup_reason": "No such service: postgres; corrected to queue-recovery-postgres before containers started",
     "threshold": 85,
-    "cleanup": "pending",
+    "cleanup": "complete",
     "startup_exit": 0,
     "session": 94766,
-    "log": "/tmp/rssripple-v25-integration-an.log"
+    "log": "/tmp/rssripple-v25-integration-an.log",
+    "runner_exit": 2,
+    "passed": 567,
+    "skipped": 13,
+    "apps_exit": [
+      0,
+      0
+    ],
+    "reason": "New runtime changes require complete new gates; intentionally interrupted old version.",
+    "cleanup_exit": 0,
+    "export_exit": 0,
+    "coverage_exit": 2,
+    "containers": [],
+    "networks": [],
+    "volumes": []
   },
   "unit_runtime_inputs_identical_to_aj": true,
   "changed_vs_aj": [
@@ -40,5 +54,5 @@
     "tests/integration/organize/publication_feed_driver.py",
     "tests/integration/organize/test_publication_feed.py"
   ],
-  "warning": "aj terminal FAILED and dedicated unit PG fully cleaned. Only integration an 94766 remains live. Do not edit its frozen candidate. After terminal: SIGINT apps, wait exits, coverage-report, export, down only an. Next fixes require a separate candidate. No V25 acceptance."
+  "warning": "aj failed and cleaned; an intentionally superseded, exporting partial reports before cleanup. Latest runtime is au candidate."
 }

@@ -1,0 +1,101 @@
+"""A metadata resource retains its concurrency slot across transaction retries."""
+import asyncio
+from unittest.mock import AsyncMock
+
+from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
+
+from app.models.channel import Channel
+from app.models.file_resource import FileResource
+from app.models.resource_publication import ResourcePublication
+from app.services import fetch_service, resource_publication
+from app.services.publication_migration import bootstrap_publications
+from app.utils.time import utcnow
+from tests.unit.test_dedup_caller_transactions import _external_boundaries
+
+
+async def test_retry_finishes_before_waiting_resource_takes_its_slot(db_session, monkeypatch):
+    _external_boundaries(monkeypatch)
+    monkeypatch.setattr('app.services.task_queue.task_queue.enqueue', AsyncMock())
+    channel = Channel(name='Synthetic retry ordering', url='https://example.invalid/feed',
+                      field_mapping={}, metadata_agent_enabled=False)
+    db_session.add(channel)
+    await db_session.flush()
+    resources = [FileResource(channel_id=channel.id, guid=str(i), title_raw=f'Synthetic retry {i}',
+                              torrent_url=f'https://example.invalid/{i}.torrent') for i in range(2)]
+    db_session.add_all(resources)
+    await bootstrap_publications(db_session, writers_stopped=True)
+    await db_session.commit()
+    first_id, second_id = [r.id for r in resources]
+    channel_id = channel.id
+    starts = []
+    entered_backoff = asyncio.Event()
+    release_backoff = asyncio.Event()
+    later_waiting = asyncio.Event()
+    delay = 0.123456789
+    real_sleep = asyncio.tasks.sleep
+
+    class ObservedSemaphore(asyncio.Semaphore):
+        async def __aenter__(self):
+            if asyncio.current_task().get_name() == 'later-resource':
+                later_waiting.set()
+            return await super().__aenter__()
+
+    async def controlled_sleep(seconds):
+        if seconds == delay:
+            entered_backoff.set()
+            await release_backoff.wait()
+        else:
+            await real_sleep(seconds)
+
+    async def discovery(db, resource, channel):
+        starts.append(resource.id)
+        resource.metadata_attempts += 1
+        resource.metadata_failure_type = 'not_found'
+        resource.last_metadata_attempt_at = utcnow()
+
+    publish = resource_publication.publish_resource
+    injected = False
+
+    async def fail_after_publication(db, resource_id, **kwargs):
+        nonlocal injected
+        result = await publish(db, resource_id, **kwargs)
+        if resource_id == first_id and not injected:
+            injected = True
+            raise OperationalError('synthetic publication conflict', {}, RuntimeError('database is locked'))
+        return result
+
+    monkeypatch.setattr(fetch_service, 'fetch_and_link_metadata', discovery)
+    monkeypatch.setattr(resource_publication, 'publish_resource', fail_after_publication)
+    monkeypatch.setattr('app.database._backoff_delay', lambda attempt: delay)
+    monkeypatch.setattr(asyncio, 'sleep', controlled_sleep)
+    semaphore = ObservedSemaphore(1)
+    tasks = []
+    try:
+        tasks.append(asyncio.create_task(fetch_service._process_resource_metadata(
+            first_id, channel_id, semaphore), name='retrying-resource'))
+        async with asyncio.timeout(10):
+            await entered_backoff.wait()
+        tasks.append(asyncio.create_task(fetch_service._process_resource_metadata(
+            second_id, channel_id, semaphore), name='later-resource'))
+        async with asyncio.timeout(10):
+            await later_waiting.wait()
+        release_backoff.set()
+        async with asyncio.timeout(15):
+            await asyncio.gather(*tasks)
+    finally:
+        release_backoff.set()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    db_session.expire_all()
+    rows = list(await db_session.scalars(select(FileResource)))
+    assert {row.id: row.metadata_attempts for row in rows} == {first_id: 1, second_id: 1}
+    publications = list(await db_session.scalars(select(ResourcePublication)))
+    assert sorted((row.resource_id, row.kind) for row in publications) == sorted([
+        (first_id, 'created'), (second_id, 'created'),
+        (first_id, 'metadata'), (second_id, 'metadata'),
+    ])
+    assert starts == [first_id, first_id, second_id]

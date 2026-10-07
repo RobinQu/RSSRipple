@@ -1,0 +1,33 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v25-retry-gybsr9wy",
+  "effective_files": 42,
+  "frozen_count": 5523,
+  "unit": {
+    "status": "running",
+    "session": 85820,
+    "log": "/tmp/rssripple-v25-unit-au.log",
+    "junit": "/tmp/rssripple-v25-unit-au.xml",
+    "coverage": "/tmp/rssripple-v25-unit-au-coverage.xml",
+    "coverage_data": "/tmp/rssripple-v25-unit-au.coverage",
+    "threshold": 95,
+    "postgres_project": "rssripple-v25-unit-au",
+    "postgres_compose": "/tmp/rssripple-v25-compose.yml",
+    "postgres_port": 32861,
+    "preflight_passed": 3,
+    "preflight_exit": 0
+  },
+  "integration": {
+    "status": "running",
+    "project": "rssripple-v25-final-av",
+    "threshold": 85,
+    "cleanup": "pending",
+    "startup_session": 28227,
+    "startup_log": "/tmp/rssripple-v25-integration-av-startup.log",
+    "startup_exit": 0,
+    "session": 67684,
+    "log": "/tmp/rssripple-v25-integration-av.log"
+  },
+  "image": "rssripple-v20-tests:local",
+  "warning": "Do not edit frozen au/av candidate. Poll unit 85820 and integration 67684. Runner terminal -> SIGINT app/app-llm -> wait exits -> coverage-report -> export -> down only av. Keep unit PG au until unit terminal. All older test projects cleaned."
+}
