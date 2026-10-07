@@ -75,3 +75,20 @@ k 全部 time_contract 集成 **41 passed、0 skipped、39.09 秒、退出 0**�
 
 
 补充下一轮输入审计入口：静态检查发现 `RetryRequest.since` / `RegenerateRequest.since`（schemas/notification.py）直接由 notifications API 传给 notify_service 的 created_at/completed_at 比较，尚未见偏移归一化；需用真实双库与明确时间窗口复现后再修改，不能仅凭搜索认定生产影响。AgentRunRequest.scan_since 在 agents API 已有 astimezone(UTC) 后去 tzinfo 的正确处理，应补边界验证并避免重复修复。
+
+
+## m–t：通知时间窗口、API/SSE/队列输出与前端日期消费
+
+本轮再次用真实入口验证必要性。通知 retry/regenerate 的 since 通过 schema 原样进入 naive 列比较：m **14 failed、6 passed、22.83 秒、退出 1**；PG 的 aware 参数导致 500，Turso 对非零偏移选择错误窗口。新增 NaiveUTCDateTime 请求类型调用既有 naive_utc，仅用于这两个 since 字段；null 保持空、naive 按 UTC，带偏移值先保留实际时刻再去 tzinfo。n 相同双库实际 HTTP 20 项全部通过（25.93 秒，退出 0），包含下界等号、DST 重叠、东八区、Z/naive 与未命中历史不变。snapshot 构建是明确测试边界，不把该测试声称为完整下载通知流水线。
+
+输出红测 o **12 failed、2 passed、15.01 秒、退出 1**：六类真实路由的两库响应、嵌套 Pydantic、channel SSE；作品列表已有 Z 的两项为对照。统一 api_json 使用 FastAPI 标准编码，只对实际 datetime 归一化 UTC；BaseModel 先保留 Python 类型再递归编码，保持 alias、排除字段及 SecretStr 掩码。已提前 isoformat/model_dump(json) 的资源分组/元数据/磁力状态、dashboard、作品和 API key 改为把 datetime 交给统一边界；两个 SSE 出口使用同一编码。日期、null、任意业务字符串及既有冻结快照不猜测改写。p **14 passed、15.13 秒、退出 0**。
+
+队列预序列化仍会绕过响应边界，q **2 failed、1 passed、0.36 秒、退出 1**。MemoryQueue 状态直接输出 UTC；RedisQueue 只在读取自有 queued_at/started_at/finished_at 时转换旧 naive 或 offset，损坏值为 null，不回写 Redis 原始 hash、不处理任意 result 字符串。调度 next_run_time 交给统一响应编码。Redis 专项使用 fakeredis，不冒充实际 Redis 并发证据。
+
+r 全部 time_contract 专项 **78 passed、0 skipped、81.14 秒、退出 0**。s 扩大到既有 schema/队列单元以及 queue/API key/notification/channel/resource API 七个文件，**288 passed、8 skipped、1 warning、460.22 秒、退出 0**；八个跳过均为退役资源 search/link 端点，与已验收 V26 q 按所选模块筛选的 skip 清单完全一致，无新增跳过。p/r 全仓无缓存 Ruff 退出 0。专用项目 rssripple-v32-http-m 已清理，容器/卷/网络标签为空；s 使用夹具自有临时 Turso，已正常退出，无 V32 后台任务。
+
+前端新增 time-contract.mjs，Node 24 导入实际 format.ts，以 UTC/Asia/Shanghai/America/New_York 独立进程验证新 Z、旧 naive 兼容、带偏移显示、直接 Date 消费及 DST 回拨一小时历时；日期生产者为显式合成数据。首次沙箱运行退出 0 却没有子进程记录，**不计为通过**；增加每个子进程必须返回 JSON 通过记录后 t2 退出 1（空输出），沙箱外相同断言 t3 退出 0，取得三个完整记录。结构化 ESLint 返回零错误/警告。本项验证日期工具和 Date 行为，不宣称浏览器页面已渲染验收。
+
+当前独立候选 `/tmp/rssripple-v32-http-1_gthbwe` **72 个有效文件**，基线仍是此前 storage 候选，未正式重基。源码/可恢复 tar 见 [t-source](probes/utc-contract-t-source.json)，所有红绿报告、skip/退出与清理见 [m–t](probes/utc-contract-m-t-result.json)。conventions/API/notifications/业务逻辑/数据模型/迁移和测试清单已随候选同步。
+
+剩余边界：dashboard 的显式时间断言、资源磁力状态及资源 SSE、既有正确 Agent scan_since 偏移输入回归；继续审阅 Transmission 的 added_date 等自有预序列化字段，避免误改离线审核指纹与历史快照。然后正式重基并执行完整单元/API ≥95% 与隔离集成 ≥85%、零失败、全部生命周期审计及五维终审。当前只是扩大后的专项验证，不关闭 TODO，不批准合入。V27 冻结完整门禁未被改动。

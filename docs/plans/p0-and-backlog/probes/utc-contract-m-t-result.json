@@ -1,0 +1,255 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v32-http-1_gthbwe",
+  "effective_files": 72,
+  "runs": {
+    "m": {
+      "exit_code": 1,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "14",
+        "skipped": "0",
+        "tests": "20",
+        "time": "22.815",
+        "timestamp": "2026-10-07T11:09:26.535017+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    "n": {
+      "exit_code": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "20",
+        "time": "25.922",
+        "timestamp": "2026-10-07T11:10:27.817760+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    "o": {
+      "exit_code": 1,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "12",
+        "skipped": "0",
+        "tests": "14",
+        "time": "15.011",
+        "timestamp": "2026-10-07T11:12:46.604037+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    "p": {
+      "exit_code": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "14",
+        "time": "15.124",
+        "timestamp": "2026-10-07T11:14:07.418247+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    "q": {
+      "exit_code": 1,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "2",
+        "skipped": "0",
+        "tests": "3",
+        "time": "0.359",
+        "timestamp": "2026-10-07T11:15:01.128826+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    "r": {
+      "exit_code": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "78",
+        "time": "81.093",
+        "timestamp": "2026-10-07T11:16:16.395876+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    }
+  },
+  "baseline_stages": {
+    "m": "l storage/feed input candidate plus actual notification HTTP window test; before since validators",
+    "o": "after since normalization, before UTC response encoding; works already passed",
+    "q": "after response encoding, before MemoryQueue/RedisQueue owned timestamp normalization"
+  },
+  "test_boundaries": [
+    "Recorded resource/channel/movie identities with synthetic times and relationships",
+    "Actual PostgreSQL/Turso, ASGI routes and request/response types",
+    "Notification _build_snapshot and external metadata/SSE producers replaced at explicit boundaries",
+    "RedisQueue uses fakeredis, not real Redis; no lease or concurrency claim"
+  ],
+  "startup_exit": 0,
+  "postgres_cleanup_exit": 0,
+  "postgres_labels": {
+    "containers": [],
+    "volumes": [],
+    "networks": []
+  },
+  "ruff_full_p_exit": 0,
+  "ruff_full_r_exit": 0,
+  "broader_regression": {
+    "status": "complete",
+    "session": 4816,
+    "log": "/tmp/rssripple-v32-http-s.log",
+    "junit": "/tmp/rssripple-v32-http-s.xml",
+    "collected": 296,
+    "scope": [
+      "tests/unit/test_schemas.py",
+      "tests/unit/test_task_queue.py",
+      "tests/api/test_queue_api.py",
+      "tests/api/test_api_keys.py",
+      "tests/api/test_notifications_api.py",
+      "tests/api/test_channels.py",
+      "tests/api/test_resources.py"
+    ],
+    "exit_code": 0,
+    "passed": 288,
+    "skipped": 8,
+    "suite": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "8",
+      "tests": "296",
+      "time": "460.199",
+      "timestamp": "2026-10-07T11:17:01.089800+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "skips": [
+      [
+        "tests.api.test_resources.TestResourceSearchLink",
+        "test_search_404",
+        "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+        "<candidate>/tests/api/test_resources.py:368: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+      ],
+      [
+        "tests.api.test_resources.TestResourceSearchLink",
+        "test_search_returns_results",
+        "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+        "<candidate>/tests/api/test_resources.py:373: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+      ],
+      [
+        "tests.api.test_resources.TestResourceSearchLink",
+        "test_search_result_none_genre_coerced",
+        "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+        "<candidate>/tests/api/test_resources.py:387: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+      ],
+      [
+        "tests.api.test_resources.TestResourceSearchLink",
+        "test_search_forwards_source_and_fallback_sites",
+        "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+        "<candidate>/tests/api/test_resources.py:400: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+      ],
+      [
+        "tests.api.test_resources.TestResourceSearchLink",
+        "test_search_llm_error_returns_502",
+        "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+        "<candidate>/tests/api/test_resources.py:425: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+      ],
+      [
+        "tests.api.test_resources.TestResourceSearchLink",
+        "test_link_creates_series",
+        "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+        "<candidate>/tests/api/test_resources.py:435: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+      ],
+      [
+        "tests.api.test_resources.TestResourceSearchLink",
+        "test_link_404",
+        "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+        "<candidate>/tests/api/test_resources.py:451: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+      ],
+      [
+        "tests.api.test_resources.TestResourceSearchLink",
+        "test_link_movie_clears_ambiguous",
+        "resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs",
+        "<candidate>/tests/api/test_resources.py:456: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs"
+      ]
+    ],
+    "skip_comparison": {
+      "baseline": "V26 q restricted to the seven selected modules",
+      "added": [],
+      "removed": []
+    }
+  },
+  "remaining": [
+    "Explicit dashboard, magnet-state/resource SSE and Agent scan_since offset coverage; Node date consumption passed, no rendered UI claim",
+    "Review remaining owned timestamp serialization including Transmission snapshot added_date; do not rewrite opaque legacy snapshot strings or offline review fingerprints",
+    "Formal rebase, full unit/API >=95% and integration >=85%, zero failures",
+    "Complete scope/hash/exit/skip/export/cleanup and five-axis final review"
+  ],
+  "artifacts": {
+    "utc-contract-http-m.log.gz": "264fc155886b830b026bdf6d2f250ac181b9ee999675a235f04cc1d8dcad8440",
+    "utc-contract-http-m.xml.gz": "3ae177ef18e868527fc032810cac0be31ce7fd597acd1d7a4473269c5ab4632b",
+    "utc-contract-http-n.log.gz": "68c7a9d85b8f4d012c481b52c2a70e717bd9bba6240e86e6dc357e883984ada1",
+    "utc-contract-http-n.xml.gz": "021e8776a701f4d7c0923933dc11fa174c560066c52e67576c70826cbbc4d4f0",
+    "utc-contract-http-o.log.gz": "4e2cb2323685eb5a4603ce7ee5305d4d59d4db46d572716cd250fdca94d5d0d8",
+    "utc-contract-http-o.xml.gz": "935f188df6b7e86707d960ac52b21f4259a5e6621b218d67730f4ca89956ced4",
+    "utc-contract-http-p.log.gz": "dbc23f63e692cc114ca4e17c641745ce5c99fa81ed9ac8fb4139fa6d5165a320",
+    "utc-contract-http-p.xml.gz": "57b353a1583fcbfba210faf6251084418655f8cac3eecb610c7c8ed62e48ded4",
+    "utc-contract-http-q.log.gz": "53c62eba9b3f49bc2430faf43f49c5c6e4a5be1762f4b5ee8e3e59fb09377c1c",
+    "utc-contract-http-q.xml.gz": "560d81e7d1d89693b0c90428c1919d3371b4202f8385db25681cc93978db7e1b",
+    "utc-contract-http-r.log.gz": "6e18d1c0efc9733b24908ef322e24d506de9f5af068dd98c3d5edbec2e4705a2",
+    "utc-contract-http-r.xml.gz": "cf5c9f5be79093caee70f8f7ec3f428f58820e5b408d4bea48796f48da82eb59",
+    "utc-contract-http-r-startup.log.gz": "883761328eb1fbb3c206dd3249065d5061f8b18717023497aac9c92fa80d9e73",
+    "utc-contract-http-r-cleanup.log.gz": "de2d9c82ac8e3af1593343947993028a0f2d9523b168b63f764aa88c5e58c20c",
+    "utc-contract-http-r-p-ruff.log.gz": "f3af4d142827f5aad2eb0c72d556d325488a57fb6219aac10afeb51085667d53",
+    "utc-contract-http-r-r-ruff.log.gz": "f3af4d142827f5aad2eb0c72d556d325488a57fb6219aac10afeb51085667d53",
+    "utc-contract-http-s.log.gz": "433c221b21542bb7b4d1ee2fcb1245f6715f2474e07640160514793dd4fdc1b5",
+    "utc-contract-http-s.xml.gz": "4c1fef25ff541639068e4bcfeb56b3c0751ed559ef0c1f3e280c5eb27b93f140",
+    "utc-contract-http-t-empty.log.gz": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+    "utc-contract-http-t2-rejected.log.gz": "8dec7fbec9c3090830af40079ff10015da0721530d85425f462d40d4ea0ad02a",
+    "utc-contract-http-t3.log.gz": "7a32f2e19bbf828e734ab975c32e6cbf7fa865349eaeb709ec03010ded7c59d3",
+    "utc-contract-http-t-eslint.json.gz": "dad0313817b67911392d16bacc935a143fafd5b0bee6b50c4200f460668f0a9c"
+  },
+  "frontend": {
+    "initial_empty_run_exit": 0,
+    "initial_empty_run_accepted": false,
+    "structured_record_assertion_exit": 1,
+    "sandbox_outside_identical_assertions_exit": 0,
+    "records": [
+      {
+        "timezone": "UTC",
+        "passed": true,
+        "expected": [
+          "2026-11-01 05:30 Z",
+          "2026-11-01 06:30 Z"
+        ]
+      },
+      {
+        "timezone": "Asia/Shanghai",
+        "passed": true,
+        "expected": [
+          "2026-11-01 13:30 +08:00",
+          "2026-11-01 14:30 +08:00"
+        ]
+      },
+      {
+        "timezone": "America/New_York",
+        "passed": true,
+        "expected": [
+          "2026-11-01 01:30 -04:00",
+          "2026-11-01 01:30 -05:00"
+        ]
+      }
+    ],
+    "eslint_exit": 0,
+    "eslint_messages": [],
+    "scope": "Actual format.ts and Date consumption in Node timezone subprocesses; no rendered browser claim"
+  },
+  "source": "utc-contract-t-source.json"
+}
