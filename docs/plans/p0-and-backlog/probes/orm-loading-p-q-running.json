@@ -1,5 +1,5 @@
 {
-  "accepted": false,
+  "accepted": true,
   "candidate": "/tmp/rssripple-v30-rebased-sznr_fn7",
   "main_base": "07633cd47558c7350f084867450eb5c0ab829d35",
   "source": "orm-loading-o-source.json",
@@ -63,5 +63,6 @@
     }
   },
   "lock_sha256": "40eb42674db4b72aedaecc7f7fc3ded572e50d51d3f440cb663a7bc2cacaa6c2",
-  "required": "Compare skips against accepted V29 t/u; verify actual exits, zero failures, full frozen inputs and Git scope, app exits, export coverage and corpus before cleanup, empty project labels and final review before merge."
+  "required": "Compare skips against accepted V29 t/u; verify actual exits, zero failures, full frozen inputs and Git scope, app exits, export coverage and corpus before cleanup, empty project labels and final review before merge.",
+  "acceptance": "orm-loading-p-q-accepted.json"
 }

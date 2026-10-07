@@ -215,18 +215,21 @@ async def list_agents(
         .offset(offset).limit(page_size)
     )
     agents = result.scalars().all()
+    agent_ids = [agent.id for agent in agents]
+    active_counts = {}
+    if agent_ids:
+        active_counts = dict((await db.execute(
+            select(DownloadTask.agent_id, func.count()).where(
+                DownloadTask.agent_id.in_(agent_ids),
+                DownloadTask.status.in_(["pending", "queued", "downloading"]),
+            ).group_by(DownloadTask.agent_id)
+        )).all())
     items = []
     for a in agents:
         d = AgentResponse.model_validate(a).model_dump()
         d["channel_name"] = a.channel.name if a.channel else None
         d["downloader_name"] = a.downloader.name if a.downloader else None
-        cnt_q = await db.execute(
-            select(func.count()).select_from(DownloadTask).where(
-                DownloadTask.agent_id == a.id,
-                DownloadTask.status.in_(["pending", "queued", "downloading"]),
-            )
-        )
-        d["active_task_count"] = cnt_q.scalar_one() or 0
+        d["active_task_count"] = active_counts.get(a.id, 0)
         items.append(d)
     return paginated_response(items, total=total, page=page, page_size=page_size)
 
@@ -879,7 +882,10 @@ async def create_work(agent_id: str, body: AgentWorkCreate, db: AsyncSession = D
     agent = await db.get(Agent, agent_id)
     if not agent:
         return JSONResponse(status_code=404, content=_not_found("Agent"))
-    if not agent.scope_channel_wide and len(agent.works) >= 10:
+    work_count = await db.scalar(
+        select(func.count()).select_from(AgentWork).where(AgentWork.agent_id == agent_id)
+    ) if not agent.scope_channel_wide else 0
+    if work_count >= 10:
         return JSONResponse(status_code=400, content={
             "success": False, "data": None,
             "error": {"code": "VALIDATION_ERROR", "message": "Maximum 10 works"},

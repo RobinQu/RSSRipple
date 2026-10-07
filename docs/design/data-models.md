@@ -878,3 +878,9 @@ Turso CONCURRENT 的 child FK 写入不具备 PostgreSQL KEY SHARE 的父行保�
 请求与入队分开提交，队列只是唤醒；handler payload 携带 `request_id`，成功或普通失败均仅删除自身 ID 对应请求。人工忽略字段永不被该生命周期改写。失权不确认；旧请求的迟到确认不能删除重建的新 UUID。表由统一迁移入口 create_all 创建，存量 confirmation_ignored_at 无法可靠区分人工忽略与旧任务标记，禁止批量清空。
 
 重解析取消不是普通失败：CancelledError 等 BaseException 中断时保留持久请求，由 RedisQueue 重排描述符并交接消费者；仅成功或普通 Exception 终态才确认自身请求，且确认仍需有效所有权。真实 Redis worker.stop 取消回归覆盖原任务 ID 重放和最终确认。
+
+### Channel / Agent 关系加载
+
+Channel 的 `file_resources/agents/raw_title_mappings` 和 Agent 的 `works/download_tasks/pending_decisions/suggestions/notifications/webhooks` 使用 `lazy="raise"`。读取父实体不会默认实例化全部关联历史；业务需要的集合通过显式 selectin/refresh 或直接查询读取。缺失加载不能通过异步隐式 SELECT 兜底。此项仅改变 ORM 加载策略，不改变 FK、cascade 或数据库结构。
+
+`works` 也不默认加载：仅限定范围下最多 10 条，频道全范围覆盖配置可能更多。规则处理在集合未加载时显式 refresh 已持久化 Agent 的 works；已经加载的本事务规则不被强制刷新。列表/详情按响应需求显式加载目标作品，任务/历史存在性校验只读取父实体或所需标量。

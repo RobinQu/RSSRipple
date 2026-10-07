@@ -179,7 +179,7 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
     try:
         async with committed_session() as session:
             agent = await session.get(
-                Agent, agent_id, options=[selectinload(Agent.channel)]
+                Agent, agent_id, options=[selectinload(Agent.channel), selectinload(Agent.works)]
             )
             if not agent:
                 raise RuntimeError(f"Agent {agent_id} not found")

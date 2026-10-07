@@ -6,7 +6,11 @@ from typing import Any
 
 from pydantic import BaseModel, model_validator
 
+from app.schemas.channel import ChannelResponse
 from app.schemas.common import ORMModel
+from app.schemas.downloader import DownloaderResponse
+from app.schemas.movie import MovieResponse
+from app.schemas.series import TVSeriesResponse
 from app.utils.download_paths import validate_download_subdir
 
 
@@ -38,8 +42,8 @@ class AgentWorkResponse(ORMModel):
     # completed yet or for movie works). Computed in GET /agents/{id}.
     latest_completed_season: int | None = None
     latest_completed_episode: int | None = None
-    series: Any | None = None
-    movie: Any | None = None
+    series: TVSeriesResponse | None = None
+    movie: MovieResponse | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -130,8 +134,8 @@ class AgentResponse(ORMModel):
     created_at: datetime
     updated_at: datetime
     works: list[AgentWorkResponse] = []
-    channel: Any | None = None
-    downloader: Any | None = None
+    channel: ChannelResponse | None = None
+    downloader: DownloaderResponse | None = None
 
 
 class AgentListItem(AgentResponse):

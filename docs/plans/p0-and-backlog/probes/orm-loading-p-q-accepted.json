@@ -1,0 +1,34 @@
+{
+  "accepted": true,
+  "source": "orm-loading-o-source.json",
+  "frozen": "orm-loading-o-frozen.json",
+  "unit_audit": "orm-loading-p-audit.json",
+  "integration_audit": "orm-loading-q-audit.json",
+  "review": "V30-REVIEW.md",
+  "effective_files": [
+    "app/api/v1/agents.py",
+    "app/api/v1/channels.py",
+    "app/job_handlers.py",
+    "app/models/agent.py",
+    "app/models/channel.py",
+    "app/schemas/agent.py",
+    "app/services/agent_service.py",
+    "app/services/fetch_service.py",
+    "docs/design/api-endpoints.md",
+    "docs/design/business-logic.md",
+    "docs/design/data-models.md",
+    "docs/testing/integration-inventory.md",
+    "tests/integration/loading/conftest.py",
+    "tests/integration/loading/test_list_boundaries.py"
+  ],
+  "frozen_inputs_verified": 6454,
+  "non_plan_inputs_verified_after_copy": 3306,
+  "all_new_python_inputs_covered": [
+    "tests/integration/loading/conftest.py",
+    "tests/integration/loading/test_list_boundaries.py"
+  ],
+  "main_worktree_applied": true,
+  "code_commit": null,
+  "remote_pushed": false,
+  "deployed": false
+}

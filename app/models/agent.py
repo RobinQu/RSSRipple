@@ -73,25 +73,25 @@ class Agent(Base):
         "AgentWork",
         back_populates="agent",
         order_by="AgentWork.created_at.asc()",
-        lazy="selectin",
+        lazy="raise",
         cascade="all, delete-orphan",
     )
     download_tasks = relationship(
         "DownloadTask",
         back_populates="agent",
-        lazy="selectin",
+        lazy="raise",
         passive_deletes=True,
     )
     pending_decisions = relationship(
         "PendingDecision",
         back_populates="agent",
-        lazy="selectin",
+        lazy="raise",
         cascade="all, delete-orphan",
     )
     suggestions = relationship(
         "AgentSuggestion",
         back_populates="agent",
-        lazy="selectin",
+        lazy="raise",
         cascade="all, delete-orphan",
     )
     runs = relationship(
@@ -103,12 +103,12 @@ class Agent(Base):
     notifications = relationship(
         "DownloadNotification",
         back_populates="agent",
-        lazy="selectin",
+        lazy="raise",
         passive_deletes=True,
     )
     webhooks = relationship(
         "AgentWebhook",
         back_populates="agent",
-        lazy="selectin",
+        lazy="raise",
         passive_deletes=True,
     )

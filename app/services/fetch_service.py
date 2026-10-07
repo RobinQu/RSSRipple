@@ -1032,22 +1032,26 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
         channel.status = "active"
         channel.last_fetch_error = None
 
+    from app.models.agent import Agent
+
+    active_agent_ids = list(await db.scalars(
+        select(Agent.id).where(Agent.channel_id == channel.id, Agent.status == "active")
+    ))
     await db.commit()
 
-    # Enqueue agent runs (fire-and-forget)
+    # Commit status and close the read transaction before external queue calls.
     from app.services.task_queue import task_queue
-    for agent in channel.agents:
+
+    for agent_id in active_agent_ids:
         await require_execution_ownership()
-        if agent.status != "active":
-            continue
         try:
             await task_queue.enqueue(
                 "run_agent",
-                f"agent:{agent.id}",
-                {"agent_id": agent.id, "automatic": True},
+                f"agent:{agent_id}",
+                {"agent_id": agent_id, "automatic": True},
             )
         except Exception as e:
-            logger.warning("Failed to enqueue run_agent for %s: %s", agent.id, e)
+            logger.warning("Failed to enqueue run_agent for %s: %s", agent_id, e)
 
     return {
         "status": "error" if feed_error is not None else ("success" if new_count > 0 else "unchanged"),

@@ -71,14 +71,23 @@ async def list_channels(
         select(Channel).order_by(Channel.created_at.desc()).offset(offset).limit(page_size)
     )
     channels = result.scalars().all()
+    channel_ids = [channel.id for channel in channels]
+    agent_counts = {}
+    resource_counts = {}
+    if channel_ids:
+        agent_counts = dict((await db.execute(
+            select(Agent.channel_id, func.count()).where(Agent.channel_id.in_(channel_ids))
+            .group_by(Agent.channel_id)
+        )).all())
+        resource_counts = dict((await db.execute(
+            select(FileResource.channel_id, func.count()).where(FileResource.channel_id.in_(channel_ids))
+            .group_by(FileResource.channel_id)
+        )).all())
     items = []
     for c in channels:
         d = ChannelResponse.model_validate(c).model_dump()
-        # Count agents
-        ac = await db.execute(select(func.count()).select_from(Agent).where(Agent.channel_id == c.id))
-        rc = await db.execute(select(func.count()).select_from(FileResource).where(FileResource.channel_id == c.id))
-        d["agent_count"] = ac.scalar_one() or 0
-        d["resource_count"] = rc.scalar_one() or 0
+        d["agent_count"] = agent_counts.get(c.id, 0)
+        d["resource_count"] = resource_counts.get(c.id, 0)
         items.append(d)
     return paginated_response(items, total=total, page=page, page_size=page_size)
 

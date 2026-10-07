@@ -559,3 +559,9 @@ PUT `/agents/{id}` 在字段/作品替换及回填副作用前按更新后状态
 ### V25 候选：作品合并的人工冲突
 
 `POST /works/merge` 的 `confirm=true` 仅确认合并动作，不授权丢弃相互冲突的人工修订。发生冲突或人工字段无法迁移时整体回滚并返回 409 `INVALID_STATE`；`error.details.fields` 为字段名，`work_ids` 为相关作品 ID，不回显字段值。先通过作品编辑修订冲突，再重试合并。尚未验收合入，见 V25。
+
+### 频道 / Agent 列表的加载与响应边界
+
+`GET /channels` 的 agent_count/resource_count 按本页频道 ID 分组计算，不逐频道发出 COUNT，也不加载资源/Agent 历史集合。`GET /agents` 的 active_task_count 同样按本页 Agent ID 聚合，仅计 pending/queued/downloading。
+
+Agent 响应内的 channel/downloader 分别使用 ChannelResponse/DownloaderResponse；works 中的 series/movie 使用 TVSeriesResponse/MovieResponse。字段集合由这些公开 schema 决定，不随 ORM 会话是否已预加载历史而变化，亦不把其他关系或下载器密码带入响应。分页、订阅目标、频道/下载器名称及详情的最新完成位置保持原契约。

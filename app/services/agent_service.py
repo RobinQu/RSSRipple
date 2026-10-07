@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import and_, delete, or_, select, text
+from sqlalchemy import and_, delete, inspect, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -847,6 +847,11 @@ async def process_resources(
     await require_execution_ownership()
     await load_batch_coverage(db, resources)
 
+    state = inspect(agent, raiseerr=False)
+    if state is not None and "works" in state.unloaded:
+        # Rules are required here, unlike task/history-only Agent reads. Keep
+        # already-loaded in-transaction edits intact rather than refreshing them.
+        await db.refresh(agent, ["works"])
     rule_set = _build_rule_set(agent)
     candidates_by_key: dict[tuple, list[FileResource]] = {}
     suggestions: dict[str, dict] = {}

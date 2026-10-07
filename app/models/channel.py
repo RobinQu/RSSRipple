@@ -100,14 +100,14 @@ class Channel(Base):
 
     # Relationships
     file_resources = relationship(
-        "FileResource", back_populates="channel", lazy="selectin", cascade="all, delete-orphan"
+        "FileResource", back_populates="channel", lazy="raise", cascade="all, delete-orphan"
     )
     agents = relationship(
-        "Agent", back_populates="channel", lazy="selectin", cascade="all, delete-orphan"
+        "Agent", back_populates="channel", lazy="raise", cascade="all, delete-orphan"
     )
     raw_title_mappings = relationship(
         "ChannelRawTitleMapping",
         back_populates="channel",
-        lazy="selectin",
+        lazy="raise",
         cascade="all, delete-orphan",
     )
