@@ -1,0 +1,577 @@
+{
+  "accepted": false,
+  "runtime_changed": false,
+  "main_base": "1e0744a7d71b3653856d3c8518ffeaa66c141886",
+  "data": "Fixed-hash recorded channel name/url/field mapping; fresh synthetic rows and explicitly chosen session timezones. No production database inspection.",
+  "runs": {
+    "a": {
+      "exit_code": 1,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "9",
+        "skipped": "0",
+        "tests": "9",
+        "time": "11.285",
+        "timestamp": "2026-10-07T10:01:42.149670+00:00",
+        "hostname": "dl-workstation-albert"
+      },
+      "cases": [
+        {
+          "name": "test_utc_contract[created-UTC]",
+          "failed": true,
+          "properties": []
+        },
+        {
+          "name": "test_utc_contract[created-Asia/Shanghai]",
+          "failed": true,
+          "properties": []
+        },
+        {
+          "name": "test_utc_contract[created-America/New_York]",
+          "failed": true,
+          "properties": []
+        },
+        {
+          "name": "test_utc_contract[updated-UTC]",
+          "failed": true,
+          "properties": []
+        },
+        {
+          "name": "test_utc_contract[updated-Asia/Shanghai]",
+          "failed": true,
+          "properties": []
+        },
+        {
+          "name": "test_utc_contract[updated-America/New_York]",
+          "failed": true,
+          "properties": []
+        },
+        {
+          "name": "test_utc_contract[http-UTC]",
+          "failed": true,
+          "properties": []
+        },
+        {
+          "name": "test_utc_contract[http-Asia/Shanghai]",
+          "failed": true,
+          "properties": []
+        },
+        {
+          "name": "test_utc_contract[http-America/New_York]",
+          "failed": true,
+          "properties": []
+        }
+      ]
+    },
+    "b": {
+      "exit_code": 1,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "7",
+        "skipped": "0",
+        "tests": "9",
+        "time": "9.944",
+        "timestamp": "2026-10-07T10:02:50.173141+00:00",
+        "hostname": "dl-workstation-albert"
+      },
+      "cases": [
+        {
+          "name": "test_utc_contract[created-UTC]",
+          "failed": false,
+          "properties": [
+            {
+              "name": "zone",
+              "value": "UTC"
+            },
+            {
+              "name": "database_offset_seconds",
+              "value": "-0.029057"
+            },
+            {
+              "name": "python_offset_seconds",
+              "value": "-0.012525"
+            }
+          ]
+        },
+        {
+          "name": "test_utc_contract[created-Asia/Shanghai]",
+          "failed": true,
+          "properties": [
+            {
+              "name": "zone",
+              "value": "Asia/Shanghai"
+            },
+            {
+              "name": "database_offset_seconds",
+              "value": "28799.96995"
+            },
+            {
+              "name": "python_offset_seconds",
+              "value": "-0.011942"
+            }
+          ]
+        },
+        {
+          "name": "test_utc_contract[created-America/New_York]",
+          "failed": true,
+          "properties": [
+            {
+              "name": "zone",
+              "value": "America/New_York"
+            },
+            {
+              "name": "database_offset_seconds",
+              "value": "-14400.029612"
+            },
+            {
+              "name": "python_offset_seconds",
+              "value": "-0.011886"
+            }
+          ]
+        },
+        {
+          "name": "test_utc_contract[updated-UTC]",
+          "failed": false,
+          "properties": [
+            {
+              "name": "zone",
+              "value": "UTC"
+            },
+            {
+              "name": "database_offset_seconds",
+              "value": "0.0"
+            },
+            {
+              "name": "python_offset_seconds",
+              "value": "-0.012546"
+            }
+          ]
+        },
+        {
+          "name": "test_utc_contract[updated-Asia/Shanghai]",
+          "failed": true,
+          "properties": [
+            {
+              "name": "zone",
+              "value": "Asia/Shanghai"
+            },
+            {
+              "name": "database_offset_seconds",
+              "value": "28800.0"
+            },
+            {
+              "name": "python_offset_seconds",
+              "value": "-0.012207"
+            }
+          ]
+        },
+        {
+          "name": "test_utc_contract[updated-America/New_York]",
+          "failed": true,
+          "properties": [
+            {
+              "name": "zone",
+              "value": "America/New_York"
+            },
+            {
+              "name": "database_offset_seconds",
+              "value": "-14400.0"
+            },
+            {
+              "name": "python_offset_seconds",
+              "value": "-0.012242"
+            }
+          ]
+        },
+        {
+          "name": "test_utc_contract[http-UTC]",
+          "failed": true,
+          "properties": [
+            {
+              "name": "zone",
+              "value": "UTC"
+            },
+            {
+              "name": "database_offset_seconds",
+              "value": "-0.027694"
+            },
+            {
+              "name": "python_offset_seconds",
+              "value": "-0.011588"
+            },
+            {
+              "name": "created_at_json",
+              "value": "2026-10-07T10:02:59.743441"
+            },
+            {
+              "name": "last_fetched_at_json",
+              "value": "2026-10-07T10:02:59.759547"
+            }
+          ]
+        },
+        {
+          "name": "test_utc_contract[http-Asia/Shanghai]",
+          "failed": true,
+          "properties": [
+            {
+              "name": "zone",
+              "value": "Asia/Shanghai"
+            },
+            {
+              "name": "database_offset_seconds",
+              "value": "28799.969711"
+            },
+            {
+              "name": "python_offset_seconds",
+              "value": "-0.011891"
+            },
+            {
+              "name": "created_at_json",
+              "value": "2026-10-07T18:02:59.938108"
+            },
+            {
+              "name": "last_fetched_at_json",
+              "value": "2026-10-07T10:02:59.956506"
+            }
+          ]
+        },
+        {
+          "name": "test_utc_contract[http-America/New_York]",
+          "failed": true,
+          "properties": [
+            {
+              "name": "zone",
+              "value": "America/New_York"
+            },
+            {
+              "name": "database_offset_seconds",
+              "value": "-14400.028064"
+            },
+            {
+              "name": "python_offset_seconds",
+              "value": "-0.011634"
+            },
+            {
+              "name": "created_at_json",
+              "value": "2026-10-07T06:03:00.059777"
+            },
+            {
+              "name": "last_fetched_at_json",
+              "value": "2026-10-07T10:03:00.076207"
+            }
+          ]
+        }
+      ]
+    },
+    "c": {
+      "exit_code": 1,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "3",
+        "skipped": "0",
+        "tests": "9",
+        "time": "10.042",
+        "timestamp": "2026-10-07T10:04:04.050842+00:00",
+        "hostname": "dl-workstation-albert"
+      },
+      "cases": [
+        {
+          "name": "test_utc_contract[created-UTC]",
+          "failed": false,
+          "properties": [
+            {
+              "name": "zone",
+              "value": "UTC"
+            },
+            {
+              "name": "database_offset_seconds",
+              "value": "-0.031575"
+            },
+            {
+              "name": "python_offset_seconds",
+              "value": "-0.012736"
+            }
+          ]
+        },
+        {
+          "name": "test_utc_contract[created-Asia/Shanghai]",
+          "failed": false,
+          "properties": [
+            {
+              "name": "zone",
+              "value": "Asia/Shanghai"
+            },
+            {
+              "name": "database_offset_seconds",
+              "value": "-0.030383"
+            },
+            {
+              "name": "python_offset_seconds",
+              "value": "-0.012043"
+            }
+          ]
+        },
+        {
+          "name": "test_utc_contract[created-America/New_York]",
+          "failed": false,
+          "properties": [
+            {
+              "name": "zone",
+              "value": "America/New_York"
+            },
+            {
+              "name": "database_offset_seconds",
+              "value": "-0.030018"
+            },
+            {
+              "name": "python_offset_seconds",
+              "value": "-0.01196"
+            }
+          ]
+        },
+        {
+          "name": "test_utc_contract[updated-UTC]",
+          "failed": false,
+          "properties": [
+            {
+              "name": "zone",
+              "value": "UTC"
+            },
+            {
+              "name": "database_offset_seconds",
+              "value": "0.0"
+            },
+            {
+              "name": "python_offset_seconds",
+              "value": "-0.012537"
+            }
+          ]
+        },
+        {
+          "name": "test_utc_contract[updated-Asia/Shanghai]",
+          "failed": false,
+          "properties": [
+            {
+              "name": "zone",
+              "value": "Asia/Shanghai"
+            },
+            {
+              "name": "database_offset_seconds",
+              "value": "0.0"
+            },
+            {
+              "name": "python_offset_seconds",
+              "value": "-0.012257"
+            }
+          ]
+        },
+        {
+          "name": "test_utc_contract[updated-America/New_York]",
+          "failed": false,
+          "properties": [
+            {
+              "name": "zone",
+              "value": "America/New_York"
+            },
+            {
+              "name": "database_offset_seconds",
+              "value": "0.0"
+            },
+            {
+              "name": "python_offset_seconds",
+              "value": "-0.012397"
+            }
+          ]
+        },
+        {
+          "name": "test_utc_contract[http-UTC]",
+          "failed": true,
+          "properties": [
+            {
+              "name": "zone",
+              "value": "UTC"
+            },
+            {
+              "name": "database_offset_seconds",
+              "value": "-0.02972"
+            },
+            {
+              "name": "python_offset_seconds",
+              "value": "-0.012032"
+            },
+            {
+              "name": "created_at_json",
+              "value": "2026-10-07T10:04:13.628159"
+            },
+            {
+              "name": "last_fetched_at_json",
+              "value": "2026-10-07T10:04:13.645847"
+            }
+          ]
+        },
+        {
+          "name": "test_utc_contract[http-Asia/Shanghai]",
+          "failed": true,
+          "properties": [
+            {
+              "name": "zone",
+              "value": "Asia/Shanghai"
+            },
+            {
+              "name": "database_offset_seconds",
+              "value": "-0.029447"
+            },
+            {
+              "name": "python_offset_seconds",
+              "value": "-0.011769"
+            },
+            {
+              "name": "created_at_json",
+              "value": "2026-10-07T10:04:13.908926"
+            },
+            {
+              "name": "last_fetched_at_json",
+              "value": "2026-10-07T10:04:13.926604"
+            }
+          ]
+        },
+        {
+          "name": "test_utc_contract[http-America/New_York]",
+          "failed": true,
+          "properties": [
+            {
+              "name": "zone",
+              "value": "America/New_York"
+            },
+            {
+              "name": "database_offset_seconds",
+              "value": "-0.033261"
+            },
+            {
+              "name": "python_offset_seconds",
+              "value": "-0.012146"
+            },
+            {
+              "name": "created_at_json",
+              "value": "2026-10-07T10:04:14.030963"
+            },
+            {
+              "name": "last_fetched_at_json",
+              "value": "2026-10-07T10:04:14.052078"
+            }
+          ]
+        }
+      ]
+    },
+    "d": {
+      "exit_code": 1,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "1",
+        "skipped": "0",
+        "tests": "3",
+        "time": "14.404",
+        "timestamp": "2026-10-07T10:05:06.073277+00:00",
+        "hostname": "dl-workstation-albert"
+      },
+      "cases": [
+        {
+          "name": "test_utc_contract[created-turso-UTC]",
+          "failed": false,
+          "properties": [
+            {
+              "name": "zone",
+              "value": "UTC"
+            },
+            {
+              "name": "database_offset_seconds",
+              "value": "0.0"
+            },
+            {
+              "name": "python_offset_seconds",
+              "value": "0.612154"
+            }
+          ]
+        },
+        {
+          "name": "test_utc_contract[updated-turso-UTC]",
+          "failed": false,
+          "properties": [
+            {
+              "name": "zone",
+              "value": "UTC"
+            },
+            {
+              "name": "database_offset_seconds",
+              "value": "0.0"
+            },
+            {
+              "name": "python_offset_seconds",
+              "value": "0.454308"
+            }
+          ]
+        },
+        {
+          "name": "test_utc_contract[http-turso-UTC]",
+          "failed": true,
+          "properties": [
+            {
+              "name": "zone",
+              "value": "UTC"
+            },
+            {
+              "name": "database_offset_seconds",
+              "value": "0.0"
+            },
+            {
+              "name": "python_offset_seconds",
+              "value": "0.229158"
+            },
+            {
+              "name": "created_at_json",
+              "value": "2026-10-07T10:05:20"
+            },
+            {
+              "name": "last_fetched_at_json",
+              "value": "2026-10-07T10:05:20.229158"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "startup_exit": 0,
+  "cleanup_exit": 0,
+  "labels": {
+    "containers": [],
+    "networks": [],
+    "volumes": []
+  },
+  "findings": {
+    "a": "Probe reference SELECT typo; no product verdict",
+    "b": "7 failed/2 passed: non-UTC PostgreSQL default/update offset; API misses UTC suffix in all zones",
+    "c": "Force-UTC connection probe control: 6 storage checks pass; 3 HTTP suffix failures remain",
+    "d": "Turso control: 2 storage checks pass; HTTP suffix fails"
+  },
+  "priority": "P2. No evidence of current production non-UTC server configuration. Frontend shared date formatter already appends Z to naive inputs.",
+  "artifacts": {
+    "utc-contract-a.xml.gz": "9b2fbed8dedc05b50b5f60d992ac1dd6448ec8bee0e908d7c2ee56d2034bb8cc",
+    "utc-contract-a.log.gz": "eea52a6f9ee206f89b481c7280eb1a6bc614df4e8682c0cc7f5cd5310159fe68",
+    "utc-contract-b.xml.gz": "988021180c493a4d2c926920ea08859195bd98752fd1cd24e0a9877004f53882",
+    "utc-contract-b.log.gz": "194874fca107369786e5d538b419868799bebc86480ce6b05f832975d116e61a",
+    "utc-contract-c.xml.gz": "34f92932428d3b0539b4b74a8cbddac86c6128d039cd3b34214f24f724e34505",
+    "utc-contract-c.log.gz": "e449b847a7850f9f2a79dd8a970ee42a9dbad226986701712027cd6a5b2fd5a6",
+    "utc-contract-d.xml.gz": "b1096f71583983865358c9886eba7c865471e7be71f0dbd5b2339a42e4d83cbc",
+    "utc-contract-d.log.gz": "dc77376b1921fd023bdd0959c58e7421ed6f82de4dd2b22474aeb67b704e094b",
+    "utc-contract-a-test.py.txt": "36b8bec8d0673a3a9abe32ce94d747296c06f480f79201eac6f2a39d5d4e46c7",
+    "utc-contract-b-test.py.txt": "01bca122db041142c031b0170dc6b55ce4896b154cb8f0cb7b97129ee73aff03",
+    "utc-contract-c-test.py.txt": "8644aa53990b45f1902a31424a37b7b6cd0cc7c49865b12cac1a04c080d344ae",
+    "utc-contract-d-test.py.txt": "9387f66d61480b1b715938ca5fff657af6eeab2c9d083892ae9f5b62361be7b1",
+    "utc-contract-startup.log.gz": "2f3c5fb334f43554a39206df5c6eaeeb99a6f3455ce6de80b0a93f7a0be35daa",
+    "utc-contract-cleanup.log.gz": "7b150a7c56100ee0ec7508b94817444e768782d08da7fda4978852b567543dba"
+  }
+}

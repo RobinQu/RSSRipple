@@ -1,0 +1,815 @@
+{
+  "datetime_columns": [
+    {
+      "table": "api_keys",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "app_settings",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "audio_works",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "audio_works",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "auth_rate_limit_buckets",
+      "column": "resets_at",
+      "timezone": false,
+      "server_default": null,
+      "onupdate": null
+    },
+    {
+      "table": "channels",
+      "column": "last_fetched_at",
+      "timezone": false,
+      "server_default": null,
+      "onupdate": null
+    },
+    {
+      "table": "channels",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "channels",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "decision_migrations",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "download_dispatches",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "eval_jobs",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "eval_jobs",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "fts_outbox",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "ground_truth_entries",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "ground_truth_entries",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "media_server_instances",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "media_server_instances",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "metadata_cache",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "metadata_cache",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "storage_volumes",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "storage_volumes",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "subtitle_group_mappings",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "subtitle_group_mappings",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "work_collections",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "work_collections",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "work_external_ids",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "downloader_instances",
+      "column": "last_checked_at",
+      "timezone": false,
+      "server_default": null,
+      "onupdate": null
+    },
+    {
+      "table": "downloader_instances",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "downloader_instances",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "libraries",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "libraries",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "media_server_bindings",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "media_server_bindings",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "movies",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "movies",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "tv_series",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "tv_series",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "agents",
+      "column": "last_run_at",
+      "timezone": false,
+      "server_default": null,
+      "onupdate": null
+    },
+    {
+      "table": "agents",
+      "column": "last_consumed_at",
+      "timezone": false,
+      "server_default": null,
+      "onupdate": null
+    },
+    {
+      "table": "agents",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "agents",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "channel_raw_title_mappings",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "channel_raw_title_mappings",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "episodes",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "episodes",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "file_resources",
+      "column": "magnet_resolve_updated_at",
+      "timezone": false,
+      "server_default": null,
+      "onupdate": null
+    },
+    {
+      "table": "file_resources",
+      "column": "published_at",
+      "timezone": false,
+      "server_default": null,
+      "onupdate": null
+    },
+    {
+      "table": "file_resources",
+      "column": "parsed_at",
+      "timezone": false,
+      "server_default": null,
+      "onupdate": null
+    },
+    {
+      "table": "file_resources",
+      "column": "metadata_matched_at",
+      "timezone": false,
+      "server_default": null,
+      "onupdate": null
+    },
+    {
+      "table": "file_resources",
+      "column": "last_metadata_attempt_at",
+      "timezone": false,
+      "server_default": null,
+      "onupdate": null
+    },
+    {
+      "table": "file_resources",
+      "column": "confirmation_ignored_at",
+      "timezone": false,
+      "server_default": null,
+      "onupdate": null
+    },
+    {
+      "table": "file_resources",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "file_resources",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "organize_rules",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "organize_rules",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "agent_publication_progress",
+      "column": "historical_created_after",
+      "timezone": false,
+      "server_default": null,
+      "onupdate": null
+    },
+    {
+      "table": "agent_resource_requests",
+      "column": "requested_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "agent_resource_requests",
+      "column": "next_attempt_at",
+      "timezone": false,
+      "server_default": null,
+      "onupdate": null
+    },
+    {
+      "table": "agent_runs",
+      "column": "started_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "agent_runs",
+      "column": "finished_at",
+      "timezone": false,
+      "server_default": null,
+      "onupdate": null
+    },
+    {
+      "table": "agent_runs",
+      "column": "scan_since",
+      "timezone": false,
+      "server_default": null,
+      "onupdate": null
+    },
+    {
+      "table": "agent_runs",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "agent_suggestions",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "agent_suggestions",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "agent_webhooks",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "agent_webhooks",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "agent_works",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "agent_works",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "download_tasks",
+      "column": "confirmed_at",
+      "timezone": false,
+      "server_default": null,
+      "onupdate": null
+    },
+    {
+      "table": "download_tasks",
+      "column": "completed_at",
+      "timezone": false,
+      "server_default": null,
+      "onupdate": null
+    },
+    {
+      "table": "download_tasks",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "download_tasks",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "pending_decisions",
+      "column": "expires_at",
+      "timezone": false,
+      "server_default": null,
+      "onupdate": null
+    },
+    {
+      "table": "pending_decisions",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "pending_decisions",
+      "column": "decided_at",
+      "timezone": false,
+      "server_default": null,
+      "onupdate": null
+    },
+    {
+      "table": "pending_decisions",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "resource_file_assignments",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "resource_file_assignments",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "resource_publications",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "resource_reparse_requests",
+      "column": "requested_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "resource_reparse_requests",
+      "column": "next_attempt_at",
+      "timezone": false,
+      "server_default": null,
+      "onupdate": null
+    },
+    {
+      "table": "resource_work_links",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "download_notifications",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "download_notifications",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "notification_build_failures",
+      "column": "next_attempt_at",
+      "timezone": false,
+      "server_default": null,
+      "onupdate": null
+    },
+    {
+      "table": "notification_build_failures",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "organize_plans",
+      "column": "executed_at",
+      "timezone": false,
+      "server_default": null,
+      "onupdate": null
+    },
+    {
+      "table": "organize_plans",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "organize_plans",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "webhook_deliveries",
+      "column": "next_attempt_at",
+      "timezone": false,
+      "server_default": null,
+      "onupdate": null
+    },
+    {
+      "table": "webhook_deliveries",
+      "column": "delivered_at",
+      "timezone": false,
+      "server_default": null,
+      "onupdate": null
+    },
+    {
+      "table": "webhook_deliveries",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "webhook_deliveries",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    },
+    {
+      "table": "organize_audit_entries",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "organize_plan_ops",
+      "column": "created_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": null
+    },
+    {
+      "table": "organize_plan_ops",
+      "column": "updated_at",
+      "timezone": false,
+      "server_default": "now()",
+      "onupdate": "now()"
+    }
+  ],
+  "counts": {
+    "datetime": 96,
+    "timezone_true": 0,
+    "server_defaults": 72,
+    "onupdate": 30
+  },
+  "engine_creation_sites": [
+    {
+      "file": "app/database.py",
+      "line": 181
+    },
+    {
+      "file": "app/services/fts.py",
+      "line": 77
+    },
+    {
+      "file": "scripts/migrate_to_postgres.py",
+      "line": 90
+    },
+    {
+      "file": "scripts/migrate_to_postgres.py",
+      "line": 91
+    },
+    {
+      "file": "scripts/review_orphan_identities.py",
+      "line": 80
+    },
+    {
+      "file": "scripts/scheduler_revision_e2e.py",
+      "line": 51
+    },
+    {
+      "file": "scripts/review_pending_decisions.py",
+      "line": 25
+    },
+    {
+      "file": "scripts/review_publication_migration.py",
+      "line": 104
+    },
+    {
+      "file": "scripts/migrate_to_turso.py",
+      "line": 84
+    },
+    {
+      "file": "scripts/export_work_fixture.py",
+      "line": 92
+    },
+    {
+      "file": "scripts/verify_search_parity.py",
+      "line": 107
+    },
+    {
+      "file": "scripts/verify_search_parity.py",
+      "line": 108
+    },
+    {
+      "file": "scripts/verify_search_parity.py",
+      "line": 112
+    },
+    {
+      "file": "scripts/scheduler_e2e.py",
+      "line": 75
+    }
+  ],
+  "api_and_queue_isoformat_sites": [
+    {
+      "file": "app/services/task_queue.py",
+      "line": 436
+    },
+    {
+      "file": "app/services/task_queue.py",
+      "line": 233
+    },
+    {
+      "file": "app/services/task_queue.py",
+      "line": 234
+    },
+    {
+      "file": "app/services/task_queue.py",
+      "line": 235
+    },
+    {
+      "file": "app/services/task_queue.py",
+      "line": 715
+    },
+    {
+      "file": "app/services/task_queue.py",
+      "line": 759
+    },
+    {
+      "file": "app/services/task_queue.py",
+      "line": 801
+    },
+    {
+      "file": "app/api/v1/queue.py",
+      "line": 140
+    },
+    {
+      "file": "app/api/v1/agents.py",
+      "line": 549
+    },
+    {
+      "file": "app/api/v1/works.py",
+      "line": 256
+    },
+    {
+      "file": "app/api/v1/works.py",
+      "line": 257
+    },
+    {
+      "file": "app/api/v1/works.py",
+      "line": 281
+    },
+    {
+      "file": "app/api/v1/works.py",
+      "line": 282
+    },
+    {
+      "file": "app/api/v1/works.py",
+      "line": 398
+    },
+    {
+      "file": "app/api/v1/works.py",
+      "line": 399
+    },
+    {
+      "file": "app/api/v1/dashboard.py",
+      "line": 181
+    },
+    {
+      "file": "app/api/v1/resources.py",
+      "line": 407
+    },
+    {
+      "file": "app/api/v1/resources.py",
+      "line": 653
+    }
+  ],
+  "caveat": "Static inventory; dates and non-API internal persistence may also use isoformat. Not every call is a defect."
+}
