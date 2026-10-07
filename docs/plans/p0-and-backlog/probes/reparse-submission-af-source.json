@@ -71,5 +71,7 @@
     "full_gates": "af/ag pending; unit gate requires dedicated PostgreSQL"
   },
   "validation": "af unit/API 4131 passed, 97.04%; ag integration 3366 passed, 89.21%; zero failures; skips/hash/exit/cleanup audited",
-  "main_worktree_applied": true
+  "main_worktree_applied": true,
+  "code_commit": "c642911",
+  "remote_pushed": false
 }

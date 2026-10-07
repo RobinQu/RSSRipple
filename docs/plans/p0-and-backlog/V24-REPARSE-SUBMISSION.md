@@ -110,3 +110,5 @@ ag runner 退出 0：**3366 passed、17 skipped、22 warnings，2094.21 秒**。
 ## af/ag 完整验收完成
 
 af 最终 **4131 passed、12 skipped、14 warnings，2803.91 秒，退出 0**；覆盖率 **23314/24026＝97.04%**。与 ag 的 3366 passed、89.21% 一起通过两道完整门禁。unit 的三项实际 PG 迁移不再跳过；跳过与 B6 完全一致。冻结哈希、应用退出、报告导出和两项目清理已审计；25 文件经最终五维审查批准并同步本地 main，B8 已从 TODO 移除。原始日志/JUnit/coverage 与机器审计见 `reparse-submission-af-audit.json`、`reparse-submission-ag-audit.json`。后续优先推进 V25；其候选仍未全量验收。
+
+B8 有效代码提交：`c642911`（本地 main，未推送远端）。

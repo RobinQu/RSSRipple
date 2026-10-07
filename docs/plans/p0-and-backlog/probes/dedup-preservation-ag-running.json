@@ -1,0 +1,22 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v25-dedup-vdloqrh0",
+  "session": 58344,
+  "log": "/tmp/rssripple-v25-dedup-ag.log",
+  "junit": "/tmp/rssripple-v25-dedup-ag.xml",
+  "project": "rssripple-v25-matrix-ag",
+  "postgres_port": 32858,
+  "compose": "/tmp/rssripple-v25-compose.yml",
+  "source": "dedup-preservation-ag-test_manual_field_matrix.py.txt",
+  "base_candidate": "dedup-preservation-af-candidate.tar.gz",
+  "change": "New formal dual-backend same-type field protection matrix. No runtime edits since af.",
+  "status": "completed",
+  "passed": 218,
+  "exit_code": 0,
+  "seconds": 233.57,
+  "cleanup_exit": 0,
+  "scratch_databases": [],
+  "containers": [],
+  "networks": [],
+  "volumes": []
+}

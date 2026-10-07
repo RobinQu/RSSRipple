@@ -1,0 +1,35 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v25-rebased-ojpz2uko",
+  "base_runtime": "c642911",
+  "effective_files": 32,
+  "frozen_count": 5520,
+  "unit": {
+    "status": "running",
+    "session": 59771,
+    "log": "/tmp/rssripple-v25-unit-aj.log",
+    "junit": "/tmp/rssripple-v25-unit-aj.xml",
+    "coverage": "/tmp/rssripple-v25-unit-aj-coverage.xml",
+    "coverage_data": "/tmp/rssripple-v25-unit-aj.coverage",
+    "threshold": 95,
+    "postgres_project": "rssripple-v25-unit-aj",
+    "postgres_compose": "/tmp/rssripple-v25-compose.yml",
+    "postgres_port": 32859,
+    "preflight_passed": 3,
+    "preflight_exit": 0
+  },
+  "integration": {
+    "status": "running",
+    "startup_session": 65116,
+    "startup_log": "/tmp/rssripple-v25-integration-ak-startup.log",
+    "project": "rssripple-v25-final-ak",
+    "threshold": 85,
+    "cleanup": "pending",
+    "startup_exit": 0,
+    "session": 40856,
+    "log": "/tmp/rssripple-v25-integration-ak.log"
+  },
+  "image": "rssripple-v20-tests:local",
+  "image_id": "sha256:82b848a7ced66ed29f4556606eb97da654fa9332edb34c9d01cffcbb2e5c1a12",
+  "warning": "Do not edit frozen candidate. Poll running handles. Wait for integration startup health before launching test-runner. Terminal runner -> SIGINT app/app-llm -> verify exits -> coverage-report -> export -> down only this project. Unit PG must remain until unit terminal."
+}
