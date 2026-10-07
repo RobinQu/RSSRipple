@@ -1,5 +1,5 @@
 {
-  "accepted": false,
+  "accepted": true,
   "prototype": "/tmp/rssripple-v23-combined-jvco65ot",
   "source": "agent-work-limit-q-source.json",
   "freeze": "agent-work-limit-r-frozen.json",
@@ -7,7 +7,7 @@
   "prerequisite": "CORS q/r must be independently accepted, then compare main to q-source base_hashes",
   "image": "rssripple-v20-tests:local",
   "unit": {
-    "status": "running",
+    "status": "passed",
     "session": 48627,
     "postgres_container": "rssripple-v23-unit-pg-r",
     "postgres_port": 32862,
@@ -15,16 +15,20 @@
     "junit": "/tmp/rssripple-v23-unit-r.xml",
     "coverage": "/tmp/rssripple-v23-unit-r-coverage.xml",
     "coverage_data": "/tmp/rssripple-v23-unit-r.coverage",
-    "threshold": 95
+    "threshold": 95,
+    "exit": 0,
+    "cleanup": "complete"
   },
   "integration": {
-    "status": "running",
+    "status": "passed",
     "session": 26798,
     "project": "rssripple-v23-final-s",
     "startup_exit": 0,
     "log": "/tmp/rssripple-v23-integration-s.log",
     "threshold": 85,
-    "cleanup": "pending"
+    "cleanup": "complete",
+    "exit": 0
   },
-  "warning": "Frozen: do not edit or restart. After runner terminal SIGINT app/app-llm, inspect exits, run final coverage-report, export, down only this project with volumes, stop unit PG. CORS q/r separate sessions remain live."
+  "warning": "Historical handles terminal; both gates and cleanup complete.",
+  "merged_commit": "accd024"
 }

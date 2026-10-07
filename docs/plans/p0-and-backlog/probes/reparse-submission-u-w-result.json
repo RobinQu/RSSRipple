@@ -1,0 +1,161 @@
+{
+  "u": {
+    "tests": 2,
+    "failures": 2,
+    "errors": 0,
+    "properties": []
+  },
+  "v": {
+    "tests": 2,
+    "failures": 0,
+    "errors": 0,
+    "properties": [
+      {
+        "name": "recorded_case",
+        "value": "affd5114-f61d-40b6-95f1-0d0b937495ab"
+      },
+      {
+        "name": "torrent_sha256",
+        "value": "6936d731675641e065b7af4c3780b3c36c27b2782e65fc3989a6557b0cff75c3"
+      },
+      {
+        "name": "recorded_files_persisted",
+        "value": "12"
+      },
+      {
+        "name": "real_processing_pipeline",
+        "value": "True"
+      },
+      {
+        "name": "synthetic_boundary",
+        "value": "queue delivery and unavailable identity provider; no media download"
+      },
+      {
+        "name": "recorded_case",
+        "value": "affd5114-f61d-40b6-95f1-0d0b937495ab"
+      },
+      {
+        "name": "torrent_sha256",
+        "value": "6936d731675641e065b7af4c3780b3c36c27b2782e65fc3989a6557b0cff75c3"
+      },
+      {
+        "name": "recorded_files_persisted",
+        "value": "12"
+      },
+      {
+        "name": "real_processing_pipeline",
+        "value": "True"
+      },
+      {
+        "name": "synthetic_boundary",
+        "value": "queue delivery and unavailable identity provider; no media download"
+      }
+    ]
+  },
+  "w": {
+    "tests": 4,
+    "failures": 0,
+    "errors": 0,
+    "properties": [
+      {
+        "name": "backend",
+        "value": "postgresql"
+      },
+      {
+        "name": "production_migration_reruns",
+        "value": "2"
+      },
+      {
+        "name": "legacy_manual_marker_preserved",
+        "value": "True"
+      },
+      {
+        "name": "unique_constraint_and_cascade",
+        "value": "True"
+      },
+      {
+        "name": "request_transaction_rollback",
+        "value": "True"
+      },
+      {
+        "name": "legacy_report_cursor_checked",
+        "value": "True"
+      },
+      {
+        "name": "backend",
+        "value": "sqlite"
+      },
+      {
+        "name": "production_migration_reruns",
+        "value": "2"
+      },
+      {
+        "name": "legacy_manual_marker_preserved",
+        "value": "True"
+      },
+      {
+        "name": "unique_constraint_and_cascade",
+        "value": "True"
+      },
+      {
+        "name": "request_transaction_rollback",
+        "value": "True"
+      },
+      {
+        "name": "legacy_report_cursor_checked",
+        "value": "True"
+      },
+      {
+        "name": "recorded_case",
+        "value": "affd5114-f61d-40b6-95f1-0d0b937495ab"
+      },
+      {
+        "name": "torrent_sha256",
+        "value": "6936d731675641e065b7af4c3780b3c36c27b2782e65fc3989a6557b0cff75c3"
+      },
+      {
+        "name": "recorded_files_persisted",
+        "value": "12"
+      },
+      {
+        "name": "real_processing_pipeline",
+        "value": "True"
+      },
+      {
+        "name": "synthetic_boundary",
+        "value": "queue delivery and unavailable identity provider; no media download"
+      },
+      {
+        "name": "recorded_case",
+        "value": "affd5114-f61d-40b6-95f1-0d0b937495ab"
+      },
+      {
+        "name": "torrent_sha256",
+        "value": "6936d731675641e065b7af4c3780b3c36c27b2782e65fc3989a6557b0cff75c3"
+      },
+      {
+        "name": "recorded_files_persisted",
+        "value": "12"
+      },
+      {
+        "name": "real_processing_pipeline",
+        "value": "True"
+      },
+      {
+        "name": "synthetic_boundary",
+        "value": "queue delivery and unavailable identity provider; no media download"
+      }
+    ]
+  },
+  "notes": {
+    "u": "Two fixture failures: resource omitted initial publication; real pipeline rolled back.",
+    "v": "Two passed, 2.64s; canonical creation publication restored, actual reparse pipeline persists 12 recorded file assignments.",
+    "w": "Four passed, 5.01s; PG/Turso migration, cursor-based legacy read-only report and recorded pipeline replay."
+  },
+  "cleanup": {
+    "postgres_u_stop_exit": 0,
+    "postgres_w_stop_exit": 0,
+    "scratch_databases_remaining": [],
+    "auto_remove": true
+  }
+}

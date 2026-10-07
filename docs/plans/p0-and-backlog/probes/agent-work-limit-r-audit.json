@@ -1,0 +1,141 @@
+{
+  "exit": 0,
+  "passed": 4118,
+  "skipped": 12,
+  "warnings": 13,
+  "seconds": 3124.23,
+  "coverage": {
+    "lines-covered": "23224",
+    "lines-valid": "23936",
+    "line-rate": "0.9703"
+  },
+  "frozen_count": 3252,
+  "frozen_changes": [],
+  "main_base_hash_mismatches": [],
+  "skip_same_as_CORS_q_after_candidate_root_normalization": true,
+  "postgres_cleanup_exit": 0,
+  "postgres_container_absent": true,
+  "warning_review": "Ten new record_property/xunit2 warnings; properties retained. Other three warnings are existing fixture/coroutine categories.",
+  "retained_agent_limit_properties": [
+    {
+      "name": "observed_status",
+      "value": "422"
+    },
+    {
+      "name": "persisted_works",
+      "value": "1"
+    },
+    {
+      "name": "persisted_scope_channel_wide",
+      "value": "False"
+    },
+    {
+      "name": "observed_status",
+      "value": "422"
+    },
+    {
+      "name": "persisted_works",
+      "value": "11"
+    },
+    {
+      "name": "persisted_scope_channel_wide",
+      "value": "True"
+    },
+    {
+      "name": "observed_status",
+      "value": "200"
+    },
+    {
+      "name": "persisted_works",
+      "value": "10"
+    },
+    {
+      "name": "persisted_scope_channel_wide",
+      "value": "False"
+    },
+    {
+      "name": "observed_status",
+      "value": "200"
+    },
+    {
+      "name": "persisted_works",
+      "value": "11"
+    },
+    {
+      "name": "persisted_scope_channel_wide",
+      "value": "True"
+    },
+    {
+      "name": "observed_status",
+      "value": "200"
+    },
+    {
+      "name": "persisted_works",
+      "value": "10"
+    },
+    {
+      "name": "persisted_scope_channel_wide",
+      "value": "False"
+    },
+    {
+      "name": "observed_status",
+      "value": "200"
+    },
+    {
+      "name": "persisted_works",
+      "value": "0"
+    },
+    {
+      "name": "persisted_scope_channel_wide",
+      "value": "False"
+    },
+    {
+      "name": "observed_status",
+      "value": "200"
+    },
+    {
+      "name": "persisted_works",
+      "value": "11"
+    },
+    {
+      "name": "persisted_scope_channel_wide",
+      "value": "True"
+    },
+    {
+      "name": "real_database_conflicts",
+      "value": "1"
+    },
+    {
+      "name": "statuses",
+      "value": "[201, 400]"
+    },
+    {
+      "name": "persisted_works",
+      "value": "10"
+    },
+    {
+      "name": "real_database_conflicts",
+      "value": "1"
+    },
+    {
+      "name": "statuses",
+      "value": "[200, 400]"
+    },
+    {
+      "name": "persisted_works",
+      "value": "10"
+    },
+    {
+      "name": "real_database_conflicts",
+      "value": "1"
+    },
+    {
+      "name": "statuses",
+      "value": "[200, 400]"
+    },
+    {
+      "name": "persisted_works",
+      "value": "10"
+    }
+  ]
+}

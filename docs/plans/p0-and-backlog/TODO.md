@@ -56,10 +56,8 @@
       **修复**：记录列表 SQL/关联规模，按需显式加载；异步 ORM 禁止靠隐式 `select` 懒加载兜底。
 - [ ] **P1-B5 队列无重试/退避/死信**：失败即终态（`app/services/task_queue.py:264-271,610-654`），队列 API 只读。
       **修复**：先补副作用幂等，再按任务类型加有限重试/退避；DLQ 为增强，不是所有任务的修复前提。
-- [ ] **P1-B6 `PUT /agents/{id}` 绕过 AgentWork ≤10 上限**：`app/api/v1/agents.py:426-439` 无计数校验。
-      **修复**：按更新后的有效 scope/works 检查，保留全范围例外；V23 真实 API/Turso 已复现两条更新路径持久化 11 条，合法对照通过。顺序原型 7 项通过；又复现 Turso 双请求从 9 增至 11，需补父行冲突保护与真实重试；写屏障验证又发现现有 HTTP 重试无法重读已消费请求体，独立限时探针已证实；原型改为 ASGI 重放后真实并发得到 201/400、总数 10，17 项重放边界通过，双库 add/replace/scope 并发已通过，拒绝更新的字段/订阅/消费进度及回填入队无副作用也已验证，已建立 CORS+B6 组合候选并启动 r/s 完整门禁，CORS 前置已合入 `69e931d`，B6 基线哈希一致；s 完整集成 3355 项、88.52% 及清理审计通过，仍待 r 单元/API 及最终审计，详见 V23。并发及无副作用验收方案见 [V23](V23-AGENT-WORK-LIMIT.md)。
 - [ ] **P1-B8 reparse 409 卡住 `confirmation_ignored_at`**：`app/api/v1/resources.py:1023-1037` 先 commit
-      标记再入队，入队失败返回 409 但标记不清；仅 job `finally` 清除。**修复**：区分已有任务（通常会 finally 清理）、入队异常及崩溃恢复；按任务所有权清标记，禁止先入队后提交。V24 已复现明确入队异常后标记残留，成功对照通过；真实 Memory/Redis 四例确认接受后响应丢失及 409 仍保留任务，另两例复现 handler 清掉人工忽略。独立持久请求候选已通过 45 项扩大回归，已补正式集成八例（真实 Redis worker、双库并发、实际崩溃恢复及双库升级），仍待录制数据回放、部署回滚及完整门禁；共用字段与崩溃窗口的方案复核见 [V24](V24-REPARSE-SUBMISSION.md)。
+      标记再入队，入队失败返回 409 但标记不清；仅 job `finally` 清除。**修复**：区分已有任务（通常会 finally 清理）、入队异常及崩溃恢复；按任务所有权清标记，禁止先入队后提交。V24 已复现明确入队异常后标记残留，成功对照通过；真实 Memory/Redis 四例确认接受后响应丢失及 409 仍保留任务，另两例复现 handler 清掉人工忽略。独立持久请求候选已通过 45 项扩大回归，已补正式集成八例（真实 Redis worker、双库并发、实际崩溃恢复及双库升级），已补真实录制标题/12 文件种子管线回放与历史标记只读盘点，仍待对齐新主干、部署回退兼容及完整门禁；共用字段与崩溃窗口的方案复核见 [V24](V24-REPARSE-SUBMISSION.md)。
 - [ ] **P1-F1 `WorkMetadataRefreshModal` 未国际化**：整个 modal 硬编码中文
       （`frontend/src/components/WorkMetadataRefreshModal.tsx`，被 `SeriesDetail`/`MovieDetail` 使用），
       en-US 用户看到中文。**修复**：接入 `useTranslation` 并补 locale key。

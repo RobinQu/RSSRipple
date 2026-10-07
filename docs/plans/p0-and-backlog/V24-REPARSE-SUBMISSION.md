@@ -72,3 +72,11 @@ r 升级首轮 PostgreSQL 通过，Turso 夹具的主库 reparse.db 与侧库 re
 t 对整个正式目录重跑，**8 passed，8.23 秒，零跳过、退出 0**。专用 PG 中 scratch DB 查询为空，PG/Redis 两容器均停止 0 并自动删除。原始日志/JUnit/属性见 [p–t 审计](probes/reparse-submission-p-t-result.json)，候选见 [t source](probes/reparse-submission-t-source.json)。源码仍基于 V21，基线哈希保留原记录；后续须与已合入 CORS 及待验收 B6 重基，尤其不能直接覆盖新权威文档。
 
 下一步：历史标记只读盘点/保守迁移策略、部署回滚兼容、录制元数据管线回放、组合基线与完整双门禁；B8 未合入、未关闭。
+
+## u–w：录制标题/种子管线回放与历史盘点
+
+新增 `test_reparse_captured.py` 使用原语料 case `affd5114-f61d-40b6-95f1-0d0b937495ab` 的真实已录制标题和 torrent（SHA-256 `6936d731675641e065b7af4c3780b3c36c27b2782e65fc3989a6557b0cff75c3`）。没有 RSS 原文时不宣称有 RSS 原文。生产 handler 与 `_process_resource_metadata`、缓存校验、合集分析、文件指派、元数据 publication、提交均实际执行；仅队列投递与外部身份提供者使用替身（身份未匹配），不下载媒体。
+
+u 首轮双库均失败：夹具没有写入创建 publication，生产事务按不变量回滚；失败断言检出持久字段未更新，不能只看 handler 返回 done。v 补齐规范创建发布后 **2 passed，2.64 秒**：12 文件路径、集数、大小及原种子哈希保持，season batch 范围 1–12，任务确认后未匹配资源重新进入待确认。w 连同升级/只读历史标记游标盘点共 **4 passed，5.01 秒**。只读报告不把人工忽略或未知旧任务标记误判为可清理。专用 PG u/w 及其 scratch DB 已清理。结果见 [u–w](probes/reparse-submission-u-w-result.json)，24 文件候选见 [w source](probes/reparse-submission-w-source.json)。
+
+候选迁移文档已补保守历史盘点 SQL 和回退前提：先停止新提交，排空持久请求及活跃队列，再停新 worker；回退保留新表、不批量清除忽略。该 runbook 尚不等于实际部署回退验收。下一轮将候选对齐已合入 CORS `69e931d` 与 B6 `accd024`，完成回退兼容验证、最终审查与完整双门禁。
