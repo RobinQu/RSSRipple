@@ -1,0 +1,52 @@
+{
+  "f": {
+    "actual_exit": 1,
+    "name": "pytest",
+    "errors": "16",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "16",
+    "time": "21.996",
+    "timestamp": "2026-10-07T13:46:21.286807+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "g": {
+    "actual_exit": 0,
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "16",
+    "time": "20.404",
+    "timestamp": "2026-10-07T13:47:21.492450+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "h": {
+    "actual_exit": 0,
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "20",
+    "time": "28.279",
+    "timestamp": "2026-10-07T13:49:00.226767+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "source": "agent-run-lifecycle-h-source.json",
+  "cleanup": {
+    "project": "rssripple-v34-prototype-f",
+    "startup_exit": 0,
+    "down_exit": 0,
+    "labels": {
+      "containers": [],
+      "networks": [],
+      "volumes": []
+    }
+  },
+  "limitations": [
+    "not wired into handler/worker",
+    "no legacy upgrade",
+    "no full gates",
+    "no main runtime merge"
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "candidate": "/tmp/rssripple-v34-lifecycle-1n2n81kb",
+  "base": "926e6de03a413252cf2c1e16c99ae87c84a42025",
+  "effective_files": {
+    "app/models/__init__.py": {
+      "base_sha256": "4f6d75732cd786b6a220003e6771d84ccfe5d68e4e0e52c6cb1a1e7abea1972e",
+      "candidate_sha256": "b4b13a7f6e6705e17fe9ddf549509a2c887185a5657a2e7e3a20d71e02b443c8"
+    },
+    "app/models/agent_run_lease.py": {
+      "base_sha256": null,
+      "candidate_sha256": "ce1733750417b40bf903f7a0f79e1efeffbc7724325604ecaa862a7e9bcc85c5"
+    },
+    "app/services/agent_run_lifecycle.py": {
+      "base_sha256": null,
+      "candidate_sha256": "f2ae86d862b568a9fcb236b15a6d5c6f2f60948f5468d6b79367505140636588"
+    },
+    "docs/design/business-logic.md": {
+      "base_sha256": "a849bf30d59fb22ee37b2930cd307786aa0a49c1319e3977e6f3500d76e3e1ff",
+      "candidate_sha256": "ebacde4c804764c9c62bffe1732e3afe6fd868e00030fea8f337479889f22291"
+    },
+    "docs/design/data-models.md": {
+      "base_sha256": "e0cdcfc1ee9b3ae4b557770740bf2652d9099187f864d8187cb9810846189bf1",
+      "candidate_sha256": "3cf048065a62fce65ecd16b8abbb96932e40f7dbb92f9ba1aa8259a0806f5f96"
+    },
+    "docs/testing/integration-inventory.md": {
+      "base_sha256": "bb0adadade512501baed0e708277c45f051ad2ed6404d4f6d042cccfbdc9e8cb",
+      "candidate_sha256": "08a26bf6c12ecaa99c1e4b8e5fd817868012847f3f9ec29707531a263d4151e6"
+    },
+    "tests/integration/agent_run_lifecycle/__init__.py": {
+      "base_sha256": null,
+      "candidate_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "tests/integration/agent_run_lifecycle/conftest.py": {
+      "base_sha256": null,
+      "candidate_sha256": "dddb50dfb70613593712dd94b6294d55012f0b262a0a71f447c99a0037067eaf"
+    },
+    "tests/integration/agent_run_lifecycle/test_lease.py": {
+      "base_sha256": null,
+      "candidate_sha256": "8b5ea8c56d377be0e816ede9e54b8a9490a4c1d4f14bbb000287673bef7b0527"
+    }
+  },
+  "scope": "all copied app/tests/scripts/design/testing/config inputs compared to Git; not full repository freeze",
+  "runtime_main_changed": false,
+  "accepted": false
+}

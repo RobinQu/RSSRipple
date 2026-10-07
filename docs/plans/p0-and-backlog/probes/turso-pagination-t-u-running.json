@@ -24,7 +24,7 @@
     "cleanup": "pending"
   },
   "integration": {
-    "status": "running",
+    "status": "passed_audited",
     "session": 62185,
     "project": "rssripple-v29-final-u",
     "compose": "/tmp/rssripple-v29-rebased-z_y0t6x8/docker-compose.integration-isolated.yml",
@@ -32,7 +32,10 @@
     "log": "/tmp/rssripple-v29-integration-u.log",
     "startup_exit": 0,
     "threshold": 85,
-    "cleanup": "pending"
+    "cleanup": "complete",
+    "runner_exit": 0,
+    "coverage_exit": 0,
+    "audit": "turso-pagination-u-audit.json"
   },
   "required": "Actual terminal exits, zero failures, full frozen and Git scope checks, skips compared to accepted V27 ab/ac, clean app exits, coverage export before cleanup and empty project labels; final five-axis review before local merge."
 }
