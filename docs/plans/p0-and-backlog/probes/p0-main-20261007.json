@@ -1,6 +1,6 @@
 {
   "date": "2026-10-07",
-  "baseline": "80ca38fa35361f1f831ef8d3990173d23115d8b9",
+  "baseline": "7b1876cba2271295d67e7d6b9b001591dc1df622",
   "branch": "main",
   "commits": {
     "4c804ed": {
@@ -19,10 +19,11 @@
       "ancestor_exit_code": 0
     }
   },
-  "working_tree_before_audit": "",
-  "ahead_of_local_origin_main": 82,
+  "working_tree_before_audit": "?? docs/plans/p0-and-backlog/probes/dedup-preservation-r-test_dedup_caller_transactions.py.txt\n?? docs/plans/p0-and-backlog/probes/dedup-preservation-r-test_dedup_offline_repair.py.txt\n?? docs/plans/p0-and-backlog/probes/dedup-preservation-r.log.gz\n?? docs/plans/p0-and-backlog/probes/dedup-preservation-r.xml.gz\n?? docs/plans/p0-and-backlog/probes/dedup-preservation-s.log.gz\n?? docs/plans/p0-and-backlog/probes/dedup-preservation-s.xml.gz\n",
+  "ahead_of_local_origin_main": 86,
   "remote_fetched": false,
   "pushed": false,
   "exception": "Former P0-5 remains open at P2; not claimed fixed.",
-  "validation": "Commit ancestry and existing acceptance records reviewed; no new runtime tests."
+  "validation": "Commit ancestry and existing acceptance records reviewed; no new runtime tests.",
+  "runtime_test_diff_against_main": ""
 }
