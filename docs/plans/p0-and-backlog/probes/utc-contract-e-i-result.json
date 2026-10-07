@@ -1,0 +1,107 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v32-utc-m6c1uygj",
+  "effective_files": 51,
+  "runs": {
+    "e": {
+      "exit_code": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "8",
+        "time": "11.244",
+        "timestamp": "2026-10-07T10:14:09.115956+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    "f": {
+      "exit_code": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "8",
+        "time": "4.838",
+        "timestamp": "2026-10-07T10:17:17.601654+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    "g": {
+      "exit_code": 1,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "1",
+        "skipped": "0",
+        "tests": "50",
+        "time": "54.826",
+        "timestamp": "2026-10-07T10:18:32.652477+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    "h": {
+      "exit_code": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "50",
+        "time": "53.773",
+        "timestamp": "2026-10-07T10:21:20.742201+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    "i": {
+      "exit_code": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "10",
+        "time": "6.547",
+        "timestamp": "2026-10-07T10:23:55.153911+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    }
+  },
+  "g_failure": "Existing fake connection lacks mappings() for new catalog query; completed fixture protocol, no weakened production guard",
+  "ruff_full_exit": 0,
+  "ruff_final_test_exit": 0,
+  "startup_exit": 0,
+  "cleanup_exit": 0,
+  "labels": {
+    "containers": [],
+    "networks": [],
+    "volumes": []
+  },
+  "remaining": [
+    "API UTC output including pre-serialized paths and SSE",
+    "offset input normalization and DST/boundary cases",
+    "formal rebase and full unit/API >=95% and integration >=85%, zero failures",
+    "final scope/hash/exit/skip/export/cleanup review"
+  ],
+  "artifacts": {
+    "utc-contract-e.log.gz": "7aa92336f9745268c96d28ebf482bc185e6fc7776aa627412a6171360ec8d104",
+    "utc-contract-e.xml.gz": "8de971f68cbd7d1c2bfb5dbf824c2ea289ea1f5e725febbe49fbf0dd35116ccc",
+    "utc-contract-f.log.gz": "bec0ed192f39a3fec1a8a99c43b7823b226a36b019cbad074b7c9928d330d328",
+    "utc-contract-f.xml.gz": "dddedf52871e7f0c026f28d0028c974cb286a6d09801e58063c2505a21a31a12",
+    "utc-contract-g.log.gz": "b31e6218a6ecdff6937c505fdcac557a0c965262f68f64cd0f9ba3e14e337842",
+    "utc-contract-g.xml.gz": "417a5bc70f180e67a3c741d520207adfc615fc0e860fc62a8ba9c2532ac31c1a",
+    "utc-contract-h.log.gz": "73177389f38cdf90caec4ce7c5813d6d7088e1bf0956542fa59acfd3b456f5cd",
+    "utc-contract-h.xml.gz": "bd4ad67913a3094f4365b90381ace0c32b77b427fed8fe2f4b22c0d179a65aa0",
+    "utc-contract-i.log.gz": "d059c220898cdfce7195cb4ae74fdd9b2c4de0257b02791e6969d0df4b0104a6",
+    "utc-contract-i.xml.gz": "9ccc4d6b0a72bb77e0cfe4dd2eb441d86b52059c9974865c32d992d155fea096",
+    "utc-contract-i-startup.log.gz": "f124243f8f9dee45849cafbe26fc3f75cb3f11ed70e26971ed45687e45558d3e",
+    "utc-contract-i-cleanup.log.gz": "2410bfd6b5fb882c1682619e5f64ad9d3314951860b6079e9a2d067ef9999246",
+    "utc-contract-i-full-ruff.log.gz": "f3af4d142827f5aad2eb0c72d556d325488a57fb6219aac10afeb51085667d53",
+    "utc-contract-i-f-ruff.log.gz": "9a293a43cbbdffc92644cba254fc3dc7ea239470c11f304101b36540d7abdbe9",
+    "utc-contract-i-i-ruff.log.gz": "f3af4d142827f5aad2eb0c72d556d325488a57fb6219aac10afeb51085667d53",
+    "utc-contract-i-e-ruff.log.gz": "43cd879015316aa9db809d4db5343db7d40d2c7a238157eec1b0cb756a554e04",
+    "utc-contract-i-e-ruff2.log.gz": "4f6b01313a2c0e21272efec3988f15ba1aaaee819fd6c881215f4bb69d5df576"
+  }
+}

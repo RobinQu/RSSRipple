@@ -1,0 +1,73 @@
+"""Upgrade all owned defaults while preserving historical values and rollback."""
+import pytest
+from sqlalchemy import insert, select, text
+
+from app.database import Base
+from app.models.channel import Channel
+from app.services.utc_schema import ensure_utc_timestamp_defaults
+from app.utils.sql_time import UTCNow
+from tests.integration.time_contract.test_storage import channel_values, check_storage
+
+
+async def defaults(conn):
+    return (await conn.execute(text('''
+        SELECT table_name, column_name, data_type, column_default
+        FROM information_schema.columns WHERE table_schema = current_schema()
+          AND data_type LIKE 'timestamp%' ORDER BY table_name, column_name
+    '''))).all()
+
+
+@pytest.mark.parametrize('scenario', ['success', 'rollback', 'drift', 'type_drift'])
+async def test_existing_defaults_upgrade(dedup_postgres, scenario):
+    engine, _ = dedup_postgres
+    values = channel_values()
+    async with engine.begin() as conn:
+        quote = conn.dialect.identifier_preparer.quote
+        for table in Base.metadata.tables.values():
+            for column in table.columns:
+                if column.server_default is not None and isinstance(column.server_default.arg, UTCNow):
+                    await conn.execute(text(
+                        f'ALTER TABLE {quote(table.name)} ALTER COLUMN {quote(column.name)} SET DEFAULT now()'
+                    ))
+        await conn.execute(text("SET LOCAL TIME ZONE 'Asia/Shanghai'"))
+        await conn.execute(insert(Channel).values(**values))
+        if scenario == 'drift':
+            await conn.execute(text("ALTER TABLE channels ALTER COLUMN created_at SET DEFAULT '2000-01-01'::timestamp"))
+        elif scenario == 'type_drift':
+            await conn.execute(text('ALTER TABLE channels ALTER COLUMN created_at TYPE timestamp with time zone'))
+        before_defaults = await defaults(conn)
+        before_row = (await conn.execute(select(Channel.__table__).where(Channel.id == values['id']))).mappings().one()
+    if scenario in {'drift', 'type_drift'}:
+        with pytest.raises(ValueError, match='Unexpected UTC timestamp'):
+            async with engine.begin() as conn:
+                await ensure_utc_timestamp_defaults(conn, Base.metadata)
+    else:
+        if scenario == 'rollback':
+            with pytest.raises(RuntimeError, match='synthetic after DDL'):
+                async with engine.begin() as conn:
+                    await ensure_utc_timestamp_defaults(conn, Base.metadata)
+                    raise RuntimeError('synthetic after DDL')
+            async with engine.connect() as conn:
+                assert await defaults(conn) == before_defaults
+        async with engine.begin() as conn:
+            await ensure_utc_timestamp_defaults(conn, Base.metadata)
+            after_first = await defaults(conn)
+            await ensure_utc_timestamp_defaults(conn, Base.metadata)
+            assert await defaults(conn) == after_first
+    async with engine.connect() as conn:
+        after_row = (await conn.execute(select(Channel.__table__).where(Channel.id == values['id']))).mappings().one()
+        assert dict(after_row) == dict(before_row), 'Do not infer and shift historical time zones'
+        if scenario in {'drift', 'type_drift'}:
+            assert await defaults(conn) == before_defaults
+    if scenario in {'success', 'rollback'}:
+        # Raw INSERT consumes the stored upgraded DEFAULT, independently of
+        # the model expression. A non-UTC session must still persist UTC.
+        async with engine.begin() as conn:
+            await conn.execute(text("SET LOCAL TIME ZONE 'America/New_York'"))
+            stamp = await conn.scalar(text('''
+                INSERT INTO app_settings (key, value) VALUES ('synthetic-utc', 'probe')
+                RETURNING updated_at
+            '''))
+            reference = await conn.scalar(text("SELECT CURRENT_TIMESTAMP AT TIME ZONE 'UTC'"))
+            assert abs((stamp-reference).total_seconds()) < 1
+        await check_storage(engine, 'Asia/Shanghai')
