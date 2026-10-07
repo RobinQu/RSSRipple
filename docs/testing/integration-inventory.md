@@ -428,3 +428,9 @@ V25 `dedup/test_retry_fairness.py` 在 PostgreSQL/Turso 以固定哈希录制资
 V25 准入补验：录制资源身份的实际事务测试扩至 1/4 槽、同/不同频道、正常/退避取消，在 PostgreSQL/Turso 各验证八种组合。`test_metadata_concurrency.py` 验证排队后出现重试的重新检查、频道等待不占容量、等待取消以及多个重试持有者全部结束后才放行。原回填 30/10 计数及 publication 原子性断言保留；此专项不替代新运行代码的完整双门禁。
 
 `dedup/test_retry_admission.py` 使用固定 SHA 的生产导出中 40 条不同作品资源身份，在双库生产 fetch 入口选择前 30 条；元数据未命中结果和竞争时序为显式合成。Turso 通过实际 publication counter 提交制造旧快照冲突，必须最终持久化 30 条尝试、10 条未尝试及 30 条唯一发布。观察采用新会话，避免父会话 identity map 的旧值。此用例旧实现稳定提交 29 条，补修为 30 条；PostgreSQL 同样验证持久化结果，不要求两后端产生相同重试次数。
+
+### 海报缓存发布
+
+`posters/test_cache_publication.py` 使用已录制 Bangumi JPEG（147157 字节，源语料和响应体固定 SHA-256），通过本地真实 HTTP 回放，覆盖成功/重复命中、部分磁盘写入、旧前缀截断、等长损坏、事件循环线程检查、收据写入及两次替换故障、两线程同时暂存。`test_cache_crash.py` 在实际子进程暂存/图片发布后执行 os._exit，验证重新下载及命中恢复；不删除另一个写入者留下的暂存文件。来源图片真实，服务 origin、故障与并发历史明确合成；不访问外部提供者或生产目录。
+
+海报扩展验收 `test_cache_contract.py` 覆盖缺失/非法/旧版本/错哈希收据重取、StaticFiles JPEG MIME/长度/哈希响应、两独立进程同时发布，以及新文件 umask 和既有权限保留；与崩溃及文件故障组合共 22 项。静态合同测试验证挂载服务响应，不将其称作额外的认证流程验证。

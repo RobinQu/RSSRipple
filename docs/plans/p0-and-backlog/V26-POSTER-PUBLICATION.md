@@ -90,3 +90,10 @@ V25 漏项已以 `cf1c785` 补合入，已确认提交对象与原 bq/br 完整�
 r 实际退出 0：**3675 passed、17 skipped、24 warnings、2482.28 秒**；汇总覆盖率 **89.39%（21704/24279）**，85% 门禁退出 0。两应用 SIGINT 后实际退出 0/0；五份覆盖率、JUnit、语料报告在删除 runner 前成功导出。跳过与 V25 br 完全一致，6084 冻结输入及 10 文件 main 基线无变化。compose down 后补删已停止命名 runner 和专用卷，容器/网络/卷标签均为空。详见 [r 审计](probes/poster-publication-r-audit.json)。
 
 q 单元/API 仍运行，继续以 [q/r](probes/poster-publication-q-r-running.json) 续接，不再轮询已终态 r。尚未批准 V26 合入；旧 n 失败证据不撤销，当前仅 r 门禁通过。
+
+
+## q/r 最终验收
+
+q 完整单元/API 实际退出 0：**4181 passed、12 skipped、15 warnings、3090.70 秒**，覆盖率 **96.96%（23540/24279）**。12 项跳过与 V25 bq 相同，6084 冻结输入未变，独立 PostgreSQL 清理后容器/网络/卷均为空。[q 审计](probes/poster-publication-q-audit.json)。此前 r 已完整验收，原 n 的两项失败及父批遗漏纠正记录保留。
+
+终审见 [V26-REVIEW](V26-REVIEW.md#pqr-最终审查批准合入)：批准合入。原始候选与正式候选的完整范围均重新推导无漏项；10 个有效文件已逐字节同步本地主干工作树，全部 3292 个非计划输入与通过的候选一致，主干无缓存 Ruff 和 diff-check 通过。海报残缺缓存项从 pending-only TODO 移除；未知暂存与未引用种子的生命周期回收仍待处理。提交对象验证由 [验收摘要](probes/poster-publication-q-r-accepted.json) 记录。

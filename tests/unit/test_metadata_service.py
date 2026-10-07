@@ -256,7 +256,7 @@ async def test_download_poster_unrecognized_content_not_cached(tmp_path, monkeyp
     """Non-image bytes (e.g. an HTML error page) must not be cached as .jpg."""
     ms.settings.poster_cache_dir = str(tmp_path)
     async def _fake_to_thread(fn, *a, **kw):
-        return fn()
+        return fn(*a, **kw)
     import asyncio
     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
     class _Resp:
@@ -277,7 +277,7 @@ async def test_download_poster_unrecognized_content_not_cached(tmp_path, monkeyp
 def _patch_poster_download(monkeypatch, tmp_path, content: bytes):
     ms.settings.poster_cache_dir = str(tmp_path)
     async def _fake_to_thread(fn, *a, **kw):
-        return fn()
+        return fn(*a, **kw)
     import asyncio
     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
     class _Resp:
@@ -316,7 +316,7 @@ async def test_download_poster_sniffs_jpeg(tmp_path, monkeypatch):
 async def test_download_poster_download_failure_returns_none(tmp_path, monkeypatch):
     ms.settings.poster_cache_dir = str(tmp_path)
     async def _fake_to_thread(fn, *a, **kw):
-        return fn()
+        return fn(*a, **kw)
     import asyncio
     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
     class _Client:
@@ -331,14 +331,17 @@ async def test_download_poster_download_failure_returns_none(tmp_path, monkeypat
     assert url is None
 
 
-async def test_download_poster_existing_file_returns_cached(tmp_path):
-    ms.settings.poster_cache_dir = str(tmp_path)
-    import hashlib
+async def test_download_poster_existing_file_returns_cached(tmp_path, monkeypatch):
+    # Only a completed publication with its receipt is a cache hit. Legacy
+    # partial-file misses are covered by the real HTTP/filesystem suite.
+    content = b"\xff\xd8\xff\xe0" + b"\x00" * 32
+    _patch_poster_download(monkeypatch, tmp_path, content)
     remote = "https://example.com/existing.jpg"
-    digest = hashlib.sha256(remote.encode()).hexdigest()[:16]
-    (tmp_path / f"{digest}.jpg").write_bytes(b"x")
-    out = await ms.download_and_cache_poster(remote)
-    assert out == f"/posters/{digest}.jpg"
+    expected = await ms.download_and_cache_poster(remote)
+    assert expected is not None
+    with patch.object(ms.outbound_http, "client") as download:
+        assert await ms.download_and_cache_poster(remote) == expected
+        download.assert_not_called()
 
 
 async def test_search_metadata_via_llm_delegates_to_agent(monkeypatch):
@@ -533,7 +536,7 @@ async def test_download_and_cache_poster_writes_file(tmp_path, monkeypatch):
         return b"\xff\xd8\xff\xe0fakedata"
 
     async def _fake_to_thread(fn, *a, **kw):
-        return fn()
+        return fn(*a, **kw)
 
     # Patch asyncio.to_thread to run synchronously in tests
     import asyncio
@@ -1608,10 +1611,9 @@ async def test_download_and_cache_poster_write_failure(tmp_path, monkeypatch):
     ms.settings.poster_cache_dir = str(tmp_path)
 
     async def _fake_to_thread(fn, *a, **kw):
-        return fn()
+        return fn(*a, **kw)
 
     import asyncio
-    import hashlib
 
     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
 
@@ -1636,17 +1638,12 @@ async def test_download_and_cache_poster_write_failure(tmp_path, monkeypatch):
 
     import httpx
     monkeypatch.setattr(httpx, "Client", _Client)
-    digest = hashlib.sha256(b"https://x/fail.jpg").hexdigest()[:16]
-    from pathlib import Path
+    from app.services import poster_cache
 
-    real_write = Path.write_bytes
+    def _fail_write(handle, data):
+        raise OSError("disk full")
 
-    def _fail_write(self, data):
-        if self.name == f"{digest}.jpg":
-            raise OSError("disk full")
-        return real_write(self, data)
-
-    monkeypatch.setattr(Path, "write_bytes", _fail_write)
+    monkeypatch.setattr(poster_cache, "_write_bytes", _fail_write)
     assert await ms.download_and_cache_poster("https://x/fail.jpg") is None
 
 

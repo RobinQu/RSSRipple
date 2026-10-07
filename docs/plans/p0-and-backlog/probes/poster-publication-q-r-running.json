@@ -9,11 +9,11 @@
   "scope_audit": "poster-publication-p-scope.json",
   "ruff_no_cache_exit": 0,
   "unit": {
-    "status": "running",
+    "status": "complete",
     "session": 93832,
     "log": "/tmp/rssripple-v26-unit-q.log",
     "junit": "/tmp/rssripple-v26-unit-q.xml",
-    "coverage": "/tmp/rssripple-v26-unit-q-coverage.xml",
+    "coverage": "96.96%",
     "coverage_data": "/tmp/rssripple-v26-unit-q.coverage",
     "postgres_project": "rssripple-v26-unit-q",
     "postgres_compose": "/tmp/rssripple-v25-compose.yml",
@@ -22,7 +22,10 @@
     "preflight_exit": 0,
     "preflight_passed": 11,
     "threshold": 95,
-    "cleanup": "pending"
+    "cleanup": "complete",
+    "exit_code": 0,
+    "passed": 4181,
+    "audit": "poster-publication-q-audit.json"
   },
   "integration": {
     "status": "complete",

@@ -15,7 +15,6 @@ using a sha256-based filename, and the DB pointer is updated to /posters/<file>.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
 import re
 from datetime import date, datetime
@@ -316,6 +315,8 @@ async def download_and_cache_poster(remote_url: str | None) -> str | None:
     downloaded bytes (:func:`_sniff_image_ext`), never from the URL. Returns
     the local URL path ``/posters/<filename>`` on success, or None on failure
     (including unrecognized/non-image content, which is not cached).
+    Cache hits require an integrity receipt; legacy entries are re-fetched.
+    All disk work and HTTP run off the event loop, with atomic file publication.
     Skips URLs that are already local (``/posters/...``).
     """
     if not remote_url:
@@ -326,15 +327,6 @@ async def download_and_cache_poster(remote_url: str | None) -> str | None:
         return None
     if not settings.poster_cache_dir:
         return None
-
-    cache_dir = Path(settings.poster_cache_dir)
-    cache_dir.mkdir(parents=True, exist_ok=True)
-
-    digest = hashlib.sha256(remote_url.encode("utf-8")).hexdigest()[:16]
-    # Already cached under any known extension.
-    for ext in ("jpg", "jpeg", "png", "webp", "gif", "svg"):
-        if (cache_dir / f"{digest}.{ext}").exists():
-            return f"/posters/{digest}.{ext}"
 
     def _download() -> bytes | None:
         try:
@@ -354,21 +346,11 @@ async def download_and_cache_poster(remote_url: str | None) -> str | None:
             logger.warning("[poster] download failed %s: %s", remote_url[:80], e)
             return None
 
-    content = await asyncio.to_thread(_download)
-    if not content:
-        return None
-    ext = _sniff_image_ext(content)
-    if ext is None:
-        logger.warning("[poster] unrecognized image content %s", remote_url[:80])
-        return None
-    filename = f"{digest}.{ext}"
-    local_path = cache_dir / filename
-    try:
-        local_path.write_bytes(content)
-        return f"/posters/{filename}"
-    except Exception as e:
-        logger.warning("[poster] write failed %s: %s", filename, e)
-        return None
+    from app.services.poster_cache import cache_poster
+
+    return await asyncio.to_thread(
+        cache_poster, Path(settings.poster_cache_dir), remote_url, _download, _sniff_image_ext,
+    )
 
 
 # ---------------------------------------------------------------------------

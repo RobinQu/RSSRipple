@@ -1,0 +1,17 @@
+{
+  "main_base": "44e05d7990c73b00b3c5180e8b0a2da9fe7324e3",
+  "candidate": "/tmp/rssripple-v26-poster-9664k0pl",
+  "derived_effective_files": [
+    "app/services/metadata_service.py",
+    "app/services/poster_cache.py",
+    "docs/design/conventions.md",
+    "docs/testing/integration-inventory.md",
+    "tests/integration/posters/poster_crash_driver.py",
+    "tests/integration/posters/test_cache_contract.py",
+    "tests/integration/posters/test_cache_crash.py",
+    "tests/integration/posters/test_cache_io_failures.py",
+    "tests/integration/posters/test_cache_publication.py",
+    "tests/unit/test_metadata_service.py"
+  ],
+  "manifest_complete": true
+}

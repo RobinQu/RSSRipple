@@ -1,0 +1,20 @@
+{
+  "main_base": "ef3c2d82a729c83856fcddae9cdd646fec3dc6af",
+  "candidate": "/tmp/rssripple-v27-work-fk-j9q729vt",
+  "derived_effective_files": [
+    "app/database.py",
+    "app/models/file_resource.py",
+    "app/services/resource_work_schema.py",
+    "docs/design/data-models.md",
+    "docs/design/db-migration.md",
+    "docs/testing/integration-inventory.md",
+    "tests/integration/resource_work_fk/conftest.py",
+    "tests/integration/resource_work_fk/test_catalog_guards.py",
+    "tests/integration/resource_work_fk/test_constraint.py",
+    "tests/integration/resource_work_fk/test_legacy.py",
+    "tests/integration/resource_work_fk/test_service_transitions.py",
+    "tests/unit/test_database_migrations.py"
+  ],
+  "manifest_complete": true,
+  "additional_parent_guard_test": "tests/integration/resource_work_fk/test_parent_guard_interaction.py from o source"
+}
