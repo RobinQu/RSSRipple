@@ -28,7 +28,28 @@
     "tests/integration/loading/test_list_boundaries.py"
   ],
   "main_worktree_applied": true,
-  "code_commit": null,
+  "code_commit": "a78e53d57ed6d0f41e6a53bec940c8eb9b874b7a",
   "remote_pushed": false,
-  "deployed": false
+  "deployed": false,
+  "commit_non_plan_scope_verified": [
+    "app/api/v1/agents.py",
+    "app/api/v1/channels.py",
+    "app/job_handlers.py",
+    "app/models/agent.py",
+    "app/models/channel.py",
+    "app/schemas/agent.py",
+    "app/services/agent_service.py",
+    "app/services/fetch_service.py",
+    "docs/design/api-endpoints.md",
+    "docs/design/business-logic.md",
+    "docs/design/data-models.md",
+    "docs/testing/integration-inventory.md",
+    "tests/integration/loading/conftest.py",
+    "tests/integration/loading/test_list_boundaries.py"
+  ],
+  "commit_file_sha256_verified": true,
+  "full_non_plan_input_hashes_verified": 3306,
+  "ruff_no_cache_exit": 0,
+  "diff_check_exit": 0,
+  "original_p0_fix_ancestors_verified": true
 }
