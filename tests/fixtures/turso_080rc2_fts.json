@@ -1,0 +1,41 @@
+{
+  "engine": "0.8.0rc2",
+  "corpus_sha256": "d11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32",
+  "database_sha256": "bbb7eaa68243fa2b865ca0968d80271ed3088bd31f8d48321b85067eff922ee8",
+  "archive_sha256": "65433474cf5263f4d6b2207d6f7e1edc92f322c2cc665f1f980790dab91bfe2f",
+  "entries": {
+    "tv_series_fts": {
+      "values": {
+        "title_cn": "伪恋",
+        "title_en": "ニセコイ",
+        "original_title": "ニセコイ",
+        "aliases": "伪恋 ニセコイ",
+        "id": "d008e00f-5e44-4747-ae2d-1d0ed5958837"
+      },
+      "query": "伪恋",
+      "provenance": "captured tv_series first row"
+    },
+    "movie_fts": {
+      "values": {
+        "title_cn": "哈姆奈特",
+        "title_en": "hamnet",
+        "original_title": "hamnet",
+        "aliases": "hamnet hamnet (2025)",
+        "id": "00f42b95-51bc-4c05-bb6b-9375992d8ed6"
+      },
+      "query": "hamnet",
+      "provenance": "captured movies first row"
+    },
+    "audio_work_fts": {
+      "values": {
+        "id": "d555c631-fcb3-46bf-bcea-79505b988165",
+        "title_cn": "合成音声",
+        "title_en": "synthetic audio",
+        "original_title": "",
+        "aliases": ""
+      },
+      "query": "synthetic",
+      "provenance": "synthetic; corpus contains no audio works"
+    }
+  }
+}

@@ -119,13 +119,21 @@ async def ensure_fts_tables() -> None:
     if "turso" not in settings.database_url and _FTS_ENGINE is None:
         return
     engine = _get_fts_engine()
+    created = []
     async with engine.begin() as conn:
         for table in _SHADOW_TABLES:
             try:
                 await conn.execute(text(_CREATE_SHADOW.format(table=table)))
                 await conn.execute(text(_CREATE_INDEX.format(table=table)))
+                created.append(table)
             except Exception as e:
                 logger.warning("[fts] Could not create FTS objects for %s: %s", table, e)
+
+    from app.services.fts_index_upgrade import upgrade_legacy_index
+
+    for table in created:
+        if await upgrade_legacy_index(engine, table, _CREATE_INDEX.format(table=table)):
+            logger.info("[fts] Rebuilt legacy native index for %s", table)
 
 
 # ---------------------------------------------------------------------------

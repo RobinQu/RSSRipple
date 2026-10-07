@@ -359,3 +359,9 @@ Turso CONCURRENT 的外键引用写入不提供 PostgreSQL 的父行 KEY SHARE �
 新建表的 `ck_file_resources_work_fk` CHECK 限制 series/movie/audio 三个 FK 至多一个非空，collection 不在互斥集合。`Base.metadata.create_all` 不会替现存表添加 CHECK；实际启动在列补齐后升级保护。PostgreSQL 在启动 advisory lock 与事务中取得表锁，审阅历史违规及同名 CHECK 定义，再安装并 VALIDATE（含既有 NOT VALID 约束）。Turso/SQLite 独立开启普通 BEGIN 的 DDL 事务；无原生 CHECK 时安装 `ck_file_resources_work_fk_insert/update` 两个拒绝触发器，安装失败一起回滚。不能用隐式 CONCURRENT DML 开启这段 DDL 事务，也不能提交调用方的业务事务来切换模式。后续 FK 表重建保留已安装触发器。
 
 已有违规行或同名保护定义漂移会阻止启动，错误仅报告采样资源 ID，不自动清空、删除或猜测工作身份。先备份数据库、停写并逐条审阅来源证据，人工修正关联后再运行启动升级。此阶段不改写历史资源值；此前独立提交的轻量列迁移可能已生效，不宣称整个启动流程原子回滚。原生 CHECK 已存在时无需重复安装触发器。每次启动的历史扫描/表锁成本尚无生产规模测量；V27 候选的专项测试不替代最终完整门禁或生产迁移验收。
+
+## Turso 原生 FTS 索引格式升级
+
+升级 pyturso 至 0.8.2 时，旧版本主库文件继续走既有启动迁移；FTS 边车的旧原生索引可能报存储格式不兼容。`ensure_fts_tables` 在建表/索引后对各已创建的索引执行真实 `fts_match` 探测，仅对明确包含当前索引名的旧格式错误进行重建。重建在独立事务中 DROP/CREATE 对应派生索引，保留 shadow 表和全部业务主库数据，并在提交前再次探测。正常索引不会在每次启动重复重建。
+
+非旧格式的探测错误和重建失败向调用方传播，不把升级记作成功；失败或进程退出后可在下次启动重试。FTS 文件仍为派生缓存，无需修改主库作品、关联、人工保护字段或 outbox 来迁移索引。升级前按既有运维流程备份主库及边车，停旧进程后启动新版本；不承诺新版本写入后的文件可用旧驱动直接降级打开。旧格式夹具、三个强制退出点和失败重试用例见 `tests/integration/database/test_turso_fts_upgrade.py`。

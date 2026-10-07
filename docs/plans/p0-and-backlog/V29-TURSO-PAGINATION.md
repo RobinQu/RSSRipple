@@ -1,6 +1,6 @@
 # V29 Turso 分页正确性与升级兼容性
 
-状态：已正式重基至 V27 验收后的 `1cd4775`，11 文件候选、6384 输入冻结，265 项组合预检通过。u 完整集成 3845 passed、17 skipped、29 warnings、2648.50 秒，runner/覆盖率汇总均退出 0，覆盖率 21801/24384（89.41%）；跳过与 V27 ac 完全一致，双应用正常退出、报告导出、清理及冻结/独立范围检查完成，见 [u 审计](probes/turso-pagination-u-audit.json)。t 完整单元/API 仍运行，最终审查待完成，未批准合入。以下早期阶段记录保留为历史，当前入口见末节与 t-u-running.json。
+状态：t/u 完整门禁、退出/跳过/冻结范围/清理审计及最终审查均通过，11 个有效文件已同步本地 main 工作树；单元/API 4183 passed、96.86%，完整集成 3845 passed、89.41%，均零失败。对应待办已移除；提交后对象核验见 [验收摘要](probes/turso-pagination-t-u-accepted.json)。以下保留历史过程。
 
 ## 必要性与优先级
 
@@ -66,3 +66,8 @@ r 组合预检：分页 API、旧 FTS 真实恢复、V27 全部双库工作 FK�
 Git 基线独立推导有效范围恰好 11 文件，6384 输入冻结，全部新 Python 输入均在清单；源与有效文件归档为 r-source/s-candidate，冻结/范围见 s-frozen/s-scope。候选路径 `/tmp/rssripple-v29-rebased-z_y0t6x8`，禁止修改在跑输入。
 
 完整单元/API t 使用独立新驱动环境、专用 PG rssripple-v29-unit-t（32890），句柄 **52849**；完整隔离集成 u 使用新镜像、项目 rssripple-v29-final-u，句柄 **62185**，runner 保留供报告导出。两次 startup 均退出 0。完整门禁未结束，不关闭 TODO；后续必须审计实际退出、V27 ab/ac 跳过差异、6384 输入、覆盖率导出和全部资源清理。续接机器记录见 [t/u running](probes/turso-pagination-t-u-running.json)，阶段审查见 [V29-REVIEW](V29-REVIEW.md)。
+
+
+## t/u 最终验收
+
+t 实际退出 0：4183 passed、12 skipped、15 warnings、3139.57 秒，23618/24384（96.86%）。u 实际退出 0：3845 passed、17 skipped、29 warnings、2648.50 秒，21801/24384（89.41%），覆盖率汇总退出 0。12/17 个跳过及原因与已接受 V27 ab/ac 完全一致，6384 冻结输入不变，Git 独立推导范围仍为 11 文件。两应用退出 0/0，五份原始覆盖率、四份语料报告和 JUnit 已导出；unit PG 与集成项目清理后标签为空。五轴终审批准合入，复制后全部 3304 非计划输入哈希匹配，main 全仓无缓存 Ruff 与 diff-check 通过。依赖仅 pyturso 升至 0.8.2；升级前仍须停止旧进程、备份主库与 FTS 边车，不承诺无中断或驱动回退兼容。本次未部署或推送。

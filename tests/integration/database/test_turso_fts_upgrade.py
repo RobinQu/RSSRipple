@@ -1,0 +1,185 @@
+"""Real old-format native indexes, recorded titles and interruption recovery."""
+
+import gzip
+import hashlib
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+from sqlalchemy import event, text
+from sqlalchemy.ext.asyncio import create_async_engine
+
+from app.services import fts
+
+FIXTURES = Path(__file__).parents[2] / "fixtures"
+MANIFEST = json.loads((FIXTURES / "turso_080rc2_fts.json").read_text())
+
+
+def restore_old(tmp_path):
+    archive = (FIXTURES / "turso_080rc2_fts.db.gz").read_bytes()
+    assert hashlib.sha256(archive).hexdigest() == MANIFEST["archive_sha256"]
+    content = gzip.decompress(archive)
+    assert hashlib.sha256(content).hexdigest() == MANIFEST["database_sha256"]
+    path = tmp_path / "main_fts.db"
+    path.write_bytes(content)
+    return path
+
+
+def make_engine(path):
+    return create_async_engine(
+        f"sqlite+aioturso:///{path}?experimental_features=index_method",
+        pool_size=1, max_overflow=0,
+    )
+
+
+async def assert_rows_and_search(engine):
+    for table, entry in MANIFEST["entries"].items():
+        async with engine.connect() as connection:
+            row = (await connection.execute(text(f"SELECT * FROM {table}"))).mappings().one()
+            assert dict(row) == {("entity_id" if k == "id" else k): v for k, v in entry["values"].items()}
+        ids = await fts._search_fts(table, entry["query"], 20)
+        assert ids == [entry["values"]["id"]]
+
+
+async def test_legacy_sidecar_upgrade_preserves_captured_titles_and_is_idempotent(tmp_path, monkeypatch):
+    engine = make_engine(restore_old(tmp_path))
+    monkeypatch.setattr(fts, "_FTS_ENGINE", engine)
+    drops = []
+
+    @event.listens_for(engine.sync_engine, "before_cursor_execute")
+    def record_drop(conn, cursor, statement, parameters, context, executemany):
+        if statement.startswith("DROP INDEX"):
+            drops.append(statement)
+
+    try:
+        await fts.ensure_fts_tables()
+        await assert_rows_and_search(engine)
+        assert len(drops) == 3
+        await fts.ensure_fts_tables()
+        await assert_rows_and_search(engine)
+        assert len(drops) == 3
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.parametrize("phase", ["before_drop", "after_drop", "after_create"])
+async def test_process_exit_during_upgrade_can_resume(tmp_path, monkeypatch, phase):
+    path = restore_old(tmp_path)
+    # Child owns the sidecar exclusively. A real abrupt exit exercises journal recovery.
+    code = '''
+import asyncio, os
+from sqlalchemy import event
+from app import database
+from app.services import fts
+engine = fts._get_fts_engine()
+seen_drop = False
+@event.listens_for(engine.sync_engine, 'before_cursor_execute')
+def before(conn, cursor, sql, params, context, many):
+    global seen_drop
+    if sql.startswith('DROP INDEX'):
+        seen_drop = True
+        if os.environ['EXIT_PHASE'] == 'before_drop': os._exit(73)
+@event.listens_for(engine.sync_engine, 'after_cursor_execute')
+def after(conn, cursor, sql, params, context, many):
+    phase = os.environ['EXIT_PHASE']
+    if sql.startswith('DROP INDEX') and phase == 'after_drop': os._exit(73)
+    if seen_drop and sql.strip().startswith('CREATE INDEX') and phase == 'after_create': os._exit(73)
+asyncio.run(fts.ensure_fts_tables())
+'''
+    env = dict(os.environ, DATABASE_URL=f"sqlite+aioturso:///{tmp_path / 'main.db'}", EXIT_PHASE=phase)
+    result = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, timeout=45)
+    assert result.returncode == 73, result.stderr
+    engine = make_engine(path)
+    monkeypatch.setattr(fts, "_FTS_ENGINE", engine)
+    try:
+        await fts.ensure_fts_tables()
+        await assert_rows_and_search(engine)
+        await fts.ensure_fts_tables()
+        await assert_rows_and_search(engine)
+    finally:
+        await engine.dispose()
+
+
+async def test_failed_rebuild_propagates_and_retries_without_losing_shadow_rows(tmp_path, monkeypatch):
+    engine = make_engine(restore_old(tmp_path))
+    monkeypatch.setattr(fts, "_FTS_ENGINE", engine)
+    dropped = False
+
+    def fail_rebuild(conn, cursor, statement, parameters, context, executemany):
+        nonlocal dropped
+        if statement.startswith("DROP INDEX"):
+            dropped = True
+        if dropped and statement.strip().startswith("CREATE INDEX"):
+            raise OSError("injected index creation failure")
+
+    event.listen(engine.sync_engine, "before_cursor_execute", fail_rebuild)
+    try:
+        with pytest.raises(OSError, match="injected index creation failure"):
+            await fts.ensure_fts_tables()
+        event.remove(engine.sync_engine, "before_cursor_execute", fail_rebuild)
+        await fts.ensure_fts_tables()
+        await assert_rows_and_search(engine)
+    finally:
+        await engine.dispose()
+
+
+async def test_fresh_empty_sidecar_does_not_need_rebuild(tmp_path, monkeypatch):
+    engine = make_engine(tmp_path / "empty.db")
+    monkeypatch.setattr(fts, "_FTS_ENGINE", engine)
+    statements = []
+
+    @event.listens_for(engine.sync_engine, "before_cursor_execute")
+    def record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    try:
+        await fts.ensure_fts_tables()
+        await fts.ensure_fts_tables()
+        for table in MANIFEST["entries"]:
+            assert await fts._search_fts(table, "synthetic", 20) == []
+        assert not any(sql.startswith("DROP INDEX") for sql in statements)
+    finally:
+        await engine.dispose()
+
+
+async def test_missing_index_is_recreated_from_preserved_shadow_rows(tmp_path, monkeypatch):
+    engine = make_engine(restore_old(tmp_path))
+    monkeypatch.setattr(fts, "_FTS_ENGINE", engine)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text("DROP INDEX movie_fts_idx"))
+        await fts.ensure_fts_tables()
+        await assert_rows_and_search(engine)
+    finally:
+        await engine.dispose()
+
+
+async def test_unrelated_database_error_is_not_treated_as_legacy_format(tmp_path, monkeypatch):
+    from sqlalchemy.exc import DatabaseError
+
+    from app.services.fts_index_upgrade import upgrade_legacy_index
+
+    engine = make_engine(restore_old(tmp_path))
+    monkeypatch.setattr(fts, "_FTS_ENGINE", engine)
+    try:
+        # A missing table is a real non-format SQL error at the upgrade boundary.
+        # Normal startup creates missing tables before invoking this helper.
+        async with engine.begin() as connection:
+            await connection.execute(text("DROP TABLE tv_series_fts"))
+        drops = []
+
+        @event.listens_for(engine.sync_engine, "before_cursor_execute")
+        def record(conn, cursor, statement, parameters, context, executemany):
+            if statement.startswith("DROP INDEX"):
+                drops.append(statement)
+
+        with pytest.raises(DatabaseError):
+            await upgrade_legacy_index(engine, "tv_series_fts", fts._CREATE_INDEX.format(table="tv_series_fts"))
+        assert drops == []
+        async with engine.connect() as connection:
+            assert await connection.scalar(text("SELECT COUNT(*) FROM movie_fts")) == 1
+    finally:
+        await engine.dispose()

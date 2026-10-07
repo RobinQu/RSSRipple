@@ -443,3 +443,8 @@ V25 准入补验：录制资源身份的实际事务测试扩至 1/4 槽、同/�
 V27 候选 `test_legacy.py` 经实际 create_tables 连续两次升级验证相同全组合，另覆盖历史违规、同名保护漂移、第二段 DDL 失败回滚，以及缺失 audio_work_id 的补列/FK 表重建、跨类型单次更新与 ON DELETE SET NULL。`test_service_transitions.py` 使用录制作品身份及显式合成编辑/错分状态，通过实际 associations、metadata 持久化与 rehome 服务在新旧双库中提交和重读。上述阶段证据不代表 V27 已验收合入。
 
 `test_catalog_guards.py` 补同名原生 CHECK 阈值/括号语义漂移、PG NOT VALID 合法/违规历史和实际验证标记、PG 扫描至提交的写锁间隙，以及 Turso 旧物理快照在新保护提交后被 schema conflict 拒绝；失败必须保留录制资源和已有定义。
+
+### Turso 分页与原生 FTS 格式升级
+
+- `database/test_turso_decision_order.py`：录制电影/资源候选，明确合成的 64/8192 条历史；实际 API 的已知顺序、首/中/末/越界页、总数和候选内容，含索引对照。
+- `database/test_turso_fts_upgrade.py`：0.8.0rc2 生成的真实原生索引文件（压缩夹具及哈希 manifest），录制剧集/电影标题、合成音声；首次升级、幂等、缺失索引、空边车、非格式 SQL 错误、失败重试，以及 DROP 前/后和 CREATE 后真实进程退出恢复。三类搜索均断言原生 FTS 命中，不依赖 LIKE 回退。

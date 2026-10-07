@@ -1,0 +1,16 @@
+{
+  "accepted": true,
+  "source": "turso-pagination-r-source.json",
+  "unit_audit": "turso-pagination-t-audit.json",
+  "integration_audit": "turso-pagination-u-audit.json",
+  "review": "V29-REVIEW.md",
+  "effective_files": 11,
+  "frozen_inputs": 6384,
+  "non_plan_inputs_verified_after_copy": 3304,
+  "main_worktree_applied": true,
+  "code_commit": null,
+  "ruff_no_cache_exit": 0,
+  "diff_check_exit": 0,
+  "remote_pushed": false,
+  "production_deployed": false
+}

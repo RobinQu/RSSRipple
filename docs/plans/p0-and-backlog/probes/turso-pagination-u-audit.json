@@ -163,7 +163,7 @@
     "networks": [],
     "volumes": []
   },
-  "unit_pending": true,
-  "final_review_pending": true,
+  "unit_pending": false,
+  "final_review_pending": false,
   "runtime_main_changed": false
 }
