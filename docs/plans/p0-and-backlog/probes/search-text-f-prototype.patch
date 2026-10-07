@@ -1,0 +1,125 @@
+--- a/app/database.py
++++ b/app/database.py
+@@ -618,6 +618,10 @@
+             await conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} {ddl}'))
+             logger.info("[migrate] added column %s.%s", table, column)
+ 
++    from app.services.search_text_schema import ensure_search_text_columns
++
++    await ensure_search_text_columns(conn)
++
+     # Match fresh-schema uniqueness on upgraded tables. Do not silently
+     # continue without this invariant or guess which legacy row to discard:
+     # conflicting databases must finish the season-split migration first.
+--- a/app/models/audio_work.py
++++ b/app/models/audio_work.py
+@@ -10,7 +10,7 @@
+ import uuid
+ from datetime import date, datetime
+ 
+-from sqlalchemy import JSON, Date, DateTime, Float, Integer, String, func
++from sqlalchemy import JSON, Date, DateTime, Float, Integer, String, Text, func
+ from sqlalchemy.orm import Mapped, mapped_column, relationship
+ 
+ from app.database import Base
+@@ -30,7 +30,7 @@
+     # aliases through ``normalize_title``), maintained by the ORM before_flush
+     # hook. Indexed with pg_trgm GIN on PostgreSQL; Turso mirrors it into the
+     # FTS sidecar via the fts_outbox drain.
+-    search_text: Mapped[str | None] = mapped_column(String(4096), nullable=True)
++    search_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+     external_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+     external_source: Mapped[str | None] = mapped_column(String(100), nullable=True)
+     description: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+--- a/app/models/movie.py
++++ b/app/models/movie.py
+@@ -3,7 +3,7 @@
+ import uuid
+ from datetime import date, datetime
+ 
+-from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Integer, String, func
++from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, func
+ from sqlalchemy.orm import Mapped, mapped_column, relationship
+ 
+ from app.database import Base
+@@ -23,7 +23,7 @@
+     # aliases through ``normalize_title``), maintained by the ORM before_flush
+     # hook. Indexed with pg_trgm GIN on PostgreSQL; Turso mirrors it into the
+     # FTS sidecar via the fts_outbox drain.
+-    search_text: Mapped[str | None] = mapped_column(String(4096), nullable=True)
++    search_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+     external_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+     external_source: Mapped[str | None] = mapped_column(String(100), nullable=True)
+     description: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+--- a/app/models/series.py
++++ b/app/models/series.py
+@@ -3,7 +3,7 @@
+ import uuid
+ from datetime import date, datetime
+ 
+-from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, func, text
++from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, func, text
+ from sqlalchemy.orm import Mapped, mapped_column, relationship
+ 
+ from app.database import Base
+@@ -33,7 +33,7 @@
+     # aliases through ``normalize_title``), maintained by the ORM before_flush
+     # hook. Indexed with pg_trgm GIN on PostgreSQL; Turso mirrors it into the
+     # FTS sidecar via the fts_outbox drain.
+-    search_text: Mapped[str | None] = mapped_column(String(4096), nullable=True)
++    search_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+     external_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+     external_source: Mapped[str | None] = mapped_column(String(100), nullable=True)
+     description: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+--- a/app/models/work_collection.py
++++ b/app/models/work_collection.py
+@@ -19,7 +19,7 @@
+ import uuid
+ from datetime import datetime
+ 
+-from sqlalchemy import JSON, DateTime, String, UniqueConstraint, func
++from sqlalchemy import JSON, DateTime, String, Text, UniqueConstraint, func
+ from sqlalchemy.orm import Mapped, mapped_column, relationship
+ 
+ from app.database import Base
+@@ -46,7 +46,7 @@
+     # ``normalize_title``), maintained by the ORM before_flush hook — same
+     # logic as the work tables, but collections are NOT mirrored into the
+     # Turso FTS sidecar (works only).
+-    search_text: Mapped[str | None] = mapped_column(String(4096), nullable=True)
++    search_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+     # Fields the user edited manually; automatic metadata scans skip these
+     # (same contract as TVSeries/Movie.manually_edited_fields).
+     manually_edited_fields: Mapped[list | None] = mapped_column(JSON, nullable=True)
+--- /dev/null
++++ b/app/services/search_text_schema.py
+@@ -0,0 +1,29 @@
++"""Keep the derived search text unbounded on new and upgraded databases."""
++from sqlalchemy import text
++
++_TABLES = ("audio_works", "movies", "tv_series", "work_collections")
++
++
++async def ensure_search_text_columns(conn):
++    """Widen owned PostgreSQL columns within the caller's startup transaction.
++
++    Turso does not enforce VARCHAR length; its existing values need no rewrite.
++    Validate every column before DDL so unexpected schema is never guessed.
++    """
++    if conn.dialect.name != "postgresql":
++        return
++    rows = (await conn.execute(text(
++        "SELECT table_name, data_type, domain_name FROM information_schema.columns "
++        "WHERE table_schema = current_schema() AND column_name = 'search_text' "
++        "AND table_name IN ('audio_works', 'movies', 'tv_series', 'work_collections')"
++    ))).mappings().all()
++    columns = {row["table_name"]: row for row in rows}
++    for table in _TABLES:
++        column = columns.get(table)
++        if column is None or column["domain_name"] is not None or column["data_type"] not in {
++            "text", "character varying",
++        }:
++            raise RuntimeError(f"Unexpected search text schema: {table}.search_text")
++    for table in _TABLES:
++        if columns[table]["data_type"] == "character varying":
++            await conn.execute(text(f'ALTER TABLE "{table}" ALTER COLUMN search_text TYPE TEXT'))

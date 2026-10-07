@@ -1,0 +1,37 @@
+{
+  "base": "5846295b680af7ca6543e7e9f3c83fa6e10ec767",
+  "prototype_app_copy": "/tmp/rssripple-v33-search-902xn062",
+  "effective_files": [
+    {
+      "path": "app/database.py",
+      "baseline_sha256": "f481534754623cebd64f287ff4222f9345077d760f3f8dacd7ef053cd6fce548",
+      "candidate_sha256": "e14317982a204874b7eaed740dfa8b20f4b011d1f0930d73659ab6eb9879589f"
+    },
+    {
+      "path": "app/models/audio_work.py",
+      "baseline_sha256": "b800ecc6461447c74c9066ecbd11ce054133ddd202b6ed291ab1fa2b9d4a4450",
+      "candidate_sha256": "855f62996edab9a4bdcb214a54374387a43b2f146db5edf82f87b178ddd1108b"
+    },
+    {
+      "path": "app/models/movie.py",
+      "baseline_sha256": "7467cfe4f2f905ee2ea66c48a7bd7ac4c2820d4024ec3a6eed4413450e929f5f",
+      "candidate_sha256": "7b237c4f52d5289411015cb281ac7e95aea445a5564113a4dc11589e7004da7a"
+    },
+    {
+      "path": "app/models/series.py",
+      "baseline_sha256": "44fb96cf7e3588d03bb6ab502a15db60f346391f4c1f196d2698590259290040",
+      "candidate_sha256": "386acee418606ff3040812a4b32c6a04ee02a51c52d7fc40dde31b0cd4be8a90"
+    },
+    {
+      "path": "app/models/work_collection.py",
+      "baseline_sha256": "ad510405783eb8eb5826c24dd4ec546db3fea560a5400efb9dc3673309783608",
+      "candidate_sha256": "e71c4206c1a4f27170a09d1a55a68c9824624bd53ebc1e466cac163643a47655"
+    },
+    {
+      "path": "app/services/search_text_schema.py",
+      "baseline_sha256": null,
+      "candidate_sha256": "8dfd1475b7e1c6a552954f0d61305ede9f72533b13ada86997701a5f50919f85"
+    }
+  ],
+  "status": "partial runtime prototype; not a full frozen candidate or accepted change"
+}

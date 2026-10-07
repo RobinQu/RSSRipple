@@ -1,0 +1,739 @@
+{
+  "baseline": "5846295",
+  "actual_exit_codes": {
+    "pg_a": 1,
+    "turso_b": 0,
+    "upgrade_c": 1,
+    "upgrade_d": 1,
+    "upgrade_e": 0,
+    "pg_f": 0,
+    "compose_startup": 0,
+    "compose_cleanup": 0
+  },
+  "pg_a": {
+    "fixture_sha256": "d11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32",
+    "backend": "postgresql",
+    "recorded_inventory": {
+      "movies": {
+        "recorded_rows": 22,
+        "max_normalized_search_length": 311
+      },
+      "tv_series": {
+        "recorded_rows": 65,
+        "max_normalized_search_length": 501
+      },
+      "audio_works": {
+        "recorded_rows": 0,
+        "max_normalized_search_length": 0
+      },
+      "work_collections": {
+        "recorded_rows": 37,
+        "max_normalized_search_length": 54
+      }
+    },
+    "cases": [
+      {
+        "table": "movies",
+        "operation": "insert",
+        "length": 4095,
+        "ok": true
+      },
+      {
+        "table": "movies",
+        "operation": "insert",
+        "length": 4096,
+        "ok": true
+      },
+      {
+        "table": "movies",
+        "operation": "insert",
+        "length": 4097,
+        "ok": false,
+        "error_type": "DBAPIError",
+        "sqlstate": "22001",
+        "message": "(sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.StringDataRightTruncationError'>: value too long for type character varying(4096)\n"
+      },
+      {
+        "table": "movies",
+        "operation": "insert",
+        "length": 8192,
+        "ok": false,
+        "error_type": "DBAPIError",
+        "sqlstate": "22001",
+        "message": "(sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.StringDataRightTruncationError'>: value too long for type character varying(4096)\n"
+      },
+      {
+        "table": "movies",
+        "operation": "update",
+        "length": 4095,
+        "ok": true
+      },
+      {
+        "table": "movies",
+        "operation": "update",
+        "length": 4096,
+        "ok": true
+      },
+      {
+        "table": "movies",
+        "operation": "update",
+        "length": 4097,
+        "ok": false,
+        "error_type": "DBAPIError",
+        "sqlstate": "22001",
+        "message": "(sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.StringDataRightTruncationError'>: value too long for type character varying(4096)\n"
+      },
+      {
+        "table": "movies",
+        "operation": "update",
+        "length": 8192,
+        "ok": false,
+        "error_type": "DBAPIError",
+        "sqlstate": "22001",
+        "message": "(sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.StringDataRightTruncationError'>: value too long for type character varying(4096)\n"
+      },
+      {
+        "table": "tv_series",
+        "operation": "insert",
+        "length": 4095,
+        "ok": true
+      },
+      {
+        "table": "tv_series",
+        "operation": "insert",
+        "length": 4096,
+        "ok": true
+      },
+      {
+        "table": "tv_series",
+        "operation": "insert",
+        "length": 4097,
+        "ok": false,
+        "error_type": "DBAPIError",
+        "sqlstate": "22001",
+        "message": "(sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.StringDataRightTruncationError'>: value too long for type character varying(4096)\n"
+      },
+      {
+        "table": "tv_series",
+        "operation": "insert",
+        "length": 8192,
+        "ok": false,
+        "error_type": "DBAPIError",
+        "sqlstate": "22001",
+        "message": "(sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.StringDataRightTruncationError'>: value too long for type character varying(4096)\n"
+      },
+      {
+        "table": "tv_series",
+        "operation": "update",
+        "length": 4095,
+        "ok": true
+      },
+      {
+        "table": "tv_series",
+        "operation": "update",
+        "length": 4096,
+        "ok": true
+      },
+      {
+        "table": "tv_series",
+        "operation": "update",
+        "length": 4097,
+        "ok": false,
+        "error_type": "DBAPIError",
+        "sqlstate": "22001",
+        "message": "(sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.StringDataRightTruncationError'>: value too long for type character varying(4096)\n"
+      },
+      {
+        "table": "tv_series",
+        "operation": "update",
+        "length": 8192,
+        "ok": false,
+        "error_type": "DBAPIError",
+        "sqlstate": "22001",
+        "message": "(sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.StringDataRightTruncationError'>: value too long for type character varying(4096)\n"
+      },
+      {
+        "table": "audio_works",
+        "operation": "insert",
+        "length": 4095,
+        "ok": true
+      },
+      {
+        "table": "audio_works",
+        "operation": "insert",
+        "length": 4096,
+        "ok": true
+      },
+      {
+        "table": "audio_works",
+        "operation": "insert",
+        "length": 4097,
+        "ok": false,
+        "error_type": "DBAPIError",
+        "sqlstate": "22001",
+        "message": "(sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.StringDataRightTruncationError'>: value too long for type character varying(4096)\n"
+      },
+      {
+        "table": "audio_works",
+        "operation": "insert",
+        "length": 8192,
+        "ok": false,
+        "error_type": "DBAPIError",
+        "sqlstate": "22001",
+        "message": "(sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.StringDataRightTruncationError'>: value too long for type character varying(4096)\n"
+      },
+      {
+        "table": "audio_works",
+        "operation": "update",
+        "length": 4095,
+        "ok": true
+      },
+      {
+        "table": "audio_works",
+        "operation": "update",
+        "length": 4096,
+        "ok": true
+      },
+      {
+        "table": "audio_works",
+        "operation": "update",
+        "length": 4097,
+        "ok": false,
+        "error_type": "DBAPIError",
+        "sqlstate": "22001",
+        "message": "(sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.StringDataRightTruncationError'>: value too long for type character varying(4096)\n"
+      },
+      {
+        "table": "audio_works",
+        "operation": "update",
+        "length": 8192,
+        "ok": false,
+        "error_type": "DBAPIError",
+        "sqlstate": "22001",
+        "message": "(sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.StringDataRightTruncationError'>: value too long for type character varying(4096)\n"
+      },
+      {
+        "table": "work_collections",
+        "operation": "insert",
+        "length": 4095,
+        "ok": true
+      },
+      {
+        "table": "work_collections",
+        "operation": "insert",
+        "length": 4096,
+        "ok": true
+      },
+      {
+        "table": "work_collections",
+        "operation": "insert",
+        "length": 4097,
+        "ok": false,
+        "error_type": "DBAPIError",
+        "sqlstate": "22001",
+        "message": "(sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.StringDataRightTruncationError'>: value too long for type character varying(4096)\n"
+      },
+      {
+        "table": "work_collections",
+        "operation": "insert",
+        "length": 8192,
+        "ok": false,
+        "error_type": "DBAPIError",
+        "sqlstate": "22001",
+        "message": "(sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.StringDataRightTruncationError'>: value too long for type character varying(4096)\n"
+      },
+      {
+        "table": "work_collections",
+        "operation": "update",
+        "length": 4095,
+        "ok": true
+      },
+      {
+        "table": "work_collections",
+        "operation": "update",
+        "length": 4096,
+        "ok": true
+      },
+      {
+        "table": "work_collections",
+        "operation": "update",
+        "length": 4097,
+        "ok": false,
+        "error_type": "DBAPIError",
+        "sqlstate": "22001",
+        "message": "(sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.StringDataRightTruncationError'>: value too long for type character varying(4096)\n"
+      },
+      {
+        "table": "work_collections",
+        "operation": "update",
+        "length": 8192,
+        "ok": false,
+        "error_type": "DBAPIError",
+        "sqlstate": "22001",
+        "message": "(sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.StringDataRightTruncationError'>: value too long for type character varying(4096)\n"
+      }
+    ],
+    "passed": 16,
+    "failed": 16
+  },
+  "turso_b": {
+    "fixture_sha256": "d11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32",
+    "backend": "sqlite",
+    "recorded_inventory": {
+      "movies": {
+        "recorded_rows": 22,
+        "max_normalized_search_length": 311
+      },
+      "tv_series": {
+        "recorded_rows": 65,
+        "max_normalized_search_length": 501
+      },
+      "audio_works": {
+        "recorded_rows": 0,
+        "max_normalized_search_length": 0
+      },
+      "work_collections": {
+        "recorded_rows": 37,
+        "max_normalized_search_length": 54
+      }
+    },
+    "cases": [
+      {
+        "table": "movies",
+        "operation": "insert",
+        "length": 4095,
+        "ok": true
+      },
+      {
+        "table": "movies",
+        "operation": "insert",
+        "length": 4096,
+        "ok": true
+      },
+      {
+        "table": "movies",
+        "operation": "insert",
+        "length": 4097,
+        "ok": true
+      },
+      {
+        "table": "movies",
+        "operation": "insert",
+        "length": 8192,
+        "ok": true
+      },
+      {
+        "table": "movies",
+        "operation": "update",
+        "length": 4095,
+        "ok": true
+      },
+      {
+        "table": "movies",
+        "operation": "update",
+        "length": 4096,
+        "ok": true
+      },
+      {
+        "table": "movies",
+        "operation": "update",
+        "length": 4097,
+        "ok": true
+      },
+      {
+        "table": "movies",
+        "operation": "update",
+        "length": 8192,
+        "ok": true
+      },
+      {
+        "table": "tv_series",
+        "operation": "insert",
+        "length": 4095,
+        "ok": true
+      },
+      {
+        "table": "tv_series",
+        "operation": "insert",
+        "length": 4096,
+        "ok": true
+      },
+      {
+        "table": "tv_series",
+        "operation": "insert",
+        "length": 4097,
+        "ok": true
+      },
+      {
+        "table": "tv_series",
+        "operation": "insert",
+        "length": 8192,
+        "ok": true
+      },
+      {
+        "table": "tv_series",
+        "operation": "update",
+        "length": 4095,
+        "ok": true
+      },
+      {
+        "table": "tv_series",
+        "operation": "update",
+        "length": 4096,
+        "ok": true
+      },
+      {
+        "table": "tv_series",
+        "operation": "update",
+        "length": 4097,
+        "ok": true
+      },
+      {
+        "table": "tv_series",
+        "operation": "update",
+        "length": 8192,
+        "ok": true
+      },
+      {
+        "table": "audio_works",
+        "operation": "insert",
+        "length": 4095,
+        "ok": true
+      },
+      {
+        "table": "audio_works",
+        "operation": "insert",
+        "length": 4096,
+        "ok": true
+      },
+      {
+        "table": "audio_works",
+        "operation": "insert",
+        "length": 4097,
+        "ok": true
+      },
+      {
+        "table": "audio_works",
+        "operation": "insert",
+        "length": 8192,
+        "ok": true
+      },
+      {
+        "table": "audio_works",
+        "operation": "update",
+        "length": 4095,
+        "ok": true
+      },
+      {
+        "table": "audio_works",
+        "operation": "update",
+        "length": 4096,
+        "ok": true
+      },
+      {
+        "table": "audio_works",
+        "operation": "update",
+        "length": 4097,
+        "ok": true
+      },
+      {
+        "table": "audio_works",
+        "operation": "update",
+        "length": 8192,
+        "ok": true
+      },
+      {
+        "table": "work_collections",
+        "operation": "insert",
+        "length": 4095,
+        "ok": true
+      },
+      {
+        "table": "work_collections",
+        "operation": "insert",
+        "length": 4096,
+        "ok": true
+      },
+      {
+        "table": "work_collections",
+        "operation": "insert",
+        "length": 4097,
+        "ok": true
+      },
+      {
+        "table": "work_collections",
+        "operation": "insert",
+        "length": 8192,
+        "ok": true
+      },
+      {
+        "table": "work_collections",
+        "operation": "update",
+        "length": 4095,
+        "ok": true
+      },
+      {
+        "table": "work_collections",
+        "operation": "update",
+        "length": 4096,
+        "ok": true
+      },
+      {
+        "table": "work_collections",
+        "operation": "update",
+        "length": 4097,
+        "ok": true
+      },
+      {
+        "table": "work_collections",
+        "operation": "update",
+        "length": 8192,
+        "ok": true
+      }
+    ],
+    "passed": 32,
+    "failed": 0
+  },
+  "upgrade_e": {
+    "rollback_preserves_types_and_rows": true,
+    "upgrade_preserves_rows": true,
+    "repeat_no_ddl": true,
+    "gin_definitions_preserved": 3,
+    "row_counts": {
+      "audio_works": 6,
+      "movies": 6,
+      "tv_series": 6,
+      "work_collections": 14
+    }
+  },
+  "pg_f": {
+    "fixture_sha256": "d11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32",
+    "backend": "postgresql",
+    "recorded_inventory": {
+      "movies": {
+        "recorded_rows": 22,
+        "max_normalized_search_length": 311
+      },
+      "tv_series": {
+        "recorded_rows": 65,
+        "max_normalized_search_length": 501
+      },
+      "audio_works": {
+        "recorded_rows": 0,
+        "max_normalized_search_length": 0
+      },
+      "work_collections": {
+        "recorded_rows": 37,
+        "max_normalized_search_length": 54
+      }
+    },
+    "cases": [
+      {
+        "table": "movies",
+        "operation": "insert",
+        "length": 4095,
+        "ok": true
+      },
+      {
+        "table": "movies",
+        "operation": "insert",
+        "length": 4096,
+        "ok": true
+      },
+      {
+        "table": "movies",
+        "operation": "insert",
+        "length": 4097,
+        "ok": true
+      },
+      {
+        "table": "movies",
+        "operation": "insert",
+        "length": 8192,
+        "ok": true
+      },
+      {
+        "table": "movies",
+        "operation": "update",
+        "length": 4095,
+        "ok": true
+      },
+      {
+        "table": "movies",
+        "operation": "update",
+        "length": 4096,
+        "ok": true
+      },
+      {
+        "table": "movies",
+        "operation": "update",
+        "length": 4097,
+        "ok": true
+      },
+      {
+        "table": "movies",
+        "operation": "update",
+        "length": 8192,
+        "ok": true
+      },
+      {
+        "table": "tv_series",
+        "operation": "insert",
+        "length": 4095,
+        "ok": true
+      },
+      {
+        "table": "tv_series",
+        "operation": "insert",
+        "length": 4096,
+        "ok": true
+      },
+      {
+        "table": "tv_series",
+        "operation": "insert",
+        "length": 4097,
+        "ok": true
+      },
+      {
+        "table": "tv_series",
+        "operation": "insert",
+        "length": 8192,
+        "ok": true
+      },
+      {
+        "table": "tv_series",
+        "operation": "update",
+        "length": 4095,
+        "ok": true
+      },
+      {
+        "table": "tv_series",
+        "operation": "update",
+        "length": 4096,
+        "ok": true
+      },
+      {
+        "table": "tv_series",
+        "operation": "update",
+        "length": 4097,
+        "ok": true
+      },
+      {
+        "table": "tv_series",
+        "operation": "update",
+        "length": 8192,
+        "ok": true
+      },
+      {
+        "table": "audio_works",
+        "operation": "insert",
+        "length": 4095,
+        "ok": true
+      },
+      {
+        "table": "audio_works",
+        "operation": "insert",
+        "length": 4096,
+        "ok": true
+      },
+      {
+        "table": "audio_works",
+        "operation": "insert",
+        "length": 4097,
+        "ok": true
+      },
+      {
+        "table": "audio_works",
+        "operation": "insert",
+        "length": 8192,
+        "ok": true
+      },
+      {
+        "table": "audio_works",
+        "operation": "update",
+        "length": 4095,
+        "ok": true
+      },
+      {
+        "table": "audio_works",
+        "operation": "update",
+        "length": 4096,
+        "ok": true
+      },
+      {
+        "table": "audio_works",
+        "operation": "update",
+        "length": 4097,
+        "ok": true
+      },
+      {
+        "table": "audio_works",
+        "operation": "update",
+        "length": 8192,
+        "ok": true
+      },
+      {
+        "table": "work_collections",
+        "operation": "insert",
+        "length": 4095,
+        "ok": true
+      },
+      {
+        "table": "work_collections",
+        "operation": "insert",
+        "length": 4096,
+        "ok": true
+      },
+      {
+        "table": "work_collections",
+        "operation": "insert",
+        "length": 4097,
+        "ok": true
+      },
+      {
+        "table": "work_collections",
+        "operation": "insert",
+        "length": 8192,
+        "ok": true
+      },
+      {
+        "table": "work_collections",
+        "operation": "update",
+        "length": 4095,
+        "ok": true
+      },
+      {
+        "table": "work_collections",
+        "operation": "update",
+        "length": 4096,
+        "ok": true
+      },
+      {
+        "table": "work_collections",
+        "operation": "update",
+        "length": 4097,
+        "ok": true
+      },
+      {
+        "table": "work_collections",
+        "operation": "update",
+        "length": 8192,
+        "ok": true
+      }
+    ],
+    "passed": 32,
+    "failed": 0
+  },
+  "cleanup": {
+    "containers": [],
+    "networks": [],
+    "volumes": []
+  },
+  "limitations": [
+    "No current production data inspected",
+    "Aliases and media identities synthetic; labels recorded",
+    "No fresh PostgreSQL prototype schema, actual startup or HTTP coverage yet",
+    "d exposed prepared-statement invalidation when reusing a connection after committed DDL; e explicitly reconnects",
+    "No full gates or final approval; main runtime unchanged"
+  ]
+}
