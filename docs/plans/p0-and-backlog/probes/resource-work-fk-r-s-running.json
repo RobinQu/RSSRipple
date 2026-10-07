@@ -25,7 +25,7 @@
     "observed_failures": [
       "tests/unit/test_bangumi_relations.py::test_seed_subjects_from_all_sources"
     ],
-    "failure_observation": "Log marks FAILED; test fixture inserts both series_id and movie_id on one FileResource. Await terminal traceback and remaining failures. Frozen candidate unchanged; successor must preserve seed-source coverage with valid resource rows."
+    "failure_observation": "Independent t reproduces CHECK ck_file_resources_work_fk on old same-row series/movie fixture. Successor uses valid primary alternatives; targeted u 77 and strengthened v 3 pass. Await complete r/s failures; original frozen unchanged."
   },
   "integration": {
     "status": "running",
@@ -43,5 +43,13 @@
     "resource-work-fk-r-startup.log.gz": "d45b42528c67144909895b1b011676b989b9495c1bc266cfd2e511d05dad97c2",
     "resource-work-fk-s-startup.log.gz": "40571118cedaf2553923329addd22d6da19c9792cc8450024080d75d19de521e"
   },
-  "warning": "Require terminal zero-failure results, skip comparison to V26 q/r, full frozen input and effective scope verification, coverage exit codes, application exits, raw artifact export before cleanup, and empty project labels. Do not merge from preflight alone."
+  "warning": "Require terminal zero-failure results, skip comparison to V26 q/r, full frozen input and effective scope verification, coverage exit codes, application exits, raw artifact export before cleanup, and empty project labels. Do not merge from preflight alone.",
+  "successor": {
+    "candidate": "/tmp/rssripple-v27-fixture-ilkvds19",
+    "source": "resource-work-fk-v-source.json",
+    "targeted_results": "resource-work-fk-t-v-result.json",
+    "effective_files": 14,
+    "full_gates_started": false,
+    "runtime_unchanged": true
+  }
 }

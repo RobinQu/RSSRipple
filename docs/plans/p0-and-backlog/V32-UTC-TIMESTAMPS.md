@@ -72,3 +72,6 @@ k 全部 time_contract 集成 **41 passed、0 skipped、39.09 秒、退出 0**�
 来源由完整 Git 基线独立推导，新增文件扫描纳入，当前 **56 个有效文件**。可恢复源码见 [l-source](probes/utc-contract-l-source.json) 与 l-candidate.tar.gz，红/绿报告、退出和清理见 [j–l](probes/utc-contract-j-l-result.json)。业务逻辑和测试清单已同步到候选。
 
 仍须完成 API 输出、手工字符串、SSE/队列历史与其他类型化 API 偏移输入审计、前端消费边界，再正式重基及完整双门禁。当前不是 V32 完整修复，不关闭 TODO，不批准合入。V27 r/s 冻结门禁不受此候选改动影响。
+
+
+补充下一轮输入审计入口：静态检查发现 `RetryRequest.since` / `RegenerateRequest.since`（schemas/notification.py）直接由 notifications API 传给 notify_service 的 created_at/completed_at 比较，尚未见偏移归一化；需用真实双库与明确时间窗口复现后再修改，不能仅凭搜索认定生产影响。AgentRunRequest.scan_since 在 agents API 已有 astimezone(UTC) 后去 tzinfo 的正确处理，应补边界验证并避免重复修复。

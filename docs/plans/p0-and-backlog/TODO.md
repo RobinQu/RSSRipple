@@ -57,7 +57,7 @@
 
 - [ ] 为 `series_id/movie_id/audio_work_id` 至多一非空增加 DB 约束（原评审快照 0 违规；实施前重新检查，不代表无需 DDL 迁移）。
       2026-10-07 重新扫描既有录制子集 559 条：工作 FK 违规 0，工作与 collection 合法共存 1 条；三工作 FK 字段均完整。该数据导出于 2026-09-04，不代表当前生产状态，仍按 P2 约束硬化处理。证据见 [录制预检](probes/resource-work-fk-recorded-preflight.json)。
-      V27 双库直接 SQL 全组合基线 32 failed/32 passed，确认无约束；新旧库全组合及故障回滚 134 项、缺列升级/表重建 2 项、真实服务路径 12 项通过。扩大 i 225 通过/1 个假连接失败，修正后 j 全迁移文件 50 项通过；已补原生 CHECK 漂移、NOT VALID 与双库迁移写入保护 7 项；新 V25/V26 预组合 o 的全部工作 FK 与屏障升级验证 159 项通过（含两项真实表重建后并发关联保护），专用项目已清理；V25/V26 现已验收，V27 p 正式重基到 `7da83a2`，13 文件完整范围核对和 Ruff 通过，q 双库约束/迁移预检 207 项通过、零跳过并已清理；冻结 6,183 个输入，r/s 完整单元/API 与隔离集成门禁运行中，未合入，见 [V27](V27-RESOURCE-WORK-FK.md)。
+      V27 双库直接 SQL 全组合基线 32 failed/32 passed，确认无约束；新旧库全组合及故障回滚 134 项、缺列升级/表重建 2 项、真实服务路径 12 项通过。扩大 i 225 通过/1 个假连接失败，修正后 j 全迁移文件 50 项通过；已补原生 CHECK 漂移、NOT VALID 与双库迁移写入保护 7 项；新 V25/V26 预组合 o 的全部工作 FK 与屏障升级验证 159 项通过（含两项真实表重建后并发关联保护），专用项目已清理；V25/V26 现已验收，V27 p 正式重基到 `7da83a2`，13 文件完整范围核对和 Ruff 通过，q 双库约束/迁移预检 207 项通过、零跳过并已清理；冻结 6,183 个输入，r/s 完整门禁运行中，已发现非法双 FK 旧夹具失败；独立 14 文件后继修正后关系测试 77 项及强化来源 3 项通过，仍须终态审计和后继完整重验，未合入，见 [V27](V27-RESOURCE-WORK-FK.md)。
       **不要**包含 `collection_id` 互斥（见 [PLAN.md](PLAN.md) §3，`sync_resource_collection` 刻意共存）。
       **实现**：`app/models/file_resource.py` 加 `CheckConstraint`；PostgreSQL 用
       `ALTER TABLE ... ADD CONSTRAINT`（幂等查 `pg_constraint`）；SQLite/Turso 用

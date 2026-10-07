@@ -1,0 +1,66 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v27-fixture-ilkvds19",
+  "effective_files": 14,
+  "runs": {
+    "t": {
+      "exit_code": 1,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "1",
+        "skipped": "0",
+        "tests": "1",
+        "time": "2.464",
+        "timestamp": "2026-10-07T11:00:44.923762+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    "u": {
+      "exit_code": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "77",
+        "time": "119.812",
+        "timestamp": "2026-10-07T11:01:24.967867+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    "v": {
+      "exit_code": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "3",
+        "time": "6.761",
+        "timestamp": "2026-10-07T11:03:59.090334+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    }
+  },
+  "t_failure": "Turso IntegrityError CHECK constraint failed: ck_file_resources_work_fk from same-row series_id and movie_id fixture",
+  "u_scope": "Entire Bangumi relation unit test file, 77 passed",
+  "v_scope": "Strengthened primary movie source cannot be masked by an alternate link; all 3 seed-subject cases passed, 74 unrelated cases deselected",
+  "runtime_unchanged_from_p": true,
+  "r_s_frozen_mismatch": [],
+  "ruff_full_u_exit": 0,
+  "ruff_full_v_exit": 0,
+  "external_resources": "None created; unit fixtures own temporary Turso databases and completed teardown",
+  "required": "Await original r/s complete results and cleanup, address all failures in successor, freeze complete successor input and rerun complete unit/API and integration gates; no runtime acceptance yet",
+  "artifacts": {
+    "resource-work-fk-fixture-t.log.gz": "d526e15b7878f36074704025be58e3d9b3f9d70f0c73b0f4fbf707199c66f89a",
+    "resource-work-fk-fixture-t.xml.gz": "b8c31f40f436525ff60c739c96991f2e7b4b732a65cba411513053242bf0dfc1",
+    "resource-work-fk-fixture-u.log.gz": "7deed9e8533c0684b274140ba3ebdb8ad90f592e5cf10c17408d038747443054",
+    "resource-work-fk-fixture-u.xml.gz": "006c9f87122e0fe8146d699006a4aa9727fbc9d6b680de9475c35a8f67ebfbac",
+    "resource-work-fk-fixture-v.log.gz": "3d6bcb72fd7ef8a0fee7101398d8f284d7c94a8ce59529d41ea0e4df52ea4d32",
+    "resource-work-fk-fixture-v.xml.gz": "1aa643c8a300766fd53c4a2d2603117024d0e61fab6cf3a41d288c9f55193976",
+    "resource-work-fk-fixture-u-ruff.log.gz": "f3af4d142827f5aad2eb0c72d556d325488a57fb6219aac10afeb51085667d53",
+    "resource-work-fk-fixture-v-ruff.log.gz": "f3af4d142827f5aad2eb0c72d556d325488a57fb6219aac10afeb51085667d53",
+    "resource-work-fk-fixture-u-test.py.txt": "532ad4ba0b1a301a67a52ac99e9396c60a1b47b08178a582dc683d2453b0f16a"
+  }
+}

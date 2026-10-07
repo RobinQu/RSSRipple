@@ -88,3 +88,14 @@ q 已正常退出 0：**207 passed、0 failed、0 skipped、3 warnings，135.49 
 
 
 r 单元/API 运行中已观察 `test_seed_subjects_from_all_sources` 失败：静态核对其夹具同一资源同时设置 series_id/movie_id，与新约束冲突。完整终态/traceback 尚未取得，不能宣称本轮通过；保持冻结候选不变，等待所有失败收集后在后继候选中以合法资源组合保持各身份来源覆盖，并重新验收。s 完整集成仍运行，不能用其局部通过替代 r。
+
+
+## t–v：完整门禁暴露的非法夹具修正
+
+r/s 仍在 p 冻结候选上运行，输入未改变。独立后继副本 `/tmp/rssripple-v27-fixture-ilkvds19` 先原样运行失败用例，t **1 failed、2.47 秒、退出 1**；真实错误为 Turso `CHECK constraint failed: ck_file_resources_work_fk`，位置是同一资源同时写 series_id/movie_id 的旧夹具。该用例测试的是 Bangumi 身份来源聚合，不应依赖违反作品 FK 互斥的不合法状态，因此修正夹具而非放宽约束。
+
+改为 series/movie 两个主引用参数，各自至多一个 FK；另一作品通过 ResourceWorkLink 提供，仍保留身份袋、合集成员、日期、缺失身份跳过与重复来源去重断言。u 整个关系测试文件 **77 passed、1 warning、119.82 秒、退出 0**。审查继续发现给 movie 主引用也添加备用 link 会掩盖主引用分支缺失；v 仅在 series 主引用场景添加 movie link，使 movie 主引用场景的 m1 既无备用 link、也不属于合集。v 所有 seed_subjects 用例 **3 passed、74 deselected、1 warning、6.79 秒、退出 0**。去重增加明确 len(seeds)==4，避免仅 dict/set 覆盖重复项。u 原始测试版本亦归档，不能将其整文件结果冒充 v 最终版本的全量结果。
+
+五维复核：本轮只改一个测试文件，无运行代码/架构/安全/性能改动；参数化数据符合权威约束并保持来源覆盖，命名和解释明确。两个版本全仓无缓存 Ruff 均退出 0。独立从 Git 基线推导后继 **14 个有效文件**，原 p 的 13 个文件哈希全部相同，r/s 的 6,183 个冻结输入仍未改变。源码/可恢复归档见 [v-source](probes/resource-work-fk-v-source.json)，红绿/实际退出和范围见 [t–v](probes/resource-work-fk-t-v-result.json)。本轮未创建 Compose 资源，临时 Turso 由测试夹具释放。
+
+下一步：取得 r/s 的全部终态和失败，按需继续修正后继候选；完成旧轮证据导出与清理，再冻结最终后继并重跑完整双门禁。现有 77/3 项专项结果不能替代完整验收，V27 仍未合入。
