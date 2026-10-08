@@ -1,0 +1,341 @@
+{
+  "candidate": "/tmp/rssripple-v35-with-v34-2ectsrx2",
+  "root_base": "aad9b93781df79124643e6825b2e756b5dc6c0e9",
+  "parent_v34": "agent-run-lifecycle-ah-source.json",
+  "v35_source": "metadata-cache-title-y-source.json",
+  "resolutions": {
+    "app/api/v1/resources.py": "base unchanged",
+    "app/database.py": "Keep PG cache migration inside UTC/default branch, then shared search-text validation; preserve V34 critical token migration and embedded cache transaction",
+    "app/models/metadata_cache.py": "base unchanged",
+    "app/services/metadata_cache_schema.py": "new",
+    "app/services/metadata_cache_store.py": "new",
+    "app/services/metadata_repository.py": "base unchanged",
+    "docs/design/business-logic.md": "preserve both independent appended contracts",
+    "docs/design/data-models.md": "preserve both independent appended contracts",
+    "docs/design/db-migration.md": "preserve both independent appended contracts",
+    "docs/testing/integration-inventory.md": "preserve both independent appended contracts",
+    "tests/integration/metadata_cache/__init__.py": "new",
+    "tests/integration/metadata_cache/conftest.py": "new",
+    "tests/integration/metadata_cache/legacy-postgresql.sql": "new",
+    "tests/integration/metadata_cache/legacy-sqlite.sql": "new",
+    "tests/integration/metadata_cache/test_batch_concurrency.py": "new",
+    "tests/integration/metadata_cache/test_boundaries.py": "new",
+    "tests/integration/metadata_cache/test_caller.py": "new",
+    "tests/integration/metadata_cache/test_concurrent_startup.py": "new",
+    "tests/integration/metadata_cache/test_identity.py": "new",
+    "tests/integration/metadata_cache/test_races.py": "new",
+    "tests/integration/metadata_cache/test_reject.py": "new",
+    "tests/integration/metadata_cache/test_startup.py": "new",
+    "tests/integration/metadata_cache/test_success.py": "new",
+    "tests/integration/metadata_cache/test_upgrade.py": "new",
+    "tests/unit/test_database_migrations.py": "three-way clean"
+  },
+  "unresolved": [],
+  "accepted": false,
+  "relative_files": {
+    "app/api/v1/resources.py": {
+      "parent": "96a194ff22c959673462d3efcee4c753af807792b7c6106354ffa6353e8e29d1",
+      "candidate": "906ddd91c9f8c0422e2990b94e20e9b689d5fe15173b77e2013596d6dd14e52e"
+    },
+    "app/database.py": {
+      "parent": "5bb5bba8df4bf2517b752cad4482a428e05e690994b5b7ef3fa957475935f37a",
+      "candidate": "75fbb97d3a84ec6d5c2c727a97513061a3add62c99a1e91055e4a2530565fff3"
+    },
+    "app/models/metadata_cache.py": {
+      "parent": "da382e166e85b5ee00ce544d6cc40f588374255ac4955100d9fb30619d0ef0b8",
+      "candidate": "f11ae96fc98bb26b3ce09241939bb8c3f70d531789c233c3d43ec779c45d78d4"
+    },
+    "app/services/metadata_cache_schema.py": {
+      "parent": null,
+      "candidate": "e71be8fad951eadf1ccc122502faa443ed2b967960981a7e1cd6194e0baa802f"
+    },
+    "app/services/metadata_cache_store.py": {
+      "parent": null,
+      "candidate": "22fb1f8fc6fbbe5ad787b34e6ab023ee2dc5add10334a1e53a5943bf5f43c3f5"
+    },
+    "app/services/metadata_repository.py": {
+      "parent": "6ed096408b895bf271eea7afaff1340387feedbbddc366e05629aca98d37a558",
+      "candidate": "3023a7cbeedda60e04c778d557343e705253a43311bc94f39c1b8f63e3e57583"
+    },
+    "docs/design/business-logic.md": {
+      "parent": "088b5bce662c1801c45c8474a8a47a96dfdc53f5f3b1c5f4164e82b9dc1c3caa",
+      "candidate": "77ec966af9bcc6e5023c5f334e91010a4d5a33e1393f0246d67cb4ee2ddaf621"
+    },
+    "docs/design/data-models.md": {
+      "parent": "5b2d30b457eecd3ff3f70b0ac03dde6ea03f73b63252131db8863947d645760d",
+      "candidate": "85a81d5b4a0deeaf0776a74680662b21707308ef14f611e08bcf507cdbeb8dc1"
+    },
+    "docs/design/db-migration.md": {
+      "parent": "6ebc47f4ea9b4b47f47085e18a842a744d39493875a2b8ae5f24a06b517b783c",
+      "candidate": "a7b4dc3ac2b6c59388e3b8dcb16b1772704cfa8e41bbf21ab7588caf54952f26"
+    },
+    "docs/testing/integration-inventory.md": {
+      "parent": "7149ac7c7603356484924944e99459e52eb82cd30d25afb5a1a4e3f7f37065ee",
+      "candidate": "f5b4839521a44937240b09cc12ba7a3cf3529587d3f616a38ac91b185a696a75"
+    },
+    "tests/integration/metadata_cache/__init__.py": {
+      "parent": null,
+      "candidate": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "tests/integration/metadata_cache/conftest.py": {
+      "parent": null,
+      "candidate": "fdf62e2af6f76abd4505622b751c0e51c10a86182dbe8fc5bbbb74a0e8cf2b20"
+    },
+    "tests/integration/metadata_cache/legacy-postgresql.sql": {
+      "parent": null,
+      "candidate": "8067fb0adc9d01f71ac0803a962ddf01705d38048d92a0aae9d8ff2549326f16"
+    },
+    "tests/integration/metadata_cache/legacy-sqlite.sql": {
+      "parent": null,
+      "candidate": "50aff926c9f44fb758910f072a0af4503e9a1355cacf29c26b5795d1a3d116ae"
+    },
+    "tests/integration/metadata_cache/test_batch_concurrency.py": {
+      "parent": null,
+      "candidate": "32cf21416a74a7900c7ae5e6f4c2f44ebc4bcf5b284acfa4366723b2e1455b81"
+    },
+    "tests/integration/metadata_cache/test_boundaries.py": {
+      "parent": null,
+      "candidate": "71059aadd8683605afa7af8d51d6f413c13543be95faf4dcdb1e0df55c8ea2e0"
+    },
+    "tests/integration/metadata_cache/test_caller.py": {
+      "parent": null,
+      "candidate": "e769dab14be701d75b0be18d486b8727076a3b8710d514d05404eff8fe52a181"
+    },
+    "tests/integration/metadata_cache/test_concurrent_startup.py": {
+      "parent": null,
+      "candidate": "af1ca7b699de01f0c1410abfa833f3bb91e47161d3c3b94471f6abca3953507f"
+    },
+    "tests/integration/metadata_cache/test_identity.py": {
+      "parent": null,
+      "candidate": "1c7e71248788ef9d1f3cb91e5a582288ff27f596feda3ebe2e9b9a5d9a6088b5"
+    },
+    "tests/integration/metadata_cache/test_races.py": {
+      "parent": null,
+      "candidate": "acef567f282317933ae4f09c5a35be511665b9106bf793d776e3b600683bf4f4"
+    },
+    "tests/integration/metadata_cache/test_reject.py": {
+      "parent": null,
+      "candidate": "720a44a540e6b88b44aec1987c655378ecc951bc5c9a829717d20d0baa53e671"
+    },
+    "tests/integration/metadata_cache/test_startup.py": {
+      "parent": null,
+      "candidate": "70cc853132e498d6e5ca721e8abfd51d1ecf082c68b7d7cceba7d50711e1f56f"
+    },
+    "tests/integration/metadata_cache/test_success.py": {
+      "parent": null,
+      "candidate": "e1735c6315ab73f76d4d172022687bf158d1a591107da6bd948de71f5869eba8"
+    },
+    "tests/integration/metadata_cache/test_upgrade.py": {
+      "parent": null,
+      "candidate": "515edf6cfd093a651920b35d15291bf0f3d6ec63437c883733017fa181866ebe"
+    },
+    "tests/unit/test_database_migrations.py": {
+      "parent": "a9d86458e323948e652cc8388d4b54077f227e8b74d4f4d8e4ed9e57b153de77",
+      "candidate": "463fcabc103fa0d02037c89902144a68595985f011f06701f70aad83ff4c5c50"
+    }
+  },
+  "combined_files": {
+    "app/api/v1/resources.py": {
+      "main": "96a194ff22c959673462d3efcee4c753af807792b7c6106354ffa6353e8e29d1",
+      "candidate": "906ddd91c9f8c0422e2990b94e20e9b689d5fe15173b77e2013596d6dd14e52e"
+    },
+    "app/database.py": {
+      "main": "e390c561c90e34b1bd92d06123275d65086e8a38d3491eb1662b0883e4177e0a",
+      "candidate": "75fbb97d3a84ec6d5c2c727a97513061a3add62c99a1e91055e4a2530565fff3"
+    },
+    "app/job_handlers.py": {
+      "main": "50e923ef11feba7ebd24cea67ec32a978df5860f0354c56629c398676cc54144",
+      "candidate": "05726e57bd883570f4aa55d3ef79ca8e26f2aa8921fea3ea3eadcaeb8575d2e0"
+    },
+    "app/models/__init__.py": {
+      "main": "4f6d75732cd786b6a220003e6771d84ccfe5d68e4e0e52c6cb1a1e7abea1972e",
+      "candidate": "b4b13a7f6e6705e17fe9ddf549509a2c887185a5657a2e7e3a20d71e02b443c8"
+    },
+    "app/models/agent.py": {
+      "main": "cdbc6922d248806745eb0e2c237cac9ef496fb827a42150ceed3515f15867a55",
+      "candidate": "16e511f1b25f8ba614ab7fd2d7466ac015c712095f06de635c05de15435e7abb"
+    },
+    "app/models/agent_run_lease.py": {
+      "main": null,
+      "candidate": "ce1733750417b40bf903f7a0f79e1efeffbc7724325604ecaa862a7e9bcc85c5"
+    },
+    "app/models/metadata_cache.py": {
+      "main": "da382e166e85b5ee00ce544d6cc40f588374255ac4955100d9fb30619d0ef0b8",
+      "candidate": "f11ae96fc98bb26b3ce09241939bb8c3f70d531789c233c3d43ec779c45d78d4"
+    },
+    "app/services/agent_run_execution.py": {
+      "main": null,
+      "candidate": "70988935c12e2ca3b34268429077b3a6c87c7bec584d94a3e03c47b2b1aadb0f"
+    },
+    "app/services/agent_run_finalization.py": {
+      "main": null,
+      "candidate": "cdfbee97852e5fc0296c8b18fe97baab61f777b0d4352cf17ae77c98a94a09cd"
+    },
+    "app/services/agent_run_lifecycle.py": {
+      "main": null,
+      "candidate": "1dff9b29a37312249a05de9f3df797754f80279e588d44443ef4b36f4f4a94d2"
+    },
+    "app/services/agent_service.py": {
+      "main": "e2813e55897827eee1abfe338199ec60494c4aa25aa71f6ae7eb3a440d3022a8",
+      "candidate": "6de7429303a06a35f70483df825b658e2ae383048d8672d2cb20ede3438a7916"
+    },
+    "app/services/metadata_cache_schema.py": {
+      "main": null,
+      "candidate": "e71be8fad951eadf1ccc122502faa443ed2b967960981a7e1cd6194e0baa802f"
+    },
+    "app/services/metadata_cache_store.py": {
+      "main": null,
+      "candidate": "22fb1f8fc6fbbe5ad787b34e6ab023ee2dc5add10334a1e53a5943bf5f43c3f5"
+    },
+    "app/services/metadata_repository.py": {
+      "main": "6ed096408b895bf271eea7afaff1340387feedbbddc366e05629aca98d37a558",
+      "candidate": "3023a7cbeedda60e04c778d557343e705253a43311bc94f39c1b8f63e3e57583"
+    },
+    "app/services/scheduler.py": {
+      "main": "d81e59a91f14d4d29da2eabd06e5a7b4a434af85626c8e000abe3f7299b346b5",
+      "candidate": "7a8b8e4b4cb1e29e5978f6259d5828bc95feb1a6dafd50c4e01be41700bcc7cb"
+    },
+    "docs/design/business-logic.md": {
+      "main": "201c6a5e41b3819c26733774aaed7639f6201bf664fd2cc3b4035209141f2357",
+      "candidate": "77ec966af9bcc6e5023c5f334e91010a4d5a33e1393f0246d67cb4ee2ddaf621"
+    },
+    "docs/design/data-models.md": {
+      "main": "2e6828634dd521b72ad07e9417b27db9a5cdaa77204f0093aca6d0e4034ddc40",
+      "candidate": "85a81d5b4a0deeaf0776a74680662b21707308ef14f611e08bcf507cdbeb8dc1"
+    },
+    "docs/design/db-migration.md": {
+      "main": "06fbc175cae4ff6016cc0b158829d581d74f4188a9e5c890b9b76eaa3de1f61a",
+      "candidate": "a7b4dc3ac2b6c59388e3b8dcb16b1772704cfa8e41bbf21ab7588caf54952f26"
+    },
+    "docs/testing/integration-inventory.md": {
+      "main": "9c44412ec272562ec3538538ffe4202087b92054ff4caf7264ad0408040cca9c",
+      "candidate": "f5b4839521a44937240b09cc12ba7a3cf3529587d3f616a38ac91b185a696a75"
+    },
+    "scripts/review_legacy_agent_runs.py": {
+      "main": null,
+      "candidate": "49b463f3662e2f45cf1f2872e4389c1e5c28068cbe6ea05c35d831f58ea3f409"
+    },
+    "tests/integration/agent_run_lifecycle/__init__.py": {
+      "main": null,
+      "candidate": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "tests/integration/agent_run_lifecycle/conftest.py": {
+      "main": null,
+      "candidate": "9c74285d1ce088fb1f69f0d7cbfca76ce7b148d481855b4a68bbf0b60ca47c7e"
+    },
+    "tests/integration/agent_run_lifecycle/test_database_disconnect.py": {
+      "main": null,
+      "candidate": "3fdcaae00ad478b8d41da78203008ca2c72c3fe7c64c25e4ba48ea04019c82a7"
+    },
+    "tests/integration/agent_run_lifecycle/test_handler.py": {
+      "main": null,
+      "candidate": "bdcf1eb3956c96e54e070a2fa1bad8dcf37ffa60b0a7d40071a2a7ee3e7e2390"
+    },
+    "tests/integration/agent_run_lifecycle/test_heartbeat_shutdown.py": {
+      "main": null,
+      "candidate": "afc5ee0cc1d3f3bbbcb36778ba561413096f42b3e6398a96b197e29336b9a39e"
+    },
+    "tests/integration/agent_run_lifecycle/test_lease.py": {
+      "main": null,
+      "candidate": "8b5ea8c56d377be0e816ede9e54b8a9490a4c1d4f14bbb000287673bef7b0527"
+    },
+    "tests/integration/agent_run_lifecycle/test_legacy_review.py": {
+      "main": null,
+      "candidate": "b31d40da43e7ed6b088d98aed440a6244d53c147181eba09026b8a6ae97dcdb3"
+    },
+    "tests/integration/agent_run_lifecycle/test_migration.py": {
+      "main": null,
+      "candidate": "06b660b6e3a42ce44a9d7df83745d948cc80fb1b542bef3b7e9edab323b209aa"
+    },
+    "tests/integration/agent_run_lifecycle/test_redis_disconnect.py": {
+      "main": null,
+      "candidate": "ef438d59473b331f163f0f6d9fbb25f63d50608699853664e54e12c9c87583d6"
+    },
+    "tests/integration/agent_run_lifecycle/test_scheduler.py": {
+      "main": null,
+      "candidate": "cae070e2f7130bb71a3ac53aa9b17d3946bb1564c17a993a99f645610809fe39"
+    },
+    "tests/integration/agent_run_lifecycle/test_time_contract.py": {
+      "main": null,
+      "candidate": "367b8073bbc39f5072ca4b8b4f8f713c4fa719dfeed2a89e8095ae7d5ad00e3d"
+    },
+    "tests/integration/metadata_cache/__init__.py": {
+      "main": null,
+      "candidate": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "tests/integration/metadata_cache/conftest.py": {
+      "main": null,
+      "candidate": "fdf62e2af6f76abd4505622b751c0e51c10a86182dbe8fc5bbbb74a0e8cf2b20"
+    },
+    "tests/integration/metadata_cache/legacy-postgresql.sql": {
+      "main": null,
+      "candidate": "8067fb0adc9d01f71ac0803a962ddf01705d38048d92a0aae9d8ff2549326f16"
+    },
+    "tests/integration/metadata_cache/legacy-sqlite.sql": {
+      "main": null,
+      "candidate": "50aff926c9f44fb758910f072a0af4503e9a1355cacf29c26b5795d1a3d116ae"
+    },
+    "tests/integration/metadata_cache/test_batch_concurrency.py": {
+      "main": null,
+      "candidate": "32cf21416a74a7900c7ae5e6f4c2f44ebc4bcf5b284acfa4366723b2e1455b81"
+    },
+    "tests/integration/metadata_cache/test_boundaries.py": {
+      "main": null,
+      "candidate": "71059aadd8683605afa7af8d51d6f413c13543be95faf4dcdb1e0df55c8ea2e0"
+    },
+    "tests/integration/metadata_cache/test_caller.py": {
+      "main": null,
+      "candidate": "e769dab14be701d75b0be18d486b8727076a3b8710d514d05404eff8fe52a181"
+    },
+    "tests/integration/metadata_cache/test_concurrent_startup.py": {
+      "main": null,
+      "candidate": "af1ca7b699de01f0c1410abfa833f3bb91e47161d3c3b94471f6abca3953507f"
+    },
+    "tests/integration/metadata_cache/test_identity.py": {
+      "main": null,
+      "candidate": "1c7e71248788ef9d1f3cb91e5a582288ff27f596feda3ebe2e9b9a5d9a6088b5"
+    },
+    "tests/integration/metadata_cache/test_races.py": {
+      "main": null,
+      "candidate": "acef567f282317933ae4f09c5a35be511665b9106bf793d776e3b600683bf4f4"
+    },
+    "tests/integration/metadata_cache/test_reject.py": {
+      "main": null,
+      "candidate": "720a44a540e6b88b44aec1987c655378ecc951bc5c9a829717d20d0baa53e671"
+    },
+    "tests/integration/metadata_cache/test_startup.py": {
+      "main": null,
+      "candidate": "70cc853132e498d6e5ca721e8abfd51d1ecf082c68b7d7cceba7d50711e1f56f"
+    },
+    "tests/integration/metadata_cache/test_success.py": {
+      "main": null,
+      "candidate": "e1735c6315ab73f76d4d172022687bf158d1a591107da6bd948de71f5869eba8"
+    },
+    "tests/integration/metadata_cache/test_upgrade.py": {
+      "main": null,
+      "candidate": "515edf6cfd093a651920b35d15291bf0f3d6ec63437c883733017fa181866ebe"
+    },
+    "tests/integration/queue_recovery/agent_lifecycle_driver.py": {
+      "main": null,
+      "candidate": "835581014241199555729f3147067857b363ac158b3298d1ab655509e8fd1a6d"
+    },
+    "tests/integration/queue_recovery/test_notification_recovery.py": {
+      "main": "ad6bfc268fd5d37cf73874d7db0a7e4a0875a859d64aa91586e9058fa329e80f",
+      "candidate": "c517c842bd147b552a96044f40fe3f11291d7e30e8ec18ef929262208489964d"
+    },
+    "tests/unit/test_database_migrations.py": {
+      "main": "a9d86458e323948e652cc8388d4b54077f227e8b74d4f4d8e4ed9e57b153de77",
+      "candidate": "463fcabc103fa0d02037c89902144a68595985f011f06701f70aad83ff4c5c50"
+    }
+  },
+  "plan_maintenance": {
+    "docs/plans/p0-and-backlog/probes/agent_run_recovery_probe.py": {
+      "base": "0853223a55baa5db654dd895f38dd163745415fa4f2f288a60c7d58ed29dee24",
+      "reason": "Normalize archived executable probe imports after new modules become available; preserve original source separately.",
+      "candidate": "c9486e30008c1661acaf4cf0336d5995bc55ac5dfd54fa83c10115fa4e3691fd"
+    }
+  },
+  "all_nonplan_inputs": 3362,
+  "scope_derivation": "All Git non-plan files and candidate new Python/SQL files; archived probe import maintenance separately listed",
+  "ruff_exit": 0
+}

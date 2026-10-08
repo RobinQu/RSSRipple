@@ -91,3 +91,15 @@ m：**6 passed、2 failed，11.47 秒，实际退出 1**。索引、引用和碰
 新测试及权威模型/业务/迁移/测试清单纳入候选，全仓 Ruff 无缓存退出 0。独立从基线 efc3698 全部 Git 非计划输入及新增 Python/SQL 推导变更，现为 **24 文件**；[来源与可恢复归档](probes/metadata-cache-title-v-source.json)、[实际结果](probes/metadata-cache-title-p-v-result.json)。项目 `rssripple-v35-caller-p`（PG 32916）已 down，容器/网络/卷标签为空，全部本批测试终止。
 
 尚未正式重基到已验收 V33/后继 V34，完整 95%/85% 门禁和最终 schema/性能/安全审查未完成。匹配成功的身份 upsert 调用链仍可补强；拒绝测试仅证明已列边界，不声称穷尽所有自定义 DDL。V35 尚未合入，V34 两个原会话仍在运行。
+
+## w–z 成功匹配、schema 复查及后继兼容性
+
+必要性仍为 P2 缓存合法边界与升级完整性；上一轮 not_found 链不足以证明成功作品链接，本轮补真实 process→cache→Movie upsert，录制电影标题配明确合成来源身份。通过观测实际 `_get_cache` 返回验证首次 miss/第二资源 hit，来源边界仅调用一次；独立读回同一个 Movie、完整缓存标题及两个资源链接，海报仅允许 None，不访问网络。
+
+w：**2 passed、2 failed、14 deselected，5.92 秒，退出 1**。成功匹配双库通过；新增自定义 title collation 在两库都未被拒绝，Turso 重建会丢失旧比较语义。修正为 PG 读取真实 information_schema collation、Turso 检查原始 DDL，并统一拒绝生成列后，x 全部正式缓存集成 **51 passed、0 skipped，66.10 秒，退出 0**。原失败源码/日志保留；候选权威设计与测试清单同步，全仓 Ruff 通过。
+
+[y 来源](probes/metadata-cache-title-y-source.json)相对 efc3698 为 **25 文件**。随后从 main aad9b93 加冻结 V34 ah 构建兼容副本 `/tmp/rssripple-v35-with-v34-2ectsrx2`，逐项校验 V34 父哈希，再三方应用 V35。唯一运行代码冲突为 database.py 迁移插入点：PG 缓存迁移留在 UTC/default 分支内，之后继续共享搜索列检查；保留 V34 critical token 列及 Turso 普通事务路径。文档保留双方独立契约。
+
+从全部 Git 非计划输入与新 Python/SQL 独立推导 **3362 文件**：V35 相对 V34 **25 文件**，相对当前主干合计 **48 文件**，历史探针导入维护单列。兼容候选 Ruff 无缓存退出 0。[z 来源与完整归档](probes/metadata-cache-title-z-source.json)。
+
+z 联合执行缓存、搜索、UTC、AgentRun 旧库升级及完整迁移单测，专用项目 `rssripple-v35-review-w`（PG 32917），会话 **37219**，日志 `/tmp/rssripple-v35-z-compat.log`，尚在运行，项目暂保留。必须续接实际结果，不能把合并/lint 当兼容测试通过。[w–z 结果](probes/metadata-cache-title-w-z-result.json)。V34 原完整双门禁仍运行，冻结候选未改；V35 未合入，后续还需正式主干重基、全输入冻结、完整 95%/85% 门禁与终审。

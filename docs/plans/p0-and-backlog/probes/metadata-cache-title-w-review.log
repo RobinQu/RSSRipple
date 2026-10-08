@@ -1,0 +1,20 @@
+..FF                                                                     [100%]
+=================================== FAILURES ===================================
+___________________________ test_postgres[collation] ___________________________
+tests/integration/metadata_cache/test_reject.py:80: in test_postgres
+    await check(dedup_postgres, monkeypatch, mode)
+tests/integration/metadata_cache/test_reject.py:65: in check
+    with pytest.raises(DatabaseError if mode == 'collision' else ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+____________________________ test_turso[collation] _____________________________
+tests/integration/metadata_cache/test_reject.py:85: in test_turso
+    await check(dedup_turso, monkeypatch, mode)
+tests/integration/metadata_cache/test_reject.py:65: in check
+    with pytest.raises(DatabaseError if mode == 'collision' else ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+=========================== short test summary info ============================
+FAILED tests/integration/metadata_cache/test_reject.py::test_postgres[collation]
+FAILED tests/integration/metadata_cache/test_reject.py::test_turso[collation]
+2 failed, 2 passed, 14 deselected in 5.92s

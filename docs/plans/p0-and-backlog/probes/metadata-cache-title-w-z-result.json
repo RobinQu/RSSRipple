@@ -1,0 +1,29 @@
+{
+  "accepted": false,
+  "w": {
+    "actual_exit": 1,
+    "passed": "actual successful process/cache/work upsert in both DBs",
+    "failed": "custom title collations not rejected; embedded rebuild loses comparison definition",
+    "deselected": 14,
+    "seconds": 5.92
+  },
+  "x": {
+    "actual_exit": 0,
+    "passed": 51,
+    "skipped": 0,
+    "seconds": 66.1,
+    "scope": "complete metadata_cache integration after collation rejection fix"
+  },
+  "z": {
+    "session": 37219,
+    "status": "running; no result yet",
+    "log": "/tmp/rssripple-v35-z-compat.log",
+    "junit": "/tmp/rssripple-v35-z-compat.xml",
+    "candidate": "/tmp/rssripple-v35-with-v34-2ectsrx2",
+    "scope": "cache/search/time/AgentRun migration/full migration unit suite"
+  },
+  "project": "rssripple-v35-review-w",
+  "postgres_port": 32917,
+  "cleanup": "retained while z compatibility suite runs",
+  "source": "metadata-cache-title-z-source.json"
+}

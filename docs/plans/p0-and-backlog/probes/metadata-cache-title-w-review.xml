@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="4" time="5.901" timestamp="2026-10-08T07:23:04.266974+00:00" hostname="dl-workstation-albert"><testcase classname="tests.integration.metadata_cache.test_success" name="test_postgres" time="0.732" /><testcase classname="tests.integration.metadata_cache.test_success" name="test_turso" time="1.958" /><testcase classname="tests.integration.metadata_cache.test_reject" name="test_postgres[collation]" time="0.600"><failure message="Failed: DID NOT RAISE ValueError">tests/integration/metadata_cache/test_reject.py:80: in test_postgres
+    await check(dedup_postgres, monkeypatch, mode)
+tests/integration/metadata_cache/test_reject.py:65: in check
+    with pytest.raises(DatabaseError if mode == 'collision' else ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError</failure></testcase><testcase classname="tests.integration.metadata_cache.test_reject" name="test_turso[collation]" time="1.982"><failure message="Failed: DID NOT RAISE ValueError">tests/integration/metadata_cache/test_reject.py:85: in test_turso
+    await check(dedup_turso, monkeypatch, mode)
+tests/integration/metadata_cache/test_reject.py:65: in check
+    with pytest.raises(DatabaseError if mode == 'collision' else ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError</failure></testcase></testsuite></testsuites>
