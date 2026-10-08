@@ -1,0 +1,51 @@
+{
+  "accepted": false,
+  "base": "efc3698",
+  "candidate": "/tmp/rssripple-v35-cache-uyusqqzh",
+  "files": {
+    "app/database.py": "b84d422be33718e1a0bf50c3eda42f2b15bfedd3874ce95fbf7362dc7fbce251",
+    "app/models/metadata_cache.py": "f11ae96fc98bb26b3ce09241939bb8c3f70d531789c233c3d43ec779c45d78d4",
+    "app/services/metadata_cache_store.py": "22fb1f8fc6fbbe5ad787b34e6ab023ee2dc5add10334a1e53a5943bf5f43c3f5",
+    "app/services/metadata_cache_schema.py": "dda4dfe6aa5f8c95bceb358f5f414778f90df7f3811b0bcd169a5337e1b750e7",
+    "app/services/metadata_repository.py": "3023a7cbeedda60e04c778d557343e705253a43311bc94f39c1b8f63e3e57583",
+    "app/api/v1/resources.py": "906ddd91c9f8c0422e2990b94e20e9b689d5fe15173b77e2013596d6dd14e52e",
+    "docs/design/data-models.md": "e25cabed6579b0127d52ebb462fad4411f9f698ec8fef4262b4a45c7f6ab2768",
+    "docs/design/business-logic.md": "9d6e5be233997813267c4d04c1f0ab6488ac25c6bcc111e6fe98fc5f41685577",
+    "docs/design/db-migration.md": "8d726de818d4b76311bdd2142ef3e3cfc2e785a822070ee94b2c89f43dc5f2cd"
+  },
+  "m": {
+    "actual_exit": 1,
+    "passed": 6,
+    "failed": 2,
+    "seconds": 11.47,
+    "failure": "custom title default not rejected; Turso table rebuild would discard it"
+  },
+  "n": {
+    "actual_exit": 0,
+    "passed": 12,
+    "seconds": 16.4,
+    "scope": "eight adversarial cases plus four preservation/rollback/repeat cases"
+  },
+  "o": {
+    "actual_exit": 0,
+    "passed": 4,
+    "seconds": 8.07,
+    "scope": "actual create_tables on both legacy databases; failure/rollback/retry; preserved 237 rows; long-title cache read/write after upgrade"
+  },
+  "ruff": "startup import ordering initially failed I001; fixed after o; final exit 0",
+  "cleanup": {
+    "down_exit": 0,
+    "labels": {
+      "container": [],
+      "network": [],
+      "volume": []
+    }
+  },
+  "pending": [
+    "fresh database actual startup",
+    "trigger/type/schema adversarial cases",
+    "actual concurrent startup",
+    "full MetadataAgent caller",
+    "formal rebase and complete gates"
+  ]
+}

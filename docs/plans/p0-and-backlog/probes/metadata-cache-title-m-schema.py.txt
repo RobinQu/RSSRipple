@@ -1,0 +1,148 @@
+"""Offline cache-key upgrade; preserve full rows and reject schema drift."""
+import re
+
+from sqlalchemy import JSON, DateTime, Integer, String, Text, inspect, text
+from sqlalchemy.schema import CreateTable
+
+from app.models.metadata_cache import MetadataCache, cache_title_hash
+
+_COLUMNS = {'id', 'title', 'source', 'content_type', 'metadata_json', 'generation', 'created_at', 'updated_at'}
+_BATCH_SIZE = 100
+_TEMP_TABLE = 'metadata_cache_v35_new'
+
+
+def _catalog(sync):
+    inspector = inspect(sync)
+    return {
+        'backend': sync.dialect.name,
+        'ddl': (sync.exec_driver_sql(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='metadata_cache'"
+        ).scalar()
+                if sync.dialect.name == 'sqlite' else None),
+        'columns': {c['name']: c for c in inspector.get_columns('metadata_cache')},
+        'unique': inspector.get_unique_constraints('metadata_cache'),
+        'indexes': inspector.get_indexes('metadata_cache'),
+        'pk': inspector.get_pk_constraint('metadata_cache'),
+        'checks': inspector.get_check_constraints('metadata_cache'),
+        'references': [(name, fk) for name in inspector.get_table_names()
+                       for fk in inspector.get_foreign_keys(name)
+                       if name == 'metadata_cache' or fk.get('referred_table') == 'metadata_cache'],
+    }
+
+
+def _validate(catalog):
+    columns = catalog['columns']
+    upgraded = 'title_hash' in columns
+    if set(columns) != _COLUMNS | ({'title_hash'} if upgraded else set()):
+        raise ValueError('Unexpected metadata cache columns')
+    if catalog['pk']['constrained_columns'] != ['id'] or catalog['checks'] or catalog['references']:
+        raise ValueError('Unexpected metadata cache constraints or references')
+    expected_types = {'id': String, 'source': String, 'content_type': String,
+                      'metadata_json': JSON, 'generation': Integer, 'created_at': DateTime, 'updated_at': DateTime}
+    for name, kind in expected_types.items():
+        column = columns[name]
+        if not isinstance(column['type'], kind) or column['nullable'] != (name == 'content_type'):
+            raise ValueError(f'Unexpected metadata cache column: {name}')
+        if catalog['backend'] == 'sqlite':
+            default = str(column.get('default') or '').strip('() ').lower()
+            allowed_defaults = {'', '0'} if name == 'generation' else (
+                {'current_timestamp'} if name in {'created_at', 'updated_at'} else {''}
+            )
+            if default not in allowed_defaults:
+                raise ValueError(f'Unexpected metadata cache default: {name}')
+    title = columns['title']
+    if not isinstance(title['type'], (String, Text)) or title['nullable']:
+        raise ValueError('Unexpected metadata cache title definition')
+    expected_key = ['title_hash', 'source'] if upgraded else ['title', 'source']
+    unique = catalog['unique']
+    if len(unique) != 1 or unique[0]['name'] != 'uq_metadata_cache_key' or unique[0]['column_names'] != expected_key:
+        raise ValueError('Unexpected metadata cache unique key')
+    allowed = {'ix_metadata_cache_source': ['source']}
+    if not upgraded:
+        allowed['ix_metadata_cache_title'] = ['title']
+    for index in catalog['indexes']:
+        if index.get('duplicates_constraint') == 'uq_metadata_cache_key':
+            continue
+        if (index['name'] not in allowed or index['column_names'] != allowed[index['name']]
+                or index.get('unique') or any(index.get('dialect_options', {}).values())):
+            raise ValueError('Unexpected metadata cache index')
+    if upgraded:
+        digest = columns['title_hash']
+        if (not isinstance(title['type'], Text) or not isinstance(digest['type'], String)
+                or digest['nullable']):
+            raise ValueError('Unexpected metadata cache digest definition')
+        if catalog['backend'] == 'postgresql':
+            valid_length = digest['type'].length == 64
+        else:
+            valid_length = bool(re.search(r'\btitle_hash\s+VARCHAR\s*\(\s*64\s*\)\s+NOT\s+NULL',
+                                          catalog['ddl'], re.IGNORECASE))
+        if not valid_length:
+            raise ValueError('Unexpected metadata cache digest length')
+    return upgraded
+
+
+async def _rows(conn):
+    cursor = None
+    while True:
+        rows = (await conn.execute(text(
+            'SELECT * FROM metadata_cache ' + ('WHERE id > :cursor ' if cursor is not None else '')
+            + 'ORDER BY id LIMIT :limit'
+        ), {'cursor': cursor, 'limit': _BATCH_SIZE})).mappings().all()
+        if not rows:
+            return
+        for row in rows:
+            if not isinstance(row['title'], str) or not isinstance(row['source'], str):
+                raise ValueError('Invalid historical metadata cache key')
+        yield rows
+        cursor = rows[-1]['id']
+
+
+async def upgrade_metadata_cache_keys(conn):
+    """Caller owns a normal DDL transaction and has stopped old writers.
+
+    PostgreSQL startup must hold its existing advisory lock. Embedded startup
+    must explicitly BEGIN an ordinary transaction, not BEGIN CONCURRENT.
+    """
+    backend = conn.dialect.name
+    if backend not in {'postgresql', 'sqlite'}:
+        raise ValueError('Unsupported metadata cache backend')
+    if backend == 'postgresql':
+        await conn.execute(text('LOCK TABLE metadata_cache IN ACCESS EXCLUSIVE MODE'))
+        triggers = await conn.scalar(text(
+            "SELECT count(*) FROM pg_trigger WHERE tgrelid='metadata_cache'::regclass AND NOT tgisinternal"
+        ))
+    else:
+        triggers = await conn.scalar(text(
+            "SELECT count(*) FROM sqlite_master WHERE type='trigger' AND tbl_name='metadata_cache'"
+        ))
+    if triggers:
+        raise ValueError('Unexpected metadata cache triggers')
+    catalog = await conn.run_sync(_catalog)
+    if _validate(catalog):
+        return
+    if backend == 'postgresql':
+        await conn.execute(text('ALTER TABLE metadata_cache ADD COLUMN title_hash VARCHAR(64)'))
+        async for rows in _rows(conn):
+            await conn.execute(text('UPDATE metadata_cache SET title_hash=:digest WHERE id=:id'),
+                               [{'id': row['id'], 'digest': cache_title_hash(row['title'])} for row in rows])
+        await conn.execute(text('ALTER TABLE metadata_cache DROP CONSTRAINT uq_metadata_cache_key'))
+        await conn.execute(text('DROP INDEX IF EXISTS ix_metadata_cache_title'))
+        await conn.execute(text('ALTER TABLE metadata_cache ALTER COLUMN title TYPE TEXT, '
+                                'ALTER COLUMN title_hash SET NOT NULL, '
+                                'ADD CONSTRAINT uq_metadata_cache_key UNIQUE (title_hash, source)'))
+    else:
+        exists = await conn.scalar(text('SELECT name FROM sqlite_master WHERE name=:name'), {'name': _TEMP_TABLE})
+        if exists:
+            raise ValueError('Unexpected metadata cache migration table')
+        from sqlalchemy import MetaData
+
+        target = MetadataCache.__table__.to_metadata(MetaData(), name=_TEMP_TABLE)
+        await conn.execute(CreateTable(target))
+        names = sorted(_COLUMNS | {'title_hash'})
+        statement = text(f'INSERT INTO {_TEMP_TABLE} ({", ".join(names)}) VALUES ({", ".join(":" + n for n in names)})')
+        async for rows in _rows(conn):
+            await conn.execute(statement, [dict(row, title_hash=cache_title_hash(row['title'])) for row in rows])
+        await conn.execute(text('DROP TABLE metadata_cache'))
+        await conn.execute(text(f'ALTER TABLE {_TEMP_TABLE} RENAME TO metadata_cache'))
+        await conn.execute(text('CREATE INDEX ix_metadata_cache_source ON metadata_cache (source)'))
+    _validate(await conn.run_sync(_catalog))

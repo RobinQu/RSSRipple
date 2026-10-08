@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="8" time="11.470" timestamp="2026-10-08T06:59:44.429095+00:00" hostname="dl-workstation-albert"><testcase classname="" name="test_postgres[index]" time="0.654" /><testcase classname="" name="test_postgres[reference]" time="0.640" /><testcase classname="" name="test_postgres[collision]" time="0.712" /><testcase classname="" name="test_postgres[title_default]" time="0.453"><failure message="Failed: DID NOT RAISE ValueError">../rssripple_v35_cache_reject.py:67: in test_postgres
+    await check(dedup_postgres, monkeypatch, mode)
+../rssripple_v35_cache_reject.py:52: in check
+    with pytest.raises(DatabaseError if mode == 'collision' else ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError</failure></testcase><testcase classname="" name="test_turso[index]" time="2.014" /><testcase classname="" name="test_turso[reference]" time="2.049" /><testcase classname="" name="test_turso[collision]" time="2.086" /><testcase classname="" name="test_turso[title_default]" time="2.133"><failure message="Failed: DID NOT RAISE ValueError">../rssripple_v35_cache_reject.py:72: in test_turso
+    await check(dedup_turso, monkeypatch, mode)
+../rssripple_v35_cache_reject.py:52: in check
+    with pytest.raises(DatabaseError if mode == 'collision' else ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError</failure></testcase></testsuite></testsuites>

@@ -64,3 +64,15 @@
 [原始失败/通过日志、JUnit、旧 DDL、探针与五文件原型 SHA](probes/metadata-cache-title-j-l-result.json)。专用项目 `rssripple-v35-upgrade-j`（PG 32914）已清理，容器/网络/卷标签为空。V34 冻结候选未改动。
 
 尚待异常 schema/自定义索引与引用/trigger、摘要冲突的迁移回滚反例、实际启动接入与并发、完整 MetadataAgent 调用方以及正式重基双门禁。独立迁移函数通过四项测试不等于升级流程已经完成，仍不关闭 TODO。
+
+## m–o 迁移拒绝边界与实际启动
+
+本轮继续 P2 完整数据保护要求，不将保存普通旧表等同于自定义 schema 安全。每库 237 条历史行，新增自定义索引、入向 FK、强制摘要碰撞、自定义标题默认值反例。拒绝时独立读取历史全字段及完整目录，必须与迁移前一致；Turso 不得残留临时表。
+
+m：**6 passed、2 failed，11.47 秒，实际退出 1**。索引、引用和碰撞回滚均通过；两库自定义 title 默认值未被拒绝，Turso 重建会丢弃默认值。为 title/hash 加默认值与 computed/identity 检查后，n 同一反例与既有四项迁移组合 **12 passed，16.40 秒，退出 0**。不隐藏这次实际缺口。
+
+随后将 helper 接入候选真实 create_tables：PG 沿用 startup advisory/DDL 事务，在 UTC 默认升级后执行；Turso 在轻迁移后显式普通事务内升级缓存，再执行资源 FK 守卫。o 实际启动双库正常/首批故障四项 **4 passed，8.07 秒，退出 0**，重复启动及错误解除后重试均保留 237 行原字段，升级后实际 repository 可以写入/读回超过旧 512 限制的标题。新库启动仍须独立测试，不能由旧库通过推断。启动代码初始 Ruff I001 已在 o 后仅调整导入排序，最终 Ruff 退出 0。
+
+权威模型、业务、迁移文档已在独立候选同步。原失败与修正后的日志/JUnit、探针及九文件原型见 [m–o](probes/metadata-cache-title-m-o-result.json)。项目 `rssripple-v35-reject-m`（PG 32915）清理退出 0，容器/网络/卷标签为空。
+
+剩余：新库实际启动、trigger/类型/其他异常目录边界、实际并发启动、完整 MetadataAgent 调用方、正式重基及完整门禁。V34 冻结双门禁继续运行，未修改其输入；V35 原型未合入。

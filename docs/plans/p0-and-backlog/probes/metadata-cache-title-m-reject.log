@@ -1,0 +1,20 @@
+...F...F                                                                 [100%]
+=================================== FAILURES ===================================
+_________________________ test_postgres[title_default] _________________________
+../rssripple_v35_cache_reject.py:67: in test_postgres
+    await check(dedup_postgres, monkeypatch, mode)
+../rssripple_v35_cache_reject.py:52: in check
+    with pytest.raises(DatabaseError if mode == 'collision' else ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+__________________________ test_turso[title_default] ___________________________
+../rssripple_v35_cache_reject.py:72: in test_turso
+    await check(dedup_turso, monkeypatch, mode)
+../rssripple_v35_cache_reject.py:52: in check
+    with pytest.raises(DatabaseError if mode == 'collision' else ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+=========================== short test summary info ============================
+FAILED ::test_postgres[title_default] - Failed: DID NOT RAISE ValueError
+FAILED ::test_turso[title_default] - Failed: DID NOT RAISE ValueError
+2 failed, 6 passed in 11.47s

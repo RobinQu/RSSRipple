@@ -1,0 +1,94 @@
+"""Legacy schema from accepted main; recorded labels and synthetic historical values."""
+import hashlib
+import json
+from pathlib import Path
+
+import pytest
+from sqlalchemy import text
+
+from app.services import metadata_cache_schema as migration
+from tests.integration.dedup.conftest import dedup_postgres as dedup_postgres
+from tests.integration.dedup.conftest import dedup_turso as dedup_turso
+
+
+async def snapshot(engine):
+    async with engine.connect() as conn:
+        return [dict(row) for row in (await conn.execute(text('SELECT * FROM metadata_cache ORDER BY id'))).mappings()]
+
+
+async def check(pair, monkeypatch, mode):
+    engine, factory = pair
+    from app import database
+    from app.config import settings
+    monkeypatch.setattr(database, "engine", engine)
+    monkeypatch.setattr(database, "async_session_factory", factory)
+    monkeypatch.setattr(settings, "database_url", engine.url.render_as_string(hide_password=False))
+    raw = Path('tests/fixtures/prod_works_v1.json').read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == 'd11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32'
+    label = json.loads(raw)['tables']['file_resources'][0]['title_raw']
+    async with engine.begin() as conn:
+        if engine.dialect.name == 'sqlite':
+            await conn.execute(text('BEGIN'))
+        await conn.execute(text('DROP TABLE metadata_cache'))
+        await conn.execute(text(Path('/tmp/rssripple-v35-legacy-'+engine.dialect.name+'.sql').read_text()))
+        for field in ['title', 'source']:
+            await conn.execute(text(f'CREATE INDEX ix_metadata_cache_{field} ON metadata_cache ({field})'))
+        rows = [{'id': f'00000000-0000-4000-8000-{n:012d}', 'title': label+f' [synthetic history {n}]',
+                 'source': 'metadata_agent:wikipedia', 'payload': json.dumps({'recorded_title': label, 'synthetic': n}, ensure_ascii=False),
+                 'generation': n % 8} for n in range(237)]
+        await conn.execute(text("INSERT INTO metadata_cache (id,title,source,metadata_json,generation,content_type,created_at,updated_at) "
+                                "VALUES (:id,:title,:source,:payload,:generation,NULL,'2020-01-02 03:04:05','2021-02-03 04:05:06')"), rows)
+    before = await snapshot(engine)
+    original_validate = migration._validate
+    def diagnostic(catalog):
+        try:
+            return original_validate(catalog)
+        except ValueError:
+            print({key: (repr(value["type"]), value["nullable"]) for key,value in catalog["columns"].items()})
+            raise
+    monkeypatch.setattr(migration, "_validate", diagnostic)
+    actual_rows = migration._rows
+    batches = []
+    async def observed(conn):
+        async for rows in actual_rows(conn):
+            batches.append(len(rows))
+            yield rows
+            if mode == 'rollback':
+                raise RuntimeError('synthetic failure after first backfill batch')
+    monkeypatch.setattr(migration, '_rows', observed)
+    async def upgrade():
+        await database.create_tables()
+    if mode == 'rollback':
+        with pytest.raises(RuntimeError, match='synthetic failure'):
+            await upgrade()
+        assert await snapshot(engine) == before
+        monkeypatch.setattr(migration, '_rows', actual_rows)
+    await upgrade()
+    await upgrade()
+    await engine.dispose()  # Offline upgrade requires fresh prepared statements.
+    after = await snapshot(engine)
+    assert len(after) == len(before)
+    for old,new in zip(before,after,strict=True):
+        assert new.pop('title_hash') == hashlib.sha256(old['title'].encode()).hexdigest()
+        assert new == old
+    from app.services.metadata_repository import _get_cache, _set_cache
+    from app.services.metadata_resource_meta import ResourceMetadata
+    title = label + '合成升级后长标题' * 120
+    async with factory() as db:
+        await _set_cache(title, 'tmdb', ResourceMetadata(clean_title='synthetic upgraded cache'), db)
+        await db.commit()
+    async with factory() as db:
+        assert (await _get_cache(title, 'tmdb', db)).clean_title == 'synthetic upgraded cache'
+    assert batches and max(batches) <= 100
+    if mode != 'rollback':
+        assert batches == [100,100,37]
+
+
+@pytest.mark.parametrize('mode', ['normal', 'rollback'])
+async def test_postgres(dedup_postgres, monkeypatch, mode):
+    await check(dedup_postgres, monkeypatch, mode)
+
+
+@pytest.mark.parametrize('mode', ['normal', 'rollback'])
+async def test_turso(dedup_turso, monkeypatch, mode):
+    await check(dedup_turso, monkeypatch, mode)
