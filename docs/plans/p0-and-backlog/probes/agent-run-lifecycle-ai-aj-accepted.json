@@ -1,0 +1,26 @@
+{
+  "accepted": true,
+  "code_commit": "2affb9af3b86f919444c2432f42890a63146ebe0",
+  "effective_files": 28,
+  "plan_maintenance_files": 1,
+  "actual_commit_files": 29,
+  "source": "agent-run-lifecycle-ah-source.json",
+  "all_nonplan_worktree_and_git_blobs_verified": 3346,
+  "plan_maintenance_worktree_and_git_blobs_verified": 1,
+  "frozen_candidate_inputs_verified": 6785,
+  "unit_audit": "agent-run-lifecycle-ai-audit.json",
+  "integration_audit": "agent-run-lifecycle-aj-audit.json",
+  "review": "V34-REVIEW.md",
+  "p0_and_prior_commits_ancestor_exit": {
+    "4c804ed": 0,
+    "7fd8121": 0,
+    "e535e1f": 0,
+    "7f4f952": 0,
+    "a78e53d": 0,
+    "1906827": 0,
+    "608f3df": 0,
+    "caf040d": 0
+  },
+  "pushed": false,
+  "deployed": false
+}

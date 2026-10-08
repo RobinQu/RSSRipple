@@ -1,5 +1,5 @@
 {
-  "accepted": false,
+  "accepted": true,
   "source": "agent-run-lifecycle-ah-source.json",
   "frozen": "agent-run-lifecycle-ah-frozen.json",
   "candidate": "/tmp/rssripple-v34-rebased-irauopcy",
@@ -16,7 +16,9 @@
     "log": "/tmp/rssripple-v34-ai-unit.log",
     "junit": "/tmp/rssripple-v34-ai-unit.xml",
     "coverage": "/tmp/rssripple-v34-ai-unit-coverage.xml",
-    "status": "running; no result yet"
+    "status": "complete; 4183 passed, 12 skipped, 96.61%; cleanup verified",
+    "actual_exit": 0,
+    "audit": "agent-run-lifecycle-ai-audit.json"
   },
   "integration": {
     "startup_session": 14351,
@@ -27,6 +29,9 @@
     "app_health": "healthy",
     "app_llm_health": "healthy",
     "image": "sha256:9f79b2a0d7b37b8e52545b7d0582df5474ecbf3ff93ebdbd2633fa6cbacf3985",
-    "status": "running; no result yet"
-  }
+    "status": "complete; 4188 passed, 17 skipped, 89.78%; cleanup verified",
+    "actual_exit": 0,
+    "audit": "agent-run-lifecycle-aj-audit.json"
+  },
+  "code_commit": "2affb9af3b86f919444c2432f42890a63146ebe0"
 }
