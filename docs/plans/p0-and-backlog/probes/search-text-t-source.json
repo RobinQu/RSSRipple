@@ -1,0 +1,87 @@
+{
+  "accepted": false,
+  "main_base": "5da14dad83cca4f1f74507d00186cbb8dd3930af",
+  "candidate": "/tmp/rssripple-v33-rebased-1ow49l3v",
+  "parent_source": "search-text-s-source.json",
+  "effective_files": 19,
+  "files": {
+    "app/database.py": {
+      "base": "97a7c34bc27ec13d2c29705d04b399a3cf2a67684dcbc2d7b6df33fd7e572bdf",
+      "candidate": "e390c561c90e34b1bd92d06123275d65086e8a38d3491eb1662b0883e4177e0a"
+    },
+    "app/models/audio_work.py": {
+      "base": "b6df5e122c23ed5efc84c243f1db8a495e86edbe635b536783e95f035c2f8632",
+      "candidate": "c86704b583393762ede57b82641249c11dcbbd5f8170f342f9ea8b73933724d3"
+    },
+    "app/models/movie.py": {
+      "base": "21c1a14ce508c0dd3325d1d88326c2786d4a6d36d32aa1277963f48536d5550f",
+      "candidate": "1a15c4d1d98f6d4dc7fdc80043037de17a73c71b37d71d5ebbb86af32968017a"
+    },
+    "app/models/series.py": {
+      "base": "82018e7e8eff74886de78632985f86cb01c9bb0fe09912dfcc31db18b995f403",
+      "candidate": "68c413175fe838f081068839972e83884a2ef954eadd174d8d44be0289ab49ba"
+    },
+    "app/models/work_collection.py": {
+      "base": "2052610c87cca1bc6406b7cfd609132db583a19421a519843923b9dba9f8e7b0",
+      "candidate": "013a57d13f3408240f8b33a90a4d5bbc666cc8a77c10b1c79d0e8c49b3e8154e"
+    },
+    "app/services/fts.py": {
+      "base": "e2de3f44cd01984aaa43b5c0b82a4fec0e060999f93b58b0aa69415fa40f2a91",
+      "candidate": "78f094fe976f02f8e1d2e048c34c75e184b9f4fe97c5fad48294cf2bb6cb5e15"
+    },
+    "app/services/search_text_schema.py": {
+      "base": null,
+      "candidate": "8dfd1475b7e1c6a552954f0d61305ede9f72533b13ada86997701a5f50919f85"
+    },
+    "docs/design/business-logic.md": {
+      "base": "3b89c957bfec844410326bbf54fb1ba11f49e846beb547fbcf94ab72e9149d7b",
+      "candidate": "201c6a5e41b3819c26733774aaed7639f6201bf664fd2cc3b4035209141f2357"
+    },
+    "docs/design/data-models.md": {
+      "base": "e943db4867aad40702831be89a44452df8339aad8d177ecc2c3ffb8f3dbc6ddc",
+      "candidate": "2e6828634dd521b72ad07e9417b27db9a5cdaa77204f0093aca6d0e4034ddc40"
+    },
+    "docs/design/db-migration.md": {
+      "base": "1914df51882b589646b461bd07bf82e0c0567ab85685ab76a7622d498dc39954",
+      "candidate": "06fbc175cae4ff6016cc0b158829d581d74f4188a9e5c890b9b76eaa3de1f61a"
+    },
+    "docs/testing/integration-inventory.md": {
+      "base": "1bf57361d45d3ea3cee10ed457e748cb4ae05d95054357d9e99ca8719cd9637f",
+      "candidate": "9c44412ec272562ec3538538ffe4202087b92054ff4caf7264ad0408040cca9c"
+    },
+    "tests/integration/search_text/__init__.py": {
+      "base": null,
+      "candidate": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "tests/integration/search_text/conftest.py": {
+      "base": null,
+      "candidate": "dce154b6522adc38f133c2a191cb5c850ad8dd25820e85c25a6d0ca102a7160b"
+    },
+    "tests/integration/search_text/test_combined_startup.py": {
+      "base": null,
+      "candidate": "fdc27cccbdbf2d6c9889e0212340a5177588c423b2ea99748bb0508f7d48b0eb"
+    },
+    "tests/integration/search_text/test_http.py": {
+      "base": null,
+      "candidate": "c01a83c56c90d4864321865a1386acf1c8213b77b205eb59c723a7a9b49021a5"
+    },
+    "tests/integration/search_text/test_metadata.py": {
+      "base": null,
+      "candidate": "4ac80873ba23444ed87ad865b2dfa14e741c9b850fde03b550bd8bd282a0d0c2"
+    },
+    "tests/integration/search_text/test_startup.py": {
+      "base": null,
+      "candidate": "4e70a0a9602d42672a059ef63afd81190244562a87047a2e15ae79fd71b7ff23"
+    },
+    "tests/integration/search_text/test_storage.py": {
+      "base": null,
+      "candidate": "ca8db579460796cc59576efa4e5d035791823324769a255dae93c99d3ae5b01f"
+    },
+    "tests/unit/test_database_migrations.py": {
+      "base": "54156afde214a68e2d2507c5ce0f3615423a66cbe6d1ce27315e5f59e262741b",
+      "candidate": "a9d86458e323948e652cc8388d4b54077f227e8b74d4f4d8e4ed9e57b153de77"
+    }
+  },
+  "all_nonplan_inputs_identical_to_tested_compatibility_candidate": 3329,
+  "preflight_evidence": "search-text-p-s-result.json"
+}

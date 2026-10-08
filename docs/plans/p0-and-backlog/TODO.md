@@ -51,7 +51,7 @@
 ### 数据 / 持久化
 
 - [ ] 轻量迁移 ~1100 行无版本跟踪/down path，`additions` 追加易漏（P1-D2 即此失效），表重建手抄列易漂移。
-- [ ] `search_text VARCHAR(4096)` 与无界别名拼接 writer 不一致（`app/services/work_search_events.py:64-72`）。 V33 已复现四类作品新增/更新在 PostgreSQL 的 4097/8192 字符写入失败（16 失败/16 通过），相同 Turso 32 项通过；录制标题加合成长别名，未发现录制样本自身超限。独立六文件 TEXT 原型升级后 PG 32 项通过，已验证回滚、重跑及原数据/三条 GIN 定义保留；DDL 后复用连接出现 prepared-statement 缓存失效，需停写重连及启动测试。后继 16 文件候选已补真实双库 HTTP/启动、Unicode 扩张、尾部搜索、未知类型拒绝、回滚/GIN 保留和实际并发启动锁；另修复合集 NULL 搜索列回填遗漏。最终专项 105 项、既有 FTS 回归合计轮 55 项通过；相同 HTTP 断言在 main 原代码上 PG 7 项失败、Turso 7 项通过。补齐元数据真实 upsert 双库 10 项及既有调用方 229 项通过，在 V32 ac 上构建兼容性候选，补齐共同旧库升级/回滚测试及迁移替身，V33 相对范围现为 19 文件。p/s 共同覆盖 289 个不同通过用例，独立项目已清理；仍待 V32 验收后正式重基与完整双门禁，未合入，见 [V33](V33-SEARCH-TEXT.md)。
+- [ ] `search_text VARCHAR(4096)` 与无界别名拼接 writer 不一致（`app/services/work_search_events.py:64-72`）。 V33 已复现四类作品新增/更新在 PostgreSQL 的 4097/8192 字符写入失败（16 失败/16 通过），相同 Turso 32 项通过；录制标题加合成长别名，未发现录制样本自身超限。独立六文件 TEXT 原型升级后 PG 32 项通过，已验证回滚、重跑及原数据/三条 GIN 定义保留；DDL 后复用连接出现 prepared-statement 缓存失效，需停写重连及启动测试。后继 16 文件候选已补真实双库 HTTP/启动、Unicode 扩张、尾部搜索、未知类型拒绝、回滚/GIN 保留和实际并发启动锁；另修复合集 NULL 搜索列回填遗漏。最终专项 105 项、既有 FTS 回归合计轮 55 项通过；相同 HTTP 断言在 main 原代码上 PG 7 项失败、Turso 7 项通过。补齐元数据真实 upsert 双库 10 项及既有调用方 229 项通过，在 V32 ac 上构建兼容性候选，补齐共同旧库升级/回滚测试及迁移替身，V33 相对范围现为 19 文件。p/s 共同覆盖 289 个不同通过用例，独立项目已清理；现已正式重基到包含 V32 的 main 5da14da，全部 3329 非计划输入与已通过专项候选一致；冻结后 u/v 完整双门禁运行中，未合入，见 [V33](V33-SEARCH-TEXT.md)。
 - [ ] `WorkExternalId` 无 FK/无 `updated_at`，删除不清（与 P1-D6 相关）。
 - [ ] `AgentWork` `ondelete="SET NULL"` 与 XOR `CheckConstraint` 矛盾（`app/models/agent_work.py:14-33`）。
 - [ ] `Episode.season` 与父作品 `season_number` 无约束（`app/models/episode.py:14-25`）。
