@@ -91,7 +91,9 @@
       "log": "/tmp/rssripple-v32-ad-unit.log",
       "junit": "/tmp/rssripple-v32-ad-unit.xml",
       "coverage": "/tmp/rssripple-v32-ad-unit-coverage.xml",
-      "status": "running; actual exit not yet known"
+      "status": "completed and accepted",
+      "actual_exit": 0,
+      "audit": "utc-contract-ad-audit.json"
     },
     "integration": {
       "startup_session": 30713,
@@ -102,7 +104,10 @@
       "image": "sha256:9f79b2a0d7b37b8e52545b7d0582df5474ecbf3ff93ebdbd2633fa6cbacf3985",
       "app_health": "healthy",
       "app_llm_health": "healthy",
-      "status": "running; actual exit not yet known"
+      "status": "completed and accepted; apps stopped, evidence exported, project cleaned",
+      "actual_exit": 0,
+      "audit": "utc-contract-ae-audit.json"
     }
-  }
+  },
+  "accepted_result": "utc-contract-ad-ae-accepted.json"
 }

@@ -1,0 +1,153 @@
+{
+  "accepted": true,
+  "actual_exit": 0,
+  "passed": 3981,
+  "skipped": 17,
+  "warnings": 29,
+  "seconds": 2747.85,
+  "suite": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "17",
+    "tests": "3998",
+    "time": "2747.423",
+    "timestamp": "2026-10-07T16:51:25.994198+00:00",
+    "hostname": "eae67a2f08b8"
+  },
+  "coverage": {
+    "lines-covered": "21962",
+    "lines-valid": "24520",
+    "line-rate": "0.8957"
+  },
+  "coverage_exit": 0,
+  "export_exit": 0,
+  "skips": [
+    [
+      "tests.integration.http.test_api_coverage2.TestMagnetResolve",
+      "test_terminal_retry_flow",
+      "no magnet resolution reached a terminal state in time"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_mapping_structure",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_mapping_has_torrent_url",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_mapping_has_title_field",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_all_rules_have_source_key",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestAnalyzeUrlStream",
+      "test_confidence_not_low",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_fetch_succeeded",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_fetch_created_resources",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_resources_have_torrent_url",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_resources_have_title_raw",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_channel_stream_analyze_also_works",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_channel_workflow.TestEditChannelWithMapping",
+      "test_no_duplicates_on_refetch",
+      "LLM_API_KEY not set — skipping LLM-dependent workflow tests"
+    ],
+    [
+      "tests.integration.http.test_metadata_api.TestMetadataLink",
+      "test_link_metadata_creates_series",
+      "No metadata API keys configured — cannot perform search+link"
+    ],
+    [
+      "tests.integration.http.test_task_queue.TestRedisDistributedDedup",
+      "test_status_key_shared_after_enqueue",
+      "No distinct Redis-backed app instance configured"
+    ],
+    [
+      "tests.integration.http.test_task_queue.TestRedisDistributedDedup",
+      "test_redis_job_state_persists_after_done",
+      "No distinct Redis-backed app instance configured"
+    ],
+    [
+      "tests.integration.magnet.test_magnet_resolve_e2e",
+      "test_live_magnet_resolution",
+      "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)"
+    ],
+    [
+      "tests.integration.magnet.test_magnet_resolve_e2e",
+      "test_live_fetch_to_resolve_end_to_end",
+      "live magnet test: set RSSRIPPLE_LIVE_MAGNET=1 (needs network/DHT + libtorrent)"
+    ]
+  ],
+  "skip_baseline": "metadata-refresh-i18n-k-audit.json",
+  "container_exits": {
+    "/rssripple-v32-final-ae-runner": {
+      "exit": 0,
+      "status": "exited",
+      "image": "sha256:9f79b2a0d7b37b8e52545b7d0582df5474ecbf3ff93ebdbd2633fa6cbacf3985"
+    },
+    "/rssripple-v32-final-ae-app-1": {
+      "exit": 0,
+      "status": "exited",
+      "image": "sha256:9f79b2a0d7b37b8e52545b7d0582df5474ecbf3ff93ebdbd2633fa6cbacf3985"
+    },
+    "/rssripple-v32-final-ae-app-llm-1": {
+      "exit": 0,
+      "status": "exited",
+      "image": "sha256:9f79b2a0d7b37b8e52545b7d0582df5474ecbf3ff93ebdbd2633fa6cbacf3985"
+    }
+  },
+  "raw_coverage_files": [
+    ".coverage.combined",
+    ".coverage.integration",
+    ".coverage.integration-llm",
+    ".coverage.scripts",
+    ".coverage.test-runner"
+  ],
+  "corpus_reports": [
+    "audit.json",
+    "deepsearch-audit.json",
+    "scenario-71bf5def93704363.json",
+    "scenario-db811b734d386cbc.json"
+  ],
+  "frozen_inputs_verified": 6647,
+  "cleanup": {
+    "down_exit": 0,
+    "labels": {
+      "container": [],
+      "network": [],
+      "volume": []
+    }
+  },
+  "code_commit": "608f3df7a1bb1aa2e4180aff5275e3e9be9c09dc"
+}

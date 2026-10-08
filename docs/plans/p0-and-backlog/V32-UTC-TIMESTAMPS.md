@@ -1,6 +1,6 @@
 # V32 UTC 存储与时间输出（P2，必要性已验证）
 
-> 最新：w 的完整门禁因 z 新红测发现极端时间输入缺陷而主动结束，不能验收。后继 ac 候选为 76 文件，扩大 ab 443 项和生产错误码 ac 20 项通过；已重新冻结并启动 ad/ae 完整门禁，结果未定。运行代码尚未合入。
+> 最新：ad/ae 完整门禁、最终五轴审查和全部审计通过，76 文件已合入本地 main `608f3df`。单元/API 4183 项、96.83%；集成 3981 项、89.57%；跳过与 V31 基线一致，全部 3321 非计划输入及提交对象核验通过，项目已清理。UTC 待办已移除，见 [验收摘要](probes/utc-contract-ad-ae-accepted.json)。以下保留历史阶段记录。
 
 ## 重新论证
 
@@ -135,3 +135,12 @@ z0 初次 16 失败中，两项是测试错误地要求原 Agent request schema 
 w 源码完整冻结未变，但已知缺陷使其无法成为合入对象。因此主动结束旧门禁：x 实际退出 1，部分 JUnit 为 796 passed/1 skipped（中断后 pytest 同类 stash 清理错误）；y 实际退出 2，部分 358 passed/9 warnings，应用随后正常退出 0/0。部分日志、JUnit、raw coverage 已导出归档，不计算通过覆盖率。旧 x/y 的两个 Compose 项目已 down，容器/网络/卷标签均为空；不是因等待超时而重启。
 
 新 ac 来源独立推导 **76 文件**，以 main `20846db` 为基线，冻结 **6647 文件、3321 非计划输入**。见 [来源](probes/utc-contract-ac-source.json) 和 [冻结清单](probes/utc-contract-ac-frozen.json)。ad 完整单元/API 会话 31484，使用已独立的 range-ab PostgreSQL；ae 完整隔离集成使用项目 `rssripple-v32-final-ae`。新门禁必须重新满足完整 95%/85%、零失败及退出/跳过/覆盖率导出/哈希/清理/最终审查，不能引用已中断 x/y 作为验收。续接信息以 z–ac 结果文件中的 full_gates 为准。
+
+
+## ad/ae 最终验收与本地主干合入（2026-10-08）
+
+ad 实际退出 0：4183 passed、12 skipped、15 warnings，3185.14 秒；23742/24520（96.83%）通过 95% 门禁。ae 实际退出 0：3981 passed、17 skipped、29 warnings，2747.85 秒；21962/24520（89.57%）通过 85% 门禁。两组跳过名称/原因逐项等于 V31 j/k，原失败轮及有意中断记录保留。
+
+应用停止 0/0，coverage-report 与导出均退出 0；五份原始覆盖率、四份语料报告及 JUnit/日志归档。两个唯一项目 down 成功，容器/网络/卷标签为空。6647 冻结输入未变，完整 Git/新文件推导仍为 76 个有效文件。最终审查见 [V32-REVIEW](V32-REVIEW.md)。
+
+有效修复已提交本地 main `608f3df7a1bb1aa2e4180aff5275e3e9be9c09dc`，实际提交范围精确匹配；全部 3321 非计划文件在工作树和提交 blob 中均匹配冻结候选。原 P0 与 V30/V31 的祖先核验全部退出 0。UTC 待办已从 pending-only TODO 删除；V33/V34 仍待各自完整验收，未推送或部署。机器可读结果见 [ad/ae accepted](probes/utc-contract-ad-ae-accepted.json)。

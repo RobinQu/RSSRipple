@@ -1,0 +1,21 @@
+{
+  "accepted": true,
+  "code_commit": "608f3df7a1bb1aa2e4180aff5275e3e9be9c09dc",
+  "effective_files": 76,
+  "source": "utc-contract-ac-source.json",
+  "all_nonplan_worktree_and_git_blobs_verified": 3321,
+  "frozen_candidate_inputs_verified": 6647,
+  "unit_audit": "utc-contract-ad-audit.json",
+  "integration_audit": "utc-contract-ae-audit.json",
+  "review": "V32-REVIEW.md",
+  "p0_and_prior_commits_ancestor_exit": {
+    "4c804ed": 0,
+    "7fd8121": 0,
+    "e535e1f": 0,
+    "7f4f952": 0,
+    "a78e53d": 0,
+    "1906827": 0
+  },
+  "pushed": false,
+  "deployed": false
+}
