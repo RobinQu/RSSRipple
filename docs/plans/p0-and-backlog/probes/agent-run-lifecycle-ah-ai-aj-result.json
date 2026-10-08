@@ -1,0 +1,32 @@
+{
+  "accepted": false,
+  "source": "agent-run-lifecycle-ah-source.json",
+  "frozen": "agent-run-lifecycle-ah-frozen.json",
+  "candidate": "/tmp/rssripple-v34-rebased-irauopcy",
+  "main_base": "5422410157afb86fe8756464518d94c311fa26d2",
+  "effective_files": 28,
+  "plan_maintenance_files": 1,
+  "nonplan_identical_to_passed_compatibility": 3346,
+  "frozen_files": 6785,
+  "ruff_exit": 0,
+  "unit": {
+    "session": 11023,
+    "project": "rssripple-v34-unit-ai",
+    "postgres_port": 32913,
+    "log": "/tmp/rssripple-v34-ai-unit.log",
+    "junit": "/tmp/rssripple-v34-ai-unit.xml",
+    "coverage": "/tmp/rssripple-v34-ai-unit-coverage.xml",
+    "status": "running; no result yet"
+  },
+  "integration": {
+    "startup_session": 14351,
+    "startup_exit": 0,
+    "runner_session": 92952,
+    "project": "rssripple-v34-final-aj",
+    "log": "/tmp/rssripple-v34-aj-integration.log",
+    "app_health": "healthy",
+    "app_llm_health": "healthy",
+    "image": "sha256:9f79b2a0d7b37b8e52545b7d0582df5474ecbf3ff93ebdbd2633fa6cbacf3985",
+    "status": "running; no result yet"
+  }
+}
