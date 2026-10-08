@@ -1,0 +1,65 @@
+{
+  "accepted": false,
+  "main_base": "2f9cf006fdc080cc5be71b8d0ae74b31a5e2732e",
+  "runtime_changed": false,
+  "probe_sha256": "114934d25c434d9e306be6c96d7528ee8c7e502194b425f72e4aa8b6f029f575",
+  "recorded_fixture_sha256": "d11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32",
+  "recorded_resource_count": 559,
+  "recorded_max_title_chars": 176,
+  "recorded_titles_over_512": 0,
+  "synthetic_boundaries": {
+    "lengths": [
+      512,
+      513,
+      1024
+    ],
+    "alphabets": [
+      "ascii",
+      "cjk"
+    ],
+    "prefix": "first recorded title, first 80 characters",
+    "suffix": "deterministic Random(3500+length) sample, explicit synthetic marker"
+  },
+  "results": {
+    "a": {
+      "actual_exit": 1,
+      "seconds": 24.29,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "4",
+        "skipped": "0",
+        "tests": "12",
+        "time": "24.267",
+        "timestamp": "2026-10-08T06:08:14.102122+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    },
+    "b": {
+      "actual_exit": 1,
+      "seconds": 11.99,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "1",
+        "skipped": "0",
+        "tests": "6",
+        "time": "11.979",
+        "timestamp": "2026-10-08T06:10:14.221635+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    }
+  },
+  "a_result": "PostgreSQL 513/1024 fail actual cache insert after valid FileResource commit; both 512 controls and all Turso cases pass.",
+  "b_result": "Scratch DB title widened to VARCHAR(1024); CJK 1024 still fails unique btree index row size 2968 > 2704; five cases pass, six Turso cases intentionally deselected.",
+  "priority": "P2; no observed production corruption; repository writer boundary tested, not full metadata agent execution.",
+  "cleanup": {
+    "project": "rssripple-v35-cache-a",
+    "down_exit": 0,
+    "labels": {
+      "container": [],
+      "network": [],
+      "volume": []
+    }
+  }
+}

@@ -94,7 +94,7 @@
       `metadata_title_index.py:96-162`、`metadata_dedup.py:615/635/693`）。
 - [ ] 维基 slug id 与数字 pageid 不收敛（`metadata_source_registry.py:240-300`）。
 - [ ] Douban URL 正则混淆书/影/音（`metadata_source_registry.py:143-176`）。
-- [ ] `metadata_cache.title VARCHAR(512)` < 原始标题上限 1024。
+- [ ] `metadata_cache.title VARCHAR(512)` 小于合法资源标题上限 1024（V35，P2）。真实 repository 写入在 PG 的 513/1024 ASCII/CJK 四例失败，512 对照与六个 Turso 场景通过；仅扩列到 1024 后，长中文仍超出复合唯一 btree 键大小。录制 559 条资源最长 176，无生产损坏证据。需验证“完整标题＋定长摘要键”、全文碰撞保护及双库旧数据迁移，禁止截断或跳过普通长标题；当前仅有红测与方案，未改运行代码，专用项目已清理，见 [V35](V35-METADATA-CACHE-KEYS.md)。
 
 ### 安全 / API
 

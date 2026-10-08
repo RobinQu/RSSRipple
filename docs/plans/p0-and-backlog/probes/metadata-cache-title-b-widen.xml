@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="6" time="11.979" timestamp="2026-10-08T06:10:14.221635+00:00" hostname="dl-workstation-albert"><testcase classname="" name="test_postgres[ascii-512]" time="0.386" /><testcase classname="" name="test_postgres[ascii-513]" time="0.379" /><testcase classname="" name="test_postgres[ascii-1024]" time="0.356" /><testcase classname="" name="test_postgres[cjk-512]" time="0.399" /><testcase classname="" name="test_postgres[cjk-513]" time="0.425" /><testcase classname="" name="test_postgres[cjk-1024]" time="0.421"><failure message="sqlalchemy.exc.DBAPIError: (sqlalchemy.dialects.postgresql.asyncpg.Error) &lt;class 'asyncpg.exceptions.ProgramLimitExceededError'&gt;: index row size 2968 exceeds btree version 4 maximum 2704 for index &quot;uq_metadata_cache_key&quot;&#10;DETAIL:  Index row references tuple (0,1) in relation &quot;metadata_cache&quot;.&#10;HINT:  Values larger than 1/3 of a buffer page cannot be indexed.&#10;Consider a function index of an MD5 hash of the value, or use full text indexing.&#10;[SQL: INSERT INTO metadata_cache (id, title, source, content_type, metadata_json, generation) VALUES ($1::VARCHAR, $2::VARCHAR, $3::VARCHAR, $4::VARCHAR, $5::JSON, $6::INTEGER) RETURNING metadata_cache.created_at, metadata_cache.updated_at]&#10;[parameters: ('5c6b91b3-7130-4c80-95b4-6d97167f63c7', '[ANi]  Re：从零开始的异世界生活 第四季 - 13 [1080P][Baha][WEB-DL][AAC AVC][CHT][MP4] [synthetic] 敝蓌耽竅盿抗洜烅胖蘒鐄弇扊轃瀵逧盜钆铵鞌脎劝釜鶄隬傾軵扠壕恨僄蚚殂蜲瀠呰苷蓝嗟鯱豸垎嗵嵲潂歫仏厔関僱橑钗镅曆縞丆谈誌獚媫砝鵨軫馘瓖繖 ... (726 characters truncated) ... 搢犊儔捪罕褕妊醿糴榋訝愝陷涌簿頱昚橃倕法嶓邲窐挿鞌癇斂貛铍暝醕攃齎梋裊諼晃嬼椺嬪吞瑱抗羹造蹹唹粙码涻坂鬗焩呔孧杼駚萏玩艚枡慁飊劉勭堨汍焆梑遬亓鳍包趇癋礯庨仡凳颟隢胡稸枟睾訋狏跃酁晧駯参醣挫鼡乖缎櫅杜薾訾鬋谮庥魡甝孭臗汭鵇梲庽鵱鄸礈簬耛虍俠賓圿苕漲硛绠嚲鳁繦箾斎葪丫購媍嶔閶譯痁嘢胨恘粊嵡靈 tail', 'metadata_agent:wikipedia', 'tv', '{&quot;clean_title&quot;: &quot;synthetic result&quot;, &quot;content_type&quot;: &quot;tv&quot;, &quot;found&quot;: false, &quot;inferred_episode&quot;: null, &quot;inferred_season&quot;: null, &quot;is_batch&quot;: false, &quot;infe ... (361 characters truncated) ... se, &quot;ambiguous_candidates&quot;: [], &quot;season_ambiguous&quot;: false, &quot;search_method&quot;: null, &quot;data_sources_used&quot;: [], &quot;source_errors&quot;: {}, &quot;search_error&quot;: null}', 7)]&#10;(Background on this error at: https://sqlalche.me/e/20/dbapi)">.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:550: in _prepare_and_execute
+    self._rows = deque(await prepared_stmt.fetch(*parameters))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py:177: in fetch
+    data = await self.__bind_execute(args, 0, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py:268: in __bind_execute
+    data, status, _ = await self.__do_execute(
+.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py:257: in __do_execute
+    return await executor(protocol)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+asyncpg/protocol/protocol.pyx:205: in bind_execute
+    ???
+E   asyncpg.exceptions.ProgramLimitExceededError: index row size 2968 exceeds btree version 4 maximum 2704 for index "uq_metadata_cache_key"
+E   DETAIL:  Index row references tuple (0,1) in relation "metadata_cache".
+E   HINT:  Values larger than 1/3 of a buffer page cannot be indexed.
+E   Consider a function index of an MD5 hash of the value, or use full text indexing.
+
+The above exception was the direct cause of the following exception:
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1969: in _exec_single_context
+    self.dialect.do_execute(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:585: in execute
+    self._adapt_connection.await_(
+.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:563: in _prepare_and_execute
+    self._handle_exception(error)
+.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:513: in _handle_exception
+    self._adapt_connection._handle_exception(error)
+.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:797: in _handle_exception
+    raise translated_error from error
+E   sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.Error: &lt;class 'asyncpg.exceptions.ProgramLimitExceededError'&gt;: index row size 2968 exceeds btree version 4 maximum 2704 for index "uq_metadata_cache_key"
+E   DETAIL:  Index row references tuple (0,1) in relation "metadata_cache".
+E   HINT:  Values larger than 1/3 of a buffer page cannot be indexed.
+E   Consider a function index of an MD5 hash of the value, or use full text indexing.
+
+The above exception was the direct cause of the following exception:
+/tmp/rssripple_v35_cache_probe.py:61: in test_postgres
+    await check(dedup_postgres, length, alphabet)
+/tmp/rssripple_v35_cache_probe.py:49: in check
+    await _set_cache(title, 'wikipedia', ResourceMetadata(clean_title='synthetic result', found=False), db)
+app/services/metadata_repository.py:466: in _set_cache
+    await db.flush()
+.venv/lib/python3.13/site-packages/sqlalchemy/ext/asyncio/session.py:786: in flush
+    await greenlet_spawn(self.sync_session.flush, objects=objects)
+.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:4353: in flush
+    self._flush(objects)
+.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:4488: in _flush
+    with util.safe_reraise():
+         ^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/util/langhelpers.py:122: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:4449: in _flush
+    flush_context.execute()
+.venv/lib/python3.13/site-packages/sqlalchemy/orm/unitofwork.py:465: in execute
+    rec.execute(self)
+.venv/lib/python3.13/site-packages/sqlalchemy/orm/unitofwork.py:641: in execute
+    util.preloaded.orm_persistence.save_obj(
+.venv/lib/python3.13/site-packages/sqlalchemy/orm/persistence.py:94: in save_obj
+    _emit_insert_statements(
+.venv/lib/python3.13/site-packages/sqlalchemy/orm/persistence.py:1234: in _emit_insert_statements
+    result = connection.execute(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1421: in execute
+    return meth(
+.venv/lib/python3.13/site-packages/sqlalchemy/sql/elements.py:526: in _execute_on_connection
+    return connection._execute_clauseelement(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1643: in _execute_clauseelement
+    ret = self._execute_context(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1848: in _execute_context
+    return self._exec_single_context(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1988: in _exec_single_context
+    self._handle_dbapi_exception(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:2365: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1969: in _exec_single_context
+    self.dialect.do_execute(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:585: in execute
+    self._adapt_connection.await_(
+.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:563: in _prepare_and_execute
+    self._handle_exception(error)
+.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:513: in _handle_exception
+    self._adapt_connection._handle_exception(error)
+.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:797: in _handle_exception
+    raise translated_error from error
+E   sqlalchemy.exc.DBAPIError: (sqlalchemy.dialects.postgresql.asyncpg.Error) &lt;class 'asyncpg.exceptions.ProgramLimitExceededError'&gt;: index row size 2968 exceeds btree version 4 maximum 2704 for index "uq_metadata_cache_key"
+E   DETAIL:  Index row references tuple (0,1) in relation "metadata_cache".
+E   HINT:  Values larger than 1/3 of a buffer page cannot be indexed.
+E   Consider a function index of an MD5 hash of the value, or use full text indexing.
+E   [SQL: INSERT INTO metadata_cache (id, title, source, content_type, metadata_json, generation) VALUES ($1::VARCHAR, $2::VARCHAR, $3::VARCHAR, $4::VARCHAR, $5::JSON, $6::INTEGER) RETURNING metadata_cache.created_at, metadata_cache.updated_at]
+E   [parameters: ('5c6b91b3-7130-4c80-95b4-6d97167f63c7', '[ANi]  Re：从零开始的异世界生活 第四季 - 13 [1080P][Baha][WEB-DL][AAC AVC][CHT][MP4] [synthetic] 敝蓌耽竅盿抗洜烅胖蘒鐄弇扊轃瀵逧盜钆铵鞌脎劝釜鶄隬傾軵扠壕恨僄蚚殂蜲瀠呰苷蓝嗟鯱豸垎嗵嵲潂歫仏厔関僱橑钗镅曆縞丆谈誌獚媫砝鵨軫馘瓖繖 ... (726 characters truncated) ... 搢犊儔捪罕褕妊醿糴榋訝愝陷涌簿頱昚橃倕法嶓邲窐挿鞌癇斂貛铍暝醕攃齎梋裊諼晃嬼椺嬪吞瑱抗羹造蹹唹粙码涻坂鬗焩呔孧杼駚萏玩艚枡慁飊劉勭堨汍焆梑遬亓鳍包趇癋礯庨仡凳颟隢胡稸枟睾訋狏跃酁晧駯参醣挫鼡乖缎櫅杜薾訾鬋谮庥魡甝孭臗汭鵇梲庽鵱鄸礈簬耛虍俠賓圿苕漲硛绠嚲鳁繦箾斎葪丫購媍嶔閶譯痁嘢胨恘粊嵡靈 tail', 'metadata_agent:wikipedia', 'tv', '{"clean_title": "synthetic result", "content_type": "tv", "found": false, "inferred_episode": null, "inferred_season": null, "is_batch": false, "infe ... (361 characters truncated) ... se, "ambiguous_candidates": [], "season_ambiguous": false, "search_method": null, "data_sources_used": [], "source_errors": {}, "search_error": null}', 7)]
+E   (Background on this error at: https://sqlalche.me/e/20/dbapi)</failure></testcase></testsuite></testsuites>
