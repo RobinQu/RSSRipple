@@ -1,0 +1,16 @@
+........................................................................ [ 42%]
+........................................................................ [ 85%]
+.........................                                                [100%]
+=============================== warnings summary ===============================
+tests/unit/test_database_migrations.py::test_metadata_source_convergence_rewrites_legacy_values
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+tests/unit/test_database_migrations.py::test_create_tables_turso_path
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/langhelpers.py:1396: RuntimeWarning: coroutine 'test_best_effort_savepoint_unavailable.<locals>._Conn.begin_nested' was never awaited
+    kw.update(
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+169 passed, 2 warnings in 296.19s (0:04:56)

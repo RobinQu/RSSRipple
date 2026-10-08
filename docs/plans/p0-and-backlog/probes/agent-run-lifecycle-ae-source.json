@@ -1,0 +1,321 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v34-with-v33-w4nyjuwc",
+  "main_base": "0a04097405c465355735d9f658c18601fb3c4cd1",
+  "parent_source": "search-text-t-source.json",
+  "parent_candidate": "/tmp/rssripple-v33-rebased-1ow49l3v",
+  "v34_source": "agent-run-lifecycle-ad-source.json",
+  "rebase_resolution": {
+    "app/database.py": "three-way clean",
+    "app/job_handlers.py": "preserve lifecycle lease scope and V30 explicit works loading",
+    "app/models/__init__.py": "ancestor unchanged",
+    "app/models/agent.py": "three-way clean",
+    "app/models/agent_run_lease.py": "new file",
+    "app/services/agent_run_execution.py": "new file",
+    "app/services/agent_run_finalization.py": "new file",
+    "app/services/agent_run_lifecycle.py": "new file",
+    "app/services/agent_service.py": "three-way clean",
+    "app/services/scheduler.py": "ancestor unchanged",
+    "docs/design/business-logic.md": "retain both independent appended contract sections",
+    "docs/design/data-models.md": "three-way clean",
+    "docs/design/db-migration.md": "preserve current and append verified incoming suffix",
+    "docs/testing/integration-inventory.md": "retain both independent appended contract sections",
+    "tests/integration/agent_run_lifecycle/__init__.py": "new file",
+    "tests/integration/agent_run_lifecycle/conftest.py": "new file",
+    "tests/integration/agent_run_lifecycle/test_handler.py": "new file",
+    "tests/integration/agent_run_lifecycle/test_heartbeat_shutdown.py": "new file",
+    "tests/integration/agent_run_lifecycle/test_lease.py": "new file",
+    "tests/integration/queue_recovery/agent_lifecycle_driver.py": "new file",
+    "tests/integration/queue_recovery/test_notification_recovery.py": "ancestor unchanged",
+    "tests/integration/agent_run_lifecycle/test_scheduler.py": "new file",
+    "tests/integration/agent_run_lifecycle/test_database_disconnect.py": "new file",
+    "tests/integration/agent_run_lifecycle/test_redis_disconnect.py": "new file",
+    "tests/integration/agent_run_lifecycle/test_migration.py": "new file",
+    "scripts/review_legacy_agent_runs.py": "new file",
+    "tests/integration/agent_run_lifecycle/test_legacy_review.py": "new file"
+  },
+  "unresolved": [],
+  "plan_maintenance": {
+    "docs/plans/p0-and-backlog/probes/agent_run_recovery_probe.py": {
+      "base": "0853223a55baa5db654dd895f38dd163745415fa4f2f288a60c7d58ed29dee24",
+      "reason": "Normalize archived executable probe imports after new modules become available; preserve original source separately.",
+      "candidate": "c9486e30008c1661acaf4cf0336d5995bc55ac5dfd54fa83c10115fa4e3691fd"
+    }
+  },
+  "relative_files": {
+    "app/database.py": {
+      "parent": "e390c561c90e34b1bd92d06123275d65086e8a38d3491eb1662b0883e4177e0a",
+      "candidate": "5bb5bba8df4bf2517b752cad4482a428e05e690994b5b7ef3fa957475935f37a"
+    },
+    "app/job_handlers.py": {
+      "parent": "50e923ef11feba7ebd24cea67ec32a978df5860f0354c56629c398676cc54144",
+      "candidate": "05726e57bd883570f4aa55d3ef79ca8e26f2aa8921fea3ea3eadcaeb8575d2e0"
+    },
+    "app/models/__init__.py": {
+      "parent": "4f6d75732cd786b6a220003e6771d84ccfe5d68e4e0e52c6cb1a1e7abea1972e",
+      "candidate": "b4b13a7f6e6705e17fe9ddf549509a2c887185a5657a2e7e3a20d71e02b443c8"
+    },
+    "app/models/agent.py": {
+      "parent": "cdbc6922d248806745eb0e2c237cac9ef496fb827a42150ceed3515f15867a55",
+      "candidate": "16e511f1b25f8ba614ab7fd2d7466ac015c712095f06de635c05de15435e7abb"
+    },
+    "app/models/agent_run_lease.py": {
+      "parent": null,
+      "candidate": "ce1733750417b40bf903f7a0f79e1efeffbc7724325604ecaa862a7e9bcc85c5"
+    },
+    "app/services/agent_run_execution.py": {
+      "parent": null,
+      "candidate": "70988935c12e2ca3b34268429077b3a6c87c7bec584d94a3e03c47b2b1aadb0f"
+    },
+    "app/services/agent_run_finalization.py": {
+      "parent": null,
+      "candidate": "cdfbee97852e5fc0296c8b18fe97baab61f777b0d4352cf17ae77c98a94a09cd"
+    },
+    "app/services/agent_run_lifecycle.py": {
+      "parent": null,
+      "candidate": "1dff9b29a37312249a05de9f3df797754f80279e588d44443ef4b36f4f4a94d2"
+    },
+    "app/services/agent_service.py": {
+      "parent": "e2813e55897827eee1abfe338199ec60494c4aa25aa71f6ae7eb3a440d3022a8",
+      "candidate": "6de7429303a06a35f70483df825b658e2ae383048d8672d2cb20ede3438a7916"
+    },
+    "app/services/scheduler.py": {
+      "parent": "d81e59a91f14d4d29da2eabd06e5a7b4a434af85626c8e000abe3f7299b346b5",
+      "candidate": "7a8b8e4b4cb1e29e5978f6259d5828bc95feb1a6dafd50c4e01be41700bcc7cb"
+    },
+    "docs/design/business-logic.md": {
+      "parent": "201c6a5e41b3819c26733774aaed7639f6201bf664fd2cc3b4035209141f2357",
+      "candidate": "61d05fa4638d72a42b79f3e03937d1635c35a3b468f20bb47ec8a3e0326dcfdd"
+    },
+    "docs/design/data-models.md": {
+      "parent": "2e6828634dd521b72ad07e9417b27db9a5cdaa77204f0093aca6d0e4034ddc40",
+      "candidate": "5b2d30b457eecd3ff3f70b0ac03dde6ea03f73b63252131db8863947d645760d"
+    },
+    "docs/design/db-migration.md": {
+      "parent": "06fbc175cae4ff6016cc0b158829d581d74f4188a9e5c890b9b76eaa3de1f61a",
+      "candidate": "6ebc47f4ea9b4b47f47085e18a842a744d39493875a2b8ae5f24a06b517b783c"
+    },
+    "docs/testing/integration-inventory.md": {
+      "parent": "9c44412ec272562ec3538538ffe4202087b92054ff4caf7264ad0408040cca9c",
+      "candidate": "d4a97a1832382192542e5a52c924e9efbf7d80720a29248ebae5450ff570a79f"
+    },
+    "scripts/review_legacy_agent_runs.py": {
+      "parent": null,
+      "candidate": "49b463f3662e2f45cf1f2872e4389c1e5c28068cbe6ea05c35d831f58ea3f409"
+    },
+    "tests/integration/agent_run_lifecycle/__init__.py": {
+      "parent": null,
+      "candidate": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "tests/integration/agent_run_lifecycle/conftest.py": {
+      "parent": null,
+      "candidate": "9c74285d1ce088fb1f69f0d7cbfca76ce7b148d481855b4a68bbf0b60ca47c7e"
+    },
+    "tests/integration/agent_run_lifecycle/test_database_disconnect.py": {
+      "parent": null,
+      "candidate": "3fdcaae00ad478b8d41da78203008ca2c72c3fe7c64c25e4ba48ea04019c82a7"
+    },
+    "tests/integration/agent_run_lifecycle/test_handler.py": {
+      "parent": null,
+      "candidate": "bdcf1eb3956c96e54e070a2fa1bad8dcf37ffa60b0a7d40071a2a7ee3e7e2390"
+    },
+    "tests/integration/agent_run_lifecycle/test_heartbeat_shutdown.py": {
+      "parent": null,
+      "candidate": "afc5ee0cc1d3f3bbbcb36778ba561413096f42b3e6398a96b197e29336b9a39e"
+    },
+    "tests/integration/agent_run_lifecycle/test_lease.py": {
+      "parent": null,
+      "candidate": "8b5ea8c56d377be0e816ede9e54b8a9490a4c1d4f14bbb000287673bef7b0527"
+    },
+    "tests/integration/agent_run_lifecycle/test_legacy_review.py": {
+      "parent": null,
+      "candidate": "b31d40da43e7ed6b088d98aed440a6244d53c147181eba09026b8a6ae97dcdb3"
+    },
+    "tests/integration/agent_run_lifecycle/test_migration.py": {
+      "parent": null,
+      "candidate": "06b660b6e3a42ce44a9d7df83745d948cc80fb1b542bef3b7e9edab323b209aa"
+    },
+    "tests/integration/agent_run_lifecycle/test_redis_disconnect.py": {
+      "parent": null,
+      "candidate": "ef438d59473b331f163f0f6d9fbb25f63d50608699853664e54e12c9c87583d6"
+    },
+    "tests/integration/agent_run_lifecycle/test_scheduler.py": {
+      "parent": null,
+      "candidate": "cae070e2f7130bb71a3ac53aa9b17d3946bb1564c17a993a99f645610809fe39"
+    },
+    "tests/integration/queue_recovery/agent_lifecycle_driver.py": {
+      "parent": null,
+      "candidate": "835581014241199555729f3147067857b363ac158b3298d1ab655509e8fd1a6d"
+    },
+    "tests/integration/queue_recovery/test_notification_recovery.py": {
+      "parent": "ad6bfc268fd5d37cf73874d7db0a7e4a0875a859d64aa91586e9058fa329e80f",
+      "candidate": "c517c842bd147b552a96044f40fe3f11291d7e30e8ec18ef929262208489964d"
+    }
+  },
+  "combined_files": {
+    "app/database.py": {
+      "main": "97a7c34bc27ec13d2c29705d04b399a3cf2a67684dcbc2d7b6df33fd7e572bdf",
+      "candidate": "5bb5bba8df4bf2517b752cad4482a428e05e690994b5b7ef3fa957475935f37a"
+    },
+    "app/job_handlers.py": {
+      "main": "50e923ef11feba7ebd24cea67ec32a978df5860f0354c56629c398676cc54144",
+      "candidate": "05726e57bd883570f4aa55d3ef79ca8e26f2aa8921fea3ea3eadcaeb8575d2e0"
+    },
+    "app/models/__init__.py": {
+      "main": "4f6d75732cd786b6a220003e6771d84ccfe5d68e4e0e52c6cb1a1e7abea1972e",
+      "candidate": "b4b13a7f6e6705e17fe9ddf549509a2c887185a5657a2e7e3a20d71e02b443c8"
+    },
+    "app/models/agent.py": {
+      "main": "cdbc6922d248806745eb0e2c237cac9ef496fb827a42150ceed3515f15867a55",
+      "candidate": "16e511f1b25f8ba614ab7fd2d7466ac015c712095f06de635c05de15435e7abb"
+    },
+    "app/models/agent_run_lease.py": {
+      "main": null,
+      "candidate": "ce1733750417b40bf903f7a0f79e1efeffbc7724325604ecaa862a7e9bcc85c5"
+    },
+    "app/models/audio_work.py": {
+      "main": "b6df5e122c23ed5efc84c243f1db8a495e86edbe635b536783e95f035c2f8632",
+      "candidate": "c86704b583393762ede57b82641249c11dcbbd5f8170f342f9ea8b73933724d3"
+    },
+    "app/models/movie.py": {
+      "main": "21c1a14ce508c0dd3325d1d88326c2786d4a6d36d32aa1277963f48536d5550f",
+      "candidate": "1a15c4d1d98f6d4dc7fdc80043037de17a73c71b37d71d5ebbb86af32968017a"
+    },
+    "app/models/series.py": {
+      "main": "82018e7e8eff74886de78632985f86cb01c9bb0fe09912dfcc31db18b995f403",
+      "candidate": "68c413175fe838f081068839972e83884a2ef954eadd174d8d44be0289ab49ba"
+    },
+    "app/models/work_collection.py": {
+      "main": "2052610c87cca1bc6406b7cfd609132db583a19421a519843923b9dba9f8e7b0",
+      "candidate": "013a57d13f3408240f8b33a90a4d5bbc666cc8a77c10b1c79d0e8c49b3e8154e"
+    },
+    "app/services/agent_run_execution.py": {
+      "main": null,
+      "candidate": "70988935c12e2ca3b34268429077b3a6c87c7bec584d94a3e03c47b2b1aadb0f"
+    },
+    "app/services/agent_run_finalization.py": {
+      "main": null,
+      "candidate": "cdfbee97852e5fc0296c8b18fe97baab61f777b0d4352cf17ae77c98a94a09cd"
+    },
+    "app/services/agent_run_lifecycle.py": {
+      "main": null,
+      "candidate": "1dff9b29a37312249a05de9f3df797754f80279e588d44443ef4b36f4f4a94d2"
+    },
+    "app/services/agent_service.py": {
+      "main": "e2813e55897827eee1abfe338199ec60494c4aa25aa71f6ae7eb3a440d3022a8",
+      "candidate": "6de7429303a06a35f70483df825b658e2ae383048d8672d2cb20ede3438a7916"
+    },
+    "app/services/fts.py": {
+      "main": "e2de3f44cd01984aaa43b5c0b82a4fec0e060999f93b58b0aa69415fa40f2a91",
+      "candidate": "78f094fe976f02f8e1d2e048c34c75e184b9f4fe97c5fad48294cf2bb6cb5e15"
+    },
+    "app/services/scheduler.py": {
+      "main": "d81e59a91f14d4d29da2eabd06e5a7b4a434af85626c8e000abe3f7299b346b5",
+      "candidate": "7a8b8e4b4cb1e29e5978f6259d5828bc95feb1a6dafd50c4e01be41700bcc7cb"
+    },
+    "app/services/search_text_schema.py": {
+      "main": null,
+      "candidate": "8dfd1475b7e1c6a552954f0d61305ede9f72533b13ada86997701a5f50919f85"
+    },
+    "docs/design/business-logic.md": {
+      "main": "3b89c957bfec844410326bbf54fb1ba11f49e846beb547fbcf94ab72e9149d7b",
+      "candidate": "61d05fa4638d72a42b79f3e03937d1635c35a3b468f20bb47ec8a3e0326dcfdd"
+    },
+    "docs/design/data-models.md": {
+      "main": "e943db4867aad40702831be89a44452df8339aad8d177ecc2c3ffb8f3dbc6ddc",
+      "candidate": "5b2d30b457eecd3ff3f70b0ac03dde6ea03f73b63252131db8863947d645760d"
+    },
+    "docs/design/db-migration.md": {
+      "main": "1914df51882b589646b461bd07bf82e0c0567ab85685ab76a7622d498dc39954",
+      "candidate": "6ebc47f4ea9b4b47f47085e18a842a744d39493875a2b8ae5f24a06b517b783c"
+    },
+    "docs/testing/integration-inventory.md": {
+      "main": "1bf57361d45d3ea3cee10ed457e748cb4ae05d95054357d9e99ca8719cd9637f",
+      "candidate": "d4a97a1832382192542e5a52c924e9efbf7d80720a29248ebae5450ff570a79f"
+    },
+    "scripts/review_legacy_agent_runs.py": {
+      "main": null,
+      "candidate": "49b463f3662e2f45cf1f2872e4389c1e5c28068cbe6ea05c35d831f58ea3f409"
+    },
+    "tests/integration/agent_run_lifecycle/__init__.py": {
+      "main": null,
+      "candidate": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "tests/integration/agent_run_lifecycle/conftest.py": {
+      "main": null,
+      "candidate": "9c74285d1ce088fb1f69f0d7cbfca76ce7b148d481855b4a68bbf0b60ca47c7e"
+    },
+    "tests/integration/agent_run_lifecycle/test_database_disconnect.py": {
+      "main": null,
+      "candidate": "3fdcaae00ad478b8d41da78203008ca2c72c3fe7c64c25e4ba48ea04019c82a7"
+    },
+    "tests/integration/agent_run_lifecycle/test_handler.py": {
+      "main": null,
+      "candidate": "bdcf1eb3956c96e54e070a2fa1bad8dcf37ffa60b0a7d40071a2a7ee3e7e2390"
+    },
+    "tests/integration/agent_run_lifecycle/test_heartbeat_shutdown.py": {
+      "main": null,
+      "candidate": "afc5ee0cc1d3f3bbbcb36778ba561413096f42b3e6398a96b197e29336b9a39e"
+    },
+    "tests/integration/agent_run_lifecycle/test_lease.py": {
+      "main": null,
+      "candidate": "8b5ea8c56d377be0e816ede9e54b8a9490a4c1d4f14bbb000287673bef7b0527"
+    },
+    "tests/integration/agent_run_lifecycle/test_legacy_review.py": {
+      "main": null,
+      "candidate": "b31d40da43e7ed6b088d98aed440a6244d53c147181eba09026b8a6ae97dcdb3"
+    },
+    "tests/integration/agent_run_lifecycle/test_migration.py": {
+      "main": null,
+      "candidate": "06b660b6e3a42ce44a9d7df83745d948cc80fb1b542bef3b7e9edab323b209aa"
+    },
+    "tests/integration/agent_run_lifecycle/test_redis_disconnect.py": {
+      "main": null,
+      "candidate": "ef438d59473b331f163f0f6d9fbb25f63d50608699853664e54e12c9c87583d6"
+    },
+    "tests/integration/agent_run_lifecycle/test_scheduler.py": {
+      "main": null,
+      "candidate": "cae070e2f7130bb71a3ac53aa9b17d3946bb1564c17a993a99f645610809fe39"
+    },
+    "tests/integration/queue_recovery/agent_lifecycle_driver.py": {
+      "main": null,
+      "candidate": "835581014241199555729f3147067857b363ac158b3298d1ab655509e8fd1a6d"
+    },
+    "tests/integration/queue_recovery/test_notification_recovery.py": {
+      "main": "ad6bfc268fd5d37cf73874d7db0a7e4a0875a859d64aa91586e9058fa329e80f",
+      "candidate": "c517c842bd147b552a96044f40fe3f11291d7e30e8ec18ef929262208489964d"
+    },
+    "tests/integration/search_text/__init__.py": {
+      "main": null,
+      "candidate": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "tests/integration/search_text/conftest.py": {
+      "main": null,
+      "candidate": "dce154b6522adc38f133c2a191cb5c850ad8dd25820e85c25a6d0ca102a7160b"
+    },
+    "tests/integration/search_text/test_combined_startup.py": {
+      "main": null,
+      "candidate": "fdc27cccbdbf2d6c9889e0212340a5177588c423b2ea99748bb0508f7d48b0eb"
+    },
+    "tests/integration/search_text/test_http.py": {
+      "main": null,
+      "candidate": "c01a83c56c90d4864321865a1386acf1c8213b77b205eb59c723a7a9b49021a5"
+    },
+    "tests/integration/search_text/test_metadata.py": {
+      "main": null,
+      "candidate": "4ac80873ba23444ed87ad865b2dfa14e741c9b850fde03b550bd8bd282a0d0c2"
+    },
+    "tests/integration/search_text/test_startup.py": {
+      "main": null,
+      "candidate": "4e70a0a9602d42672a059ef63afd81190244562a87047a2e15ae79fd71b7ff23"
+    },
+    "tests/integration/search_text/test_storage.py": {
+      "main": null,
+      "candidate": "ca8db579460796cc59576efa4e5d035791823324769a255dae93c99d3ae5b01f"
+    },
+    "tests/unit/test_database_migrations.py": {
+      "main": "54156afde214a68e2d2507c5ce0f3615423a66cbe6d1ce27315e5f59e262741b",
+      "candidate": "a9d86458e323948e652cc8388d4b54077f227e8b74d4f4d8e4ed9e57b153de77"
+    }
+  }
+}

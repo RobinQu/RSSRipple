@@ -1,6 +1,6 @@
 # V34 AgentRun 异常与崩溃后的终态
 
-> 最新：独立候选 `/tmp/rssripple-v34-integrated-m5mdm6bz` 现为 27 个有效文件，已补旧库关键列失败保护与离线历史审核工具。x 双库关键列失败被吞的红测复现后，y 四项通过。审核/迁移 ab 为 81 passed、3 skipped；ac 补跑这三个既有 PG 用例全部通过，共覆盖 84 项。ad 仅同步文档，专项项目已清理。仍需正式重基、完整双门禁和最终审查，未合入运行代码。[源码](probes/agent-run-lifecycle-ad-source.json)、[候选](probes/agent-run-lifecycle-ad-candidate.tar.gz)、[ab 结果](probes/agent-run-lifecycle-ab-result.json)、[ac 补跑](probes/agent-run-lifecycle-ac-result.json)。
+> 最新：在当前主干及冻结 V33 t 上完成兼容性准备，V34 相对范围 28 文件（组合相对 main 为 42 文件），另记录一份历史探针的导入排序维护。ae 扩大回归 169 项、af 真实 Redis 接管 2 项、ag UTC 时间边界 8 项全部通过，零跳过，专用项目已清理。仍待 V33 验收后正式重基、完整双门禁与终审，未合入。[源码](probes/agent-run-lifecycle-ag-source.json)、[结果](probes/agent-run-lifecycle-ae-ag-result.json)。
 
 ## 必要性与分级
 
@@ -132,3 +132,20 @@ z 扩大结果为 76 passed、1 failed、3 skipped（94.68 秒、退出 1）：T
 ab 相同审核/升级/既有迁移组合及新反例：81 passed、3 skipped、2 warnings、106.46 秒、退出 0。真实 PG/Turso CLI 导出文件保护、停写/备份标志、选择性应用与重放均通过；双库覆盖分页、回滚、整批快照漂移拒绝、取得租约/消失、非法批准、已退休记录的时间和计数变化。三个旧 PG 测试因 RSSRIPPLE_TEST_POSTGRES_URL 未设置跳过；ac 显式绑定专用 PG 后原三项全部通过（2.05 秒、1 个既有弃用警告、退出 0）。不能把 ab 的跳过改写为当时通过；两轮共同覆盖 84 个不同用例。ab 的另一个 warning 来自既有模拟 begin_nested 的未等待协程。
 
 专用 rssripple-v34-upgrade-x 启动/清理退出 0，容器/网络/卷标签为空。ad 仅更新权威迁移/测试说明，候选 Ruff 无缓存通过。五轴复核支持保留候选：审批和漂移边界明确、事务内先检查全部再写、只处理历史记录、不触发外部副作用、导出和选择有上限；依然须重基到当前已验收主干，冻结完整范围并通过全量双门禁后再关闭 TODO。
+
+
+## ae–ag：与加载、UTC、搜索修复的兼容性（2026-10-08）
+
+必要性与 P2 分级不变：已有真实 handler 普通异常/进程退出会留下无终态历史的红测；本轮处理前批改动的兼容性，不把录制标题当成生产故障录制，不扩大为任意外部副作用可撤销。
+
+以 main 0a04097 加冻结 V33 t 创建独立副本 `/tmp/rssripple-v34-with-v33-w4nyjuwc`，三方合并 V34 ad。唯一运行代码冲突位于 handler 第二阶段：保留 maintain_run_lease 范围与短收尾事务，同时保留 V30 的显式 Agent.works 加载。Agent 模型仍用 UTCNow，新增 current_run_token；V27/32/33 的必需迁移与 V34 关键列失败保护全部保留。文档冲突保留各自契约段落。
+
+新模块可见后，历史可执行探针 agent_run_recovery_probe.py 的导入归组触发 Ruff I001；仅在候选规范导入顺序，原源码另存 `agent-run-lifecycle-ae-original-recovery-probe.py.txt`。该计划目录维护单独列于来源的 plan_maintenance，后续正式重基/合入须同步，不能漏掉导致全仓 lint 失败；历史失败源码未被覆盖。候选全仓无缓存 Ruff 退出 0。
+
+- ae：全部 agent_run_lifecycle、B9/B7 持久请求/发布消费、列表加载边界及完整数据库迁移文件，**169 passed、0 skipped、2 既有 warnings，296.19 秒、实际退出 0**。
+- af：独立 RedisQueue 消费者强杀与暂停恢复，**2 passed、11 deselected，61.91 秒、实际退出 0**；两个新增模式使用 Redis DB 1，与断连专项的 DB 0 分开。worker 退出为强杀 -9/接管 0、暂停恢复 0/接管 0，job ID 相同、token 不同，旧执行者快照不变；进程日志与报告归档。这仍不等于整个 app.worker/scheduler 进程启动验证。
+- ag：新增 `test_time_contract.py`，PostgreSQL UTC/Asia/Shanghai/America/New_York 与 Turso，实际 handler 收尾及真实过期回收，**8 passed、7.17 秒、实际退出 0**。用独立 Python UTC/epoch 时钟界定真实值，验证 run/Agent 终态时间、开始时间、租约续期 epoch 与会话时区无关；没有以两个同样错误的值相等作为通过。ae 后运行实现不变，仅补本项测试和权威文档。
+
+总计 179 个不同用例通过。完整 Git 非计划输入和新 Python 文件独立推导，V34 相对冻结 V33 为 **28 文件**，组合相对 main 为 **42 文件**，另有单列的历史探针格式维护。来源和可恢复归档见 [ag source](probes/agent-run-lifecycle-ag-source.json) / `agent-run-lifecycle-ag-combined-candidate.tar.gz`，报告见 [ae–ag](probes/agent-run-lifecycle-ae-ag-result.json)。
+
+专用项目 rssripple-v34-compat-ae（PG 32909 / Redis 32910）已 down，容器/网络/卷标签均为空；本批全部测试终止。V33 6709 冻结输入逐文件核对未变，原 u/v 会话仍运行。V34 未关闭待办：正式主干重基、全输入冻结、完整单元/API ≥95%、隔离集成 ≥85%、真实退出/跳过/报告/清理与五轴终审仍待完成。

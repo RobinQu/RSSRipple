@@ -63,7 +63,10 @@
 
 ### 后台
 
-- [ ] `AgentRun(status=running)` 崩溃后无回收/reaper。 V34 双库真实 handler/独立子进程已复现普通异常与 os._exit(73) 四场景：后续成功运行后旧记录仍 running，探针按不变量退出 1。录制资源标题/GUID/URL，身份和故障明确合成；未宣称 Redis worker 接管。需同时修正异常收尾、持久执行归属和安全回收，禁止只按运行年龄判死。b–e 最小表事务实验确认两版 Turso 在已有写事务时同一行心跳会导致旧事务收尾冲突；最新 27 文件候选已接入 handler/摘要归属/有界调度回收；扩大 j 的 5 个失败已保留并修正，同组合 k 为 131 项通过，l 双库四个异常/真实强退自然过期恢复场景通过。m 双库重复取消红测 2 项失败后已修复等待续租事务结束，n 生命周期及 B9/B7 回归 60 项通过。受控在途事务停止已验证，任意驱动/网络阻塞不在本轮证明范围。p 新增真实 RedisQueue 独立进程强杀/暂停恢复两项通过（默认租约），旧历史终结且旧执行者不覆盖新摘要；这不等同完整 worker/scheduler 启动。r 四个实际 scheduler/满载队列场景、t/u 真实 PG/Redis 主动断连检查及 v 66 项扩大回归通过；不外推任意黑洞超时。x 已复现两库关键加列失败被吞并修正；旧库/审核工具 ab 81 项通过，ac 补跑原三项 PG 跳过用例通过，共覆盖 84 项。真实双库 CLI、快照漂移和精确重放已验证，仍待正式重基、完整门禁与最终审查，未合入。项目已清理，方案、证据边界与严格矩阵见 [V34](V34-AGENT-RUN-LIFECYCLE.md)。
+- [ ] `AgentRun(status=running)` 异常或崩溃后无可靠终态/回收（V34，P2）。真实双库 handler 普通异常与独立进程退出已复现旧历史持续 running；资源文本录制，身份和故障明确合成。
+      **方案**：数据库执行租约、短事务收尾、条件摘要更新和有界调度回收；保留 B9/B7 的确认与消费语义。无租约旧历史必须停写备份后按快照指纹审核，不能只按年龄判死。
+      **进度**：旧库/审核工具 84 项覆盖已完成；在冻结 V33 上的最新兼容性候选为 28 文件，生命周期/B9/B7/加载/迁移 169 项、独立 Redis 强杀/暂停接管 2 项、UTC 三时区及 Turso 8 项均通过，专用项目已清理。仍待 V33 验收后正式重基、完整双门禁与终审，未合入。
+      **证据边界**：实际 scheduler 与主动 TCP 断连已验证；不外推任意网络黑洞/驱动阻塞，独立 RedisQueue consumer 不等同整个 worker 启动。方案、全部红绿证据与续接见 [V34](V34-AGENT-RUN-LIFECYCLE.md)。
 - [ ] 失败 dispatch 累积重复 error `DownloadTask`（`app/services/agent_service.py:61-72,928-941`）。
 - [ ] 周期任务先消费 throttle 再入队，入队失败丢整个周期（daily ~24h，`app/services/scheduler.py:274-296`）。
 - [ ] interval job 仅 1s `misfire_grace_time` （实际默认 coalesce=True），事件循环阻塞即跳过 tick（`app/services/scheduler.py:43-131`）。

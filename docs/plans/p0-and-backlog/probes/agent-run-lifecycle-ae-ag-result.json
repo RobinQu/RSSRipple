@@ -1,0 +1,72 @@
+{
+  "accepted": false,
+  "source": "agent-run-lifecycle-ag-source.json",
+  "candidate": "/tmp/rssripple-v34-with-v33-w4nyjuwc",
+  "v34_relative_files": 28,
+  "combined_with_v33_files": 42,
+  "plan_maintenance": {
+    "docs/plans/p0-and-backlog/probes/agent_run_recovery_probe.py": {
+      "base": "0853223a55baa5db654dd895f38dd163745415fa4f2f288a60c7d58ed29dee24",
+      "reason": "Normalize archived executable probe imports after new modules become available; preserve original source separately.",
+      "candidate": "c9486e30008c1661acaf4cf0336d5995bc55ac5dfd54fa83c10115fa4e3691fd"
+    }
+  },
+  "results": {
+    "ae": {
+      "actual_exit": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "169",
+        "time": "295.751",
+        "timestamp": "2026-10-08T05:51:01.538357+00:00",
+        "hostname": "dl-workstation-albert"
+      },
+      "seconds": 296.19
+    },
+    "af": {
+      "actual_exit": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "2",
+        "time": "61.912",
+        "timestamp": "2026-10-08T05:53:18.533087+00:00",
+        "hostname": "dl-workstation-albert"
+      },
+      "seconds": 61.91
+    },
+    "ag": {
+      "actual_exit": 0,
+      "suite": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "8",
+        "time": "7.169",
+        "timestamp": "2026-10-08T05:57:33.467273+00:00",
+        "hostname": "dl-workstation-albert"
+      },
+      "seconds": 7.17
+    }
+  },
+  "af_deselected": 11,
+  "total_distinct_passed": 179,
+  "ruff_final_exit": 0,
+  "cleanup": {
+    "project": "rssripple-v34-compat-ae",
+    "down_exit": 0,
+    "labels": {
+      "container": [],
+      "network": [],
+      "volume": []
+    }
+  },
+  "v33_frozen_inputs_unchanged": 6709,
+  "remaining": "Await V33 acceptance, formal rebase, complete frozen unit/API and integration gates and final review."
+}
