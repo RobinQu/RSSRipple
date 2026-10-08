@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, text
+from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -34,7 +34,7 @@ class TVSeries(Base):
     # aliases through ``normalize_title``), maintained by the ORM before_flush
     # hook. Indexed with pg_trgm GIN on PostgreSQL; Turso mirrors it into the
     # FTS sidecar via the fts_outbox drain.
-    search_text: Mapped[str | None] = mapped_column(String(4096), nullable=True)
+    search_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     external_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     external_source: Mapped[str | None] = mapped_column(String(100), nullable=True)
     description: Mapped[str | None] = mapped_column(String(2048), nullable=True)

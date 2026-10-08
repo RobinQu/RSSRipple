@@ -372,3 +372,12 @@ Turso CONCURRENT 的外键引用写入不提供 PostgreSQL 的父行 KEY SHARE �
 PostgreSQL 启动在既有 advisory lock 和 DDL 事务中，将模型声明的 UTC 时间默认值统一为 `(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')`。新库由 ORM 直接创建；旧库按当前 schema 的目录逐列检查，接受历史 now()/CURRENT_TIMESTAMP/transaction_timestamp() 或缺失默认值，已为规范 UTC 默认值则不重复 ALTER。异常列类型、缺失受管列或其他默认定义阻止启动，报告表/列名供审阅；不静默覆盖自定义表达式。每张表合并 ALTER，失败由调用方事务回滚。Turso 的 CURRENT_TIMESTAMP 已是 UTC，不执行 PostgreSQL 默认值 DDL。
 
 历史业务值与字段类型保持不变，不能根据当前时区猜测并批量平移旧 naive 时间。若怀疑历史偏移，先备份并依据原部署配置/来源证据审阅。启动中的 webhook/水位线/媒体服务器原生写入也使用相同 UTC SQL 表达式；单纯改变 ORM 默认无法修复这些路径。此默认升级不代替 API UTC 序列化和偏移输入归一化，二者须按独立边界验收。
+
+
+### search_text 旧列升级
+
+四张作品/合集表的新建 `search_text` 列使用 TEXT。轻迁移补齐缺列后，PostgreSQL 在已有启动 advisory/DDL 事务内检查当前 schema 的四列，仅接受 TEXT 或无 domain 的 varchar；旧 varchar 放宽为 TEXT，已有 TEXT 不执行 ALTER。发现未知类型或缺列时明确失败，不猜测、不截断原值；事务失败回滚本事务内的列变更。Turso 不强制 VARCHAR 长度，无需为此重建旧表。启动空值回填覆盖三类作品和 WorkCollection，仅派生搜索列重算，aliases 不变。
+
+升级需先停旧 web/worker 写入进程，完成迁移后用新连接启动服务。ALTER 会获取表锁，旧连接的 prepared statement 可能因列类型变化失效；本流程不提供带旧连接的在线无中断升级保证。GIN 索引定义保留，生产规模的锁等待和重建耗时应在备份/维护窗口中评估；沿用既有 DDL 锁超时与重试设置。
+
+UTC 默认值与搜索列同时为旧模式时，两项升级仍处于 PostgreSQL 启动 advisory lock 保护的同一 DDL 事务：先验证资源工作 FK，再修正 UTC 默认值，再扩展 search_text。任一受管列出现未知类型/默认或后续必需步骤失败，都必须回滚该事务；显式解决漂移后重启可重试。搜索列类型变化仍要求停旧写入进程并重建连接，不能因联合回归通过而宣称在线无中断升级。

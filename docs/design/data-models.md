@@ -884,3 +884,8 @@ Turso CONCURRENT 的 child FK 写入不具备 PostgreSQL KEY SHARE 的父行保�
 Channel 的 `file_resources/agents/raw_title_mappings` 和 Agent 的 `works/download_tasks/pending_decisions/suggestions/notifications/webhooks` 使用 `lazy="raise"`。读取父实体不会默认实例化全部关联历史；业务需要的集合通过显式 selectin/refresh 或直接查询读取。缺失加载不能通过异步隐式 SELECT 兜底。此项仅改变 ORM 加载策略，不改变 FK、cascade 或数据库结构。
 
 `works` 也不默认加载：仅限定范围下最多 10 条，频道全范围覆盖配置可能更多。规则处理在集合未加载时显式 refresh 已持久化 Agent 的 works；已经加载的本事务规则不被强制刷新。列表/详情按响应需求显式加载目标作品，任务/历史存在性校验只读取父实体或所需标量。
+
+
+### 完整搜索文本的存储
+
+`TVSeries`、`Movie`、`AudioWork`、`WorkCollection` 的派生 `search_text` 统一为 SQL `TEXT`，不使用 4096 字符上限。归一化后的全部标题及别名都必须保留；Unicode NFKC 可能扩大字符数，禁止按原始输入长度推断存储长度或截断尾部别名。原始 aliases 的 JSON 值保持原样。旧库列升级及空值回填见 db-migration.md。

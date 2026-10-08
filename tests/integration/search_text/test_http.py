@@ -1,0 +1,80 @@
+"""Actual update routes, commit dependency and independent DB verification."""
+import httpx
+import pytest
+from fastapi import FastAPI
+
+from app.api.v1 import audio_works, collections, movies, series
+from app.config import settings
+from app.database import get_db
+from app.models.audio_work import AudioWork
+from app.models.movie import Movie
+from app.models.series import TVSeries
+from app.models.work_collection import WorkCollection
+from app.services.text_normalizer import normalize_title
+from tests.integration.search_text.test_storage import input_values, seed
+
+
+async def check_http(pair, monkeypatch, model, length):
+    engine, factory = pair
+    monkeypatch.setattr(settings, 'database_url', engine.url.render_as_string(hide_password=False))
+    title, alias, expected = input_values(model, length)
+    async with factory() as db:
+        identity = await seed(db, model, title, [alias] if model is WorkCollection else ['short'])
+    app = FastAPI()
+    router, route = {Movie: (movies.router, 'movies'), TVSeries: (series.router, 'series'),
+                     AudioWork: (audio_works.router, 'audio-works'),
+                     WorkCollection: (collections.router, 'collections')}[model]
+    app.include_router(router, prefix='/api/v1')
+
+    async def session():
+        async with factory() as db:
+            try:
+                yield db
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+
+    app.dependency_overrides[get_db] = session
+    expected_aliases = ['short', alias] if model is TVSeries else [alias]
+    if model is TVSeries:
+        prefix = normalize_title(title) + ' '
+        expected = prefix + 'short ' + expected[len(prefix):]
+    body = {'aliases': [alias]}
+    method = 'PUT'
+    if model is WorkCollection:
+        method = 'PATCH'
+        title += 'x' * 200
+        assert len(title) <= 512
+        body = {'title_cn': title}
+        expected = normalize_title(title) + ' ' + alias
+        assert len(expected) > 4096
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app, raise_app_exceptions=False), base_url='http://synthetic',
+    ) as client:
+        response = await client.request(method, f'/api/v1/{route}/{identity}', json=body)
+    assert response.status_code == 200, response.text
+    data = response.json()['data']
+    assert data['id'] == identity
+    if model is not WorkCollection:
+        assert data['aliases'] == expected_aliases
+    else:
+        assert data['title_cn'] == title
+    async with factory() as db:
+        row = await db.get(model, identity)
+        assert row.aliases == expected_aliases
+        assert row.search_text == expected
+
+
+CASES = [(model, length) for model in [Movie, TVSeries, AudioWork] for length in [8192, 'unicode']]
+CASES.append((WorkCollection, 4095))
+
+
+@pytest.mark.parametrize('model,length', CASES)
+async def test_postgres_http(dedup_postgres, monkeypatch, model, length):
+    await check_http(dedup_postgres, monkeypatch, model, length)
+
+
+@pytest.mark.parametrize('model,length', CASES)
+async def test_turso_http(dedup_turso, monkeypatch, model, length):
+    await check_http(dedup_turso, monkeypatch, model, length)

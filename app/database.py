@@ -635,6 +635,10 @@ async def _apply_light_migrations(conn) -> None:
 
         await ensure_utc_timestamp_defaults(conn, Base.metadata)
 
+    from app.services.search_text_schema import ensure_search_text_columns
+
+    await ensure_search_text_columns(conn)
+
     # Match fresh-schema uniqueness on upgraded tables. Do not silently
     # continue without this invariant or guess which legacy row to discard:
     # conflicting databases must finish the season-split migration first.

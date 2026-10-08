@@ -920,3 +920,8 @@ PostgreSQL 按主键游标前进，分批锁定最多 500 个候选父行（FOR 
 抓取结束时按 channel_id/status 查询活跃 Agent ID，在最终频道状态提交前完成这次只读查询；提交并结束事务后再逐个 enqueue run_agent，保持每次入队的执行权检查和错误隔离。不能在提交后再次隐式读取整个 channel.agents 图，也不在外部队列调用期间持有该查询事务。
 
 Agent 运行的扫描阶段只加载频道配置；执行规则阶段显式加载 works。process_resources 在未加载持久化 works 时显式读取，保留已加载的本事务规则修改。订阅上限校验在既有父锁内用 COUNT，保持限定范围最多 10、全范围例外及并发语义。
+
+
+### 搜索文本完整性
+
+四类作品/合集的 `before_flush` 搜索文本拼接保留所有归一化标题和别名；数据库列采用 TEXT，不为 4096 边界截断搜索内容。PostgreSQL 的 GIN/LIKE 与 Turso 作品 FTS 边车均能索引末尾别名，合集不进入作品边车。启动 `backfill_search_text` 处理三类作品及合集的 NULL 派生列；非 NULL 内容和原始 aliases 不因升级重写。

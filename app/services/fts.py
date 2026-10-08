@@ -617,7 +617,7 @@ async def drain_fts_outbox(db: AsyncSession, limit: int = 500) -> int:
 
 
 async def backfill_search_text(db: AsyncSession) -> int:
-    """Compute ``search_text`` for work rows where it is NULL.
+    """Compute ``search_text`` for work and collection rows where it is NULL.
 
     One-time recovery for databases created before the ``search_text`` column
     (and the ORM before_flush hook that maintains it) existed. Runs on both
@@ -628,10 +628,11 @@ async def backfill_search_text(db: AsyncSession) -> int:
     from app.models.audio_work import AudioWork
     from app.models.movie import Movie
     from app.models.series import TVSeries
+    from app.models.work_collection import WorkCollection
     from app.services.work_search_events import build_search_text
 
     updated = 0
-    for model in (TVSeries, Movie, AudioWork):
+    for model in (TVSeries, Movie, AudioWork, WorkCollection):
         rows = (await db.execute(
             select(model).where(model.search_text.is_(None))
         )).scalars().all()

@@ -19,7 +19,7 @@ pair is unique so upserts are idempotent.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, String, UniqueConstraint
+from sqlalchemy import JSON, DateTime, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -47,7 +47,7 @@ class WorkCollection(Base):
     # ``normalize_title``), maintained by the ORM before_flush hook — same
     # logic as the work tables, but collections are NOT mirrored into the
     # Turso FTS sidecar (works only).
-    search_text: Mapped[str | None] = mapped_column(String(4096), nullable=True)
+    search_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Fields the user edited manually; automatic metadata scans skip these
     # (same contract as TVSeries/Movie.manually_edited_fields).
     manually_edited_fields: Mapped[list | None] = mapped_column(JSON, nullable=True)

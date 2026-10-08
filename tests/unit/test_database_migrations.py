@@ -1290,6 +1290,14 @@ class _FakePGConn:
                 and isinstance(column.server_default.arg, UTCNow)
             ])
         if "information_schema.columns" in sql:
+            if "column_name = 'search_text'" in sql:
+                from app.database import Base
+
+                return _FakeResult([
+                    {"table_name": table.name, "data_type": "text", "domain_name": None}
+                    for table in Base.metadata.tables.values()
+                    if "search_text" in table.c
+                ])
             if params and params.get("t") is not None:
                 return _FakeResult([])
             if "'agents'" in sql:

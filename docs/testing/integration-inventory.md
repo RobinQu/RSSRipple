@@ -482,3 +482,16 @@ V27 候选 `test_legacy.py` 经实际 create_tables 连续两次升级验证相�
 - `time_contract/test_agent_window.py`：16 项双库实际 Agent run HTTP 与内存队列准入，覆盖东八区跨年、DST 回拨两种偏移、Z/naive、null 全历史、缺省增量和未来窗口拒绝；不启动 worker，明确只验证准入 payload，运行服务的扫描/恢复语义由既有专项负责。
 
 V32 范围回归：真实双库 HTTP 对通知 retry/regenerate 与 Agent run 的极端偏移输入返回 422，拒绝时不入队；合法 UTC 年份边界不裁剪。字段映射无效日期返回 None，RSS namespace 日期无效时仍尝试标准 RSS 日期。明确合成极端时间，频道文本复用固定哈希录制样本。
+
+
+### 搜索文本长度与升级
+
+`search_text/test_storage.py` 用固定 SHA 的 prod_works_v1 录制标题及明确合成别名，在双库验证四模型新增/更新、4095/4096/4097/8192 字符和 NFKC 扩张，独立会话检查完整原值及末尾搜索命中；合集走基础列查询，其余三类调用生产 FTS/PG 搜索函数。音频无录制行，借用电影标题仅作标签，不声称真实音频身份。
+
+`test_http.py` 走实际 ASGI 更新路由和提交依赖；剧集保留原别名并追加，电影/音频覆盖，合集仅在已有长别名时更改标题（合集 API 不提供 aliases 字段）。`test_startup.py` 调用真实 create_tables，覆盖 PostgreSQL 新库/旧 varchar/TEXT/缺列重复启动、未知 schema 拒绝，以及 Turso 新库和 NULL 回填；升级模拟停旧进程后的新连接，不声称旧 prepared statement 可无中断复用。每个 PG 用例在专用实例内创建/删除独立数据库，完整门禁必需数据库缺失时应失败。
+
+升级专项还验证事务注入失败后的列类型回滚与 GIN 定义保留；两个真实 create_tables 调用先由第三连接阻塞，以 pg_stat_activity 确认二者均等待同一启动 advisory 锁，再释放，四列只执行一次 TEXT 升级。数据和锁均来自独立测试数据库，故障与竞争时序明确合成。
+
+`test_metadata.py` 双库调用真实元数据 upsert：电影/剧集新增或更新时接收一组来源别名，音频以 14 次刷新累计不超过 512 字符的来源标题；检查同一身份、完整别名和搜索列，剧集新增同时检查合集搜索列。标题录制，来源别名/身份明确合成；海报函数为返回 None 的边界替身，并断言所有参数确实为 None，不访问来源网站。
+
+V33/V32 联合启动回归（test_combined_startup.py）：真实 PostgreSQL 非 UTC 会话、同时存在旧 now() 默认和 VARCHAR 搜索列；分别注入 UTC 默认漂移、搜索列类型漂移、两项 DDL 后故障，断言目录整体回滚并可修复重试。成功与重复启动保持历史行逐字段不变，新数据库默认 UTC 正确，8192 字符完整保留且尾部可查。此组合依赖 V32 时间测试基础设施，不代表两个候选已验收合入。
