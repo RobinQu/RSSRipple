@@ -1,0 +1,71 @@
+"""Synthetic adversarial cache keys on actual PostgreSQL and Turso engines."""
+import pytest
+from sqlalchemy import select
+
+from app.models import metadata_cache as cache
+from app.services.metadata_cache_store import cache_identity, store_cache
+from app.services.metadata_repository import _get_cache, _set_cache
+from app.services.metadata_resource_meta import ResourceMetadata
+from tests.integration.dedup.conftest import dedup_postgres as dedup_postgres
+from tests.integration.dedup.conftest import dedup_turso as dedup_turso
+
+
+@pytest.fixture(params=['dedup_postgres', 'dedup_turso'])
+async def database(request):
+    return await request.getfixturevalue(request.param)
+
+
+async def test_collision_does_not_read_or_overwrite(database, monkeypatch):
+    _, factory = database
+    monkeypatch.setattr(cache, 'cache_title_hash', lambda title: '0' * 64)
+    async with factory() as db:
+        assert await store_cache(db, title='first', source='metadata_agent:wikipedia', content_type=None,
+                                 metadata_json={'clean_title': 'first verdict', 'found': False})
+        await db.commit()
+    async with factory() as db:
+        assert await _get_cache('second', 'wikipedia', db) is None
+        assert not await store_cache(db, title='second', source='metadata_agent:wikipedia', content_type=None,
+                                     metadata_json={'clean_title': 'incorrect verdict'})
+        assert await store_cache(db, title='second', source='metadata_agent:tmdb', content_type=None,
+                                 metadata_json={'clean_title': 'other source', 'found': False})
+        await db.commit()
+    async with factory() as db:
+        assert (await _get_cache('first', 'wikipedia', db)).clean_title == 'first verdict'
+        assert await _get_cache('second', 'wikipedia', db) is None
+        assert (await _get_cache('second', 'tmdb', db)).clean_title == 'other source'
+
+
+async def test_tail_whitespace_and_upsert_preserve_identity(database):
+    _, factory = database
+    prefix = '合成长标题' * 180
+    first, second = prefix + 'a', prefix + 'b'
+    async with factory() as db:
+        await _set_cache('  ' + first + '  ', 'wikipedia', ResourceMetadata(clean_title='one'), db)
+        await _set_cache(second, 'wikipedia', ResourceMetadata(clean_title='two'), db)
+        row = await db.scalar(select(cache.MetadataCache).where(*cache_identity(first, 'metadata_agent:wikipedia')))
+        identity, created = row.id, row.created_at
+        await _set_cache(first, 'wikipedia', ResourceMetadata(clean_title='updated'), db)
+        assert row.id == identity and row.created_at == created
+        assert row.metadata_json['clean_title'] == 'updated'
+        await db.commit()
+    async with factory() as db:
+        assert (await _get_cache(first, 'wikipedia', db)).clean_title == 'updated'
+        assert (await _get_cache(second, 'wikipedia', db)).clean_title == 'two'
+
+
+async def test_orm_title_edit_rekeys_and_old_generation_misses(database):
+    _, factory = database
+    async with factory() as db:
+        row = cache.MetadataCache(title='old title', source='metadata_agent:wikipedia',
+                                  metadata_json={'clean_title': 'old verdict'}, generation=0)
+        db.add(row)
+        await db.commit()
+        row.title = 'new title'
+        await db.commit()
+        assert row.title_hash == cache.cache_title_hash('new title')
+    async with factory() as db:
+        assert await _get_cache('old title', 'wikipedia', db) is None
+        assert await _get_cache('new title', 'wikipedia', db) is None
+        await db.commit()
+    async with factory() as db:
+        assert await db.get(cache.MetadataCache, row.id) is None

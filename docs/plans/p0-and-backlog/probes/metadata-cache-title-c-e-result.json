@@ -1,0 +1,42 @@
+{
+  "date": "2026-10-08",
+  "base": "efc3698",
+  "candidate": "/tmp/rssripple-v35-cache-uyusqqzh",
+  "scope": "Fresh-schema prototype only; no legacy schema migration; not accepted for merge",
+  "files": {
+    "app/models/metadata_cache.py": "f11ae96fc98bb26b3ce09241939bb8c3f70d531789c233c3d43ec779c45d78d4",
+    "app/services/metadata_cache_store.py": "22fb1f8fc6fbbe5ad787b34e6ab023ee2dc5add10334a1e53a5943bf5f43c3f5",
+    "app/services/metadata_repository.py": "3023a7cbeedda60e04c778d557343e705253a43311bc94f39c1b8f63e3e57583",
+    "app/api/v1/resources.py": "29377a5fba9a6bfc0554af3acb8fb06ff02b9fb1604bedcc63aa9639caccda68"
+  },
+  "c": {
+    "session": 7930,
+    "actual_exit": 0,
+    "passed": 12,
+    "skipped": 0,
+    "seconds": 14.98
+  },
+  "d": {
+    "session": 54261,
+    "status": "running; six new fixture setup errors seen; existing repository/API regression still running",
+    "log": "/tmp/rssripple-v35-d-cache.log"
+  },
+  "e": {
+    "session": 84920,
+    "actual_exit": 0,
+    "passed": 6,
+    "skipped": 0,
+    "seconds": 8.05
+  },
+  "database": {
+    "project": "rssripple-v35-cache-c",
+    "postgres_port": 32912,
+    "status": "retained while d regression runs"
+  },
+  "limitations": [
+    "No old-schema migration",
+    "No concurrency or stale-reader race proof yet",
+    "No full MetadataAgent miss/write/hit test yet",
+    "No complete coverage gates or merge review"
+  ]
+}

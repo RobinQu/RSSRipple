@@ -94,7 +94,7 @@
       `metadata_title_index.py:96-162`、`metadata_dedup.py:615/635/693`）。
 - [ ] 维基 slug id 与数字 pageid 不收敛（`metadata_source_registry.py:240-300`）。
 - [ ] Douban URL 正则混淆书/影/音（`metadata_source_registry.py:143-176`）。
-- [ ] `metadata_cache.title VARCHAR(512)` 小于合法资源标题上限 1024（V35，P2）。真实 repository 写入在 PG 的 513/1024 ASCII/CJK 四例失败，512 对照与六个 Turso 场景通过；仅扩列到 1024 后，长中文仍超出复合唯一 btree 键大小。录制 559 条资源最长 176，无生产损坏证据。需验证“完整标题＋定长摘要键”、全文碰撞保护及双库旧数据迁移，禁止截断或跳过普通长标题；当前仅有红测与方案，未改运行代码，专用项目已清理，见 [V35](V35-METADATA-CACHE-KEYS.md)。
+- [ ] `metadata_cache.title VARCHAR(512)` 小于合法资源标题上限 1024（V35，P2）。真实 repository 写入在 PG 的 513/1024 ASCII/CJK 四例失败，512 对照与六个 Turso 场景通过；仅扩列到 1024 后，长中文仍超出复合唯一 btree 键大小。录制 559 条资源最长 176，无生产损坏证据。需验证“完整标题＋定长摘要键”、全文碰撞保护及双库旧数据迁移，禁止截断或跳过普通长标题；独立四文件新库原型已使同组 12 项全绿，另有 6 项双库碰撞/尾部区分/更新/generation 测试通过；首轮新探针 6 个装配错误保留，既有调用方回归仍运行。旧库迁移、竞争与完整调用链验证及全门禁未完成，未合入；当前专用项目仍在使用，见 [V35](V35-METADATA-CACHE-KEYS.md)。
 
 ### 安全 / API
 
