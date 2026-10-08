@@ -1,0 +1,110 @@
+{
+  "accepted": false,
+  "main_base": "83a72c29a253a8d7c6c1afa08056eaf87c15bc58",
+  "candidate": "/tmp/rssripple-v35-rebased-jhysx9no",
+  "parent_source": "metadata-cache-title-z-source.json",
+  "files": {
+    "app/api/v1/resources.py": {
+      "base": "96a194ff22c959673462d3efcee4c753af807792b7c6106354ffa6353e8e29d1",
+      "candidate": "906ddd91c9f8c0422e2990b94e20e9b689d5fe15173b77e2013596d6dd14e52e"
+    },
+    "app/database.py": {
+      "base": "5bb5bba8df4bf2517b752cad4482a428e05e690994b5b7ef3fa957475935f37a",
+      "candidate": "75fbb97d3a84ec6d5c2c727a97513061a3add62c99a1e91055e4a2530565fff3"
+    },
+    "app/models/metadata_cache.py": {
+      "base": "da382e166e85b5ee00ce544d6cc40f588374255ac4955100d9fb30619d0ef0b8",
+      "candidate": "f11ae96fc98bb26b3ce09241939bb8c3f70d531789c233c3d43ec779c45d78d4"
+    },
+    "app/services/metadata_cache_schema.py": {
+      "base": null,
+      "candidate": "e71be8fad951eadf1ccc122502faa443ed2b967960981a7e1cd6194e0baa802f"
+    },
+    "app/services/metadata_cache_store.py": {
+      "base": null,
+      "candidate": "22fb1f8fc6fbbe5ad787b34e6ab023ee2dc5add10334a1e53a5943bf5f43c3f5"
+    },
+    "app/services/metadata_repository.py": {
+      "base": "6ed096408b895bf271eea7afaff1340387feedbbddc366e05629aca98d37a558",
+      "candidate": "3023a7cbeedda60e04c778d557343e705253a43311bc94f39c1b8f63e3e57583"
+    },
+    "docs/design/business-logic.md": {
+      "base": "088b5bce662c1801c45c8474a8a47a96dfdc53f5f3b1c5f4164e82b9dc1c3caa",
+      "candidate": "77ec966af9bcc6e5023c5f334e91010a4d5a33e1393f0246d67cb4ee2ddaf621"
+    },
+    "docs/design/data-models.md": {
+      "base": "5b2d30b457eecd3ff3f70b0ac03dde6ea03f73b63252131db8863947d645760d",
+      "candidate": "85a81d5b4a0deeaf0776a74680662b21707308ef14f611e08bcf507cdbeb8dc1"
+    },
+    "docs/design/db-migration.md": {
+      "base": "6ebc47f4ea9b4b47f47085e18a842a744d39493875a2b8ae5f24a06b517b783c",
+      "candidate": "a7b4dc3ac2b6c59388e3b8dcb16b1772704cfa8e41bbf21ab7588caf54952f26"
+    },
+    "docs/testing/integration-inventory.md": {
+      "base": "7149ac7c7603356484924944e99459e52eb82cd30d25afb5a1a4e3f7f37065ee",
+      "candidate": "f5b4839521a44937240b09cc12ba7a3cf3529587d3f616a38ac91b185a696a75"
+    },
+    "tests/integration/metadata_cache/__init__.py": {
+      "base": null,
+      "candidate": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "tests/integration/metadata_cache/conftest.py": {
+      "base": null,
+      "candidate": "fdf62e2af6f76abd4505622b751c0e51c10a86182dbe8fc5bbbb74a0e8cf2b20"
+    },
+    "tests/integration/metadata_cache/legacy-postgresql.sql": {
+      "base": null,
+      "candidate": "8067fb0adc9d01f71ac0803a962ddf01705d38048d92a0aae9d8ff2549326f16"
+    },
+    "tests/integration/metadata_cache/legacy-sqlite.sql": {
+      "base": null,
+      "candidate": "50aff926c9f44fb758910f072a0af4503e9a1355cacf29c26b5795d1a3d116ae"
+    },
+    "tests/integration/metadata_cache/test_batch_concurrency.py": {
+      "base": null,
+      "candidate": "32cf21416a74a7900c7ae5e6f4c2f44ebc4bcf5b284acfa4366723b2e1455b81"
+    },
+    "tests/integration/metadata_cache/test_boundaries.py": {
+      "base": null,
+      "candidate": "71059aadd8683605afa7af8d51d6f413c13543be95faf4dcdb1e0df55c8ea2e0"
+    },
+    "tests/integration/metadata_cache/test_caller.py": {
+      "base": null,
+      "candidate": "e769dab14be701d75b0be18d486b8727076a3b8710d514d05404eff8fe52a181"
+    },
+    "tests/integration/metadata_cache/test_concurrent_startup.py": {
+      "base": null,
+      "candidate": "af1ca7b699de01f0c1410abfa833f3bb91e47161d3c3b94471f6abca3953507f"
+    },
+    "tests/integration/metadata_cache/test_identity.py": {
+      "base": null,
+      "candidate": "1c7e71248788ef9d1f3cb91e5a582288ff27f596feda3ebe2e9b9a5d9a6088b5"
+    },
+    "tests/integration/metadata_cache/test_races.py": {
+      "base": null,
+      "candidate": "acef567f282317933ae4f09c5a35be511665b9106bf793d776e3b600683bf4f4"
+    },
+    "tests/integration/metadata_cache/test_reject.py": {
+      "base": null,
+      "candidate": "720a44a540e6b88b44aec1987c655378ecc951bc5c9a829717d20d0baa53e671"
+    },
+    "tests/integration/metadata_cache/test_startup.py": {
+      "base": null,
+      "candidate": "70cc853132e498d6e5ca721e8abfd51d1ecf082c68b7d7cceba7d50711e1f56f"
+    },
+    "tests/integration/metadata_cache/test_success.py": {
+      "base": null,
+      "candidate": "e1735c6315ab73f76d4d172022687bf158d1a591107da6bd948de71f5869eba8"
+    },
+    "tests/integration/metadata_cache/test_upgrade.py": {
+      "base": null,
+      "candidate": "515edf6cfd093a651920b35d15291bf0f3d6ec63437c883733017fa181866ebe"
+    },
+    "tests/unit/test_database_migrations.py": {
+      "base": "a9d86458e323948e652cc8388d4b54077f227e8b74d4f4d8e4ed9e57b153de77",
+      "candidate": "463fcabc103fa0d02037c89902144a68595985f011f06701f70aad83ff4c5c50"
+    }
+  },
+  "effective_files": 25,
+  "all_nonplan_inputs_identical_to_passed_compatibility": 3362
+}
