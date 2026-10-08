@@ -6,6 +6,8 @@
 > 本文件仅列出尚未完成的 P1–P3 项。**每条是一个复选框；完成并验证后直接删除该条**，规则见文末。
 > 行号基于评审时工作树，可能随改动漂移；以现象与函数名为准。
 
+> 2026-10-08 V33 验收：完整单元/API 4183 通过、96.82%；集成 4100 通过、89.68%。19 文件已合入本地 main `caf040d`，全部 3329 非计划工作区/Git 对象核验通过；搜索列长度、类型漂移及合集 NULL 回填条目移除。见 [V33 验收](probes/search-text-u-v-accepted.json)。
+
 > 2026-10-07 主干复核：当前 P0（P0-1/2/3/7/8/9）及 B9 已包含在本地 `main`；原 P0-4、P0-6 也已验收合入。原 P0-5（降级为 P2）的 V27 现已通过 ab/ac 完整双门禁及全部审计，有效 16 文件已提交本地 main `7f4f952`，提交对象哈希核验通过，条目从待办移除。原始 P0 编号的修复均已完成；生产升级仍按迁移 runbook 执行，本次未部署或推送远端。详情见 [V27](V27-RESOURCE-WORK-FK.md)，最新四提交祖先检查均退出 0，见 [主干核验](probes/p0-main-20261007-7a3a3ae.json)。
 
 > B7/B4/M1/M2 已验收合入，详见 V13–V16；M3 也已通过 x/aa 完整门禁并合入 `2274768`，见 [V17](V17-WIKI-TRANSIENT-FAILURE.md)。S2 已通过 p/q 合入 `f343b7b`，S3 已通过 m/n 合入 `b0e2ce1`；S1 也已验收合入 `6bf8c1c`，下一步推进剩余问题；S1 的必要性与严格出站验证方案见 [V20](V20-OUTBOUND-POLICY.md)。候选已补 batch/LangChain/OpenRouter/Wiki 路径及真实 HTTP feed 回放；ah 单元/API 4078 项、97.11%；ak 完整集成 3280 项、88.33%，均零失败；已完成最终审查与本地合入。
@@ -51,21 +53,20 @@
 ### 数据 / 持久化
 
 - [ ] 轻量迁移 ~1100 行无版本跟踪/down path，`additions` 追加易漏（P1-D2 即此失效），表重建手抄列易漂移。
-- [ ] `search_text VARCHAR(4096)` 与无界别名拼接 writer 不一致（`app/services/work_search_events.py:64-72`）。 V33 已复现四类作品新增/更新在 PostgreSQL 的 4097/8192 字符写入失败（16 失败/16 通过），相同 Turso 32 项通过；录制标题加合成长别名，未发现录制样本自身超限。独立六文件 TEXT 原型升级后 PG 32 项通过，已验证回滚、重跑及原数据/三条 GIN 定义保留；DDL 后复用连接出现 prepared-statement 缓存失效，需停写重连及启动测试。后继 16 文件候选已补真实双库 HTTP/启动、Unicode 扩张、尾部搜索、未知类型拒绝、回滚/GIN 保留和实际并发启动锁；另修复合集 NULL 搜索列回填遗漏。最终专项 105 项、既有 FTS 回归合计轮 55 项通过；相同 HTTP 断言在 main 原代码上 PG 7 项失败、Turso 7 项通过。补齐元数据真实 upsert 双库 10 项及既有调用方 229 项通过，在 V32 ac 上构建兼容性候选，补齐共同旧库升级/回滚测试及迁移替身，V33 相对范围现为 19 文件。p/s 共同覆盖 289 个不同通过用例，独立项目已清理；现已正式重基到包含 V32 的 main 5da14da，全部 3329 非计划输入与已通过专项候选一致；冻结后 v 集成 4100 通过、17 跳过、89.68% 覆盖率，输入/跳过/导出/清理审计通过；u 单元/API 门禁仍运行，未合入，见 [V33](V33-SEARCH-TEXT.md)。
 - [ ] `WorkExternalId` 无 FK/无 `updated_at`，删除不清（与 P1-D6 相关）。
 - [ ] `AgentWork` `ondelete="SET NULL"` 与 XOR `CheckConstraint` 矛盾（`app/models/agent_work.py:14-33`）。
 - [ ] `Episode.season` 与父作品 `season_number` 无约束（`app/models/episode.py:14-25`）。
 - [ ] `WorkCollection` 唯一约束对 NULL `external_id` 不生效（shell 场景）；`Channel.required_metadata_fields` 可空与"强制"契约矛盾。
 - [ ] `channels` 无 URL 唯一约束；`downloader_instances`/`media_server_instances` 无 name/url 唯一；
       `media_server_bindings` 无 `(server_id, prefix)` 唯一（最长前缀匹配歧义）。
-- [ ] JSON 列 fresh `JSON` vs 迁移 `JSONB`、`search_text` fresh `VARCHAR(4096)` vs 迁移 `TEXT` 漂移。
+- [ ] JSON 列 fresh `JSON` vs 迁移 `JSONB` 漂移；search_text 类型及合集回填已由 V33 验收修复。
 - [ ] PG btree 行大小风险：`ResourceFileAssignment(file_path 1024)`、`Library(server_path 1024)` 等 CJK 多字节索引。
 
 ### 后台
 
 - [ ] `AgentRun(status=running)` 异常或崩溃后无可靠终态/回收（V34，P2）。真实双库 handler 普通异常与独立进程退出已复现旧历史持续 running；资源文本录制，身份和故障明确合成。
       **方案**：数据库执行租约、短事务收尾、条件摘要更新和有界调度回收；保留 B9/B7 的确认与消费语义。无租约旧历史必须停写备份后按快照指纹审核，不能只按年龄判死。
-      **进度**：旧库/审核工具 84 项覆盖已完成；在冻结 V33 上的最新兼容性候选为 28 文件，生命周期/B9/B7/加载/迁移 169 项、独立 Redis 强杀/暂停接管 2 项、UTC 三时区及 Turso 8 项均通过，专用项目已清理。仍待 V33 验收后正式重基、完整双门禁与终审，未合入。
+      **进度**：旧库/审核工具 84 项覆盖已完成；在冻结 V33 上的最新兼容性候选为 28 文件，生命周期/B9/B7/加载/迁移 169 项、独立 Redis 强杀/暂停接管 2 项、UTC 三时区及 Turso 8 项均通过，专用项目已清理。V33 已合入 main caf040d；下一步正式重基、完整双门禁与终审，V34 尚未合入。
       **证据边界**：实际 scheduler 与主动 TCP 断连已验证；不外推任意网络黑洞/驱动阻塞，独立 RedisQueue consumer 不等同整个 worker 启动。方案、全部红绿证据与续接见 [V34](V34-AGENT-RUN-LIFECYCLE.md)。
 - [ ] 失败 dispatch 累积重复 error `DownloadTask`（`app/services/agent_service.py:61-72,928-941`）。
 - [ ] 周期任务先消费 throttle 再入队，入队失败丢整个周期（daily ~24h，`app/services/scheduler.py:274-296`）。
@@ -155,7 +156,6 @@
 - [ ] 冗余索引：`MetadataCache` 单列索引与唯一约束重复；`SubtitleGroupMapping.normalized_key` 既 unique 又 index。
 - [ ] `WorkExternalId.external_id VARCHAR(128)` 与 `TVSeries/Movie.external_id VARCHAR(100)` 不一致。
 - [ ] `MetadataCache.generation` 的 `Mapped[int]` 可推导 SQL 类型；仅评估 server_default 需求；`Episode.season` 无 server_default。
-- [ ] `WorkCollection.search_text` 未纳入通用 backfill，需验证独立迁移是否已覆盖；不进 FTS 是明确设计（`fts.py:604-619`）。
 - [ ] `AgentSuggestion.resources`/`PendingDecision.candidates`/`AgentRun.matched_resource_ids` JSON id 列表无清理。
 - [ ] `create_channel` 防重复 token 可选（`channels.py:100-107`）。
 - [ ] `OTPRequest.code` 无长度/格式校验（`app/schemas/auth.py:6-9`）。

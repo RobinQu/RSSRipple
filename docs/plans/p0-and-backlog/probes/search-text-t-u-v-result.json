@@ -1,5 +1,5 @@
 {
-  "accepted": false,
+  "accepted": true,
   "source": "search-text-t-source.json",
   "frozen": "search-text-t-frozen.json",
   "candidate": "/tmp/rssripple-v33-rebased-1ow49l3v",
@@ -15,7 +15,9 @@
     "log": "/tmp/rssripple-v33-u-unit.log",
     "junit": "/tmp/rssripple-v33-u-unit.xml",
     "coverage": "/tmp/rssripple-v33-u-unit-coverage.xml",
-    "status": "running; no result yet"
+    "status": "complete; 4183 passed, 12 skipped, coverage 96.82%; cleanup verified",
+    "actual_exit": 0,
+    "audit": "search-text-u-audit.json"
   },
   "integration": {
     "startup_session": 23390,
@@ -29,5 +31,6 @@
     "status": "complete; 4100 passed, 17 skipped, coverage 89.68%; cleanup verified",
     "actual_exit": 0,
     "audit": "search-text-v-audit.json"
-  }
+  },
+  "code_commit": "caf040dfa05a2cae1dd91e5173929d7aa310b37e"
 }

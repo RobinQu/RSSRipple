@@ -1,0 +1,22 @@
+{
+  "accepted": true,
+  "code_commit": "caf040dfa05a2cae1dd91e5173929d7aa310b37e",
+  "effective_files": 19,
+  "source": "search-text-t-source.json",
+  "all_nonplan_worktree_and_git_blobs_verified": 3329,
+  "frozen_candidate_inputs_verified": 6709,
+  "unit_audit": "search-text-u-audit.json",
+  "integration_audit": "search-text-v-audit.json",
+  "review": "V33-REVIEW.md",
+  "p0_and_prior_commits_ancestor_exit": {
+    "4c804ed": 0,
+    "7fd8121": 0,
+    "e535e1f": 0,
+    "7f4f952": 0,
+    "a78e53d": 0,
+    "1906827": 0,
+    "608f3df": 0
+  },
+  "pushed": false,
+  "deployed": false
+}
