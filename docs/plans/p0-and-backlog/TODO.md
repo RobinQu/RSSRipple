@@ -51,7 +51,7 @@
 ### 数据 / 持久化
 
 - [ ] 轻量迁移 ~1100 行无版本跟踪/down path，`additions` 追加易漏（P1-D2 即此失效），表重建手抄列易漂移。
-- [ ] `search_text VARCHAR(4096)` 与无界别名拼接 writer 不一致（`app/services/work_search_events.py:64-72`）。 V33 已复现四类作品新增/更新在 PostgreSQL 的 4097/8192 字符写入失败（16 失败/16 通过），相同 Turso 32 项通过；录制标题加合成长别名，未发现录制样本自身超限。独立六文件 TEXT 原型升级后 PG 32 项通过，已验证回滚、重跑及原数据/三条 GIN 定义保留；DDL 后复用连接出现 prepared-statement 缓存失效，需停写重连及启动测试。后继 16 文件候选已补真实双库 HTTP/启动、Unicode 扩张、尾部搜索、未知类型拒绝、回滚/GIN 保留和实际并发启动锁；另修复合集 NULL 搜索列回填遗漏。最终专项 105 项、既有 FTS 回归合计轮 55 项通过；相同 HTTP 断言在 main 原代码上 PG 7 项失败、Turso 7 项通过。补齐元数据真实 upsert 双库 10 项及既有调用方 229 项通过，在 V32 ac 上构建兼容性候选，补齐共同旧库升级/回滚测试及迁移替身，V33 相对范围现为 19 文件。p/s 共同覆盖 289 个不同通过用例，独立项目已清理；现已正式重基到包含 V32 的 main 5da14da，全部 3329 非计划输入与已通过专项候选一致；冻结后 u/v 完整双门禁运行中，未合入，见 [V33](V33-SEARCH-TEXT.md)。
+- [ ] `search_text VARCHAR(4096)` 与无界别名拼接 writer 不一致（`app/services/work_search_events.py:64-72`）。 V33 已复现四类作品新增/更新在 PostgreSQL 的 4097/8192 字符写入失败（16 失败/16 通过），相同 Turso 32 项通过；录制标题加合成长别名，未发现录制样本自身超限。独立六文件 TEXT 原型升级后 PG 32 项通过，已验证回滚、重跑及原数据/三条 GIN 定义保留；DDL 后复用连接出现 prepared-statement 缓存失效，需停写重连及启动测试。后继 16 文件候选已补真实双库 HTTP/启动、Unicode 扩张、尾部搜索、未知类型拒绝、回滚/GIN 保留和实际并发启动锁；另修复合集 NULL 搜索列回填遗漏。最终专项 105 项、既有 FTS 回归合计轮 55 项通过；相同 HTTP 断言在 main 原代码上 PG 7 项失败、Turso 7 项通过。补齐元数据真实 upsert 双库 10 项及既有调用方 229 项通过，在 V32 ac 上构建兼容性候选，补齐共同旧库升级/回滚测试及迁移替身，V33 相对范围现为 19 文件。p/s 共同覆盖 289 个不同通过用例，独立项目已清理；现已正式重基到包含 V32 的 main 5da14da，全部 3329 非计划输入与已通过专项候选一致；冻结后 v 集成 4100 通过、17 跳过、89.68% 覆盖率，输入/跳过/导出/清理审计通过；u 单元/API 门禁仍运行，未合入，见 [V33](V33-SEARCH-TEXT.md)。
 - [ ] `WorkExternalId` 无 FK/无 `updated_at`，删除不清（与 P1-D6 相关）。
 - [ ] `AgentWork` `ondelete="SET NULL"` 与 XOR `CheckConstraint` 矛盾（`app/models/agent_work.py:14-33`）。
 - [ ] `Episode.season` 与父作品 `season_number` 无约束（`app/models/episode.py:14-25`）。
@@ -94,7 +94,7 @@
       `metadata_title_index.py:96-162`、`metadata_dedup.py:615/635/693`）。
 - [ ] 维基 slug id 与数字 pageid 不收敛（`metadata_source_registry.py:240-300`）。
 - [ ] Douban URL 正则混淆书/影/音（`metadata_source_registry.py:143-176`）。
-- [ ] `metadata_cache.title VARCHAR(512)` 小于合法资源标题上限 1024（V35，P2）。真实 repository 写入在 PG 的 513/1024 ASCII/CJK 四例失败，512 对照与六个 Turso 场景通过；仅扩列到 1024 后，长中文仍超出复合唯一 btree 键大小。录制 559 条资源最长 176，无生产损坏证据。需验证“完整标题＋定长摘要键”、全文碰撞保护及双库旧数据迁移，禁止截断或跳过普通长标题；独立四文件新库原型已使同组 12 项全绿，另有 6 项双库碰撞/尾部区分/更新/generation 测试通过；首轮新探针 6 个装配错误保留，既有调用方回归仍运行。旧库迁移、竞争与完整调用链验证及全门禁未完成，未合入；当前专用项目仍在使用，见 [V35](V35-METADATA-CACHE-KEYS.md)。
+- [ ] `metadata_cache.title VARCHAR(512)` 小于合法资源标题上限 1024（V35，P2）。真实 repository 写入在 PG 的 513/1024 ASCII/CJK 四例失败，512 对照与六个 Turso 场景通过；仅扩列到 1024 后，长中文仍超出复合唯一 btree 键大小。录制 559 条资源最长 176，无生产损坏证据。需验证“完整标题＋定长摘要键”、全文碰撞保护及双库旧数据迁移，禁止截断或跳过普通长标题；独立四文件新库原型已使同组 12 项全绿，另有 6 项双库碰撞/尾部区分/更新/generation 测试通过；首轮新探针 6 个装配错误保留，既有回归 157 通过、8 个退役端点跳过。实际并发发现 Turso 提交冲突，批量 writer 补新事务重试后真实冲突恢复通过，后继专项 29+2 项通过。旧库迁移、竞争与完整调用链验证及全门禁未完成，未合入；当前专用项目已清理，见 [V35](V35-METADATA-CACHE-KEYS.md)。
 
 ### 安全 / API
 

@@ -1,0 +1,235 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="6" failures="0" skipped="8" tests="171" time="329.628" timestamp="2026-10-08T06:26:02.462170+00:00" hostname="dl-workstation-albert"><testcase classname="" name="test_collision_does_not_read_or_overwrite[dedup_postgres]" time="0.001"><error message="failed on setup with &quot;RuntimeError: Runner.run() cannot be called from a running event loop&quot;">../rssripple_v35_cache_semantics.py:15: in database
+    return await request.getfixturevalue(request.param)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:630: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:726: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:1232: in execute
+    result: FixtureValue = ihook.pytest_fixture_setup(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:944: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_callers.py:53: in run_old_style_hookwrapper
+    return result.get_result()
+           ^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_callers.py:38: in run_old_style_hookwrapper
+    res = yield
+          ^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:1328: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:1005: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+                     ^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:407: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py:93: in run
+    raise RuntimeError(
+E   RuntimeError: Runner.run() cannot be called from a running event loop</error></testcase><testcase classname="" name="test_collision_does_not_read_or_overwrite[dedup_turso]" time="0.001"><error message="failed on setup with &quot;RuntimeError: Runner.run() cannot be called from a running event loop&quot;">../rssripple_v35_cache_semantics.py:15: in database
+    return await request.getfixturevalue(request.param)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:630: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:726: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:1232: in execute
+    result: FixtureValue = ihook.pytest_fixture_setup(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:944: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_callers.py:53: in run_old_style_hookwrapper
+    return result.get_result()
+           ^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_callers.py:38: in run_old_style_hookwrapper
+    res = yield
+          ^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:1328: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:1005: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+                     ^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:407: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py:93: in run
+    raise RuntimeError(
+E   RuntimeError: Runner.run() cannot be called from a running event loop</error></testcase><testcase classname="" name="test_tail_whitespace_and_upsert_preserve_identity[dedup_postgres]" time="0.001"><error message="failed on setup with &quot;RuntimeError: Runner.run() cannot be called from a running event loop&quot;">../rssripple_v35_cache_semantics.py:15: in database
+    return await request.getfixturevalue(request.param)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:630: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:726: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:1232: in execute
+    result: FixtureValue = ihook.pytest_fixture_setup(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:944: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_callers.py:53: in run_old_style_hookwrapper
+    return result.get_result()
+           ^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_callers.py:38: in run_old_style_hookwrapper
+    res = yield
+          ^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:1328: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:1005: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+                     ^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:407: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py:93: in run
+    raise RuntimeError(
+E   RuntimeError: Runner.run() cannot be called from a running event loop</error></testcase><testcase classname="" name="test_tail_whitespace_and_upsert_preserve_identity[dedup_turso]" time="0.001"><error message="failed on setup with &quot;RuntimeError: Runner.run() cannot be called from a running event loop&quot;">../rssripple_v35_cache_semantics.py:15: in database
+    return await request.getfixturevalue(request.param)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:630: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:726: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:1232: in execute
+    result: FixtureValue = ihook.pytest_fixture_setup(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:944: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_callers.py:53: in run_old_style_hookwrapper
+    return result.get_result()
+           ^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_callers.py:38: in run_old_style_hookwrapper
+    res = yield
+          ^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:1328: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:1005: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+                     ^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:407: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py:93: in run
+    raise RuntimeError(
+E   RuntimeError: Runner.run() cannot be called from a running event loop</error></testcase><testcase classname="" name="test_orm_title_edit_rekeys_and_old_generation_misses[dedup_postgres]" time="0.001"><error message="failed on setup with &quot;RuntimeError: Runner.run() cannot be called from a running event loop&quot;">../rssripple_v35_cache_semantics.py:15: in database
+    return await request.getfixturevalue(request.param)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:630: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:726: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:1232: in execute
+    result: FixtureValue = ihook.pytest_fixture_setup(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:944: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_callers.py:53: in run_old_style_hookwrapper
+    return result.get_result()
+           ^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_callers.py:38: in run_old_style_hookwrapper
+    res = yield
+          ^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:1328: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:1005: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+                     ^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:407: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py:93: in run
+    raise RuntimeError(
+E   RuntimeError: Runner.run() cannot be called from a running event loop</error></testcase><testcase classname="" name="test_orm_title_edit_rekeys_and_old_generation_misses[dedup_turso]" time="0.001"><error message="failed on setup with &quot;RuntimeError: Runner.run() cannot be called from a running event loop&quot;">../rssripple_v35_cache_semantics.py:15: in database
+    return await request.getfixturevalue(request.param)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:630: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:726: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:1232: in execute
+    result: FixtureValue = ihook.pytest_fixture_setup(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:944: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_callers.py:53: in run_old_style_hookwrapper
+    return result.get_result()
+           ^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pluggy/_callers.py:38: in run_old_style_hookwrapper
+    res = yield
+          ^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:1328: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/_pytest/fixtures.py:1005: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+                     ^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:407: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py:93: in run
+    raise RuntimeError(
+E   RuntimeError: Runner.run() cannot be called from a running event loop</error></testcase><testcase classname="tests.unit.test_metadata_repository" name="test_cache_roundtrip_writes_current_generation" time="1.940" /><testcase classname="tests.unit.test_metadata_repository" name="test_stale_generation_is_discarded_and_deleted" time="1.860" /><testcase classname="tests.unit.test_metadata_repository" name="test_movie_verdict_flips_to_existing_series" time="2.012" /><testcase classname="tests.unit.test_metadata_repository" name="test_movie_verdict_repairs_misfiled_movie_series" time="2.214" /><testcase classname="tests.unit.test_metadata_repository" name="test_tv_verdict_flips_to_existing_movie" time="2.109" /><testcase classname="tests.unit.test_metadata_repository" name="test_movie_verdict_creates_movie_when_no_cross_type_row" time="1.994" /><testcase classname="tests.unit.test_metadata_repository" name="test_invalidate_cache_for_external_id" time="1.797" /><testcase classname="tests.unit.test_metadata_repository" name="test_cache_is_namespaced_by_source" time="1.845" /><testcase classname="tests.unit.test_metadata_repository" name="test_set_cache_upserts_replacing_stale_row" time="2.027" /><testcase classname="tests.unit.test_metadata_repository" name="test_not_found_does_not_overwrite_parsed_search_title" time="1.887" /><testcase classname="tests.unit.test_metadata_repository" name="test_not_found_does_not_fill_search_title_from_failed_verdict" time="1.937" /><testcase classname="tests.unit.test_metadata_repository" name="test_not_found_fills_missing_subtitle_group_without_overwriting" time="1.822" /><testcase classname="tests.unit.test_metadata_repository" name="test_episode_season_and_titles_filled_from_meta" time="2.147" /><testcase classname="tests.unit.test_metadata_repository" name="test_all_release_fields_are_written_back" time="2.036" /><testcase classname="tests.unit.test_metadata_repository" name="test_batch_flags_clear_single_episode" time="2.006" /><testcase classname="tests.unit.test_metadata_repository" name="test_batch_scope_defaults_to_season" time="2.012" /><testcase classname="tests.unit.test_metadata_repository" name="test_batch_scope_explicit_multi_season" time="1.897" /><testcase classname="tests.unit.test_metadata_repository" name="test_batch_scope_not_downgraded_from_torrent_analysis" time="2.142" /><testcase classname="tests.unit.test_metadata_repository" name="test_franchise_metadata_match_does_not_restore_flat_work_fk" time="2.006" /><testcase classname="tests.unit.test_metadata_repository" name="test_episode_reconciliation_absolute_to_per_season" time="1.453" /><testcase classname="tests.unit.test_metadata_repository" name="test_episode_confidence_raw_when_no_seasons_map" time="1.952" /><testcase classname="tests.unit.test_metadata_repository" name="test_apply_uses_verified_bilingual_sequel_suffix" time="2.031" /><testcase classname="tests.unit.test_metadata_repository" name="test_tv_verdict_creates_series_when_no_conflict" time="2.471" /><testcase classname="tests.unit.test_metadata_repository" name="test_audio_verdict_links_audio_work" time="2.223" /><testcase classname="tests.unit.test_metadata_repository" name="test_audio_verdict_injects_content_type_from_meta" time="2.270" /><testcase classname="tests.unit.test_metadata_repository" name="test_audio_verdict_titleless_entity_falls_back_to_meta_title" time="1.916" /><testcase classname="tests.unit.test_metadata_repository" name="test_audio_verdict_titleless_entity_falls_back_to_clean_title" time="1.957" /><testcase classname="tests.unit.test_metadata_repository" name="test_audio_verdict_without_any_title_creates_no_shell" time="1.859" /><testcase classname="tests.unit.test_metadata_repository" name="test_season_ambiguous_marks_resource_ambiguous" time="2.045" /><testcase classname="tests.unit.test_metadata_repository" name="test_season_ambiguous_skipped_when_reconcile_derives_season" time="2.081" /><testcase classname="tests.unit.test_metadata_repository" name="test_season_ambiguous_skipped_for_batch" time="1.883" /><testcase classname="tests.unit.test_metadata_repository" name="test_single_season_entity_sets_season_1" time="1.968" /><testcase classname="tests.unit.test_metadata_repository" name="test_season_ambiguous_cache_roundtrip" time="2.079" /><testcase classname="tests.unit.test_metadata_repository" name="test_series_has_episode_evidence_true_from_episode_rows" time="2.050" /><testcase classname="tests.unit.test_metadata_repository" name="test_fill_subtitle_group_promotes_legacy_scalar" time="1.807" /><testcase classname="tests.unit.test_metadata_repository" name="test_register_subtitle_group_mapping_creates_then_updates" time="2.062" /><testcase classname="tests.unit.test_metadata_repository" name="test_register_subtitle_group_mapping_rejects_unvalidated_split" time="1.873" /><testcase classname="tests.unit.test_metadata_repository" name="test_movie_verdict_indeterminate_season_links_known_series" time="2.131" /><testcase classname="tests.api.test_resources.TestResourceList" name="test_list_resources" time="2.135" /><testcase classname="tests.api.test_resources.TestResourceList" name="test_list_grouped" time="2.267" /><testcase classname="tests.api.test_resources.TestResourceList" name="test_list_marks_resources_with_any_download_task" time="2.177" /><testcase classname="tests.api.test_resources.TestResourceList" name="test_list_reports_latest_task_status_and_pending_decision" time="2.262" /><testcase classname="tests.api.test_resources.TestResourceList" name="test_list_effective_status_distinguishes_organized_cancel" time="2.101" /><testcase classname="tests.api.test_resources.TestResourceList" name="test_get_resource" time="2.169" /><testcase classname="tests.api.test_resources.TestResourceList" name="test_list_includes_work_collection" time="2.196" /><testcase classname="tests.api.test_resources.TestResourceList" name="test_get_resource_404" time="2.022" /><testcase classname="tests.api.test_resources.TestResourceList" name="test_list_resources_404" time="1.990" /><testcase classname="tests.api.test_resources.TestChannelFieldValues" name="test_top_string_values_by_frequency" time="2.247" /><testcase classname="tests.api.test_resources.TestChannelFieldValues" name="test_prefix_filter" time="2.202" /><testcase classname="tests.api.test_resources.TestChannelFieldValues" name="test_subtitle_langs_unnest" time="1.390" /><testcase classname="tests.api.test_resources.TestChannelFieldValues" name="test_unsupported_field_rejected" time="2.224" /><testcase classname="tests.api.test_resources.TestChannelFieldValues" name="test_unknown_channel_404" time="1.974" /><testcase classname="tests.api.test_resources.TestResourceMetadata" name="test_metadata_404" time="1.938" /><testcase classname="tests.api.test_resources.TestResourceMetadata" name="test_metadata_unlinked_triggers_match" time="2.091" /><testcase classname="tests.api.test_resources.TestResourceMetadata" name="test_metadata_linked_returns_entity" time="1.966" /><testcase classname="tests.api.test_resources.TestResourceSearchLink" name="test_search_404" time="0.000"><skipped type="pytest.skip" message="resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs">/tmp/rssripple-v35-cache-uyusqqzh/tests/api/test_resources.py:368: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs</skipped></testcase><testcase classname="tests.api.test_resources.TestResourceSearchLink" name="test_search_returns_results" time="0.000"><skipped type="pytest.skip" message="resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs">/tmp/rssripple-v35-cache-uyusqqzh/tests/api/test_resources.py:373: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs</skipped></testcase><testcase classname="tests.api.test_resources.TestResourceSearchLink" name="test_search_result_none_genre_coerced" time="0.000"><skipped type="pytest.skip" message="resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs">/tmp/rssripple-v35-cache-uyusqqzh/tests/api/test_resources.py:387: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs</skipped></testcase><testcase classname="tests.api.test_resources.TestResourceSearchLink" name="test_search_forwards_source_and_fallback_sites" time="0.000"><skipped type="pytest.skip" message="resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs">/tmp/rssripple-v35-cache-uyusqqzh/tests/api/test_resources.py:400: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs</skipped></testcase><testcase classname="tests.api.test_resources.TestResourceSearchLink" name="test_search_llm_error_returns_502" time="0.000"><skipped type="pytest.skip" message="resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs">/tmp/rssripple-v35-cache-uyusqqzh/tests/api/test_resources.py:425: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs</skipped></testcase><testcase classname="tests.api.test_resources.TestResourceSearchLink" name="test_link_creates_series" time="0.000"><skipped type="pytest.skip" message="resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs">/tmp/rssripple-v35-cache-uyusqqzh/tests/api/test_resources.py:435: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs</skipped></testcase><testcase classname="tests.api.test_resources.TestResourceSearchLink" name="test_link_404" time="0.000"><skipped type="pytest.skip" message="resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs">/tmp/rssripple-v35-cache-uyusqqzh/tests/api/test_resources.py:451: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs</skipped></testcase><testcase classname="tests.api.test_resources.TestResourceSearchLink" name="test_link_movie_clears_ambiguous" time="0.000"><skipped type="pytest.skip" message="resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs">/tmp/rssripple-v35-cache-uyusqqzh/tests/api/test_resources.py:456: resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs</skipped></testcase><testcase classname="tests.api.test_resources.TestEpisodeCorrection" name="test_marks_manual_and_preserves_absolute" time="2.248" /><testcase classname="tests.api.test_resources.TestEpisodeCorrection" name="test_preserves_prior_absolute_when_omitted" time="2.130" /><testcase classname="tests.api.test_resources.TestEpisodeCorrection" name="test_updates_season_when_provided" time="2.056" /><testcase classname="tests.api.test_resources.TestEpisodeCorrection" name="test_preserves_prior_season_when_omitted" time="1.940" /><testcase classname="tests.api.test_resources.TestEpisodeCorrection" name="test_404" time="1.974" /><testcase classname="tests.api.test_resources.TestEpisodeCorrection" name="test_derives_season_from_absolute_when_omitted" time="2.062" /><testcase classname="tests.api.test_resources.TestEpisodeCorrection" name="test_explicit_season_wins_over_derivation" time="2.325" /><testcase classname="tests.api.test_resources.TestEpisodeCorrection" name="test_no_seasons_data_no_derivation" time="2.175" /><testcase classname="tests.api.test_resources.TestResourceMatchedFilter" name="test_matched_filter_splits_parsed_and_unparsed" time="2.362" /><testcase classname="tests.api.test_resources.TestResourceMatchedFilter" name="test_matched_true_grouped_excludes_unknown" time="1.987" /><testcase classname="tests.api.test_resources.TestResourceMatchedFilter" name="test_matched_false_paginates" time="2.347" /><testcase classname="tests.api.test_resources.TestResourceFiles" name="test_404" time="1.943" /><testcase classname="tests.api.test_resources.TestResourceFiles" name="test_torrent_cache_hit" time="2.075" /><testcase classname="tests.api.test_resources.TestResourceFiles" name="test_torrent_fetch_live" time="2.177" /><testcase classname="tests.api.test_resources.TestResourceFiles" name="test_downloader_fallback" time="2.309" /><testcase classname="tests.api.test_resources.TestResourceFiles" name="test_downloader_rpc_failure_falls_through" time="2.275" /><testcase classname="tests.api.test_resources.TestResourceFiles" name="test_notification_snapshot_fallback" time="2.162" /><testcase classname="tests.api.test_resources.TestResourceFiles" name="test_none_when_no_source" time="2.102" /><testcase classname="tests.api.test_resources.TestResourceFiles" name="test_magnet_resolve_block_reflects_columns" time="1.996" /><testcase classname="tests.api.test_resources.TestResourceFiles" name="test_magnet_resolve_block_absent_when_listing_found" time="2.247" /><testcase classname="tests.api.test_resources.TestMagnetResolve" name="test_404" time="2.087" /><testcase classname="tests.api.test_resources.TestMagnetResolve" name="test_422_for_non_magnet" time="2.008" /><testcase classname="tests.api.test_resources.TestMagnetResolve" name="test_409_while_running" time="2.313" /><testcase classname="tests.api.test_resources.TestMagnetResolve" name="test_422_when_libtorrent_unavailable" time="1.999" /><testcase classname="tests.api.test_resources.TestMagnetResolve" name="test_happy_path_resets_and_enqueues" time="1.829" /><testcase classname="tests.api.test_resources.TestMagnetResolve" name="test_custom_trackers_persisted_and_echoed" time="2.096" /><testcase classname="tests.api.test_resources.TestMagnetResolve" name="test_invalid_tracker_422_names_url" time="2.144" /><testcase classname="tests.api.test_resources.TestMagnetResolve" name="test_omitted_body_clears_trackers" time="2.284" /><testcase classname="tests.api.test_resources.TestReparseMetadata" name="test_404" time="2.001" /><testcase classname="tests.api.test_resources.TestReparseMetadata" name="test_happy_path_ignores_and_enqueues" time="2.147" /><testcase classname="tests.api.test_resources.TestReparseMetadata" name="test_uses_live_queue_singleton" time="2.132" /><testcase classname="tests.api.test_resources.TestReparseMetadata" name="test_409_when_job_active" time="2.120" /><testcase classname="tests.api.test_resources.TestParseCorrection" name="test_single_to_batch_clears_episode_and_defaults_scope" time="2.032" /><testcase classname="tests.api.test_resources.TestParseCorrection" name="test_batch_to_single_clears_scope_and_range" time="2.144" /><testcase classname="tests.api.test_resources.TestParseCorrection" name="test_explicit_episode_marks_manual" time="2.201" /><testcase classname="tests.api.test_resources.TestParseCorrection" name="test_non_episode_fields_do_not_mark_manual" time="2.125" /><testcase classname="tests.api.test_resources.TestParseCorrection" name="test_batch_mark_clears_ambiguous" time="2.280" /><testcase classname="tests.api.test_resources.TestParseCorrection" name="test_explicit_batch_scope_wins_over_default" time="2.187" /><testcase classname="tests.api.test_resources.TestParseCorrection" name="test_invalid_batch_scope_422" time="1.998" /><testcase classname="tests.api.test_resources.TestParseCorrection" name="test_enqueues_targeted_agent_run" time="2.111" /><testcase classname="tests.api.test_resources.TestParseCorrection" name="test_404" time="2.198" /><testcase classname="tests.api.test_resources.TestTorrentRecacheOnConfirmation" name="test_recaches_when_torrent_file_missing" time="2.129" /><testcase classname="tests.api.test_resources.TestTorrentRecacheOnConfirmation" name="test_skips_when_cache_exists" time="2.026" /><testcase classname="tests.api.test_resources.TestTorrentRecacheOnConfirmation" name="test_recache_failure_does_not_block_response" time="2.191" /><testcase classname="tests.api.test_resources.TestTorrentRecacheOnConfirmation" name="test_skips_magnet_url" time="2.128" /><testcase classname="tests.api.test_resources.TestParseCorrectionGenericFields" name="test_generic_fields_applied" time="2.118" /><testcase classname="tests.api.test_resources.TestParseCorrectionGenericFields" name="test_generic_fields_do_not_mark_manual" time="2.104" /><testcase classname="tests.api.test_resources.TestResourceAssociations" name="test_non_batch_single_work_writes_fk_and_clears_enrichment" time="2.165" /><testcase classname="tests.api.test_resources.TestResourceAssociations" name="test_non_batch_two_works_rejected" time="2.054" /><testcase classname="tests.api.test_resources.TestResourceAssociations" name="test_unknown_work_rejected" time="2.328" /><testcase classname="tests.api.test_resources.TestResourceAssociations" name="test_single_tv_season_pack_derives_season_and_mirrors_fk" time="2.241" /><testcase classname="tests.api.test_resources.TestResourceAssociations" name="test_batch_association_repeated_save_is_idempotent" time="2.173" /><testcase classname="tests.api.test_resources.TestResourceAssociations" name="test_association_fields_can_correct_missing_titles" time="2.012" /><testcase classname="tests.api.test_resources.TestResourceAssociations" name="test_multi_season_evidence_derives_multi_season" time="2.098" /><testcase classname="tests.api.test_resources.TestResourceAssociations" name="test_mixed_works_derive_franchise_and_clear_fks" time="2.265" /><testcase classname="tests.api.test_resources.TestResourceAssociations" name="test_all_movies_derive_movies_scope" time="2.424" /><testcase classname="tests.api.test_resources.TestResourceAssociations" name="test_overlap_rejected_with_422" time="2.165" /><testcase classname="tests.api.test_resources.TestResourceAssociations" name="test_gap_returns_warning_not_error" time="2.135" /><testcase classname="tests.api.test_resources.TestResourceAssociations" name="test_tv_assignment_without_season_rejected" time="2.141" /><testcase classname="tests.api.test_resources.TestResourceAssociations" name="test_assignment_outside_works_rejected" time="2.082" /><testcase classname="tests.api.test_resources.TestResourceAssociations" name="test_unknown_collection_rejected" time="2.120" /><testcase classname="tests.api.test_resources.TestResourceAssociations" name="test_fields_applied_in_same_call" time="2.066" /><testcase classname="tests.api.test_resources.TestResourceAssociations" name="test_collection_consistency_rejected" time="2.050" /><testcase classname="tests.api.test_resources.TestResourceAssociations" name="test_collection_consistency_accepted" time="2.111" /><testcase classname="tests.api.test_resources.TestResourceAssociations" name="test_multi_work_every_work_needs_assignment" time="2.048" /><testcase classname="tests.api.test_resources.TestResourceAssociations" name="test_multi_work_whole_range_miss_rejected" time="1.988" /><testcase classname="tests.api.test_resources.TestResourceAssociations" name="test_multi_work_tail_shortfall_warns" time="2.063" /><testcase classname="tests.api.test_resources.TestResourceAssociations" name="test_multi_work_unassigned_media_file_rejected" time="1.998" /><testcase classname="tests.api.test_resources.TestAnalyzeBatch" name="test_no_listing_returns_null_suggestion" time="2.129" /><testcase classname="tests.api.test_resources.TestAnalyzeBatch" name="test_suggestion_returned_without_persistence" time="2.146" /><testcase classname="tests.api.test_resources.TestAnalyzeBatch" name="test_404" time="2.022" /><testcase classname="tests.api.test_resources.TestAssociationAudioPreservation" name="test_empty_works_preserves_audio_link" time="2.322" /><testcase classname="tests.api.test_resources.TestResourceListGroupedBuckets" name="test_grouped_all_buckets" time="2.126" /><testcase classname="tests.api.test_resources.TestResourceListGroupedBuckets" name="test_grouped_matched_false_skips_empty_linked_buckets" time="2.145" /><testcase classname="tests.api.test_resources.TestResourceListGroupedBuckets" name="test_list_empty_channel" time="2.011" /><testcase classname="tests.api.test_resources.TestChannelFieldValuesEdges" name="test_subtitle_langs_skips_empty_nonstring_whitespace" time="2.244" /><testcase classname="tests.api.test_resources.TestResourceMetadataAudioMovie" name="test_metadata_linked_movie_and_audio" time="2.077" /><testcase classname="tests.api.test_resources.TestResourceMetadataAudioMovie" name="test_metadata_match_error_500" time="2.355" /><testcase classname="tests.api.test_resources.TestEpisodeCorrectionCollection" name="test_derives_season_along_collection_members" time="2.216" /><testcase classname="tests.api.test_resources.TestEpisodeCorrectionCollection" name="test_derives_episode_too_when_episode_omitted" time="1.866" /><testcase classname="tests.api.test_resources.TestEpisodeCorrectionCollection" name="test_heal_failure_swallowed" time="1.844" /><testcase classname="tests.api.test_resources.TestEpisodeCorrectionCollection" name="test_reenqueues_active_agents" time="2.105" /><testcase classname="tests.api.test_resources.TestEpisodeCorrectionCollection" name="test_reenqueue_failure_swallowed" time="2.172" /><testcase classname="tests.api.test_resources.TestMagnetResolveDisabled" name="test_422_when_feature_disabled" time="2.006" /><testcase classname="tests.api.test_resources.TestResourceAssociationsErrors" name="test_404" time="2.054" /><testcase classname="tests.api.test_resources.TestResourceAssociationsErrors" name="test_apply_unexpected_error_500" time="2.068" /><testcase classname="tests.api.test_resources.TestResourceAssociationsErrors" name="test_active_agent_reenqueue_and_organize_refresh" time="2.354" /><testcase classname="tests.api.test_resources.TestResourceAssociationsErrors" name="test_enqueue_failures_swallowed" time="2.331" /><testcase classname="tests.api.test_resources.TestAnalyzeBatchStream" name="test_404" time="2.097" /><testcase classname="tests.api.test_resources.TestAnalyzeBatchStream" name="test_cached_result_replayed" time="2.119" /><testcase classname="tests.api.test_resources.TestAnalyzeBatchStream" name="test_live_stream_running_to_done" time="2.744" /><testcase classname="tests.api.test_resources.TestAnalyzeBatchStream" name="test_live_stream_job_state_lost" time="2.047" /><testcase classname="tests.api.test_resources.TestAnalyzeBatchStream" name="test_live_stream_failed" time="2.091" /><testcase classname="tests.api.test_resources.TestParseCorrectionSeasonSubtitleAndFailures" name="test_explicit_season_and_absolute_applied" time="2.045" /><testcase classname="tests.api.test_resources.TestParseCorrectionSeasonSubtitleAndFailures" name="test_subtitle_groups_syncs_legacy" time="2.112" /><testcase classname="tests.api.test_resources.TestParseCorrectionSeasonSubtitleAndFailures" name="test_legacy_subtitle_group_syncs_list" time="2.080" /><testcase classname="tests.api.test_resources.TestParseCorrectionSeasonSubtitleAndFailures" name="test_subtitle_group_disagreement_422" time="2.342" /><testcase classname="tests.api.test_resources.TestParseCorrectionSeasonSubtitleAndFailures" name="test_heal_failure_swallowed" time="2.067" /><testcase classname="tests.api.test_resources.TestParseCorrectionSeasonSubtitleAndFailures" name="test_agent_enqueue_failure_swallowed" time="2.071" /><testcase classname="tests.api.test_resources.TestBatchAnalysisCacheHelpers" name="test_store_batch_analysis_create_then_update" time="2.053" /><testcase classname="tests.api.test_resources.TestBatchAnalysisCacheHelpers" name="test_retry_torrent_cache_skips_missing_resource" time="2.100" /><testcase classname="tests.api.test_resources.TestAnalyzeBatchSuggestFailure" name="test_suggest_failure_swallowed" time="2.022" /></testsuite></testsuites>

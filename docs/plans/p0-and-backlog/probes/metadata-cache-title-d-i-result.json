@@ -1,0 +1,67 @@
+{
+  "accepted": false,
+  "base": "efc3698",
+  "candidate": "/tmp/rssripple-v35-cache-uyusqqzh",
+  "scope": "Fresh schema only; legacy migration absent",
+  "files": {
+    "app/models/metadata_cache.py": "f11ae96fc98bb26b3ce09241939bb8c3f70d531789c233c3d43ec779c45d78d4",
+    "app/services/metadata_cache_store.py": "22fb1f8fc6fbbe5ad787b34e6ab023ee2dc5add10334a1e53a5943bf5f43c3f5",
+    "app/services/metadata_repository.py": "3023a7cbeedda60e04c778d557343e705253a43311bc94f39c1b8f63e3e57583",
+    "app/api/v1/resources.py": "906ddd91c9f8c0422e2990b94e20e9b689d5fe15173b77e2013596d6dd14e52e"
+  },
+  "d": {
+    "actual_exit": 1,
+    "passed": 157,
+    "skipped": 8,
+    "errors": 6,
+    "seconds": 329.64,
+    "errors_reason": "new probe async fixture attempted nested event loop; six cases rerun in e; all eight skips are retired resource-scoped metadata endpoints"
+  },
+  "f": {
+    "actual_exit": 1,
+    "passed": 2,
+    "failed": 1,
+    "seconds": 3.63,
+    "failure": "Turso concurrent transaction commit Write-write conflict; no retries in raw repository probe",
+    "passed_cases": [
+      "PostgreSQL concurrent upserts",
+      "PostgreSQL stale-generation reader cannot delete refreshed row"
+    ]
+  },
+  "g": {
+    "actual_exit": 0,
+    "passed": 2,
+    "seconds": 3.58,
+    "actual_batch_writer": true,
+    "postgres_sessions": 2,
+    "turso_sessions": 3,
+    "turso_commit_conflicts": 1,
+    "new_transaction_retry_observed": true
+  },
+  "h": {
+    "actual_exit": 0,
+    "passed": 29,
+    "deselected": 118,
+    "seconds": 42.56,
+    "scope": "same boundary and adversarial cases plus matching batch API/SSE classes"
+  },
+  "i": {
+    "actual_exit": 0,
+    "passed": 2,
+    "seconds": 4.48,
+    "scope": "TestBatchAnalysisCacheHelpers omitted by h selection"
+  },
+  "cleanup": {
+    "down_exit": 0,
+    "labels": {
+      "container": [],
+      "network": [],
+      "volume": []
+    }
+  },
+  "pending": [
+    "legacy schema migration",
+    "full MetadataAgent caller and concurrency verification",
+    "full coverage gates and final review"
+  ]
+}

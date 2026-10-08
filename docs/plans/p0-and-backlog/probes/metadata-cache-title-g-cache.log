@@ -1,0 +1,4 @@
+backend=postgresql fresh_sessions=2 commit_conflicts=0
+.backend=sqlite fresh_sessions=3 commit_conflicts=1
+.
+2 passed in 3.58s

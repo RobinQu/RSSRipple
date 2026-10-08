@@ -34,9 +34,19 @@
 在 main `efc3698` 的独立归档上修改四个运行文件：完整 title 用 TEXT，SHA-256 与 source 构成唯一键；查询与原子 upsert 同时核对原文。Metadata repository 和批量分析 SSE 共用读写规则；ORM 插入/标题修改更新摘要，旧 generation 删除增加观测版本条件，避免同 id 新版本被无条件删除。未新增依赖。
 
 - c：原 a 的同一组双库长标题用例 **12 passed、无跳过，14.98 秒，实际退出 0**。
-- d：新增探针有 6 个异步 fixture 装配错误；既有 repository/资源 API 回归仍运行（session 54261），不能记为通过。原探针保留。
+- d：新增探针有 6 个异步 fixture 装配错误；当时既有 repository/资源 API 回归仍运行（session 54261）；其终态见下方 d–i。原探针保留。
 - e：修正装配后的双库对抗探针 **6 passed、无跳过，8.05 秒，实际退出 0**，覆盖人工强制摘要碰撞不命中/不覆盖、source 隔离、长公共前缀尾部区分、strip 语义、同会话 upsert 身份/创建时间保留、ORM 改名重建键及旧 generation 清除。碰撞和长文本均明确为合成边界。
 
-[证据与四文件 SHA](probes/metadata-cache-title-c-e-result.json)附原型归档、日志/JUnit 和原/修正探针。专用项目 `rssripple-v35-cache-c`（32912）仍供 d 使用，尚未清理。候选路径 `/tmp/rssripple-v35-cache-uyusqqzh`。
+[证据与四文件 SHA](probes/metadata-cache-title-c-e-result.json)附原型归档、日志/JUnit 和原/修正探针。当时专用项目 `rssripple-v35-cache-c`（32912）仍供 d 使用；最终清理见下方 d–i。候选路径 `/tmp/rssripple-v35-cache-uyusqqzh`。
 
 **旧库迁移尚未实现，当前原型不能用于升级或合入**。并发写、陈旧读竞争、完整 MetadataAgent 调用方、双库迁移与全部门禁仍待完成，不关闭 TODO。V33 u/v 门禁及 V34 候选不受本探针影响。
+
+## d–i 回归与真实并发补验
+
+- d 已终止：157 passed、8 skipped、6 errors，329.64 秒，实际退出 1。6 个错误均为新增探针异步装配（已在 e 修正并通过），8 个跳过均为已退役的 resource-scoped metadata 端点。不可把本轮记为全绿。
+- f：2 passed、1 failed，3.63 秒，实际退出 1。PostgreSQL 同键并发及真实双会话旧 generation 读后刷新均通过；Turso 原始双事务提交触发 `Write-write conflict`。原子 upsert 不能取代事务层 MVCC 重试。
+- 核验调用方：抓取 metadata 的 `_process_resource_metadata` 已在新会话完整事务边界使用 `retry_on_lock`；批量分析后台缓存 writer 原先没有重试。本原型为 `_store_batch_analysis` 加入现有重试机制，每次新会话，失败先 rollback；不在 repository 局部重放调用方事务。
+- g：实际批量 writer 双库并发 **2 passed，3.58 秒，退出 0**。PG 两会话直接成功；Turso 真实提交冲突一次，第三个新会话成功，最终唯一行保留完整结果。
+- h：修改后重新执行双库边界/碰撞/实际 writer 及选中的批量分析 API/SSE，**29 passed、118 deselected，42.56 秒，退出 0**。另 i 补跑选择未覆盖的缓存 helper，**2 passed，4.48 秒，退出 0**。这是专项验收，不是全套覆盖率门禁。
+
+[原始日志、JUnit、实际退出和后继原型 SHA](probes/metadata-cache-title-d-i-result.json)已归档。所有本批测试均终止；`rssripple-v35-cache-c` 已 down -v 退出 0，容器/网络/卷标签为空。旧库迁移仍未实施，原型未合入。下一步保留完整数据实现双库有界迁移，补全实际 MetadataAgent 调用链与竞争验证。
