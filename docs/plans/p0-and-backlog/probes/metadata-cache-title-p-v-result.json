@@ -1,0 +1,51 @@
+{
+  "accepted": false,
+  "p": {
+    "actual_exit": 0,
+    "passed": 2,
+    "seconds": 7.07,
+    "scope": "empty database actual startup and real MetadataAgent.process with synthetic source/LLM boundaries; definitive misses only"
+  },
+  "q": {
+    "actual_exit": 0,
+    "passed": 14,
+    "seconds": 19.09
+  },
+  "r": {
+    "actual_exit": 0,
+    "passed": 1,
+    "seconds": 1.4,
+    "scope": "two actual PG startups observed blocked on shared advisory lock; digest column added once"
+  },
+  "s": {
+    "actual_exit": 0,
+    "passed": 47,
+    "skipped": 0,
+    "seconds": 63.3,
+    "scope": "all consolidated tests/integration/metadata_cache"
+  },
+  "t": {
+    "actual_exit": 1,
+    "failed": 1,
+    "seconds": 0.14,
+    "failure": "old _FakePGConn lacks scalar/inspectable catalog for new helper"
+  },
+  "u": {
+    "actual_exit": 0,
+    "passed": 50,
+    "skipped": 0,
+    "warnings": 2,
+    "seconds": 55.63,
+    "scope": "complete tests/unit/test_database_migrations.py with dedicated PG; fake branch walker asserts cache helper invocation; real schema behavior in s"
+  },
+  "ruff_exit": 0,
+  "source": "metadata-cache-title-v-source.json",
+  "cleanup": {
+    "down_exit": 0,
+    "labels": {
+      "container": [],
+      "network": [],
+      "volume": []
+    }
+  }
+}

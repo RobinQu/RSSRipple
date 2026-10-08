@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="2" time="7.067" timestamp="2026-10-08T07:07:48.827413+00:00" hostname="dl-workstation-albert"><testcase classname="" name="test_postgres" time="1.842" /><testcase classname="" name="test_turso" time="4.085" /></testsuite></testsuites>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.143" timestamp="2026-10-08T07:13:09.529499+00:00" hostname="dl-workstation-albert"><testcase classname="tests.unit.test_database_migrations" name="test_light_migrations_postgres_branches_fake_conn" time="0.007"><failure message="AttributeError: '_FakePGConn' object has no attribute 'scalar'">tests/unit/test_database_migrations.py:1335: in test_light_migrations_postgres_branches_fake_conn
+    await db_mod._apply_light_migrations(conn)
+app/database.py:645: in _apply_light_migrations
+    await upgrade_metadata_cache_keys(conn)
+app/services/metadata_cache_schema.py:113: in upgrade_metadata_cache_keys
+    triggers = await conn.scalar(text(
+                     ^^^^^^^^^^^
+E   AttributeError: '_FakePGConn' object has no attribute 'scalar'</failure></testcase></testsuite></testsuites>

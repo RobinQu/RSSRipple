@@ -76,3 +76,18 @@ m：**6 passed、2 failed，11.47 秒，实际退出 1**。索引、引用和碰
 权威模型、业务、迁移文档已在独立候选同步。原失败与修正后的日志/JUnit、探针及九文件原型见 [m–o](probes/metadata-cache-title-m-o-result.json)。项目 `rssripple-v35-reject-m`（PG 32915）清理退出 0，容器/网络/卷标签为空。
 
 剩余：新库实际启动、trigger/类型/其他异常目录边界、实际并发启动、完整 MetadataAgent 调用方、正式重基及完整门禁。V34 冻结双门禁继续运行，未修改其输入；V35 原型未合入。
+
+## p–v 新库、调用链与正式集成测试
+
+继续复核：P2 长标题与升级完整性需求不变；本轮补此前缺失的真实新库和调用方证据，不把模拟来源输出描述为在线模型验收。
+
+- p：空库实际 create_tables 与重复启动，双库真实 UnifiedMetadataAgent.process 对 1024 字符中文标题走确定性 not_found miss→write→hit、force refresh、瞬态错误不覆盖旧确定结果、wikipedia/tmdb 命名空间隔离，**2 passed，7.07 秒，退出 0**。只有来源/LLM 返回边界合成，缓存/资源更新/事务提交真实；此轮未覆盖匹配成功后的作品 upsert，不外推成功身份链。
+- q：自定义 trigger、额外列和 JSON 类型漂移加入已有迁移拒绝矩阵，**14 passed，19.09 秒，退出 0**；拒绝后历史全字段、目录及临时表检查保持不变。
+- r：两个真实 PG create_tables 被第三连接的同一 advisory 锁阻塞，pg_stat_activity 观测到两个等待者后放行；摘要列只添加一次，历史完整，**1 passed，1.40 秒，退出 0**。Turso 保持单进程文件独占，不声称多进程并发启动可用。
+- s：整理全部有效探针到正式 `tests/integration/metadata_cache/`（旧 DDL 成为 SQL fixture，移除临时路径依赖），统一 **47 passed、0 skipped，63.30 秒，退出 0**。旧未加事务重试的 Turso 原始并发红测保留在历史证据；实际批量 writer 的真实冲突恢复属于正式测试。
+- t：旧 PG 分支替身不支持新迁移 helper 的 scalar/目录接口，单测 **1 failed，0.14 秒，退出 1**。分支 walker 改为显式断言 helper 被 await，真实迁移语义由上述数据库测试承担。
+- u：修正后完整数据库迁移单测文件，专用 PG 显式启用，**50 passed、0 skipped、2 既有 warnings，55.63 秒，退出 0**。没有以关闭生产 schema 校验修复替身。
+
+新测试及权威模型/业务/迁移/测试清单纳入候选，全仓 Ruff 无缓存退出 0。独立从基线 efc3698 全部 Git 非计划输入及新增 Python/SQL 推导变更，现为 **24 文件**；[来源与可恢复归档](probes/metadata-cache-title-v-source.json)、[实际结果](probes/metadata-cache-title-p-v-result.json)。项目 `rssripple-v35-caller-p`（PG 32916）已 down，容器/网络/卷标签为空，全部本批测试终止。
+
+尚未正式重基到已验收 V33/后继 V34，完整 95%/85% 门禁和最终 schema/性能/安全审查未完成。匹配成功的身份 upsert 调用链仍可补强；拒绝测试仅证明已列边界，不声称穷尽所有自定义 DDL。V35 尚未合入，V34 两个原会话仍在运行。

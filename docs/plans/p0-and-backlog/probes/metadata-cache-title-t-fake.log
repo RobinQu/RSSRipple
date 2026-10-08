@@ -1,0 +1,20 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______________ test_light_migrations_postgres_branches_fake_conn _______________
+tests/unit/test_database_migrations.py:1335: in test_light_migrations_postgres_branches_fake_conn
+    await db_mod._apply_light_migrations(conn)
+app/database.py:645: in _apply_light_migrations
+    await upgrade_metadata_cache_keys(conn)
+app/services/metadata_cache_schema.py:113: in upgrade_metadata_cache_keys
+    triggers = await conn.scalar(text(
+                     ^^^^^^^^^^^
+E   AttributeError: '_FakePGConn' object has no attribute 'scalar'
+=============================== warnings summary ===============================
+tests/unit/test_database_migrations.py::test_light_migrations_postgres_branches_fake_conn
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_database_migrations.py::test_light_migrations_postgres_branches_fake_conn
+1 failed, 1 warning in 0.14s

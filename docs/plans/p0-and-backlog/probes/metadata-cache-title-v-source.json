@@ -1,0 +1,106 @@
+{
+  "accepted": false,
+  "main_base": "efc3698c2d54a24f53c56317eed072922a50ee3a",
+  "candidate": "/tmp/rssripple-v35-cache-uyusqqzh",
+  "files": {
+    "app/api/v1/resources.py": {
+      "base": "96a194ff22c959673462d3efcee4c753af807792b7c6106354ffa6353e8e29d1",
+      "candidate": "906ddd91c9f8c0422e2990b94e20e9b689d5fe15173b77e2013596d6dd14e52e"
+    },
+    "app/database.py": {
+      "base": "97a7c34bc27ec13d2c29705d04b399a3cf2a67684dcbc2d7b6df33fd7e572bdf",
+      "candidate": "b84d422be33718e1a0bf50c3eda42f2b15bfedd3874ce95fbf7362dc7fbce251"
+    },
+    "app/models/metadata_cache.py": {
+      "base": "da382e166e85b5ee00ce544d6cc40f588374255ac4955100d9fb30619d0ef0b8",
+      "candidate": "f11ae96fc98bb26b3ce09241939bb8c3f70d531789c233c3d43ec779c45d78d4"
+    },
+    "app/services/metadata_cache_schema.py": {
+      "base": null,
+      "candidate": "dda4dfe6aa5f8c95bceb358f5f414778f90df7f3811b0bcd169a5337e1b750e7"
+    },
+    "app/services/metadata_cache_store.py": {
+      "base": null,
+      "candidate": "22fb1f8fc6fbbe5ad787b34e6ab023ee2dc5add10334a1e53a5943bf5f43c3f5"
+    },
+    "app/services/metadata_repository.py": {
+      "base": "6ed096408b895bf271eea7afaff1340387feedbbddc366e05629aca98d37a558",
+      "candidate": "3023a7cbeedda60e04c778d557343e705253a43311bc94f39c1b8f63e3e57583"
+    },
+    "docs/design/business-logic.md": {
+      "base": "3b89c957bfec844410326bbf54fb1ba11f49e846beb547fbcf94ab72e9149d7b",
+      "candidate": "9d6e5be233997813267c4d04c1f0ab6488ac25c6bcc111e6fe98fc5f41685577"
+    },
+    "docs/design/data-models.md": {
+      "base": "e943db4867aad40702831be89a44452df8339aad8d177ecc2c3ffb8f3dbc6ddc",
+      "candidate": "e25cabed6579b0127d52ebb462fad4411f9f698ec8fef4262b4a45c7f6ab2768"
+    },
+    "docs/design/db-migration.md": {
+      "base": "1914df51882b589646b461bd07bf82e0c0567ab85685ab76a7622d498dc39954",
+      "candidate": "8d726de818d4b76311bdd2142ef3e3cfc2e785a822070ee94b2c89f43dc5f2cd"
+    },
+    "docs/testing/integration-inventory.md": {
+      "base": "1bf57361d45d3ea3cee10ed457e748cb4ae05d95054357d9e99ca8719cd9637f",
+      "candidate": "5f25adfc7fa90d1e77419f0278e8169bf11a75d0bf69feeca45b2fbe4b2fba03"
+    },
+    "tests/integration/metadata_cache/__init__.py": {
+      "base": null,
+      "candidate": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "tests/integration/metadata_cache/conftest.py": {
+      "base": null,
+      "candidate": "fdf62e2af6f76abd4505622b751c0e51c10a86182dbe8fc5bbbb74a0e8cf2b20"
+    },
+    "tests/integration/metadata_cache/legacy-postgresql.sql": {
+      "base": null,
+      "candidate": "8067fb0adc9d01f71ac0803a962ddf01705d38048d92a0aae9d8ff2549326f16"
+    },
+    "tests/integration/metadata_cache/legacy-sqlite.sql": {
+      "base": null,
+      "candidate": "50aff926c9f44fb758910f072a0af4503e9a1355cacf29c26b5795d1a3d116ae"
+    },
+    "tests/integration/metadata_cache/test_batch_concurrency.py": {
+      "base": null,
+      "candidate": "32cf21416a74a7900c7ae5e6f4c2f44ebc4bcf5b284acfa4366723b2e1455b81"
+    },
+    "tests/integration/metadata_cache/test_boundaries.py": {
+      "base": null,
+      "candidate": "71059aadd8683605afa7af8d51d6f413c13543be95faf4dcdb1e0df55c8ea2e0"
+    },
+    "tests/integration/metadata_cache/test_caller.py": {
+      "base": null,
+      "candidate": "e769dab14be701d75b0be18d486b8727076a3b8710d514d05404eff8fe52a181"
+    },
+    "tests/integration/metadata_cache/test_concurrent_startup.py": {
+      "base": null,
+      "candidate": "af1ca7b699de01f0c1410abfa833f3bb91e47161d3c3b94471f6abca3953507f"
+    },
+    "tests/integration/metadata_cache/test_identity.py": {
+      "base": null,
+      "candidate": "1c7e71248788ef9d1f3cb91e5a582288ff27f596feda3ebe2e9b9a5d9a6088b5"
+    },
+    "tests/integration/metadata_cache/test_races.py": {
+      "base": null,
+      "candidate": "acef567f282317933ae4f09c5a35be511665b9106bf793d776e3b600683bf4f4"
+    },
+    "tests/integration/metadata_cache/test_reject.py": {
+      "base": null,
+      "candidate": "99024c50c10b80ef5d4c02477cf5af64425f09ff338686c6987eebe4f5d4d960"
+    },
+    "tests/integration/metadata_cache/test_startup.py": {
+      "base": null,
+      "candidate": "70cc853132e498d6e5ca721e8abfd51d1ecf082c68b7d7cceba7d50711e1f56f"
+    },
+    "tests/integration/metadata_cache/test_upgrade.py": {
+      "base": null,
+      "candidate": "515edf6cfd093a651920b35d15291bf0f3d6ec63437c883733017fa181866ebe"
+    },
+    "tests/unit/test_database_migrations.py": {
+      "base": "54156afde214a68e2d2507c5ce0f3615423a66cbe6d1ce27315e5f59e262741b",
+      "candidate": "637885e812609711b569cc79312411eea9b967d00b484ca90c474fa8ee45845b"
+    }
+  },
+  "effective_files": 24,
+  "scope_derivation": "All baseline Git non-plan files and new Python/SQL inputs; no main runtime changes",
+  "pending": "Rebase atop accepted V33/V34, compatibility and complete 95/85 gates, final review"
+}
