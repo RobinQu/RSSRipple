@@ -50,3 +50,17 @@
 - h：修改后重新执行双库边界/碰撞/实际 writer 及选中的批量分析 API/SSE，**29 passed、118 deselected，42.56 秒，退出 0**。另 i 补跑选择未覆盖的缓存 helper，**2 passed，4.48 秒，退出 0**。这是专项验收，不是全套覆盖率门禁。
 
 [原始日志、JUnit、实际退出和后继原型 SHA](probes/metadata-cache-title-d-i-result.json)已归档。所有本批测试均终止；`rssripple-v35-cache-c` 已 down -v 退出 0，容器/网络/卷标签为空。旧库迁移仍未实施，原型未合入。下一步保留完整数据实现双库有界迁移，补全实际 MetadataAgent 调用链与竞争验证。
+
+## j–l 旧缓存迁移原型
+
+必要性仍为已证实的 P2 边界，非生产长标题损坏。新键上线必须保存旧行，不能只修改新表 ORM。本轮添加独立 `metadata_cache_schema` helper，尚未接入启动流程：PG 独占表锁内添加摘要、每批 100 行回填、移除旧原文索引/唯一键并建立新键；Turso 在普通 DDL 事务中重建，按相同边界逐批复制完整旧行。校验受管列、唯一键、索引、引用和 trigger，遇到异常拒绝继续；这些拒绝分支仍需专门反例覆盖，不能只凭代码宣称安全。
+
+旧表 DDL 由已验收 main 模型编译并归档，使用固定 SHA 录制标题加明确合成历史标记，237 条行覆盖多个批次和 generation。逐字段独立读回比较 id/title/source/content_type/payload/generation/created_at/updated_at，摘要另按标准 SHA-256 验证。故障在第一批已执行后抛出，必须完整回滚并可重试；正常升级再运行一次。
+
+- j：4 failed，6.59 秒，实际退出 1。PG 升级后旧连接 prepared statement 失效；Turso inspector 返回 VARCHAR 不带长度，后置校验误拒绝。
+- k：停写升级后 dispose 旧连接，PG 两项通过；Turso 两项仍失败（2 passed/2 failed，5.78 秒，退出 1）。这不提供在线无中断升级保证。
+- l：Turso 通过 sqlite_master 原始 DDL 核对摘要列 VARCHAR(64)，增加旧字段类型/空值及重建默认值检查，**4 passed，6.09 秒，实际退出 0**。每次实际回填批次为 100/100/37，回滚场景首批后失败，历史值完整保留。最终 Ruff 退出 0；初始 E501 保留记录，l 后仅折行修正。
+
+[原始失败/通过日志、JUnit、旧 DDL、探针与五文件原型 SHA](probes/metadata-cache-title-j-l-result.json)。专用项目 `rssripple-v35-upgrade-j`（PG 32914）已清理，容器/网络/卷标签为空。V34 冻结候选未改动。
+
+尚待异常 schema/自定义索引与引用/trigger、摘要冲突的迁移回滚反例、实际启动接入与并发、完整 MetadataAgent 调用方以及正式重基双门禁。独立迁移函数通过四项测试不等于升级流程已经完成，仍不关闭 TODO。

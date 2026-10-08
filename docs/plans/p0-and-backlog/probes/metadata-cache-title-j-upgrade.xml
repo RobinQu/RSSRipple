@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="4" skipped="0" tests="4" time="6.254" timestamp="2026-10-08T06:53:48.747563+00:00" hostname="dl-workstation-albert"><testcase classname="" name="test_postgres[normal]" time="0.703"><failure message="sqlalchemy.exc.NotSupportedError: (sqlalchemy.dialects.postgresql.asyncpg.InvalidCachedStatementError) &lt;class 'asyncpg.exceptions.InvalidCachedStatementError'&gt;: cached statement plan is invalid due to a database schema or configuration change (SQLAlchemy asyncpg dialect will now invalidate all prepared caches in response to this exception)&#10;[SQL: SELECT * FROM metadata_cache ORDER BY id]&#10;(Background on this error at: https://sqlalche.me/e/20/tw8g)">/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:550: in _prepare_and_execute
+    self._rows = deque(await prepared_stmt.fetch(*parameters))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py:177: in fetch
+    data = await self.__bind_execute(args, 0, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py:268: in __bind_execute
+    data, status, _ = await self.__do_execute(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py:257: in __do_execute
+    return await executor(protocol)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+asyncpg/protocol/protocol.pyx:205: in bind_execute
+    ???
+E   asyncpg.exceptions.InvalidCachedStatementError: cached statement plan is invalid due to a database schema or configuration change
+
+The above exception was the direct cause of the following exception:
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1969: in _exec_single_context
+    self.dialect.do_execute(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:585: in execute
+    self._adapt_connection.await_(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:563: in _prepare_and_execute
+    self._handle_exception(error)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:513: in _handle_exception
+    self._adapt_connection._handle_exception(error)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:797: in _handle_exception
+    raise translated_error from error
+E   sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.InvalidCachedStatementError: &lt;class 'asyncpg.exceptions.InvalidCachedStatementError'&gt;: cached statement plan is invalid due to a database schema or configuration change (SQLAlchemy asyncpg dialect will now invalidate all prepared caches in response to this exception)
+
+The above exception was the direct cause of the following exception:
+../rssripple_v35_cache_upgrade.py:70: in test_postgres
+    await check(dedup_postgres, monkeypatch, mode)
+../rssripple_v35_cache_upgrade.py:58: in check
+    after = await snapshot(engine)
+            ^^^^^^^^^^^^^^^^^^^^^^
+../rssripple_v35_cache_upgrade.py:16: in snapshot
+    return [dict(row) for row in (await conn.execute(text('SELECT * FROM metadata_cache ORDER BY id'))).mappings()]
+                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/ext/asyncio/engine.py:659: in execute
+    result = await greenlet_spawn(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:201: in greenlet_spawn
+    result = context.throw(*sys.exc_info())
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1421: in execute
+    return meth(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/sql/elements.py:526: in _execute_on_connection
+    return connection._execute_clauseelement(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1643: in _execute_clauseelement
+    ret = self._execute_context(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1848: in _execute_context
+    return self._exec_single_context(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1988: in _exec_single_context
+    self._handle_dbapi_exception(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:2365: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1969: in _exec_single_context
+    self.dialect.do_execute(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:585: in execute
+    self._adapt_connection.await_(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:563: in _prepare_and_execute
+    self._handle_exception(error)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:513: in _handle_exception
+    self._adapt_connection._handle_exception(error)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:797: in _handle_exception
+    raise translated_error from error
+E   sqlalchemy.exc.NotSupportedError: (sqlalchemy.dialects.postgresql.asyncpg.InvalidCachedStatementError) &lt;class 'asyncpg.exceptions.InvalidCachedStatementError'&gt;: cached statement plan is invalid due to a database schema or configuration change (SQLAlchemy asyncpg dialect will now invalidate all prepared caches in response to this exception)
+E   [SQL: SELECT * FROM metadata_cache ORDER BY id]
+E   (Background on this error at: https://sqlalche.me/e/20/tw8g)</failure></testcase><testcase classname="" name="test_postgres[rollback]" time="0.586"><failure message="sqlalchemy.exc.NotSupportedError: (sqlalchemy.dialects.postgresql.asyncpg.InvalidCachedStatementError) &lt;class 'asyncpg.exceptions.InvalidCachedStatementError'&gt;: cached statement plan is invalid due to a database schema or configuration change (SQLAlchemy asyncpg dialect will now invalidate all prepared caches in response to this exception)&#10;[SQL: SELECT * FROM metadata_cache ORDER BY id]&#10;(Background on this error at: https://sqlalche.me/e/20/tw8g)">/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:550: in _prepare_and_execute
+    self._rows = deque(await prepared_stmt.fetch(*parameters))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py:177: in fetch
+    data = await self.__bind_execute(args, 0, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py:268: in __bind_execute
+    data, status, _ = await self.__do_execute(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py:257: in __do_execute
+    return await executor(protocol)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+asyncpg/protocol/protocol.pyx:205: in bind_execute
+    ???
+E   asyncpg.exceptions.InvalidCachedStatementError: cached statement plan is invalid due to a database schema or configuration change
+
+The above exception was the direct cause of the following exception:
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1969: in _exec_single_context
+    self.dialect.do_execute(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:585: in execute
+    self._adapt_connection.await_(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:563: in _prepare_and_execute
+    self._handle_exception(error)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:513: in _handle_exception
+    self._adapt_connection._handle_exception(error)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:797: in _handle_exception
+    raise translated_error from error
+E   sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.InvalidCachedStatementError: &lt;class 'asyncpg.exceptions.InvalidCachedStatementError'&gt;: cached statement plan is invalid due to a database schema or configuration change (SQLAlchemy asyncpg dialect will now invalidate all prepared caches in response to this exception)
+
+The above exception was the direct cause of the following exception:
+../rssripple_v35_cache_upgrade.py:70: in test_postgres
+    await check(dedup_postgres, monkeypatch, mode)
+../rssripple_v35_cache_upgrade.py:58: in check
+    after = await snapshot(engine)
+            ^^^^^^^^^^^^^^^^^^^^^^
+../rssripple_v35_cache_upgrade.py:16: in snapshot
+    return [dict(row) for row in (await conn.execute(text('SELECT * FROM metadata_cache ORDER BY id'))).mappings()]
+                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/ext/asyncio/engine.py:659: in execute
+    result = await greenlet_spawn(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:201: in greenlet_spawn
+    result = context.throw(*sys.exc_info())
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1421: in execute
+    return meth(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/sql/elements.py:526: in _execute_on_connection
+    return connection._execute_clauseelement(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1643: in _execute_clauseelement
+    ret = self._execute_context(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1848: in _execute_context
+    return self._exec_single_context(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1988: in _exec_single_context
+    self._handle_dbapi_exception(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:2365: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1969: in _exec_single_context
+    self.dialect.do_execute(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:585: in execute
+    self._adapt_connection.await_(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:563: in _prepare_and_execute
+    self._handle_exception(error)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:513: in _handle_exception
+    self._adapt_connection._handle_exception(error)
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:797: in _handle_exception
+    raise translated_error from error
+E   sqlalchemy.exc.NotSupportedError: (sqlalchemy.dialects.postgresql.asyncpg.InvalidCachedStatementError) &lt;class 'asyncpg.exceptions.InvalidCachedStatementError'&gt;: cached statement plan is invalid due to a database schema or configuration change (SQLAlchemy asyncpg dialect will now invalidate all prepared caches in response to this exception)
+E   [SQL: SELECT * FROM metadata_cache ORDER BY id]
+E   (Background on this error at: https://sqlalche.me/e/20/tw8g)</failure></testcase><testcase classname="" name="test_turso[normal]" time="1.994"><failure message="ValueError: Unexpected metadata cache digest definition">../rssripple_v35_cache_upgrade.py:75: in test_turso
+    await check(dedup_turso, monkeypatch, mode)
+../rssripple_v35_cache_upgrade.py:56: in check
+    await upgrade()
+../rssripple_v35_cache_upgrade.py:50: in upgrade
+    await migration.upgrade_metadata_cache_keys(conn)
+app/services/metadata_cache_schema.py:121: in upgrade_metadata_cache_keys
+    _validate(await conn.run_sync(_catalog))
+app/services/metadata_cache_schema.py:53: in _validate
+    raise ValueError('Unexpected metadata cache digest definition')
+E   ValueError: Unexpected metadata cache digest definition</failure></testcase><testcase classname="" name="test_turso[rollback]" time="2.230"><failure message="ValueError: Unexpected metadata cache digest definition">../rssripple_v35_cache_upgrade.py:75: in test_turso
+    await check(dedup_turso, monkeypatch, mode)
+../rssripple_v35_cache_upgrade.py:56: in check
+    await upgrade()
+../rssripple_v35_cache_upgrade.py:50: in upgrade
+    await migration.upgrade_metadata_cache_keys(conn)
+app/services/metadata_cache_schema.py:121: in upgrade_metadata_cache_keys
+    _validate(await conn.run_sync(_catalog))
+app/services/metadata_cache_schema.py:53: in _validate
+    raise ValueError('Unexpected metadata cache digest definition')
+E   ValueError: Unexpected metadata cache digest definition</failure></testcase></testsuite></testsuites>

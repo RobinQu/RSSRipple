@@ -1,0 +1,38 @@
+..{'id': ('VARCHAR()', False), 'title': ('TEXT()', False), 'title_hash': ('VARCHAR()', False), 'source': ('VARCHAR()', False), 'content_type': ('VARCHAR()', True), 'metadata_json': ('JSON()', False), 'generation': ('INTEGER()', False), 'created_at': ('DATETIME()', False), 'updated_at': ('DATETIME()', False)}
+F{'id': ('VARCHAR()', False), 'title': ('TEXT()', False), 'title_hash': ('VARCHAR()', False), 'source': ('VARCHAR()', False), 'content_type': ('VARCHAR()', True), 'metadata_json': ('JSON()', False), 'generation': ('INTEGER()', False), 'created_at': ('DATETIME()', False), 'updated_at': ('DATETIME()', False)}
+F
+=================================== FAILURES ===================================
+______________________________ test_turso[normal] ______________________________
+../rssripple_v35_cache_upgrade_k.py:84: in test_turso
+    await check(dedup_turso, monkeypatch, mode)
+../rssripple_v35_cache_upgrade_k.py:64: in check
+    await upgrade()
+../rssripple_v35_cache_upgrade_k.py:58: in upgrade
+    await migration.upgrade_metadata_cache_keys(conn)
+app/services/metadata_cache_schema.py:121: in upgrade_metadata_cache_keys
+    _validate(await conn.run_sync(_catalog))
+../rssripple_v35_cache_upgrade_k.py:40: in diagnostic
+    return original_validate(catalog)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/metadata_cache_schema.py:53: in _validate
+    raise ValueError('Unexpected metadata cache digest definition')
+E   ValueError: Unexpected metadata cache digest definition
+_____________________________ test_turso[rollback] _____________________________
+../rssripple_v35_cache_upgrade_k.py:84: in test_turso
+    await check(dedup_turso, monkeypatch, mode)
+../rssripple_v35_cache_upgrade_k.py:64: in check
+    await upgrade()
+../rssripple_v35_cache_upgrade_k.py:58: in upgrade
+    await migration.upgrade_metadata_cache_keys(conn)
+app/services/metadata_cache_schema.py:121: in upgrade_metadata_cache_keys
+    _validate(await conn.run_sync(_catalog))
+../rssripple_v35_cache_upgrade_k.py:40: in diagnostic
+    return original_validate(catalog)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/services/metadata_cache_schema.py:53: in _validate
+    raise ValueError('Unexpected metadata cache digest definition')
+E   ValueError: Unexpected metadata cache digest definition
+=========================== short test summary info ============================
+FAILED ::test_turso[normal] - ValueError: Unexpected metadata cache digest de...
+FAILED ::test_turso[rollback] - ValueError: Unexpected metadata cache digest ...
+2 failed, 2 passed in 5.78s

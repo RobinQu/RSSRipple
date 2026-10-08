@@ -1,0 +1,14 @@
+
+CREATE TABLE metadata_cache (
+	id VARCHAR(36) NOT NULL, 
+	title VARCHAR(512) NOT NULL, 
+	source VARCHAR(50) NOT NULL, 
+	content_type VARCHAR(50), 
+	metadata_json JSON NOT NULL, 
+	generation INTEGER NOT NULL, 
+	created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL, 
+	updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL, 
+	PRIMARY KEY (id), 
+	CONSTRAINT uq_metadata_cache_key UNIQUE (title, source)
+)
+

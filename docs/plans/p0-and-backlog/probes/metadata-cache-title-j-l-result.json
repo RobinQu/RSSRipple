@@ -1,0 +1,61 @@
+{
+  "accepted": false,
+  "candidate": "/tmp/rssripple-v35-cache-uyusqqzh",
+  "scope": "standalone migration helper; startup not wired",
+  "files": {
+    "app/models/metadata_cache.py": "f11ae96fc98bb26b3ce09241939bb8c3f70d531789c233c3d43ec779c45d78d4",
+    "app/services/metadata_cache_store.py": "22fb1f8fc6fbbe5ad787b34e6ab023ee2dc5add10334a1e53a5943bf5f43c3f5",
+    "app/services/metadata_repository.py": "3023a7cbeedda60e04c778d557343e705253a43311bc94f39c1b8f63e3e57583",
+    "app/api/v1/resources.py": "906ddd91c9f8c0422e2990b94e20e9b689d5fe15173b77e2013596d6dd14e52e",
+    "app/services/metadata_cache_schema.py": "eeda42ffe4f01665b740a6ced7f8adef097a3a22e26fcde150b702e0810d0b17"
+  },
+  "j": {
+    "session": 74874,
+    "actual_exit": 1,
+    "failed": 4,
+    "seconds": 6.59,
+    "causes": [
+      "PostgreSQL stale prepared statement after offline DDL",
+      "Turso reflected VARCHAR length absent"
+    ]
+  },
+  "k": {
+    "session": 83533,
+    "actual_exit": 1,
+    "passed": 2,
+    "failed": 2,
+    "seconds": 5.78,
+    "change": "dispose old connections after upgrade; PG passes; Turso still rejects length"
+  },
+  "l": {
+    "session": 21165,
+    "actual_exit": 0,
+    "passed": 4,
+    "seconds": 6.09,
+    "change": "Turso digest length checked against actual sqlite_master DDL; stronger legacy field checks",
+    "rows_per_database": 237,
+    "max_batch": 100,
+    "verified": [
+      "all historical fields unchanged",
+      "failure after first batch rolls back",
+      "retry succeeds",
+      "second upgrade succeeds"
+    ]
+  },
+  "ruff": "initial E501 corrected after l with line wrapping only; final exit 0",
+  "cleanup": {
+    "down_exit": 0,
+    "labels": {
+      "container": [],
+      "network": [],
+      "volume": []
+    }
+  },
+  "pending": [
+    "unexpected schema and reference/index/trigger adversarial tests",
+    "digest collision migration rollback tests",
+    "actual startup wiring and concurrent startup",
+    "full MetadataAgent caller verification",
+    "rebase and complete 95/85 gates"
+  ]
+}
