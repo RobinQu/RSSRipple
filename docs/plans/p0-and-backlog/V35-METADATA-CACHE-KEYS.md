@@ -103,3 +103,9 @@ w：**2 passed、2 failed、14 deselected，5.92 秒，退出 1**。成功匹配
 从全部 Git 非计划输入与新 Python/SQL 独立推导 **3362 文件**：V35 相对 V34 **25 文件**，相对当前主干合计 **48 文件**，历史探针导入维护单列。兼容候选 Ruff 无缓存退出 0。[z 来源与完整归档](probes/metadata-cache-title-z-source.json)。
 
 z 联合执行缓存、搜索、UTC、AgentRun 旧库升级及完整迁移单测，专用项目 `rssripple-v35-review-w`（PG 32917），会话 **37219**，日志 `/tmp/rssripple-v35-z-compat.log`，尚在运行，项目暂保留。必须续接实际结果，不能把合并/lint 当兼容测试通过。[w–z 结果](probes/metadata-cache-title-w-z-result.json)。V34 原完整双门禁仍运行，冻结候选未改；V35 未合入，后续还需正式主干重基、全输入冻结、完整 95%/85% 门禁与终审。
+
+## z 联合回归终态
+
+原会话 37219 已实际退出 0：**344 passed、0 skipped、2 既有 warnings，394.59 秒**，覆盖缓存、搜索、UTC、AgentRun 旧库迁移和完整数据库迁移单测。JUnit/原始日志已归档，warnings 仍为旧 event_loop_policy 弃用与 begin_nested 替身未等待；本轮无新增失败或跳过。
+
+全部 **3362 非计划输入**与来源中组合变更/基线哈希一致，V34 的 **6785 冻结输入**另行逐项核验未改动。专用项目 rssripple-v35-review-w 已 down -v 退出 0，容器/网络/卷标签为空，z 无后台任务。更新的 [w–z 结果](probes/metadata-cache-title-w-z-result.json)保存实际退出和清理。此为兼容专项，仍不替代 V35 正式重基后的完整双门禁。等待 V34 验收后，从其最终主干构建正式候选。

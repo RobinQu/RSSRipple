@@ -16,14 +16,37 @@
   },
   "z": {
     "session": 37219,
-    "status": "running; no result yet",
+    "status": "complete",
     "log": "/tmp/rssripple-v35-z-compat.log",
     "junit": "/tmp/rssripple-v35-z-compat.xml",
     "candidate": "/tmp/rssripple-v35-with-v34-2ectsrx2",
-    "scope": "cache/search/time/AgentRun migration/full migration unit suite"
+    "scope": "cache/search/time/AgentRun migration/full migration unit suite",
+    "actual_exit": 0,
+    "passed": 344,
+    "skipped": 0,
+    "warnings": 2,
+    "seconds": 394.59,
+    "suite": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "344",
+      "time": "394.560",
+      "timestamp": "2026-10-08T07:26:42.540534+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "all_nonplan_inputs_verified": 3362
   },
   "project": "rssripple-v35-review-w",
   "postgres_port": 32917,
-  "cleanup": "retained while z compatibility suite runs",
+  "cleanup": {
+    "down_exit": 0,
+    "labels": {
+      "container": [],
+      "network": [],
+      "volume": []
+    }
+  },
   "source": "metadata-cache-title-z-source.json"
 }
