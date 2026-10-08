@@ -12,10 +12,11 @@ NULL = 待绑定，以其为目标的计划落「待绑定」pending，补绑定
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String, UniqueConstraint, func
+from sqlalchemy import JSON, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.utils.sql_time import UTCNow
 
 
 class Library(Base):
@@ -67,10 +68,10 @@ class Library(Base):
     # BCP-47 语言标签 → Plex 字幕后缀映射（如 {"zh-CN": "zh-Hans"}），可空。
     subtitle_lang_map: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), nullable=False
+        DateTime, server_default=UTCNow(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime, server_default=UTCNow(), onupdate=UTCNow(), nullable=False
     )
 
     # Relationships

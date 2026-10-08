@@ -20,7 +20,7 @@ from app.schemas.channel import (
     SummarizeFiltersRequest,
     ValidateURLRequest,
 )
-from app.schemas.common import paginated_response, success_response
+from app.schemas.common import api_json, paginated_response, success_response
 from app.services.feed_analyzer import analyze_feed, analyze_feed_stream
 
 logger = logging.getLogger(__name__)
@@ -433,7 +433,7 @@ async def preview_feed(body: PreviewFeedRequest):
 
 async def _stream_events(gen):
     async for event in gen:
-        yield f"data: {json.dumps(event)}\n\n"
+        yield f"data: {json.dumps(api_json(event))}\n\n"
 
 
 @router.post("/channels/analyze-url-stream")

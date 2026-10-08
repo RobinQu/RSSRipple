@@ -29,7 +29,7 @@ async def list_api_keys(db: AsyncSession = Depends(get_db)):
     return success_response([
         ApiKeyResponse(
             id=r.id, name=r.name, prefix=r.prefix, created_at=r.created_at
-        ).model_dump(mode="json")
+        ).model_dump()
         for r in rows
     ])
 
@@ -47,7 +47,7 @@ async def create_api_key_endpoint(
             prefix=row.prefix,
             created_at=row.created_at,
             key=plaintext,
-        ).model_dump(mode="json")
+        ).model_dump()
     )
 
 

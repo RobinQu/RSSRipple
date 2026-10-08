@@ -365,3 +365,10 @@ Turso CONCURRENT 的外键引用写入不提供 PostgreSQL 的父行 KEY SHARE �
 升级 pyturso 至 0.8.2 时，旧版本主库文件继续走既有启动迁移；FTS 边车的旧原生索引可能报存储格式不兼容。`ensure_fts_tables` 在建表/索引后对各已创建的索引执行真实 `fts_match` 探测，仅对明确包含当前索引名的旧格式错误进行重建。重建在独立事务中 DROP/CREATE 对应派生索引，保留 shadow 表和全部业务主库数据，并在提交前再次探测。正常索引不会在每次启动重复重建。
 
 非旧格式的探测错误和重建失败向调用方传播，不把升级记作成功；失败或进程退出后可在下次启动重试。FTS 文件仍为派生缓存，无需修改主库作品、关联、人工保护字段或 outbox 来迁移索引。升级前按既有运维流程备份主库及边车，停旧进程后启动新版本；不承诺新版本写入后的文件可用旧驱动直接降级打开。旧格式夹具、三个强制退出点和失败重试用例见 `tests/integration/database/test_turso_fts_upgrade.py`。
+
+
+### UTC 时间默认值升级
+
+PostgreSQL 启动在既有 advisory lock 和 DDL 事务中，将模型声明的 UTC 时间默认值统一为 `(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')`。新库由 ORM 直接创建；旧库按当前 schema 的目录逐列检查，接受历史 now()/CURRENT_TIMESTAMP/transaction_timestamp() 或缺失默认值，已为规范 UTC 默认值则不重复 ALTER。异常列类型、缺失受管列或其他默认定义阻止启动，报告表/列名供审阅；不静默覆盖自定义表达式。每张表合并 ALTER，失败由调用方事务回滚。Turso 的 CURRENT_TIMESTAMP 已是 UTC，不执行 PostgreSQL 默认值 DDL。
+
+历史业务值与字段类型保持不变，不能根据当前时区猜测并批量平移旧 naive 时间。若怀疑历史偏移，先备份并依据原部署配置/来源证据审阅。启动中的 webhook/水位线/媒体服务器原生写入也使用相同 UTC SQL 表达式；单纯改变 ORM 默认无法修复这些路径。此默认升级不代替 API UTC 序列化和偏移输入归一化，二者须按独立边界验收。

@@ -533,15 +533,11 @@ async def run_agent(
         # Manual run with an explicit scan window (scenario ④, see
         # _handle_run_agent). The key's presence distinguishes a windowed
         # run (past datetime / null = "no limit") from a plain delta run
-        # (no body at all). Normalise to naive UTC to match the DB columns.
+        # (no body at all). The request schema already normalises to naive UTC.
         from app.utils.time import utcnow
 
         scan_since = body.scan_since
         if scan_since is not None:
-            if scan_since.tzinfo is not None:
-                from datetime import UTC
-
-                scan_since = scan_since.astimezone(UTC).replace(tzinfo=None)
             if scan_since > utcnow():
                 return JSONResponse(status_code=422, content={
                     "success": False, "data": None,

@@ -8,7 +8,7 @@
 
 - **RPC/LLM 目的地**：Transmission RPC 保留配置 origin 内重定向和 409 session-id 协商，拒绝跨 origin 转交 RPC（包括 HTTP→HTTPS，需直接配置最终 HTTPS 地址），避免向新服务转发 RPC 数据。RSS 分析的 OpenAI 普通/流式调用使用相同受控异步 HTTP 层，管理员 LLM 初始 origin 可为内网，后续跳转不扩大私网授权；调用完成或失败均关闭 SDK 客户端。
 
-- **时间格式**：API 中所有时间均为 ISO 8601 UTC 字符串（如 `2025-01-01T12:00:00Z`）。
+- **时间格式**：API 中所有时间均为 ISO 8601 UTC 字符串（如 `2025-01-01T12:00:00Z`）。 数据库存储沿用 naive UTC。统一响应/SSE 编码在 datetime 仍有类型时转成 UTC 并输出 Z，保留微秒；date 保持 YYYY-MM-DD，null 保持空值。任意业务字符串与既有冻结快照不猜测、不批量改写。通知重试/重新生成的 since、Agent 手动运行的 scan_since 与 RSS 发布时间含偏移时先转换 UTC 再去掉 tzinfo；无偏移输入按 UTC 解释。若 UTC 归一化超出 datetime 可表示范围，请求校验返回 422；RSS 按现有无效日期策略回退，不裁剪成边界值。
 - **下载目录格式**：
   - `DownloaderInstance.download_dir` 必填，必须是 Transmission 下载服务器 OS 可识别的绝对路径；路径语义以 Transmission daemon 为准，而不是 RSSRipple 后端进程所在主机为准。
   - 支持 POSIX absolute path、Windows drive absolute path、daemon 支持的 UNC path；后端校验时需要按路径风格识别根目录。

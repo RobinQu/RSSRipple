@@ -31,10 +31,11 @@ or ``movies.id`` depending on ``work_type`` (cross-table reference).
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, UniqueConstraint, func
+from sqlalchemy import DateTime, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+from app.utils.sql_time import UTCNow
 
 
 class WorkExternalId(Base):
@@ -55,5 +56,5 @@ class WorkExternalId(Base):
     # Full canonical "source:id" string (mirrors TVSeries.external_id).
     external_id: Mapped[str] = mapped_column(String(128), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), nullable=False
+        DateTime, server_default=UTCNow(), nullable=False
     )

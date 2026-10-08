@@ -459,3 +459,26 @@ V27 候选 `test_legacy.py` 经实际 create_tables 连续两次升级验证相�
 `frontend/tests/metadata-refresh.html` / `.tsx` 仅为 Vite 测试入口，不加入生产入口。`frontend/tests/metadata-refresh.cjs` 使用真实 Chromium、实际 React/Ant Design/i18next 与 API 客户端：zh-CN/en-US × 更新 0/1/2 字段六种流程，覆盖本地错误回退/服务端错误保留、候选选择、人工保护切换、弹窗内切换语言、成功消息和请求载荷。录制作品标题/身份取自固定哈希 prod_works_v1；HTTP 响应及差异/故障明确合成，因此这是组件与浏览器集成，不代表后端写库验收。
 
 先在 frontend 启动唯一回环端口的 Vite，再配置 `PROBE_URL`、`PLAYWRIGHT_MODULE`（已安装 playwright/test 的路径）、`CHROMIUM_PATH` 后运行 `node tests/metadata-refresh.cjs`。测试自行退出浏览器及 context；Vite 由启动方停止。无需生产数据库或外部网站。
+
+
+### UTC 默认值与旧库升级
+
+`tests/integration/time_contract` 复用独立 PostgreSQL 与 Turso 数据库夹具；录制频道文本固定哈希，新行/时区与故障合成。覆盖 UTC/Asia-Shanghai/America-New-York 会话下真实创建/更新值、Turso 对照、旧默认值批量升级/幂等、DDL 后失败回滚、默认值/类型漂移拒绝、历史行不平移，以及非 UTC 会话原生 SQL 依赖升级后默认值的插入。它不声明已经覆盖所有 API 时间输出或外部偏移输入。
+
+
+### V32 外部发布时间与 DST 输入边界
+
+`tests/integration/time_contract/test_feed_input.py`：固定 SHA256 的 prod_works_v1 录制资源标题、guid、torrent_url，合成带偏移和 naive 发布时间。Mikan namespace 与 field_mapping 两条真实解析入口分别写入实际 PostgreSQL/Turso，再由独立连接读取；逐值断言 UTC 时刻、naive 存储与录制标题不变。覆盖东八区跨年、纽约春季跳时/秋季重叠时间、Z 微秒、无时区输入、非法日期以及标准 RSS 的 feedparser UTC 归一化，共 31 项。测试不请求录制下载 URL，不猜测生产历史时间，不将直接持久化验证宣称为完整抓取流水线验收。
+
+
+### V32 HTTP 输入和输出时间契约
+
+- `time_contract/test_notification_window.py`：20 项真实 PostgreSQL/Turso + ASGI 通知 retry/regenerate，合成 DST/东八区/Z/naive 窗口，固定录制资源标题/身份；逐项核对命中任务、包含边界、未命中投递状态。仅 snapshot 构建为测试边界，不声称完整下载/通知快照流水线验证。
+- `time_contract/test_http_output.py`：双库频道、资源、分组、元数据、作品、API key 六条真实路由，加嵌套 Pydantic 和 channel SSE，扩大到 dashboard/磁力状态/resource SSE 后共 20 项；检查精确 UTC 时刻/微秒、纯日期、null、日期样式业务字符串、秘密掩码及排除字段。元数据网络调用与 SSE 生产者在边界替换，HTTP/响应编码为真实实现。
+- `time_contract/test_queue_output.py`：内存队列、RedisQueue + fakeredis 的历史 hash，以及调度器响应，共 3 项；精确 UTC 字符串、结果文本不变、历时统计与 Redis 原始值不回写。fakeredis 不是实际 Redis 并发/租约证据，完整隔离集成另覆盖实际队列。
+
+- `frontend/tests/time-contract.mjs`：Node 24 三个独立 TZ 子进程，导入实际 format.ts 并核验精确本地显示、旧 naive UTC 兼容、日期样式偏移、直接 Date 的 UTC 时刻和回拨历时。每个子进程必须输出可解析的通过记录，退出 0 但无记录不能通过。使用 `cd frontend && node tests/time-contract.mjs`，不需要浏览器或服务器；不宣称已渲染完整页面。
+
+- `time_contract/test_agent_window.py`：16 项双库实际 Agent run HTTP 与内存队列准入，覆盖东八区跨年、DST 回拨两种偏移、Z/naive、null 全历史、缺省增量和未来窗口拒绝；不启动 worker，明确只验证准入 payload，运行服务的扫描/恢复语义由既有专项负责。
+
+V32 范围回归：真实双库 HTTP 对通知 retry/regenerate 与 Agent run 的极端偏移输入返回 422，拒绝时不入队；合法 UTC 年份边界不裁剪。字段映射无效日期返回 None，RSS namespace 日期无效时仍尝试标准 RSS 日期。明确合成极端时间，频道文本复用固定哈希录制样本。

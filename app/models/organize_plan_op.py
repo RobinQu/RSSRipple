@@ -8,10 +8,11 @@ movedir 表示目录级移动）。每条 op 独立记录状态，单条失败�
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.utils.sql_time import UTCNow
 
 
 class OrganizePlanOp(Base):
@@ -40,10 +41,10 @@ class OrganizePlanOp(Base):
     )
     error_message: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), nullable=False
+        DateTime, server_default=UTCNow(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime, server_default=UTCNow(), onupdate=UTCNow(), nullable=False
     )
 
     # Relationships

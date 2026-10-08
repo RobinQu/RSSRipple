@@ -253,8 +253,8 @@ def _normalize_series(s: TVSeries) -> dict:
         # with the series detail page instead of returning a misleading null.
         "release_date": str(s.start_date) if s.start_date else None,
         "runtime": None,
-        "created_at": s.created_at.isoformat() + "Z" if s.created_at else None,
-        "updated_at": s.updated_at.isoformat() + "Z" if s.updated_at else None,
+        "created_at": s.created_at,
+        "updated_at": s.updated_at,
         **_collection_fields(s),
     }
 
@@ -278,8 +278,8 @@ def _normalize_movie(m: Movie) -> dict:
         "number_of_seasons": None,
         "release_date": str(m.release_date) if m.release_date else None,
         "runtime": m.runtime,
-        "created_at": m.created_at.isoformat() + "Z" if m.created_at else None,
-        "updated_at": m.updated_at.isoformat() + "Z" if m.updated_at else None,
+        "created_at": m.created_at,
+        "updated_at": m.updated_at,
         **_collection_fields(m),
     }
 
@@ -395,6 +395,6 @@ def _normalize_audio_work(a: AudioWork) -> dict:
         "number_of_seasons": None,
         "release_date": str(a.release_date) if a.release_date else None,
         "runtime": a.runtime,
-        "created_at": a.created_at.isoformat() + "Z" if a.created_at else None,
-        "updated_at": a.updated_at.isoformat() + "Z" if a.updated_at else None,
+        "created_at": a.created_at,
+        "updated_at": a.updated_at,
     }

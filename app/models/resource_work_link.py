@@ -3,10 +3,11 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, UniqueConstraint, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.utils.sql_time import UTCNow
 
 
 class ResourceWorkLink(Base):
@@ -37,7 +38,7 @@ class ResourceWorkLink(Base):
     # Automatic layers never overwrite rows whose source is "manual".
     source: Mapped[str] = mapped_column(String(16), nullable=False, default="auto")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), nullable=False
+        DateTime, server_default=UTCNow(), nullable=False
     )
 
     resource = relationship("FileResource", back_populates="work_links")

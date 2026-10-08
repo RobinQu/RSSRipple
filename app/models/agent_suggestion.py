@@ -3,10 +3,11 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String, UniqueConstraint, func
+from sqlalchemy import JSON, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.utils.sql_time import UTCNow
 
 
 class AgentSuggestion(Base):
@@ -25,10 +26,10 @@ class AgentSuggestion(Base):
     resources: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), nullable=False
+        DateTime, server_default=UTCNow(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime, server_default=UTCNow(), onupdate=UTCNow(), nullable=False
     )
 
     agent = relationship("Agent", back_populates="suggestions")

@@ -3,10 +3,11 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, String, UniqueConstraint, func
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+from app.utils.sql_time import UTCNow
 
 
 class ChannelPublicationCounter(Base):
@@ -37,4 +38,4 @@ class ResourcePublication(Base):
     sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
     origin_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=UTCNow())

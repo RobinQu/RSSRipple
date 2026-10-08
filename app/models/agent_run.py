@@ -3,10 +3,11 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.utils.sql_time import UTCNow
 
 
 class AgentRun(Base):
@@ -19,7 +20,7 @@ class AgentRun(Base):
         String(36), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
     )
     started_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), nullable=False
+        DateTime, server_default=UTCNow(), nullable=False
     )
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # "running" | "success" | "failed" | "pending_decisions"
@@ -39,7 +40,7 @@ class AgentRun(Base):
     matched_resource_ids: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     errors: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), nullable=False
+        DateTime, server_default=UTCNow(), nullable=False
     )
 
     agent = relationship("Agent", back_populates="runs")

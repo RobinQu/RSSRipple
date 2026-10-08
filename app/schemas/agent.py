@@ -7,7 +7,7 @@ from typing import Any
 from pydantic import BaseModel, model_validator
 
 from app.schemas.channel import ChannelResponse
-from app.schemas.common import ORMModel
+from app.schemas.common import NaiveUTCDateTime, ORMModel
 from app.schemas.downloader import DownloaderResponse
 from app.schemas.movie import MovieResponse
 from app.schemas.series import TVSeriesResponse
@@ -221,7 +221,7 @@ class AgentRunRequest(BaseModel):
     limit" — a full-history scan. Omitting the body entirely keeps the
     normal delta-run behaviour. The watermark advances as usual afterwards.
     """
-    scan_since: datetime | None = None
+    scan_since: NaiveUTCDateTime | None = None
 
 
 class AgentRunResource(ORMModel):

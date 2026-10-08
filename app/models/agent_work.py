@@ -3,10 +3,11 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, ForeignKey, String, func
+from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.utils.sql_time import UTCNow
 
 
 class AgentWork(Base):
@@ -37,10 +38,10 @@ class AgentWork(Base):
     filter_overrides: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     display_name_override: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), nullable=False
+        DateTime, server_default=UTCNow(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime, server_default=UTCNow(), onupdate=UTCNow(), nullable=False
     )
 
     # Relationships

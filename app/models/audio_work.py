@@ -10,10 +10,11 @@ no coverage for them.
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Date, DateTime, Float, Integer, String, func
+from sqlalchemy import JSON, Date, DateTime, Float, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.utils.sql_time import UTCNow
 
 
 class AudioWork(Base):
@@ -46,10 +47,10 @@ class AudioWork(Base):
     wikipedia_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     wikipedia_page_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), nullable=False
+        DateTime, server_default=UTCNow(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime, server_default=UTCNow(), onupdate=UTCNow(), nullable=False
     )
 
     # Relationships

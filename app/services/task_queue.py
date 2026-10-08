@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from app.utils.time import utcnow
+from app.utils.time import utc_isoformat, utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -230,9 +230,9 @@ class _MemJob:
             "status": self.status,
             "result": self.result,
             "error": self.error,
-            "queued_at": self.queued_at.isoformat(),
-            "started_at": self.started_at.isoformat() if self.started_at else None,
-            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+            "queued_at": utc_isoformat(self.queued_at),
+            "started_at": utc_isoformat(self.started_at),
+            "finished_at": utc_isoformat(self.finished_at),
         }
 
 
@@ -849,6 +849,17 @@ class RedisQueue(BaseQueue):
         except (json.JSONDecodeError, ValueError):
             result = result_raw or None
 
+        def timestamp(field: str) -> str | None:
+            # Old Redis hashes carry naive UTC. Normalize only these owned
+            # fields on read; do not rewrite history or arbitrary result text.
+            value = raw.get(field)
+            if not value:
+                return None
+            try:
+                return utc_isoformat(datetime.fromisoformat(value))
+            except (TypeError, ValueError):
+                return None
+
         return {
             "job_id": raw.get("job_id", ""),
             "job_type": raw.get("job_type", ""),
@@ -856,9 +867,9 @@ class RedisQueue(BaseQueue):
             "status": raw.get("status", JobStatus.QUEUED),
             "result": result,
             "error": raw.get("error") or None,
-            "queued_at": raw.get("queued_at") or None,
-            "started_at": raw.get("started_at") or None,
-            "finished_at": raw.get("finished_at") or None,
+            "queued_at": timestamp("queued_at"),
+            "started_at": timestamp("started_at"),
+            "finished_at": timestamp("finished_at"),
         }
 
 

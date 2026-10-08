@@ -10,10 +10,11 @@ first-match-wins：``filter``（BoolCondition DSL 根节点 JSON，null=匹配
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+from app.utils.sql_time import UTCNow
 
 
 class OrganizeRule(Base):
@@ -44,8 +45,8 @@ class OrganizeRule(Base):
         Boolean, default=False, nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), nullable=False
+        DateTime, server_default=UTCNow(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime, server_default=UTCNow(), onupdate=UTCNow(), nullable=False
     )

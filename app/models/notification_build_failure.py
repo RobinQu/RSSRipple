@@ -2,10 +2,11 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+from app.utils.sql_time import UTCNow
 
 
 class NotificationBuildFailure(Base):
@@ -18,4 +19,4 @@ class NotificationBuildFailure(Base):
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     next_attempt_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
     error_message: Mapped[str] = mapped_column(String(2048), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=UTCNow())

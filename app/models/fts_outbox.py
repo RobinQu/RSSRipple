@@ -22,10 +22,11 @@ PostgreSQL never writes to this table (its search path uses the in-table
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, func
+from sqlalchemy import DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+from app.utils.sql_time import UTCNow
 
 
 class FtsOutbox(Base):
@@ -40,5 +41,5 @@ class FtsOutbox(Base):
     # "upsert" | "delete"
     op: Mapped[str] = mapped_column(String(10), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), nullable=False
+        DateTime, server_default=UTCNow(), nullable=False
     )

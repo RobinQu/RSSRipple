@@ -1,6 +1,6 @@
 # 数据模型
 
-所有 ORM 模型使用 SQLAlchemy 2.0 风格声明，主键均为 UUID v4 字符串，时间字段均为 UTC 时区。
+所有 ORM 模型使用 SQLAlchemy 2.0 风格声明，主键均为 UUID v4 字符串，时间字段语义均为 UTC。数据库继续使用无时区时间列并保存 naive UTC；数据库默认值及 ORM 自动更新时间使用 `UTCNow`：PostgreSQL 显式将当前事务时间转为 UTC，Turso 使用原生 UTC CURRENT_TIMESTAMP。该表达式不覆盖全局 func.now 编译，不依赖会话时区。Python 显式写入继续使用 UTC 时间；日期列不受此规则影响。
 
 新增 `FileResource.magnet_resolve_attempt_id: VARCHAR(36), nullable`，用于独立 magnet 解析尝试身份；历史行保持 NULL。新领取生成 UUID，状态及重试计数写入匹配该标识；回收/人工重试清空。缓存路径含 attempt 标识，完成状态 CAS 接受后才被资源引用。
 

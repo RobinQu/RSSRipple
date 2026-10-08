@@ -1230,6 +1230,12 @@ class _FakeResult:
     def fetchall(self):
         return list(self._rows)
 
+    def mappings(self):
+        return self
+
+    def all(self):
+        return list(self._rows)
+
     def first(self):
         return self._rows[0] if self._rows else None
 
@@ -1270,6 +1276,19 @@ class _FakePGConn:
     async def execute(self, stmt, params=None):
         sql = str(stmt)
         self.executed.append(sql)
+        if "pg_attrdef" in sql:
+            from app.database import Base
+            from app.utils.sql_time import UTCNow
+
+            return _FakeResult([
+                {"schema_name": "public", "table_name": table.name,
+                 "column_name": column.name, "data_type": "timestamp without time zone",
+                 "default_expr": "now()"}
+                for table in Base.metadata.tables.values()
+                for column in table.columns
+                if column.server_default is not None
+                and isinstance(column.server_default.arg, UTCNow)
+            ])
         if "information_schema.columns" in sql:
             if params and params.get("t") is not None:
                 return _FakeResult([])
@@ -1322,6 +1341,8 @@ async def test_light_migrations_postgres_branches_fake_conn(monkeypatch):
     assert any("ADD VALUE IF NOT EXISTS 'mock'" in q for q in conn.executed)
     assert any("INSERT INTO organize_configuration" in q for q in conn.executed)
     assert any("download_tasks_agent_id_fkey" in q for q in conn.executed)
+    assert any("ALTER TABLE public.channels" in q and "AT TIME ZONE 'UTC'" in q
+               for q in conn.executed)
 
 
 async def test_ensure_pg_trgm_indexes_fake_conn():

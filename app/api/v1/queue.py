@@ -137,6 +137,6 @@ async def get_queue_scheduler():
         jobs.append({
             "id": job.id,
             "trigger": str(job.trigger),
-            "next_run_time": next_run_time.isoformat() if next_run_time else None,
+            "next_run_time": next_run_time,
         })
     return success_response({"enabled": True, "jobs": jobs})

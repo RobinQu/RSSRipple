@@ -8,10 +8,11 @@ Entries are grouped into named datasets (e.g., "v1", "v2").
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Index, String, func
+from sqlalchemy import JSON, DateTime, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+from app.utils.sql_time import UTCNow
 
 
 class GroundTruthEntry(Base):
@@ -62,8 +63,8 @@ class GroundTruthEntry(Base):
 
     # ── Timestamps ──
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), nullable=False
+        DateTime, server_default=UTCNow(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime, server_default=UTCNow(), onupdate=UTCNow(), nullable=False
     )

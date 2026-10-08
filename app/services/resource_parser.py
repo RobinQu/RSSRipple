@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Any
 
 from app.services.subtitle_groups import normalize_subtitle_groups
+from app.utils.time import naive_utc
 
 logger = logging.getLogger(__name__)
 
@@ -253,7 +254,7 @@ def _apply_transform(value: str, transform: str | None) -> Any:
             return None
     elif transform == "iso_datetime":
         try:
-            return datetime.fromisoformat(value)
+            return naive_utc(datetime.fromisoformat(value))
         except (ValueError, TypeError):
             return None
     elif transform == "lowercase":

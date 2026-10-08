@@ -7,10 +7,11 @@ the default metadata search source for the works-page refresh action.
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, func
+from sqlalchemy import DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+from app.utils.sql_time import UTCNow
 
 
 class AppSetting(Base):
@@ -19,5 +20,5 @@ class AppSetting(Base):
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime, server_default=UTCNow(), onupdate=UTCNow(), nullable=False
     )

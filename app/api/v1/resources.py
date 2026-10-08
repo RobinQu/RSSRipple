@@ -26,7 +26,7 @@ from app.models.metadata_cache import METADATA_CACHE_GENERATION, MetadataCache
 from app.models.movie import Movie as _Movie
 from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries as _TVSeries
-from app.schemas.common import paginated_response, success_response
+from app.schemas.common import api_json, paginated_response, success_response
 from app.schemas.file_resource import (
     EpisodeCorrectionRequest,
     FileResourceDetailResponse,
@@ -403,9 +403,6 @@ async def list_resources(
         task_status_by_id = await _latest_task_status_by_resource(db, page_resources)
         pending_decision_ids = await _pending_decision_resource_ids(db, channel_id, page_resources)
 
-        def _iso(ts) -> str | None:
-            return ts.isoformat() if ts is not None else None
-
         out = []
         for typ, tid, last_ts in page_entries:
             if typ == "series":
@@ -418,7 +415,7 @@ async def list_resources(
                     "id": tid,
                     "title": (s.original_title or s.title_cn or s.title_en or tid) if s else tid,
                     "poster_url": s.poster_url if s else None,
-                    "last_update": _iso(last_ts),
+                    "last_update": last_ts,
                     "resources": [_serialize_list_resource(r, task_status_by_id, pending_decision_ids) for r in items],
                 })
             elif typ == "movie":
@@ -431,7 +428,7 @@ async def list_resources(
                     "id": tid,
                     "title": (m.original_title or m.title_cn or m.title_en or tid) if m else tid,
                     "poster_url": m.poster_url if m else None,
-                    "last_update": _iso(last_ts),
+                    "last_update": last_ts,
                     "resources": [_serialize_list_resource(r, task_status_by_id, pending_decision_ids) for r in items],
                 })
             elif typ == "audio":
@@ -444,7 +441,7 @@ async def list_resources(
                     "id": tid,
                     "title": (a.original_title or a.title_cn or a.title_en or tid) if a else tid,
                     "poster_url": a.poster_url if a else None,
-                    "last_update": _iso(last_ts),
+                    "last_update": last_ts,
                     "resources": [_serialize_list_resource(r, task_status_by_id, pending_decision_ids) for r in items],
                 })
             else:  # unknown
@@ -453,7 +450,7 @@ async def list_resources(
                     "id": None,
                     "title": "未识别",
                     "poster_url": None,
-                    "last_update": _iso(last_ts),
+                    "last_update": last_ts,
                     "resources": [
                         _serialize_list_resource(r, task_status_by_id, pending_decision_ids)
                         for r in unknown_resources
@@ -650,7 +647,7 @@ async def get_resource_metadata(resource_id: str, db: AsyncSession = Depends(get
         "series_id": resource.series_id,
         "movie_id": resource.movie_id,
         "audio_work_id": resource.audio_work_id,
-        "metadata_matched_at": resource.metadata_matched_at.isoformat() if resource.metadata_matched_at else None,
+        "metadata_matched_at": resource.metadata_matched_at,
         "linked": linked,
     })
 
@@ -891,7 +888,7 @@ async def get_resource_files(resource_id: str, db: AsyncSession = Depends(get_db
     return success_response(
         ResourceFilesResponse(
             files=files, source=source, magnet_resolve=magnet_state
-        ).model_dump(mode="json")
+        ).model_dump()
     )
 
 
@@ -1171,7 +1168,7 @@ async def analyze_resource_batch_stream(
         ))).scalar_one_or_none()
 
     def emit(kind: str, **payload):
-        return f"data: {json.dumps({'type': kind, **payload}, ensure_ascii=False)}\n\n"
+        return f"data: {json.dumps(api_json({'type': kind, **payload}), ensure_ascii=False)}\n\n"
 
     if cached is not None:
         async def cached_events():

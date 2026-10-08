@@ -142,7 +142,7 @@ fetch_channel_resources(channel, db)
 单字段提取流程（`_extract_value`）：
 1. `_resolve_source(entry, source)`：支持点路径与数组索引（如 `enclosures[0].url`）；路径任一段解析失败返回 None。
 2. 可选 `regex` + `group`（默认 0）提取；一律按 `re.IGNORECASE` 匹配；正则不命中返回 None。
-3. 可选 `transform`：`int` / `float` / `iso_datetime` / `lowercase` / `uppercase`；数值/时间转换失败返回 None。
+3. 可选 `transform`：`int` / `float` / `iso_datetime` / `lowercase` / `uppercase`；数值/时间转换失败返回 None。`iso_datetime` 与 RSS 的 `torrent_pubdate` 入口均先把含偏移时间转换到 UTC，再去掉 tzinfo 以适配 naive UTC 存储；无时区输入沿用 UTC 解释，不猜测发布者本地时区。标准 RSS `published_parsed` 已由 feedparser 归一化为 UTC，保持该时刻。
 
 其他约定：
 - 单字段提取异常只记 debug 日志并置该字段为 None，不影响其他字段。

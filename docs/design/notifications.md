@@ -221,3 +221,8 @@ WebhookDelivery.attempt_token 为可空 UUID 字符串。发送前以读取到�
 领取与结果条件写入使用独立短会话；先结束批次读取事务，复用 retry_on_lock 仅重试数据库锁/MVCC 冲突。HTTP 调用不在重试闭包中。成功后同步调用者已加载对象的已提交值，不将它们标记为需 flush 的修改。
 
 B4 候选快照构建在停种前后、文件列表返回后和构建事务确认前检查队列所有权。失权异常不得作为普通下载器故障进入 best-effort 快照降级或 NotificationBuildFailure 退避；无队列上下文的人工入口保持原行为。检查不能撤销已发 RPC，也不构成跨 Redis/数据库的原子提交。
+
+
+### 时间窗口输入
+
+批量 retry 的 since（notification.created_at >= since）及 regenerate 的 since（task.completed_at >= since）在请求校验后先转换为 naive UTC。含偏移值保留其实际时刻，无时区值按 UTC 解释；null 仍表示不限制下界。夏令时回拨时相同墙钟文字但不同偏移代表不同时间窗口。响应层不修改已有 payload 中的冻结字符串。

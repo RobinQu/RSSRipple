@@ -15,6 +15,8 @@ B4 候选：资源 magnet 人工重试以读取时的 attempt、状态和 magnet
 
 分页端点使用查询参数 `page`（默认 1）和 `page_size`（默认 20，最大 100），在 `meta` 中返回分页信息。非分页端点 `meta` 可省略或返回空对象。
 
+时间字段遵循 conventions.md 的 UTC 契约：有类型的 datetime 以 Z 结尾，date 为纯日期；嵌套响应和 SSE 使用同一编码边界。队列状态的 queued_at/started_at/finished_at 在读取时归一化旧 naive UTC 或带偏移值，不回写 Redis 历史；损坏时间值返回 null，任务 result 中的业务字符串保持原样。通知 retry/regenerate 的 since 请求先归一化 naive UTC，再执行包含下界的数据库比较。
+
 ### 认证（Auth）
 
 `AUTH_ENABLED=true`（默认）时，`/api/v1/*` 与 `/posters/*` 全部受 `AuthMiddleware` 保护，需携带有效凭证；`/api/v1/auth/*` 与 `/health`（容器健康检查探针）开放；SPA 页面与静态资源开放（前端在收到 401 后自行跳转 `/login`）。无凭证或凭证无效一律返回 401 `{success:false, data:null, error:{code:"UNAUTHORIZED",...}, meta:{}}`。
@@ -565,3 +567,5 @@ PUT `/agents/{id}` 在字段/作品替换及回填副作用前按更新后状态
 `GET /channels` 的 agent_count/resource_count 按本页频道 ID 分组计算，不逐频道发出 COUNT，也不加载资源/Agent 历史集合。`GET /agents` 的 active_task_count 同样按本页 Agent ID 聚合，仅计 pending/queued/downloading。
 
 Agent 响应内的 channel/downloader 分别使用 ChannelResponse/DownloaderResponse；works 中的 series/movie 使用 TVSeriesResponse/MovieResponse。字段集合由这些公开 schema 决定，不随 ORM 会话是否已预加载历史而变化，亦不把其他关系或下载器密码带入响应。分页、订阅目标、频道/下载器名称及详情的最新完成位置保持原契约。
+
+UTC 时间输入边界：通知 retry/regenerate 的 since 与 Agent run 的 scan_since 在请求校验时归一化；偏移换算后超出年份 1–9999 的时间拒绝为 422。可表示的边界值仍合法，Agent 额外保持“不得晚于当前时间”的规则。

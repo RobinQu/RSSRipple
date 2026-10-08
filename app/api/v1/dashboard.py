@@ -178,7 +178,7 @@ async def _page_pending_decisions(
                 if decision.movie_id and decision.movie
                 else "Unknown"
             ),
-            "created_at": decision.created_at.isoformat(),
+            "created_at": decision.created_at,
         })
     return items, total
 

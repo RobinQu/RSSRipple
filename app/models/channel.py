@@ -3,11 +3,12 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Enum, Integer, String, func
+from sqlalchemy import JSON, Boolean, DateTime, Enum, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 from app.services.required_fields import normalize_required_fields
+from app.utils.sql_time import UTCNow
 
 
 def _default_required_fields() -> list[str]:
@@ -92,10 +93,10 @@ class Channel(Base):
     last_fetch_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     last_fetch_error: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), nullable=False
+        DateTime, server_default=UTCNow(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime, server_default=UTCNow(), onupdate=UTCNow(), nullable=False
     )
 
     # Relationships

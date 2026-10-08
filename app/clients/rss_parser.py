@@ -15,6 +15,7 @@ import httpx
 from pydantic import BaseModel
 
 from app.clients import outbound_http
+from app.utils.time import naive_utc
 
 # Regex to find magnet links in text content
 _MAGNET_RE = re.compile(r"magnet:\?xt=urn:btih:[^\s\"'<>]+", re.IGNORECASE)
@@ -129,7 +130,7 @@ def _extract_published_at(entry) -> datetime | None:
     # Mikan namespace
     if hasattr(entry, "torrent_pubdate"):
         try:
-            return datetime.fromisoformat(entry.torrent_pubdate)
+            return naive_utc(datetime.fromisoformat(entry.torrent_pubdate))
         except (ValueError, TypeError):
             pass
     # Standard RSS

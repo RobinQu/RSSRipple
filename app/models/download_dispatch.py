@@ -3,10 +3,11 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, String, false, func
+from sqlalchemy import JSON, Boolean, DateTime, String, false
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+from app.utils.sql_time import UTCNow
 
 
 class DownloadDispatch(Base):
@@ -21,4 +22,4 @@ class DownloadDispatch(Base):
     job_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     parameters: Mapped[dict] = mapped_column(JSON, nullable=False)
     settled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now(), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=UTCNow(), index=True)

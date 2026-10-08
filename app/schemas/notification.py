@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.schemas.common import ORMModel
+from app.schemas.common import NaiveUTCDateTime, ORMModel
 from app.schemas.genre import GenreName
 
 # Placeholder stored for mock webhooks (url column is NOT NULL; mock
@@ -195,7 +195,7 @@ class NotificationDetail(NotificationListItem):
 
 class RetryRequest(BaseModel):
     mode: Literal["failed", "all"]
-    since: datetime | None = None
+    since: NaiveUTCDateTime | None = None
     agent_id: str | None = None
 
 
@@ -208,7 +208,7 @@ class RetryResponse(BaseModel):
 
 
 class RegenerateRequest(BaseModel):
-    since: datetime | None = None
+    since: NaiveUTCDateTime | None = None
 
 
 class RegenerateResponse(BaseModel):

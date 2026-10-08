@@ -403,6 +403,9 @@ async def _apply_light_migrations(conn) -> None:
     # settings override must not select another backend's catalog queries.
     is_turso = conn.dialect.name == "sqlite"
     is_postgres = conn.dialect.name == "postgresql"
+    from app.utils.sql_time import utc_now_sql
+
+    now_sql = utc_now_sql(conn.dialect.name)
 
 
     # Required consistency guard, not a best-effort metadata backfill.
@@ -628,6 +631,9 @@ async def _apply_light_migrations(conn) -> None:
 
     if is_postgres:
         await ensure_resource_work_fk_guard(conn)
+        from app.services.utc_schema import ensure_utc_timestamp_defaults
+
+        await ensure_utc_timestamp_defaults(conn, Base.metadata)
 
     # Match fresh-schema uniqueness on upgraded tables. Do not silently
     # continue without this invariant or guess which legacy row to discard:
@@ -697,7 +703,7 @@ async def _apply_light_migrations(conn) -> None:
                     "INSERT INTO agent_webhooks"
                     "(id, agent_id, url, mock, enabled, created_at, updated_at) "
                     "VALUES (:id, :aid, :url, :mock, :enabled, "
-                    "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                    f"{now_sql}, {now_sql})"
                 ), {"id": str(_uuid.uuid4()), "aid": agent_id, "url": url,
                     "mock": bool(mock), "enabled": True})
                 copied += 1
@@ -1173,7 +1179,7 @@ async def _apply_light_migrations(conn) -> None:
             "UPDATE agents SET last_consumed_at = COALESCE("
             "  (SELECT MAX(fr.created_at) FROM file_resources fr "
             "   WHERE fr.channel_id = agents.channel_id),"
-            "  CURRENT_TIMESTAMP"
+            f"  {now_sql}"
             ") WHERE last_consumed_at IS NULL"
         ))
 
@@ -1529,7 +1535,7 @@ async def _apply_light_migrations(conn) -> None:
                     "INSERT INTO media_server_instances"
                     "(id, name, type, url, token, enabled, created_at, updated_at) "
                     "VALUES (:id, :name, 'plex', :url, :token, :enabled, "
-                    "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                    f"{now_sql}, {now_sql})"
                 ), {"id": str(_uuid.uuid4()), "name": "Plex", "url": plex_url,
                     "token": plex_token, "enabled": True})
                 logger.info(
