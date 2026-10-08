@@ -453,6 +453,7 @@ class Agent(Base):
     filter_config: dict | None           # 过滤规则 DSL 树（BoolCondition 根节点，详见 Filter DSL 章节）
     status: str                          # "active" | "paused" | "error"
     last_run_at: datetime | None         # 上次运行时间
+    current_run_token: str | None        # 内部运行归属；只有最新启动的 attempt 可发布 Agent 摘要
     last_run_status: str | None          # 上次运行状态:
                                          # "success" | "failed"
                                          # | "pending_decisions"（当 dispatched=0
@@ -680,6 +681,8 @@ class PendingDecision(Base):
 Dashboard 待决策扫描索引：`Index(status, created_at, id)`。
 
 ### AgentRun（Agent 执行记录）
+
+V34 独立候选新增 `AgentRunLease`（handler 已接入，尚待完整验收）：UUID 主键，唯一 `run_id` 外键指向 AgentRun 并级联删除，UUID `token` 表示本次执行权，`expires_at_epoch BIGINT` 为数据库 UTC epoch 秒截止时间；`(expires_at_epoch,id)` 索引用于有界回收。租约独立于历史行，续租不更新 AgentRun。存量无租约 running 行不会自动判死；上线前还必须完成旧库升级和离线审核策略。
 
 每次 Agent 运行（`run_agent`）持久化一条记录，用于运行历史展示与审计。运行开始时即插入 `status="running"` 行（即使 handler 崩溃也有迹可循），运行结束时回填计数与状态。
 

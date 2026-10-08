@@ -14,7 +14,7 @@ import asyncpg
 import pytest
 
 
-@pytest.mark.parametrize("mode", ["kill", "pause", "metadata", "agent", "magnet", "commit", "responsiveness", "organize", "organize_takeover", "multiwork", "descriptor"])
+@pytest.mark.parametrize("mode", ["kill", "pause", "metadata", "agent", "magnet", "commit", "responsiveness", "organize", "organize_takeover", "multiwork", "descriptor", "agent_lifecycle_kill", "agent_lifecycle_pause"])
 async def test_queue_and_metadata_concurrency(tmp_path, mode):
     admin_url = os.environ.get("QUEUE_RECOVERY_POSTGRES_URL")
     redis_url = os.environ.get("QUEUE_RECOVERY_REDIS_URL")
@@ -42,6 +42,8 @@ async def test_queue_and_metadata_concurrency(tmp_path, mode):
 
         def run_driver():
             module = {name: name + "_driver" for name in ("metadata", "agent", "magnet", "commit", "responsiveness", "organize", "organize_takeover", "multiwork", "descriptor")}.get(mode, "notification_driver")
+            if mode.startswith("agent_lifecycle_"):
+                module = "agent_lifecycle_driver"
             with subprocess.Popen(
                 [sys.executable, "-m", "tests.integration.queue_recovery." + module],
                 cwd=Path(__file__).resolve().parents[3],
@@ -63,6 +65,15 @@ async def test_queue_and_metadata_concurrency(tmp_path, mode):
         (tmp_path / "worker.log").write_text(result.stdout + result.stderr)
         assert result.returncode == 0, result.stdout + result.stderr
         report = json.loads(output.read_text())
+        if mode.startswith("agent_lifecycle_"):
+            assert report["backend"] == "postgresql"
+            assert report["first_worker_exit"] == (-9 if mode.endswith("kill") else 0)
+            assert report["second_worker_exit"] == 0
+            assert report["same_job_id"] and report["distinct_queue_tokens"]
+            assert report["late_snapshot_unchanged"]
+            assert sorted(row["status"] for row in report["after"]["runs"]) == ["failed", "success"]
+            assert not report["after"]["leases"]
+            return
         if mode == "descriptor":
             assert report["backend"] == "redis"
             assert report["resumed_descriptor_preserved"]

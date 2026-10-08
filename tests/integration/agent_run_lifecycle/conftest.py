@@ -1,0 +1,57 @@
+"""Reuse isolated real database fixtures; lifecycle identities are synthetic."""
+
+import asyncio
+import hashlib
+import json
+import uuid
+from pathlib import Path
+
+import pytest
+
+from app.models.agent import Agent
+from app.models.agent_run import AgentRun
+from app.models.channel import Channel
+from app.models.downloader import DownloaderInstance
+from app.models.file_resource import FileResource
+from app.services.agent_run_lifecycle import create_lease
+from tests.integration.resource_work_fk.conftest import work_fk_postgres, work_fk_turso  # noqa: F401
+
+
+@pytest.fixture(autouse=True)
+def real_lease_timers(monkeypatch):
+    # tests.unit.conftest changes the public alias at import time. These tests
+    # require elapsed wall time even when collected with that older suite.
+    monkeypatch.setattr(asyncio, "sleep", asyncio.tasks.sleep)
+
+
+@pytest.fixture(params=["work_fk_turso", "work_fk_postgres"], ids=["turso", "postgresql"])
+def lifecycle_backend(request):
+    return request.getfixturevalue(request.param)
+
+
+@pytest.fixture
+async def lifecycle_db(lifecycle_backend):
+    engine, factory = lifecycle_backend
+    raw = Path("tests/fixtures/prod_works_v1.json").read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == "d11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32"
+    recorded = json.loads(raw)["tables"]["file_resources"][0]
+    async with factory() as db:
+        channel = Channel(name="Synthetic lease channel", type="rss_feed", url="https://synthetic.invalid/lease",
+                          field_mapping={})
+        downloader = DownloaderInstance(name="Synthetic", type="mock", url="mock://lease", download_dir="/tmp/no-media")
+        db.add_all([channel, downloader])
+        await db.flush()
+        agent = Agent(name="Synthetic lease agent", channel_id=channel.id, downloader_id=downloader.id)
+        resource = FileResource(
+            id=str(uuid.uuid4()), channel_id=channel.id, title_raw=recorded["title_raw"],
+            guid=recorded["guid"], torrent_url=recorded["torrent_url"],
+        )
+        db.add_all([agent, resource])
+        await db.flush()
+        run = AgentRun(agent_id=agent.id, status="running", total_resources=1, matched=1,
+                       matched_resource_ids=[resource.id])
+        db.add(run)
+        await db.flush()
+        owner = await create_lease(db, run.id)
+        await db.commit()
+    yield engine, factory, owner, agent.id, resource.id

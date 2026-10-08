@@ -68,9 +68,12 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
     from app.models.movie import Movie
     from app.models.resource_work_link import ResourceWorkLink
     from app.models.series import TVSeries
-    from app.services.agent_resource_requests import acknowledge_requests, defer_requests, snapshot_requests
+    from app.services.agent_resource_requests import snapshot_requests
+    from app.services.agent_run_execution import LEASE_SECONDS, maintain_run_lease, require_agent_execution_ownership
+    from app.services.agent_run_finalization import RunCompletion, fail_run, finish_run
+    from app.services.agent_run_lifecycle import create_lease
     from app.services.agent_service import process_resources
-    from app.services.task_queue import ExecutionOwnershipLostError, require_execution_ownership
+    from app.services.task_queue import require_execution_ownership
     from app.utils.time import utcnow
 
     await _refresh_runtime_config()
@@ -108,7 +111,8 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
         run = AgentRun(agent_id=agent.id, status="running", started_at=utcnow())
         session.add(run)
         await session.flush()
-        run_id = run.id
+        owner = await create_lease(session, run.id, seconds=LEASE_SECONDS)
+        agent.current_run_token = owner.token
         channel_id = agent.channel_id
 
         advance_to = None
@@ -169,129 +173,68 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
                 ))
 
         selected_ids = list(dict.fromkeys([*selected_ids, *(r.resource_id for r in request_snapshots)]))
-
-    # Phase 2 (incremental commits): the slow part — filtering, LLM picks,
-    # Transmission RPCs. ``autocommit=True`` makes process_resources commit
-    # after each dispatch/decision, so the write lock is never held across an
-    # external call. The block-level retry of committed_session is safe here:
-    # every unit is idempotent (task dedup / decision upsert), so a re-run
-    # after a lock error just skips already-committed work.
-    try:
-        async with committed_session() as session:
-            agent = await session.get(
-                Agent, agent_id, options=[selectinload(Agent.channel), selectinload(Agent.works)]
-            )
-            if not agent:
-                raise RuntimeError(f"Agent {agent_id} not found")
-            run = await session.get(AgentRun, run_id)
-            if not run:
-                raise RuntimeError(f"AgentRun {run_id} disappeared before finalisation")
-
-            resources: list[FileResource] = []
-            if selected_ids:
-                result = await session.execute(
-                    select(FileResource)
-                    .where(FileResource.id.in_(selected_ids))
-                    # series/movie are read by the filter DSL (movie.rating …) and
-                    # the LLM pick summary — eager-load to avoid async lazy loads.
-                    # The work's collection feeds the series.collection /
-                    # movie.collection DSL fields, so chain-load it too; the
-                    # resource's own collection feeds the resource-level
-                    # ``collection`` field (franchise packs); work_links carry the
-                    # works of links-only multi-season packs (per-season works) —
-                    # chain-load the works so the DSL year fields can aggregate
-                    # across them.
-                    .options(
-                        selectinload(FileResource.series).selectinload(TVSeries.collection),
-                        selectinload(FileResource.movie).selectinload(Movie.collection),
-                        selectinload(FileResource.collection),
-                        selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series),
-                        selectinload(FileResource.work_links).selectinload(ResourceWorkLink.movie),
-                    )
-                    .order_by(FileResource.created_at.asc())
-                )
-                resources = list(result.scalars().all())
-            run_result = await process_resources(
-                agent,
-                resources,
-                session,
-                autocommit=True,
-                consumption_snapshot=publication_snapshot or window_snapshot,
-                required_metadata_fields=(
-                    agent.channel.required_metadata_fields if agent.channel else None
-                ),
-            )
-
-            await require_execution_ownership()
-            progress_confirmed = False
-            if run_result.errors:
-                await defer_requests(session, request_snapshots, "; ".join(run_result.errors))
-            else:
-                await acknowledge_requests(session, request_snapshots)
-                if publication_snapshot is not None:
-                    from app.services.agent_publication_progress import acknowledge_publications
-
-                    progress_confirmed = await acknowledge_publications(session, publication_snapshot)
-                elif window_snapshot is not None and advance_to is not None:
-                    from app.services.agent_publication_progress import acknowledge_window
-
-                    progress_confirmed = await acknowledge_window(session, window_snapshot, scan_since)
-
-            if advance_to is not None and not run_result.errors and progress_confirmed:
-                # Keep failed incremental candidates eligible for the next run.
-                # Already committed groups are skipped by normal task dedup.
-                agent.last_consumed_at = (
-                    max(agent.last_consumed_at, advance_to) if agent.last_consumed_at else advance_to
-                )
-
-            agent.last_run_at = utcnow()
-            # More granular status so the UI can badge "待决策" instead of a
-            # deceptively-green "success" when the run generated PDs but
-            # dispatched nothing.
-            if run_result.errors:
-                agent.last_run_status = "failed"
-            elif run_result.dispatched == 0 and run_result.pending_decisions > 0:
-                agent.last_run_status = "pending_decisions"
-            else:
-                agent.last_run_status = "success"
-
-            # Finalise the run record.
-            run.status = agent.last_run_status
-            run.finished_at = utcnow()
-            run.scan_since = run_scan_since
-            run.total_resources = run_result.total_resources
-            run.matched = run_result.matched
-            run.dispatched = run_result.dispatched
-            run.pending_decisions = run_result.pending_decisions
-            run.filter_failed = run_result.filter_failed
-            run.duplicates_skipped = run_result.duplicates_skipped
-            run.unrecognized = run_result.unrecognized
-            run.matched_resource_ids = list(run_result.matched_resource_ids)
-            run.errors = list(run_result.errors)
-
-            await require_execution_ownership()
-            return {
-                "agent_id": agent_id,
-                "run_id": run.id,
-                "total_resources": run_result.total_resources,
-                "matched": run_result.matched,
-                "dispatched": run_result.dispatched,
-                "pending_decisions": run_result.pending_decisions,
-                "filter_failed": run_result.filter_failed,
-                "duplicates_skipped": run_result.duplicates_skipped,
-                "unrecognized": run_result.unrecognized,
-                "errors": run_result.errors,
-            }
-
-    except ExecutionOwnershipLostError:
-        raise
-    except Exception as error:
+        run.scan_since = run_scan_since
         await require_execution_ownership()
+
+    # Processing commits each completed candidate before the short finalisation
+    # transaction. Heartbeats never update history; external work is not replayed
+    # when finalisation retries a database conflict.
+    completion = RunCompletion(
+        owner=owner, agent_id=agent_id, requests=request_snapshots,
+        publication=publication_snapshot, window=window_snapshot,
+        advance_to=advance_to, scan_since=scan_since,
+    )
+    try:
+        async with maintain_run_lease(owner):
+            async with committed_session() as session:
+                agent = await session.get(
+                    Agent, agent_id, options=[selectinload(Agent.channel), selectinload(Agent.works)]
+                )
+                if not agent:
+                    raise RuntimeError(f"Agent {agent_id} not found")
+
+                resources: list[FileResource] = []
+                if selected_ids:
+                    result = await session.execute(
+                        select(FileResource)
+                        .where(FileResource.id.in_(selected_ids))
+                        # series/movie are read by the filter DSL (movie.rating …) and
+                        # the LLM pick summary — eager-load to avoid async lazy loads.
+                        # The work's collection feeds the series.collection /
+                        # movie.collection DSL fields, so chain-load it too; the
+                        # resource's own collection feeds the resource-level
+                        # ``collection`` field (franchise packs); work_links carry the
+                        # works of links-only multi-season packs (per-season works) —
+                        # chain-load the works so the DSL year fields can aggregate
+                        # across them.
+                        .options(
+                            selectinload(FileResource.series).selectinload(TVSeries.collection),
+                            selectinload(FileResource.movie).selectinload(Movie.collection),
+                            selectinload(FileResource.collection),
+                            selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series),
+                            selectinload(FileResource.work_links).selectinload(ResourceWorkLink.movie),
+                        )
+                        .order_by(FileResource.created_at.asc())
+                    )
+                    resources = list(result.scalars().all())
+                run_result = await process_resources(
+                    agent,
+                    resources,
+                    session,
+                    autocommit=True,
+                    consumption_snapshot=publication_snapshot or window_snapshot,
+                    required_metadata_fields=(
+                        agent.channel.required_metadata_fields if agent.channel else None
+                    ),
+                )
+
+                await require_agent_execution_ownership()
+        return await finish_run(completion, run_result)
+    except BaseException as error:
         try:
-            async with committed_session() as failure_db:
-                await defer_requests(failure_db, request_snapshots, str(error))
+            await fail_run(completion, error)
         except Exception:
-            logger.exception("Could not defer failed resource requests for Agent %s", agent_id)
+            logger.exception("Could not finalise interrupted Agent run %s", owner.run_id)
         raise
 
 

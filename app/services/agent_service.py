@@ -23,6 +23,7 @@ from app.models.movie import Movie
 from app.models.pending_decision import PendingDecision
 from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
+from app.services.agent_run_execution import require_agent_execution_ownership
 from app.services.filter_engine import (
     evaluate_field_condition,
     evaluate_filter_config,
@@ -237,9 +238,9 @@ async def create_and_submit_task(
 
     Shared by agent dispatch and manual creation (``POST /tasks``).
     """
-    from app.services.task_queue import current_job_identity, require_execution_ownership
+    from app.services.task_queue import current_job_identity
 
-    await require_execution_ownership()
+    await require_agent_execution_ownership()
     identity = current_job_identity()
     reservation = None
     payload = resolve_torrent_payload(resource)
@@ -260,7 +261,7 @@ async def create_and_submit_task(
         if reservation.settled:
             raise ValueError("Queued download task was removed; refusing to recreate it")
         # Reservation can wait on another writer; recheck before starting RPC.
-        await require_execution_ownership()
+        await require_agent_execution_ownership()
     task = DownloadTask(
         agent_id=agent_id,
         file_resource_id=resource.id,
@@ -297,7 +298,7 @@ async def create_and_submit_task(
 
     # The remote call may outlive this execution's lease. Leave the durable
     # reservation available for the replacement instead of settling stale output.
-    await require_execution_ownership()
+    await require_agent_execution_ownership()
     if reservation is not None:
         from app.services.download_dispatch import persist_dispatch_result
 
@@ -541,9 +542,8 @@ async def create_pending_decision(
             selectinload(FileResource.series), selectinload(FileResource.movie),
         ))).all())
         picked_id, reason_txt = await _suggest_pick(agent, proposed, key)
-    from app.services.task_queue import require_execution_ownership
 
-    await require_execution_ownership()
+    await require_agent_execution_ownership()
     return await persist_choice(
         db, agent_id=agent.id, decision_key=decision_key, decision_scope=scope,
         candidate_ids=candidate_ids, proposed_ids=proposed_ids,
@@ -842,9 +842,9 @@ async def process_resources(
     """
     result = RunResult()
     from app.services.resource_coverage import load_batch_coverage
-    from app.services.task_queue import ExecutionOwnershipLostError, require_execution_ownership
+    from app.services.task_queue import ExecutionOwnershipLostError
 
-    await require_execution_ownership()
+    await require_agent_execution_ownership()
     await load_batch_coverage(db, resources)
 
     state = inspect(agent, raiseerr=False)
@@ -982,7 +982,7 @@ async def process_resources(
         await db.commit()
     guard_options = {"consumption_snapshot": consumption_snapshot} if consumption_snapshot is not None else {}
     for key, cands in candidates_by_key.items():
-        await require_execution_ownership()
+        await require_agent_execution_ownership()
         try:
             if autocommit:
                 from app.database import retry_on_lock
@@ -996,9 +996,9 @@ async def process_resources(
                                 # Releasing that first savepoint must not commit
                                 # the choice before our outer ownership check.
                                 await unit_db.execute(text("BEGIN"))
-                            await require_execution_ownership()
+                            await require_agent_execution_ownership()
                             pending = await _process_candidate_group(agent, key, cands, unit_db, **guard_options)
-                            await require_execution_ownership()
+                            await require_agent_execution_ownership()
                             return pending
 
                 if agent.conflict_resolution == "ask" and len(cands) >= 2:
@@ -1012,7 +1012,7 @@ async def process_resources(
                 # Keep that state visible and isolate only the candidate writes.
                 async with db.begin_nested():
                     pending = await _process_candidate_group(agent, key, cands, db, **guard_options)
-                    await require_execution_ownership()
+                    await require_agent_execution_ownership()
             if pending:
                 result.pending_decisions += 1
             else:
@@ -1031,7 +1031,7 @@ async def process_resources(
             logger.exception("Failed to process candidates for %s: %s", key, e)
             result.errors.append(str(e))
 
-    await require_execution_ownership()
+    await require_agent_execution_ownership()
     await _retire_legacy_resource_confirmation_decisions(agent, db)
 
     result.suggestions = list(suggestions.values())

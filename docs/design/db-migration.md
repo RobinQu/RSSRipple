@@ -381,3 +381,12 @@ PostgreSQL 启动在既有 advisory lock 和 DDL 事务中，将模型声明的 
 升级需先停旧 web/worker 写入进程，完成迁移后用新连接启动服务。ALTER 会获取表锁，旧连接的 prepared statement 可能因列类型变化失效；本流程不提供带旧连接的在线无中断升级保证。GIN 索引定义保留，生产规模的锁等待和重建耗时应在备份/维护窗口中评估；沿用既有 DDL 锁超时与重试设置。
 
 UTC 默认值与搜索列同时为旧模式时，两项升级仍处于 PostgreSQL 启动 advisory lock 保护的同一 DDL 事务：先验证资源工作 FK，再修正 UTC 默认值，再扩展 search_text。任一受管列出现未知类型/默认或后续必需步骤失败，都必须回滚该事务；显式解决漂移后重启可重试。搜索列类型变化仍要求停旧写入进程并重建连接，不能因联合回归通过而宣称在线无中断升级。
+
+
+### V34 独立候选升级边界（未完整验收）
+
+候选新增 agent_run_leases 表及截止时间索引，并为 agents 轻迁移加入可空 current_run_token。新 run 与租约同事务创建；历史 running 行不自动赋予 token，也不因年龄被置失败。上线必须停掉全部旧 worker，旧程序不认识租约，不能通过滚动升级假设它们已受新协议保护。旧无租约历史需通过下述明确审核工具处理；双库旧 schema 与工具专项已补，整批仍须正式重基和完整门禁后方可部署。
+
+V34 候选的 `agents.current_run_token` 为关键归属列，添加失败必须中止启动，不可 best-effort 跳过。模式升级不会给旧 running 行补租约或自动终结它们。完成模式迁移后，停止全部 Web/worker/调度器并备份数据库；可用 `python -m scripts.review_legacy_agent_runs --export review.json --limit 100` 分页导出，next_after_id 非空时以 `--after-id` 继续。导出文件独占创建，记录完整历史快照及指纹，仅包含 running、finished_at 为空且无租约的行；已有租约即使到期也交给正常回收协议。
+
+人工核对后在副本中添加 `approved_fingerprint`（等于原 fingerprint）和明确的 `selected_ids`，执行 `python -m scripts.review_legacy_agent_runs --apply-review approved.json --writers-stopped --backup-confirmed`。工具不调用启动迁移。单次最多 1000 条，PG 锁历史/租约表，Turso 独占写事务；验证全部选中快照和无租约条件后，再同事务将选中历史置 failed、设置 finished_at 并追加审核指纹、实际完成时间及计数可能不完整的说明。保留所有原计数、资源 IDs、错误、Agent 摘要、请求和消费状态。任一行变化/消失/取得租约则整批拒绝；相同审核重复执行仅接受精确匹配的已完成结果，不重复追加错误。该工具不证明旧进程已死，停写确认与人工选择是操作前提，不按年龄自动处理。

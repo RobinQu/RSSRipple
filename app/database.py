@@ -451,6 +451,7 @@ async def _apply_light_migrations(conn) -> None:
         # Agent consumption watermark (P4): latest FileResource.created_at the
         # agent has considered. Delta runs scan only newer resources.
         ("agents", "last_consumed_at", "DATETIME"),
+        ("agents", "current_run_token", "VARCHAR(36)"),
         # Scan-window lower bound recorded on AgentRun for manual windowed
         # runs (NULL = delta/targeted; 1970-01-01 = explicit "no limit").
         ("agent_runs", "scan_since", "DATETIME"),
@@ -616,7 +617,7 @@ async def _apply_light_migrations(conn) -> None:
             continue
         if table in ("organize_plans", "organize_configuration", "webhook_deliveries") or (
             table == "file_resources" and column == "magnet_resolve_attempt_id"
-        ):
+        ) or (table == "agents" and column == "current_run_token"):
             # Ownership/version columns are safety-critical: a partial schema
             # must fail startup rather than silently run old semantics.
             await conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} {ddl}'))

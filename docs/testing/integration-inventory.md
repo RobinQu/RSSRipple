@@ -1,5 +1,9 @@
 # 集成测试清单（重组后）
 
+## V34 AgentRun 租约候选
+
+`tests/integration/agent_run_lifecycle/`：真实 PG/Turso 共 38 项，覆盖有效/错误 token、过期拒绝复活、终态与租约同事务回滚、限量回收、无租约历史保留、级联删除，以及实际持锁后的双完成、双回收和续租/过期回收竞争。资源标题、GUID、URL 来自固定 SHA 的 prod_works_v1，身份和租约时序合成，不访问下载地址。新增实际 handler 的普通异常、取消、执行权撤销、健康慢任务续租和旧失败不覆盖新成功；尚未覆盖真实进程退出/Redis worker 恢复或旧库升级，专项通过不代表 V34 完成或完整门禁通过。 新增正常停止/一次取消/再次取消 × 两库六项，控制真实已写未提交的续租事务，确认外层等待提交、续租不被取消、无事件循环后台异常；与直接相关 B9/B7 合计 60 项通过。 已补既有 B9/B7、MemoryQueue 定时调度和 handler/scheduler 调用方组合回归，修正测试全局 sleep 隔离及请求错误说明契约后，同一组合 131 项通过。独立探针另验证四个普通异常/真实进程强退场景及数据库时钟自然过期回收；不把探针视为 Redis worker 接管验收。
+
 ## 认证器绑定安全回归
 
 `security/test_auth_enrollment.py` 正式包含 Turso 与 PostgreSQL 两个入口，每个以五项断言组覆盖实际进程首次启动/重启不记密钥、真实伪终端运行绑定 CLI、拒绝重定向、要求显式 `--show`、导入 URI 后经生产 ASGI 认证路由登录且旧 Cookie/持久凭证不变。应用使用 web 角色与内存队列，执行实际 lifespan/DDL，未访问外部来源；认证 HTTP 为 ASGI transport，不宣称网络服务器覆盖。密钥均在专用空库自动生成，不使用生产配置。
@@ -495,3 +499,13 @@ V32 范围回归：真实双库 HTTP 对通知 retry/regenerate 与 Agent run �
 `test_metadata.py` 双库调用真实元数据 upsert：电影/剧集新增或更新时接收一组来源别名，音频以 14 次刷新累计不超过 512 字符的来源标题；检查同一身份、完整别名和搜索列，剧集新增同时检查合集搜索列。标题录制，来源别名/身份明确合成；海报函数为返回 None 的边界替身，并断言所有参数确实为 None，不访问来源网站。
 
 V33/V32 联合启动回归（test_combined_startup.py）：真实 PostgreSQL 非 UTC 会话、同时存在旧 now() 默认和 VARCHAR 搜索列；分别注入 UTC 默认漂移、搜索列类型漂移、两项 DDL 后故障，断言目录整体回滚并可修复重试。成功与重复启动保持历史行逐字段不变，新数据库默认 UTC 正确，8192 字符完整保留且尾部可查。此组合依赖 V32 时间测试基础设施，不代表两个候选已验收合入。
+
+`queue_recovery/agent_lifecycle_driver.py` 与入口的 agent_lifecycle_kill/pause 模式：固定哈希录制资源标题/GUID/URL，合成身份和处理边界；真实独立 RedisQueue consumer 进程和 PostgreSQL。默认 15 秒队列租约自然接管同一 job，执行 token 必须不同；默认 30 秒 AgentRun 租约自然过期后，由独立观察者调用真实有界回收。强杀/暂停恢复均断言 failed+success、finished 非空、租约清空、旧运行不覆盖新摘要。此测试不是完整 worker/scheduler 启动或网络分区验收。
+
+V34 `agent_run_lifecycle/test_scheduler.py` 在双库、一/两个生产 APScheduler 和满载 MemoryQueue 下执行注册的回收任务：实际 DB 时钟到期、仅一个回收结果，有效租约与无租约旧历史保留。`test_database_disconnect.py` / `test_redis_disconnect.py` 对真实 PG/Redis TCP 转发连接主动断开，验证执行权未知时检查失败、心跳停止且截止时间不延长；这不是任意黑洞超时或完整 worker 入口验证。生命周期目录合计 44 项，与 B9/B7 合跑 66 项。
+
+`agent_run_lifecycle/test_migration.py` 从缺租约表/归属列的实际旧 schema 调用生产 create_tables，覆盖双库重入、历史/录制资源保留、索引及关键加列故障传播/重试。`test_legacy_review.py` 覆盖双库分页导出、选择性审核、回滚、精确重复执行、快照漂移/取得租约/记录消失、已审核完成时间漂移、无效批准及真实 CLI 的文件保护与停写确认。
+
+Turso CLI 夹具由独立子进程创建实际 MVCC 文件并完全退出后交给 CLI，遵守文件锁边界；不把父进程 dispose 当作文件锁已释放。审核标记同时校验原报告指纹和完成时间，防止后续时间漂移被幂等重放接受。
+
+V34 与 V30/V32/V33 兼容性：handler 保留显式 works 加载，生命周期、B9/B7、列表边界和完整迁移文件共同回归。`agent_run_lifecycle/test_time_contract.py` 对实际 handler 成功收尾与真实回收函数验证 PostgreSQL UTC/Asia/Shanghai/America/New_York 和 Turso：新历史与 Agent 摘要均为 naive UTC，租约 epoch 不随会话时区偏移；以独立 Python UTC/epoch 时钟作上下界。

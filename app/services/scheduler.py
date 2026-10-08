@@ -35,7 +35,15 @@ async def init_scheduler() -> None:  # pragma: no cover - wiring only
         return
     _scheduler = AsyncIOScheduler()
     from app.services.agent_resource_requests import dispatch_pending_requests
+    from app.services.agent_run_lifecycle import reap_expired_runs
     from app.services.channel_schedule import CHANNEL_RECONCILE_SECONDS
+
+    # Durable ownership reconciliation must work while all queue slots are busy.
+    _scheduler.add_job(
+        reap_expired_runs, trigger=IntervalTrigger(seconds=30),
+        id="agent_run_reconcile", replace_existing=True, coalesce=True,
+        max_instances=1, misfire_grace_time=30,
+    )
 
     _scheduler.add_job(
         dispatch_pending_requests, trigger=IntervalTrigger(seconds=5),

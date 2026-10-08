@@ -1,0 +1,194 @@
+"""Real SQL lease transitions, rollback, and competing transactions.
+
+These exercise the candidate primitives, not handler/worker recovery yet.
+"""
+
+import asyncio
+import time
+import uuid
+
+import pytest
+from sqlalchemy import delete, event, select, update
+
+from app.database import retry_on_lock
+from app.models.agent_run import AgentRun
+from app.models.agent_run_lease import AgentRunLease
+from app.services.agent_run_lifecycle import (
+    RunOwnership,
+    claim_completion,
+    create_lease,
+    reap_expired,
+    renew_lease,
+)
+from app.utils.time import utcnow
+
+
+async def expire(factory, owner):
+    async with factory() as db:
+        await db.execute(update(AgentRunLease).where(AgentRunLease.run_id == owner.run_id).values(expires_at_epoch=0))
+        await db.commit()
+
+
+async def read(factory, owner):
+    async with factory() as db:
+        run = await db.get(AgentRun, owner.run_id)
+        lease = await db.scalar(select(AgentRunLease).where(AgentRunLease.run_id == owner.run_id))
+        return run, lease
+
+
+async def complete(db, owner):
+    if not await claim_completion(db, owner):
+        return False
+    await db.execute(update(AgentRun).where(AgentRun.id == owner.run_id).values(status="success", finished_at=utcnow()))
+    return True
+
+
+async def test_live_completion_prevents_old_token_reuse(lifecycle_db):
+    _, factory, owner, _, resource_id = lifecycle_db
+    async with factory() as db:
+        assert await renew_lease(db, owner)
+        assert await complete(db, owner)
+        await db.commit()
+    async with factory() as db:
+        assert not await renew_lease(db, owner)
+        assert not await claim_completion(db, owner)
+        assert await reap_expired(db) == []
+    run, lease = await read(factory, owner)
+    assert run.status == "success" and run.finished_at is not None and lease is None
+    assert run.total_resources == run.matched == 1 and run.matched_resource_ids == [resource_id]
+
+
+async def test_wrong_token_cannot_renew_or_finish(lifecycle_db):
+    _, factory, owner, _, _ = lifecycle_db
+    wrong = RunOwnership(owner.run_id, str(uuid.uuid4()))
+    async with factory() as db:
+        assert not await renew_lease(db, wrong)
+        assert not await claim_completion(db, wrong)
+        await db.commit()
+    run, lease = await read(factory, owner)
+    assert run.status == "running" and lease.token == owner.token
+
+
+async def test_expiry_revokes_authority_and_preserves_partial_counters(lifecycle_db):
+    _, factory, owner, _, resource_id = lifecycle_db
+    await expire(factory, owner)
+    async with factory() as db:
+        assert not await renew_lease(db, owner)
+        assert not await claim_completion(db, owner)
+        assert await reap_expired(db) == [owner.run_id]
+        await db.commit()
+    run, lease = await read(factory, owner)
+    assert run.status == "failed" and run.finished_at is not None and lease is None
+    assert run.total_resources == run.matched == 1 and run.matched_resource_ids == [resource_id]
+    assert "Counters may be incomplete" in run.errors[0]
+    async with factory() as db:
+        assert await reap_expired(db) == []
+        assert not await claim_completion(db, owner)
+
+
+@pytest.mark.parametrize("operation", ["complete", "reap"])
+async def test_rollback_restores_history_and_lease_together(lifecycle_db, operation):
+    _, factory, owner, _, _ = lifecycle_db
+    if operation == "reap":
+        await expire(factory, owner)
+    async with factory() as db:
+        if operation == "reap":
+            assert await reap_expired(db) == [owner.run_id]
+        else:
+            assert await complete(db, owner)
+        await db.rollback()
+    run, lease = await read(factory, owner)
+    assert run.status == "running" and run.finished_at is None and lease.token == owner.token
+    async with factory() as db:
+        if operation == "reap":
+            assert await reap_expired(db) == [owner.run_id]
+        else:
+            assert await complete(db, owner)
+        await db.commit()
+
+
+async def test_bounded_reaper_preserves_unowned_legacy_history(lifecycle_db):
+    _, factory, owner, agent_id, _ = lifecycle_db
+    await expire(factory, owner)
+    async with factory() as db:
+        runs = [AgentRun(agent_id=agent_id, status="running") for _ in range(3)]
+        db.add_all(runs)
+        await db.flush()
+        owners = [await create_lease(db, run.id) for run in runs[:2]]
+        await db.commit()
+    for other in owners:
+        await expire(factory, other)
+    async with factory() as db:
+        first = await reap_expired(db, limit=2)
+        assert len(first) == 2
+        await db.commit()
+    async with factory() as db:
+        last = await reap_expired(db, limit=2)
+        assert len(last) == 1 and not set(first) & set(last)
+        await db.commit()
+    async with factory() as db:
+        legacy = await db.get(AgentRun, runs[-1].id)
+        assert legacy.status == "running" and legacy.finished_at is None
+
+
+async def test_run_deletion_cascades_lease(lifecycle_db):
+    _, factory, owner, _, _ = lifecycle_db
+    async with factory() as db:
+        await db.execute(delete(AgentRun).where(AgentRun.id == owner.run_id))
+        await db.commit()
+    async with factory() as db:
+        assert await db.scalar(select(AgentRunLease.id).where(AgentRunLease.run_id == owner.run_id)) is None
+        assert not await renew_lease(db, owner)
+
+
+@pytest.mark.parametrize("operation", ["complete", "reap", "renew"])
+async def test_competing_terminal_operations_recheck_committed_ownership(lifecycle_db, operation):
+    engine, factory, owner, _, _ = lifecycle_db
+    entered = asyncio.Event()
+    if operation == "reap":
+        await expire(factory, owner)
+    elif operation == "renew":
+        # A renewal remains uncommitted until the old deadline has elapsed.
+        # The reaper must recheck eligibility after that renewal commits.
+        async with factory() as db:
+            await db.execute(update(AgentRunLease).where(AgentRunLease.run_id == owner.run_id)
+                             .values(expires_at_epoch=int(time.time()) + 2))
+            await db.commit()
+
+    def before_cursor(conn, cursor, statement, parameters, context, executemany):
+        if context.execution_options.get("lease_contender") and statement.startswith("DELETE FROM agent_run_leases"):
+            entered.set()
+
+    async def contender():
+        async def attempt():
+            async with factory() as db:
+                await db.connection(execution_options={"lease_contender": True})
+                won = await complete(db, owner) if operation == "complete" else await reap_expired(db)
+                await db.commit()
+                return won
+        return await retry_on_lock(attempt)
+
+    task = None
+    event.listen(engine.sync_engine, "before_cursor_execute", before_cursor)
+    try:
+        async with factory() as winner:
+            if operation == "complete":
+                assert await complete(winner, owner)
+            elif operation == "reap":
+                assert await reap_expired(winner) == [owner.run_id]
+            else:
+                assert await renew_lease(winner, owner)
+                await asyncio.sleep(2.1)
+            task = asyncio.create_task(contender())
+            await asyncio.wait_for(entered.wait(), timeout=10)
+            await winner.commit()
+        result = await asyncio.wait_for(task, timeout=10)
+        assert result == (False if operation == "complete" else [])
+    finally:
+        if task is not None and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        event.remove(engine.sync_engine, "before_cursor_execute", before_cursor)
+    run, lease = await read(factory, owner)
+    assert run.status == {"complete": "success", "reap": "failed", "renew": "running"}[operation]
+    assert (lease is not None) == (operation == "renew")

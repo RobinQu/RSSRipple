@@ -50,6 +50,8 @@ class Agent(Base):
     )
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_run_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Internal attempt identity; only the newest started run publishes summaries.
+    current_run_token: Mapped[str | None] = mapped_column(String(36), nullable=True)
     # Compatibility timestamp for UI and explicit time-based scans/migration.
     # Incremental eligibility is owned by AgentPublicationProgress and the
     # channel's committed publication sequence, not resource creation time.

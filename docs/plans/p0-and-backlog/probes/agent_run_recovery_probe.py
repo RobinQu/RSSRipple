@@ -19,13 +19,13 @@ from urllib.parse import urlsplit, urlunsplit
 
 async def child(action):
     from agent_run_orphan_probe import phase
-    from app.models.agent_run_lease import AgentRunLease
-    from app.services.agent_run_lifecycle import reap_expired_runs
     from sqlalchemy import select
 
     from app import database
     from app.models.agent_run import AgentRun
+    from app.models.agent_run_lease import AgentRunLease
     from app.services import agent_run_execution
+    from app.services.agent_run_lifecycle import reap_expired_runs
 
     agent_run_execution.LEASE_SECONDS = 3
     agent_run_execution.HEARTBEAT_SECONDS = 0.25

@@ -4,6 +4,7 @@ from app.models.agent import Agent
 from app.models.agent_publication_progress import AgentPublicationProgress
 from app.models.agent_resource_request import AgentResourceRequest
 from app.models.agent_run import AgentRun
+from app.models.agent_run_lease import AgentRunLease
 from app.models.agent_suggestion import AgentSuggestion
 from app.models.agent_webhook import AgentWebhook
 from app.models.agent_work import AgentWork
@@ -46,6 +47,7 @@ from app.models.work_collection import WorkCollection
 from app.models.work_external_id import WorkExternalId
 
 __all__ = [
+    "AgentRunLease",
     "ResourceReparseRequest",
     "AuthRateLimitBucket",
     "AgentPublicationProgress",
