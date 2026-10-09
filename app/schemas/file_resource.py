@@ -295,6 +295,37 @@ class AssociationFileAssignment(BaseModel):
         return self
 
 
+class ResourceMediaFields(BaseModel):
+    """Typed media-descriptor corrections accepted under ``fields``.
+
+    Mirrors ``resource_association.MEDIA_FIELDS``: every key is optional and
+    only explicitly-sent keys are applied (unknown keys are ignored, matching
+    the previous untyped-dict behavior). ``__contains__``/``__getitem__``
+    keep the model dict-compatible with the service's
+    ``if key in fields: setattr(resource, key, fields[key])`` loop without
+    changing that code.
+    """
+
+    title_cn: str | None = None
+    title_en: str | None = None
+    search_title: str | None = None
+    resolution: str | None = None
+    subtitle_group: str | None = None
+    subtitle_groups: list[str] | None = None
+    source: str | None = None
+    video_codec: str | None = None
+    audio_codec: str | None = None
+    subtitle_type: str | None = None
+    container: str | None = None
+    subtitle_langs: list[str] | None = None
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.model_fields_set
+
+    def __getitem__(self, key: str):
+        return getattr(self, key)
+
+
 class ResourceAssociationUpdateRequest(BaseModel):
     """Payload for PUT /resources/{id}/associations — the edit wizard's full
     desired state, replacing the resource's association set atomically.
@@ -329,7 +360,7 @@ class ResourceAssociationUpdateRequest(BaseModel):
     episode: int | None = None
     absolute_episode: int | None = None
     # Generic media-descriptor corrections applied in the same transaction.
-    fields: dict[str, Any] | None = None
+    fields: ResourceMediaFields | None = None
 
 
 class ResourceFileEntry(BaseModel):

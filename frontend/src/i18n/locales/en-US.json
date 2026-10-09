@@ -41,7 +41,15 @@
     "on": "On",
     "off": "Off",
     "yes": "Yes",
-    "no": "No"
+    "no": "No",
+    "pageNotFound": "Sorry, the page you visited does not exist.",
+    "backHome": "Back to home",
+    "remove": "Remove",
+    "copy": "Copy",
+    "expand": "Expand",
+    "collapse": "Collapse",
+    "pause": "Pause",
+    "resume": "Resume"
   },
   "nav": {
     "brand": "RSSRipple",
@@ -129,6 +137,17 @@
     "refetchAllMetadata": "Re-fetch metadata for every item",
     "fetchTriggerFailed": "Fetch trigger failed",
     "fetching": "Fetching...",
+    "pause": "Pause",
+    "resume": "Resume",
+    "pauseConfirm": "Pause this channel?",
+    "pauseConfirmContent": "A paused channel stops scheduled fetches and rejects manual fetches. An in-flight fetch is not interrupted and still writes back its fetch status when done.",
+    "resumeConfirm": "Resume this channel?",
+    "resumeConfirmContent": "Scheduled fetches resume within ~30 seconds (per-worker reconcile tick); the system-managed error state is cleared.",
+    "paused": "Channel paused",
+    "resumed": "Channel resumed",
+    "pauseFailed": "Pause failed",
+    "resumeFailed": "Resume failed",
+    "fetchPausedTip": "Channel is paused; resume it to fetch",
     "notFound": "Channel not found",
     "lastFetchPrefix": "Last fetch: ",
     "lastFailed": "Last Failed",
@@ -468,6 +487,8 @@
     "taskError": "Error",
     "copyError": "Copy error",
     "errorCopied": "Error copied",
+    "copyFailed": "Copy failed",
+    "taskActionFailed": "Action failed",
     "taskCreatedAt": "Created",
     "taskUpdatedAt": "Updated",
     "deleteTaskConfirm": "Delete download task?",
@@ -1294,6 +1315,14 @@
       "namePlaceholder": "e.g. vault-organizer",
       "prefix": "Prefix",
       "createdAt": "Created",
+      "expiresAt": "Expires",
+      "expiresPlaceholder": "Optional — leave empty for no expiry",
+      "neverExpires": "Never",
+      "expired": "Expired",
+      "rotate": "Rotate",
+      "rotateConfirm": "Rotate this API key? The old key stops working immediately; the new key is shown only once.",
+      "rotatedTitle": "API key rotated",
+      "rotateFailed": "Failed to rotate API key",
       "deleteConfirm": "Delete this API key? Clients using it will lose access immediately.",
       "createdTitle": "API key created",
       "shownOnce": "This key is shown only once — copy it now and store it somewhere safe.",
@@ -1565,5 +1594,9 @@
     "identity": "Identity: {source}:{id}",
     "applied_one": "Updated {count} field",
     "applied_other": "Updated {count} fields"
+  },
+  "sidebar": {
+    "expand": "Expand sidebar",
+    "collapse": "Collapse sidebar"
   }
 }

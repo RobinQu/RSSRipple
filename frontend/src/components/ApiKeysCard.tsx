@@ -1,16 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
-import { App, Button, Card, Form, Input, Modal, Popconfirm, Table, Typography } from 'antd';
+import { App, Button, Card, DatePicker, Form, Input, Modal, Popconfirm, Table, Tag, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
-import { KeyRound, Plus, Trash2 } from 'lucide-react';
+import type { Dayjs } from 'dayjs';
+import { KeyRound, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { apiKeysApi } from '../api/apiKeys';
-import { timeAgo } from '../utils/format';
+import { formatDate, timeAgo } from '../utils/format';
 import type { ApiKey, ApiKeyCreated } from '../types';
 
 const { Text } = Typography;
 
 /** Settings card for personal API keys. The full key is returned only at
- * creation time, so it is shown in a one-off follow-up modal. */
+ * creation/rotation time, so it is shown in a one-off follow-up modal. */
 export default function ApiKeysCard() {
   const { t } = useTranslation();
   const { message } = App.useApp();
@@ -20,10 +21,11 @@ export default function ApiKeysCard() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [form] = Form.useForm<{ name: string }>();
+  const [form] = Form.useForm<{ name: string; expires_at?: Dayjs | null }>();
 
-  // The just-created key, shown exactly once.
+  // The just-created (or just-rotated) key, shown exactly once.
   const [created, setCreated] = useState<ApiKeyCreated | null>(null);
+  const [createdModalTitle, setCreatedModalTitle] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -52,18 +54,33 @@ export default function ApiKeysCard() {
     };
   }, []);
 
+  const showPlaintextOnce = (data: ApiKeyCreated, title: string) => {
+    setCreated(data);
+    setCreatedModalTitle(title);
+  };
+
   const handleCreate = async () => {
-    const { name } = await form.validateFields();
+    const { name, expires_at } = await form.validateFields();
     setCreating(true);
-    const r = await apiKeysApi.create(name.trim());
+    const r = await apiKeysApi.create(name.trim(), expires_at ? expires_at.toISOString() : null);
     setCreating(false);
     if (r.success) {
       setCreateOpen(false);
       form.resetFields();
-      setCreated(r.data);
+      showPlaintextOnce(r.data, t('settings.apiKeys.createdTitle'));
       await load();
     } else {
       message.error(r.error?.message || t('settings.apiKeys.createFailed'));
+    }
+  };
+
+  const handleRotate = async (record: ApiKey) => {
+    const r = await apiKeysApi.rotate(record.id);
+    if (r.success) {
+      showPlaintextOnce(r.data, t('settings.apiKeys.rotatedTitle'));
+      await load();
+    } else {
+      message.error(r.error?.message || t('settings.apiKeys.rotateFailed'));
     }
   };
 
@@ -101,20 +118,48 @@ export default function ApiKeysCard() {
       ),
     },
     {
+      title: t('settings.apiKeys.expiresAt'),
+      dataIndex: 'expires_at',
+      key: 'expires_at',
+      width: 180,
+      render: (v: string | null) => {
+        if (!v) {
+          return <Text type="secondary" style={{ fontSize: 12 }}>{t('settings.apiKeys.neverExpires')}</Text>;
+        }
+        const expired = new Date(v).getTime() <= Date.now();
+        return (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Text type={expired ? 'danger' : 'secondary'} style={{ fontSize: 12 }}>{formatDate(v)}</Text>
+            {expired && <Tag color="red" style={{ marginInlineEnd: 0 }}>{t('settings.apiKeys.expired')}</Tag>}
+          </span>
+        );
+      },
+    },
+    {
       title: t('common.actions'),
       key: 'actions',
-      width: 80,
+      width: 110,
       align: 'right',
       render: (_, record) => (
-        <Popconfirm
-          title={t('settings.apiKeys.deleteConfirm')}
-          okText={t('common.confirm')}
-          cancelText={t('common.cancel')}
-          okButtonProps={{ danger: true }}
-          onConfirm={() => handleDelete(record)}
-        >
-          <Button type="text" size="small" danger icon={<Trash2 size={14} />} />
-        </Popconfirm>
+        <span style={{ display: 'inline-flex', gap: 4 }}>
+          <Popconfirm
+            title={t('settings.apiKeys.rotateConfirm')}
+            okText={t('common.confirm')}
+            cancelText={t('common.cancel')}
+            onConfirm={() => handleRotate(record)}
+          >
+            <Button type="text" size="small" icon={<RefreshCw size={14} />} aria-label={t('settings.apiKeys.rotate')} />
+          </Popconfirm>
+          <Popconfirm
+            title={t('settings.apiKeys.deleteConfirm')}
+            okText={t('common.confirm')}
+            cancelText={t('common.cancel')}
+            okButtonProps={{ danger: true }}
+            onConfirm={() => handleDelete(record)}
+          >
+            <Button type="text" size="small" danger icon={<Trash2 size={14} />} aria-label={t('common.delete')} />
+          </Popconfirm>
+        </span>
       ),
     },
   ];
@@ -166,11 +211,18 @@ export default function ApiKeysCard() {
           >
             <Input placeholder={t('settings.apiKeys.namePlaceholder')} maxLength={64} />
           </Form.Item>
+          <Form.Item name="expires_at" label={t('settings.apiKeys.expiresAt')}>
+            <DatePicker
+              showTime
+              style={{ width: '100%' }}
+              placeholder={t('settings.apiKeys.expiresPlaceholder')}
+            />
+          </Form.Item>
         </Form>
       </Modal>
 
       <Modal
-        title={t('settings.apiKeys.createdTitle')}
+        title={createdModalTitle}
         open={!!created}
         footer={
           <Button type="primary" onClick={() => setCreated(null)}>

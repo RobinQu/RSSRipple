@@ -26,5 +26,9 @@ export const mediaServersApi = {
   testUnsaved: (payload: MediaServerTestPayload) =>
     api.post<MediaServerTestResult>('/media-servers/test', payload),
   // Scan sections and upsert derived Libraries → { created, updated, unbound }.
-  scan: (id: string) => api.post<MediaServerScanResult>(`/media-servers/${id}/scan`),
+  scan: (id: string) =>
+    api.post<MediaServerScanResult>(`/media-servers/${id}/scan`, undefined, undefined, {
+      // Listing every section of a large remote library can exceed the 30s default.
+      timeout: 60_000,
+    }),
 };

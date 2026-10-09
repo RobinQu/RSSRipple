@@ -2,9 +2,11 @@
 
 import asyncio
 import logging
+from collections import OrderedDict
 from datetime import timedelta
 
 from sqlalchemy import and_, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -71,13 +73,27 @@ MAX_METADATA_CONCURRENCY = 4
 # commit section per normalized search title so the first task's commit is
 # visible to the next task's lookup. Cross-process duplicates (PostgreSQL
 # replicas) remain possible; the daily dedup job is the backstop for those.
-_WORK_METADATA_LOCKS: dict[str, asyncio.Lock] = {}
+# The lock registry is LRU-bounded so a long-lived process cannot grow it
+# without limit as distinct work titles accumulate.
+_MAX_WORK_METADATA_LOCKS = 10_000
+_WORK_METADATA_LOCKS: OrderedDict[str, asyncio.Lock] = OrderedDict()
 
 
 def _work_metadata_lock(key: str) -> asyncio.Lock:
     lock = _WORK_METADATA_LOCKS.get(key)
-    if lock is None:
-        lock = _WORK_METADATA_LOCKS[key] = asyncio.Lock()
+    if lock is not None:
+        _WORK_METADATA_LOCKS.move_to_end(key)
+        return lock
+    lock = asyncio.Lock()
+    _WORK_METADATA_LOCKS[key] = lock
+    # Evict least-recently-used *idle* locks. A held lock is never evicted —
+    # that would split its critical section — so the dict may exceed the cap
+    # while that many locks are simultaneously in flight.
+    for old_key, old_lock in list(_WORK_METADATA_LOCKS.items()):
+        if len(_WORK_METADATA_LOCKS) <= _MAX_WORK_METADATA_LOCKS:
+            break
+        if not old_lock.locked():
+            del _WORK_METADATA_LOCKS[old_key]
     return lock
 
 
@@ -767,6 +783,43 @@ async def reconcile_stale_raw_episodes(
     return changed_ids if return_resource_ids else len(changed_ids)
 
 
+# Chunk size for the per-batch GUID dedup lookup; stays comfortably under the
+# SQLite host-variable limit (999) shared by pysqlite and aioturso.
+_GUID_LOOKUP_CHUNK = 500
+
+
+def _entry_guid(entry) -> str:
+    """Feed-entry identity used for dedup (same precedence at snapshot time as
+    in the insert loop)."""
+    return getattr(entry, "id", None) or entry.get("link") or entry.get("title", "")
+
+
+def _is_channel_guid_conflict(exc: IntegrityError) -> bool:
+    """Whether ``exc`` is the ``uq_file_resources_channel_guid`` unique
+    constraint — as opposed to any other integrity failure, which must still
+    abort the fetch job."""
+    message = str(exc.orig or exc).lower()
+    return (
+        # PostgreSQL reports the constraint name.
+        "uq_file_resources_channel_guid" in message
+        # pysqlite / aioturso report the failing columns.
+        or "unique constraint failed: file_resources.channel_id, file_resources.guid" in message
+        or "unique constraint failed: file_resources.(channel_id, guid)" in message
+    )
+
+
+
+async def _channel_is_paused(db: AsyncSession, channel_id: str) -> bool:
+    """Fresh read of the channel's status: True when currently paused.
+
+    The in-session ORM object may hold a stale pre-pause value loaded at job
+    start, so status write-backs must re-read before touching ``status``.
+    A deleted channel (None) is not "paused" — legacy write-back behavior
+    (and its existing failure mode) is preserved.
+    """
+    status = await db.scalar(select(Channel.status).where(Channel.id == channel_id))
+    return status == "inactive"
+
 
 async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: bool = False) -> dict:
     """Fetch RSS feed for a channel, parse entries, store new FileResources,
@@ -806,7 +859,10 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
         feed = None
 
     if feed_error is not None:
-        channel.status = "error"
+        # A pause committed while this job was in flight must stick: the job
+        # still writes back last_fetch_*, but never flips a paused channel.
+        if not await _channel_is_paused(db, channel.id):
+            channel.status = "error"
         channel.last_fetch_status = "failed"
         channel.last_fetch_error = feed_error
         await db.commit()
@@ -817,11 +873,21 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
     # still re-runs retry-eligible unmatched resources, so a transiently empty
     # feed still makes repair progress. The new-entry loop is simply a no-op.
 
-    # 2. Existing GUIDs for dedup
-    result = await db.execute(
-        select(FileResource.guid).where(FileResource.channel_id == channel.id)
-    )
-    existing_guids = {row[0] for row in result.all()}
+    # 2. Existing GUIDs for dedup. Only the GUIDs this batch of feed entries
+    # actually carries are looked up (IN query, chunked under the SQLite
+    # host-variable limit) instead of loading the channel's entire GUID
+    # history into memory on every fetch.
+    entry_guids = [g for g in (_entry_guid(e) for e in entries) if g]
+    existing_guids: set[str] = set()
+    for start in range(0, len(entry_guids), _GUID_LOOKUP_CHUNK):
+        chunk = entry_guids[start:start + _GUID_LOOKUP_CHUNK]
+        result = await db.execute(
+            select(FileResource.guid).where(
+                FileResource.channel_id == channel.id,
+                FileResource.guid.in_(chunk),
+            )
+        )
+        existing_guids.update(row[0] for row in result.all())
 
     column_names = {c.name for c in FileResource.__table__.columns}
     new_count = 0
@@ -829,7 +895,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
 
     for entry in entries:
         await require_execution_ownership()
-        guid = getattr(entry, "id", None) or entry.get("link") or entry.get("title", "")
+        guid = _entry_guid(entry)
         if not guid or guid in existing_guids:
             continue
 
@@ -956,8 +1022,36 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
             resource.episode = pre_ep
             resource.absolute_episode = pre_abs
             resource.episode_confidence = "reconciled"
-        db.add(resource)
-        await db.flush()
+        if db.get_bind().dialect.name == "sqlite":
+            # Turso starts its physical transaction on DML, not on SAVEPOINT.
+            # Force BEGIN before the savepoint below, so releasing/rolling
+            # back that first savepoint cannot implicitly COMMIT the insert
+            # ahead of publish_resource (same trap as the metadata-phase guard
+            # in _process_resource_metadata).
+            from sqlalchemy import text
+
+            await db.execute(text("UPDATE file_resources SET id = id WHERE 1 = 0"))
+        try:
+            # db.add stays inside the savepoint: begin_nested() flushes
+            # already-pending objects *before* SAVEPOINT is emitted, so an
+            # add outside it would fail unprotected and poison the whole
+            # transaction on conflict.
+            async with db.begin_nested():
+                db.add(resource)
+                await db.flush()
+        except IntegrityError as exc:
+            if not _is_channel_guid_conflict(exc):
+                raise
+            # A concurrent fetch/replay stored the same (channel, guid) after
+            # the dedup snapshot above. Roll back only this insert (SAVEPOINT),
+            # treat the entry as already known, and keep processing the rest
+            # of the feed instead of aborting the whole fetch job.
+            logger.info(
+                "[fetch:%s] guid=%s already stored by a concurrent writer; skipping",
+                channel.id, guid,
+            )
+            existing_guids.add(guid)
+            continue
         from app.services.resource_publication import publish_resource
 
         await publish_resource(db, resource.id, kind="created")
@@ -1029,7 +1123,9 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
     if feed_error is None:
         channel.last_fetched_at = utcnow()
         channel.last_fetch_status = "success"
-        channel.status = "active"
+        # Preserve a pause committed while this fetch was in flight.
+        if not await _channel_is_paused(db, channel.id):
+            channel.status = "active"
         channel.last_fetch_error = None
 
     from app.models.agent import Agent

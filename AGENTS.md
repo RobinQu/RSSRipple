@@ -57,7 +57,7 @@
 ### API（详见 api-endpoints.md）
 
 - 前缀 `/api/v1`；统一响应结构 `{success,data,error,meta}`；分页 `page`/`page_size`（最大 100）。
-- 认证默认开（`AUTH_ENABLED`）：Web 端 TOTP HttpOnly Cookie；程序端 API key（`rr_` 明文仅创建时返回一次；`Authorization: Bearer` 或 `X-API-Key`）。
+- 认证默认开（`AUTH_ENABLED`）：Web 端 TOTP HttpOnly Cookie；程序端 API key（`rr_` 明文仅创建/轮换时返回一次，支持可选过期与 `POST /api-keys/{id}/rotate` 轮换；`Authorization: Bearer` 或 `X-API-Key`）。
 - `POST /agents` 的 `dispatch_resource_ids`：`null`=普通保存不动水位线；数组（含空）=经 rules-preview 派发选中资源并原子重置发布准入/游标。
 - 三个修订端点（`PATCH /resources/{id}/episode`、`PATCH /resources/{id}`、`PUT /resources/{id}/associations`）先 commit 再入队定向运行；`PUT .../associations` 为编辑向导统一提交。
 

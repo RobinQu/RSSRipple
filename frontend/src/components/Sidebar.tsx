@@ -146,6 +146,7 @@ export function MobileNav() {
             target="_blank"
             rel="noreferrer"
             icon={<ExternalLink size={16} />}
+            aria-label="GitHub"
             style={iconButtonStyle}
           />
           <Button
@@ -298,6 +299,7 @@ export default function Sidebar() {
               rel="noreferrer"
               icon={<ExternalLink size={16} />}
               title="GitHub"
+              aria-label="GitHub"
               style={iconButtonStyle}
             />
           )}
@@ -308,6 +310,7 @@ export default function Sidebar() {
               icon={<Languages size={16} />}
               onClick={() => switchLanguage(i18n.language === 'zh-CN' ? 'en-US' : 'zh-CN')}
               title={t('language.switch')}
+              aria-label={t('language.switch')}
               style={iconButtonStyle}
             />
           ) : (
@@ -327,7 +330,8 @@ export default function Sidebar() {
             type="text"
             icon={collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
             onClick={() => handleCollapse(!collapsed)}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={collapsed ? t('sidebar.expand') : t('sidebar.collapse')}
+          aria-label={collapsed ? t('sidebar.expand') : t('sidebar.collapse')}
           style={collapsed ? iconButtonStyle : { color: 'var(--rr-text-secondary)' }}
           />
           <Button
@@ -336,6 +340,7 @@ export default function Sidebar() {
             icon={<LogOut size={16} />}
             onClick={() => void handleLogout()}
             title={t('auth.logout')}
+            aria-label={t('auth.logout')}
             style={iconButtonStyle}
           />
         </div>

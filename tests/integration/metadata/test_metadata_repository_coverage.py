@@ -340,7 +340,7 @@ async def test_movie_verdict_with_resource_row_evidence_keeps_series(db_session)
 
     channel = Channel(
         id=_uuid(), name="Evidence Channel", type="rss_feed",
-        url="https://example.com/feed", fetch_interval=1800, status="active",
+        url=f"https://example.com/feed/{_uuid()}", fetch_interval=1800, status="active",
         field_mapping={"list_locator": {"source": "entries"},
                        "field_mappings": {"torrent_url": {"source": "link"}}},
         metadata_agent_enabled=False,

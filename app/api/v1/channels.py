@@ -4,7 +4,7 @@ import json
 import logging
 from collections import Counter
 
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -56,6 +56,41 @@ def _valid_field_mapping(mapping: dict | None) -> bool:
     return any(isinstance(v, dict) and v.get("source") for v in mapping.values())
 
 
+def _is_browser_session(request: Request) -> bool:
+    """Browser sessions carry the TOTP session cookie; API-key clients do not."""
+    from app.services.auth_service import AUTH_COOKIE_NAME
+
+    return AUTH_COOKIE_NAME in request.cookies
+
+
+async def _check_form_token(request: Request, x_form_token: str | None):
+    """Double-submit guard for channel create/update.
+
+    Browser sessions (auth cookie present) must present a valid
+    ``X-Form-Token``: a missing token is a malformed submission → 422
+    VALIDATION_ERROR; a rejected consume (unknown/expired token or a repeat
+    inside the duplicate window) → 409 DUPLICATE_SUBMISSION. Pure API-key
+    clients (no cookie) stay exempt for backward compatibility.
+    """
+    if x_form_token is None:
+        if _is_browser_session(request):
+            return JSONResponse(status_code=422, content={
+                "success": False, "data": None,
+                "error": {"code": "VALIDATION_ERROR",
+                          "message": "X-Form-Token header is required for browser submissions"},
+                "meta": {},
+            })
+        return None
+    from app.services.submission_guard import submission_guard
+    if not await submission_guard.consume(x_form_token):
+        return JSONResponse(status_code=409, content={
+            "success": False, "data": None,
+            "error": {"code": "DUPLICATE_SUBMISSION", "message": "This form was already submitted."},
+            "meta": {},
+        })
+    return None
+
+
 @router.get("/channels")
 async def list_channels(
     page: int = Query(1, ge=1),
@@ -95,6 +130,7 @@ async def list_channels(
 @router.post("/channels", status_code=201)
 async def create_channel(
     body: ChannelCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     x_form_token: str | None = Header(default=None),
 ):
@@ -106,14 +142,9 @@ async def create_channel(
             "meta": {},
         })
 
-    if x_form_token is not None:
-        from app.services.submission_guard import submission_guard
-        if not await submission_guard.consume(x_form_token):
-            return JSONResponse(status_code=409, content={
-                "success": False, "data": None,
-                "error": {"code": "DUPLICATE_SUBMISSION", "message": "This form was already submitted."},
-                "meta": {},
-            })
+    token_error = await _check_form_token(request, x_form_token)
+    if token_error is not None:
+        return token_error
 
     try:
         is_valid, feed_msg, item_count, downloadable_count = await validate_rss_url(body.url)
@@ -264,17 +295,13 @@ async def get_channel(channel_id: str, db: AsyncSession = Depends(get_db)):
 async def update_channel(
     channel_id: str,
     body: ChannelUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     x_form_token: str | None = Header(default=None),
 ):
-    if x_form_token is not None:
-        from app.services.submission_guard import submission_guard
-        if not await submission_guard.consume(x_form_token):
-            return JSONResponse(status_code=409, content={
-                "success": False, "data": None,
-                "error": {"code": "DUPLICATE_SUBMISSION", "message": "This form was already submitted."},
-                "meta": {},
-            })
+    token_error = await _check_form_token(request, x_form_token)
+    if token_error is not None:
+        return token_error
     channel = await db.get(Channel, channel_id)
     if not channel:
         return _not_found()
@@ -342,11 +369,53 @@ async def delete_channel(channel_id: str, db: AsyncSession = Depends(get_db)):
     return success_response({"deleted": True})
 
 
+@router.post("/channels/{channel_id}/pause")
+async def pause_channel(channel_id: str, db: AsyncSession = Depends(get_db)):
+    """Pause a channel (recommended over PUT status).
+
+    Idempotent. An in-flight fetch is NOT interrupted: its completion still
+    writes back last_fetch_status/last_fetched_at normally, but the paused
+    status is preserved (fetch_service never overwrites "inactive").
+    Scheduled jobs stop at the next per-worker reconcile tick (≤30s), and the
+    scheduled fetch handler skips inactive channels; manual fetch 409s.
+    """
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        return _not_found()
+    channel.status = "inactive"
+    await db.flush()
+    await db.refresh(channel)
+    return success_response(ChannelResponse.model_validate(channel).model_dump())
+
+
+@router.post("/channels/{channel_id}/resume")
+async def resume_channel(channel_id: str, db: AsyncSession = Depends(get_db)):
+    """Resume a paused channel (also clears the system-managed error state).
+
+    Idempotent. Periodic jobs are re-registered by the next per-worker
+    reconcile tick (≤30s).
+    """
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        return _not_found()
+    channel.status = "active"
+    await db.flush()
+    await db.refresh(channel)
+    return success_response(ChannelResponse.model_validate(channel).model_dump())
+
+
 @router.post("/channels/{channel_id}/fetch")
 async def fetch_channel(channel_id: str, force: bool = False, db: AsyncSession = Depends(get_db)):
     channel = await db.get(Channel, channel_id)
     if not channel:
         return _not_found()
+    if channel.status == "inactive":
+        return JSONResponse(status_code=409, content={
+            "success": False, "data": None,
+            "error": {"code": "INVALID_STATE",
+                      "message": "Channel is paused; resume it before fetching"},
+            "meta": {},
+        })
     from app.services.task_queue import task_queue
     key = f"channel:{channel_id}"
     existing = await task_queue.status(key)
@@ -432,8 +501,25 @@ async def preview_feed(body: PreviewFeedRequest):
 
 
 async def _stream_events(gen):
-    async for event in gen:
-        yield f"data: {json.dumps(api_json(event))}\n\n"
+    """Serialize SSE frames; errors go out as ``event: error`` frames.
+
+    The error contract (docs/design/error-handling.md) requires SSE failures
+    to use the ``error`` event name instead of a plain data frame so clients
+    listening on ``message`` don't silently treat them as progress. The whole
+    generator consumption sits inside the try so an exception raised by the
+    RSS fetch or the LLM stream still produces a terminal error frame instead
+    of truncating the connection.
+    """
+    try:
+        async for event in gen:
+            if event.get("type") == "error":
+                yield f"event: error\ndata: {json.dumps(api_json(event))}\n\n"
+            else:
+                yield f"data: {json.dumps(api_json(event))}\n\n"
+    except Exception:
+        logger.exception("[channels] analyze stream failed unexpectedly")
+        payload = api_json({"type": "error", "message": "Analysis stream failed unexpectedly"})
+        yield f"event: error\ndata: {json.dumps(payload)}\n\n"
 
 
 @router.post("/channels/analyze-url-stream")

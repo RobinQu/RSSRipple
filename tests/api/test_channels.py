@@ -181,15 +181,32 @@ class TestChannelsCRUD:
             "resource_collection",
         }
 
-    async def test_update_channel_status_not_editable(self, client, sample_channel):
-        # status is system-managed; the edit form must not be able to set it.
+    async def test_update_channel_status_pause_resume(self, client, sample_channel):
+        # status is explicitly updatable via PUT (pause/resume).
         res = await client.put(
             f"/api/v1/channels/{sample_channel.id}",
             json={"name": "X", "status": "inactive"},
         )
         assert res.status_code == 200
-        # status stays 'active' (the channel's existing value), not 'inactive'
+        assert res.json()["data"]["status"] == "inactive"
+
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={"status": "active"},
+        )
+        assert res.status_code == 200
         assert res.json()["data"]["status"] == "active"
+
+    async def test_update_channel_rejects_system_managed_status(self, client, sample_channel):
+        # "error" is set by the fetch write-back only; users pick
+        # active/inactive. Anything else fails schema validation (422).
+        for value in ("error", "bogus"):
+            res = await client.put(
+                f"/api/v1/channels/{sample_channel.id}",
+                json={"status": value},
+            )
+            assert res.status_code == 422
+        assert (await client.get(f"/api/v1/channels/{sample_channel.id}")).json()["data"]["status"] == "active"
 
     async def test_update_channel_persists_settings_without_web_scheduler(
         self, client, sample_channel, monkeypatch
@@ -743,6 +760,98 @@ class TestFormTokenGuard:
         )
         assert res.status_code == 409
 
+    async def test_create_browser_session_requires_form_token(self, client):
+        # Browser sessions carry the auth cookie; they must present a token.
+        with patch(
+            "app.api.v1.channels.validate_rss_url",
+            AsyncMock(return_value=(True, "ok", 5, 5)),
+        ):
+            res = await client.post(
+                "/api/v1/channels",
+                json=_channel_payload(),
+                headers={"Cookie": "rssripple_auth=fake-session"},
+            )
+        assert res.status_code == 422
+        assert res.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    async def test_update_browser_session_requires_form_token(self, client, sample_channel):
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={"name": "X"},
+            headers={"Cookie": "rssripple_auth=fake-session"},
+        )
+        assert res.status_code == 422
+        assert res.json()["error"]["code"] == "VALIDATION_ERROR"
+        # The update was rejected before touching the row.
+        got = await client.get(f"/api/v1/channels/{sample_channel.id}")
+        assert got.json()["data"]["name"] == "Test Channel"
+
+    async def test_browser_session_with_valid_token_accepted(self, client, sample_channel):
+        # The conftest fake guard accepts any presented token.
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={"name": "Renamed"},
+            headers={"Cookie": "rssripple_auth=fake-session", "X-Form-Token": "test-token"},
+        )
+        assert res.status_code == 200
+        assert res.json()["data"]["name"] == "Renamed"
+
+    async def test_api_key_client_without_token_still_exempt(self, client, sample_channel):
+        # No auth cookie = programmatic (API-key) caller → token stays optional.
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={"name": "Programmatic"},
+        )
+        assert res.status_code == 200
+        assert res.json()["data"]["name"] == "Programmatic"
+
+
+class TestChannelPauseResume:
+    async def test_pause_resume_roundtrip(self, client, sample_channel):
+        res = await client.post(f"/api/v1/channels/{sample_channel.id}/pause")
+        assert res.status_code == 200
+        assert res.json()["data"]["status"] == "inactive"
+
+        # Idempotent: pausing a paused channel is a no-op 200.
+        res = await client.post(f"/api/v1/channels/{sample_channel.id}/pause")
+        assert res.status_code == 200
+        assert res.json()["data"]["status"] == "inactive"
+
+        res = await client.post(f"/api/v1/channels/{sample_channel.id}/resume")
+        assert res.status_code == 200
+        assert res.json()["data"]["status"] == "active"
+
+    async def test_resume_clears_error_state(self, client, sample_channel, db_session_factory):
+        from app.models.channel import Channel
+
+        async with db_session_factory() as s:
+            ch = await s.get(Channel, sample_channel.id)
+            ch.status = "error"
+            await s.commit()
+        res = await client.post(f"/api/v1/channels/{sample_channel.id}/resume")
+        assert res.status_code == 200
+        assert res.json()["data"]["status"] == "active"
+
+    async def test_pause_404(self, client):
+        res = await client.post("/api/v1/channels/does-not-exist/pause")
+        assert res.status_code == 404
+
+    async def test_resume_404(self, client):
+        res = await client.post("/api/v1/channels/does-not-exist/resume")
+        assert res.status_code == 404
+
+    async def test_manual_fetch_on_paused_channel_409(self, client, sample_channel):
+        res = await client.post(f"/api/v1/channels/{sample_channel.id}/pause")
+        assert res.status_code == 200
+        res = await client.post(f"/api/v1/channels/{sample_channel.id}/fetch")
+        assert res.status_code == 409
+        assert res.json()["error"]["code"] == "INVALID_STATE"
+
+        # After resume, manual fetch works again (fake queue from conftest).
+        await client.post(f"/api/v1/channels/{sample_channel.id}/resume")
+        res = await client.post(f"/api/v1/channels/{sample_channel.id}/fetch")
+        assert res.status_code == 200
+
 
 class TestCreateDegradation:
     async def test_create_propagates_validate_rss_url_exception(self, client):
@@ -955,6 +1064,30 @@ class TestAnalyzeStreams:
                 body = (await resp.aread()).decode()
         assert '"error"' in body
         assert "boom" in body
+        # Error frames use the SSE `error` event name per the contract.
+        assert "event: error" in body
+
+    async def test_analyze_url_stream_generator_exception(self, client):
+        async def _boom():
+            yield {"type": "delta", "content": "partial"}
+            raise RuntimeError("llm exploded")
+
+        with patch(
+            "app.api.v1.channels.get_raw_entries",
+            AsyncMock(return_value=[{"title": "[G] T - 01"}]),
+        ), patch(
+            "app.api.v1.channels.analyze_feed_stream",
+            return_value=_boom(),
+        ):
+            async with client.stream(
+                "POST", "/api/v1/channels/analyze-url-stream",
+                json={"url": "https://x/rss"},
+            ) as resp:
+                assert resp.status_code == 200
+                body = (await resp.aread()).decode()
+        # A mid-stream failure ends with an error frame, not a truncated stream.
+        assert "event: error" in body
+        assert "llm exploded" not in body
 
     async def test_analyze_url_stream_empty_feed(self, client):
         with patch(
@@ -1000,6 +1133,7 @@ class TestAnalyzeStreams:
             ) as resp:
                 body = (await resp.aread()).decode()
         assert '"error"' in body
+        assert "event: error" in body
 
     async def test_analyze_channel_stream_empty_feed(self, client, sample_channel):
         with patch(
@@ -1011,6 +1145,7 @@ class TestAnalyzeStreams:
             ) as resp:
                 body = (await resp.aread()).decode()
         assert "No entries found" in body
+        assert "event: error" in body
 
 
 class TestSummarizeFiltersEdges:

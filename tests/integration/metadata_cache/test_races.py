@@ -1,0 +1,75 @@
+"""Actual concurrent sessions; synchronization only controls scheduling."""
+import asyncio
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from app.models.metadata_cache import METADATA_CACHE_GENERATION, MetadataCache
+from app.services.metadata_repository import _get_cache, _set_cache
+from app.services.metadata_resource_meta import ResourceMetadata
+from tests.integration.dedup.conftest import dedup_postgres as dedup_postgres
+from tests.integration.dedup.conftest import dedup_turso as dedup_turso
+
+
+async def concurrent_writes(pair):
+    _, factory = pair
+    ready = asyncio.Event()
+    async def write(label):
+        async with factory() as db:
+            await ready.wait()
+            await _set_cache('shared title', 'wikipedia', ResourceMetadata(clean_title=label), db)
+            await db.commit()
+    tasks = [asyncio.create_task(write(label)) for label in ['first', 'second']]
+    ready.set()
+    await asyncio.wait_for(asyncio.gather(*tasks), 15)
+    async with factory() as db:
+        rows = (await db.scalars(select(MetadataCache))).all()
+        assert len(rows) == 1
+        assert rows[0].metadata_json['clean_title'] in {'first', 'second'}
+        assert rows[0].generation == METADATA_CACHE_GENERATION
+
+
+async def test_concurrent_postgres(dedup_postgres):
+    await concurrent_writes(dedup_postgres)
+
+
+async def test_postgres_stale_reader_does_not_delete_refresh(dedup_postgres):
+    engine, factory = dedup_postgres
+    async with factory() as db:
+        row = MetadataCache(title='stale race', source='metadata_agent:wikipedia',
+                            metadata_json={'clean_title': 'stale'}, generation=0)
+        db.add(row)
+        await db.commit()
+        old_id = row.id
+    read_done, refreshed = asyncio.Event(), asyncio.Event()
+
+    class PausedReader(AsyncSession):
+        async def execute(self, statement, *args, **kwargs):
+            result = await super().execute(statement, *args, **kwargs)
+            if statement.is_select:
+                read_done.set()
+                await asyncio.wait_for(refreshed.wait(), 10)
+            return result
+
+    reader_factory = async_sessionmaker(engine, class_=PausedReader, expire_on_commit=False)
+    async def read():
+        async with reader_factory() as db:
+            assert await _get_cache('stale race', 'wikipedia', db) is None
+            await db.commit()
+    task = asyncio.create_task(read())
+    try:
+        await asyncio.wait_for(read_done.wait(), 10)
+        async with factory() as db:
+            await _set_cache('stale race', 'wikipedia', ResourceMetadata(clean_title='fresh'), db)
+            await db.commit()
+        refreshed.set()
+        await asyncio.wait_for(task, 10)
+    finally:
+        refreshed.set()
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+    async with factory() as db:
+        row = await db.get(MetadataCache, old_id)
+        assert row is not None and row.generation == METADATA_CACHE_GENERATION
+        assert (await _get_cache('stale race', 'wikipedia', db)).clean_title == 'fresh'

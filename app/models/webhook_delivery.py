@@ -13,6 +13,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
@@ -29,6 +30,13 @@ class WebhookDelivery(Base):
         # Fan-out is idempotent: a notification produces at most one delivery
         # per webhook, no matter how often the fan-out pass runs.
         UniqueConstraint("notification_id", "webhook_id", name="uq_delivery_pair"),
+        # Due-delivery poll filters status='pending' and pages ORDER BY
+        # created_at ASC (P1-D5). (status, next_attempt_at) was evaluated and
+        # rejected: under a large pending-future-retry backlog Turso picks the
+        # status prefix and pays per-row rowid lookups, regressing ~10x vs a
+        # plain scan; (status, created_at) is beneficial or neutral in every
+        # measured distribution on both backends.
+        Index("ix_webhook_deliveries_status_created", "status", "created_at"),
     )
 
     id: Mapped[str] = mapped_column(

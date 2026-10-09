@@ -46,7 +46,7 @@ async def test_parent_rebuild_failure_restores_guards_and_rows(db_engine, db_ses
         await conn.execute(text("DROP TABLE file_resources"))
         await conn.execute(text(ddl))
     channel = Channel(id=str(uuid.uuid4()), name="Synthetic migration rollback", type="rss_feed",
-                      url="https://example.invalid/rss", field_mapping={})
+                      url=f"https://example.invalid/rss/{str(uuid.uuid4())}", field_mapping={})
     movie = Movie(id=str(uuid.uuid4()), title_cn="Synthetic movie")
     db_session.add_all([channel, movie])
     await db_session.flush()

@@ -166,7 +166,7 @@ async def _seed(db, payload: dict, *, resource_kw=None, task_kw=None):
     from app.models.channel import Channel
 
     channel = Channel(
-        id=_uuid(), name="ch", type="rss_feed", url="https://example.com/rss",
+        id=_uuid(), name="ch", type="rss_feed", url=f"https://example.com/rss/{_uuid()}",
         fetch_interval=1800, status="active",
         field_mapping={
             "list_locator": {"source": "entries"},
@@ -174,12 +174,20 @@ async def _seed(db, payload: dict, *, resource_kw=None, task_kw=None):
         },
         metadata_agent_enabled=False,
     )
-    dl = DownloaderInstance(
-        id=_uuid(), name="dl", type="transmission",
-        url="http://127.0.0.1:9091/transmission/rpc",
-        download_dir=payload["task"]["download_dir"] or "/downloads",
-        status="disconnected",
+    # downloader_instances.url 有唯一约束：同库重复 seed 时复用既有行
+    #（URL 必须保持指向真实 transmission 容器，改 URL 会断 RPC）。
+    dl = await db.scalar(
+        select(DownloaderInstance).where(
+            DownloaderInstance.url == "http://127.0.0.1:9091/transmission/rpc"
+        )
     )
+    if dl is None:
+        dl = DownloaderInstance(
+            id=_uuid(), name="dl", type="transmission",
+            url="http://127.0.0.1:9091/transmission/rpc",
+            download_dir=payload["task"]["download_dir"] or "/downloads",
+            status="disconnected",
+        )
     resource_kw_all = dict(
         id=_uuid(), channel_id=channel.id, guid=_uuid(), title_raw="raw",
         torrent_url="magnet:?xt=urn:btih:abc",
@@ -500,10 +508,13 @@ async def test_resolve_manifest_fetch_failure_falls_back_to_rpc(
     with pytest.raises(PlanError, match="路径"):
         await _resolve_manifest(db_session, NotificationPayload.model_validate(payload))
     client.get_torrent_files.return_value = {"files": [{"name": "ep04.mkv", "size": 100}]}
-    manifest = await _resolve_manifest(
+    resolved = await _resolve_manifest(
         db_session, NotificationPayload.model_validate(payload)
     )
+    assert resolved is not None
+    manifest, pending_cache = resolved
     assert manifest == [{"name": "ep04.mkv", "size": 100}]
+    assert pending_cache is None  # RPC 来源不回写 torrent 缓存
     assert fetch.await_count == 2
     # 拉取失败不写回 torrent_file 缓存
     await db_session.refresh(seed.resource)

@@ -72,7 +72,10 @@ async def test_schema_rejections_do_not_consume_verification_budget(auth_client,
     monkeypatch.setattr("app.api.v1.auth.verify_totp", lambda *_: False)
     for _ in range(6):
         assert (await auth_client.post("/api/v1/auth/otp", json={"code": {}})).status_code == 422
-    assert (await auth_client.post("/api/v1/auth/otp", json={"code": "not-six-digits"})).status_code == 401
+    # Malformed codes are rejected by the schema (422) before verification.
+    assert (await auth_client.post("/api/v1/auth/otp", json={"code": "not-six-digits"})).status_code == 422
+    # A well-formed but wrong code still reaches verification and gets 401.
+    assert (await auth_client.post("/api/v1/auth/otp", json={"code": "123456"})).status_code == 401
 
 
 async def test_database_failure_never_verifies_otp(auth_client, db_session_factory, monkeypatch):

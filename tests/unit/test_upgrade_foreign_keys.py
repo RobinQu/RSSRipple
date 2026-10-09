@@ -220,6 +220,11 @@ async def assert_fk_actions(engine, table, column, target, ondelete):
         invalid_values = dict(child_values)
         if table == "file_resources":
             invalid_values["guid"] = str(uuid.uuid4())
+        if table == "downloader_instances":
+            # name/url are unique now; the duplicate must isolate the FK
+            # violation it is meant to exercise.
+            invalid_values["name"] = str(uuid.uuid4())
+            invalid_values["url"] = f"https://example.invalid/{uuid.uuid4()}"
         with pytest.raises(IntegrityError, match="(?i)foreign key"):
             async with conn.begin_nested():
                 await conn.execute(

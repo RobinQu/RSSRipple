@@ -19,6 +19,16 @@ _scheduler: AsyncIOScheduler | None = None
 # 每 tick 补扫的无计划通知上限（organize 兜底重试）。
 _ORGANIZE_ORPHAN_BATCH = 50
 
+# Default misfire grace for every scheduled job. APScheduler's built-in
+# default is 1 second, and with LLM-heavy work sharing the event loop a tick
+# whose fire moment lands inside a blocked window was skipped outright — the
+# next chance is a full interval later (1h for the hourly jobs). Every job
+# registered here is an idempotent enqueue/dispatch tick (coalesce collapses
+# missed runs into one catch-up), so a late run is always harmless. 300s
+# covers the shortest 5s dispatch ticks through the 5-minute metadata
+# backfill; the daily cron jobs keep their explicit 1-hour override below.
+_MISFIRE_GRACE_SECONDS = 300
+
 
 def get_scheduler() -> AsyncIOScheduler:
     if _scheduler is None:
@@ -33,7 +43,9 @@ async def init_scheduler() -> None:  # pragma: no cover - wiring only
     if not settings.scheduler_enabled:
         logger.info("Scheduler disabled via SCHEDULER_ENABLED=false")
         return
-    _scheduler = AsyncIOScheduler()
+    _scheduler = AsyncIOScheduler(
+        job_defaults={"misfire_grace_time": _MISFIRE_GRACE_SECONDS},
+    )
     from app.services.agent_resource_requests import dispatch_pending_requests
     from app.services.agent_run_lifecycle import reap_expired_runs
     from app.services.channel_schedule import CHANNEL_RECONCILE_SECONDS
@@ -332,7 +344,20 @@ async def _enqueue_periodic_job(job_type: str) -> None:
             job_type, _PERIODIC_THROTTLE_TTL[job_type]
         ):
             return  # another worker's scheduler already ticked this interval
-        await task_queue.enqueue(job_type, f"job:{job_type}", {})
+        try:
+            await task_queue.enqueue(job_type, f"job:{job_type}", {})
+        except Exception:
+            # Nothing was enqueued, so the tick must not be consumed: roll
+            # the throttle key back and let the next tick (any worker) retry
+            # instead of silently losing the whole interval (≈24h for the
+            # daily jobs).
+            try:
+                await task_queue.release_throttle(job_type)
+            except Exception:
+                logger.warning(
+                    "Failed to release throttle for %s", job_type, exc_info=True,
+                )
+            raise
     except Exception as e:
         logger.warning("Failed to enqueue %s: %s", job_type, e)
 
@@ -578,6 +603,27 @@ async def _cleanup_expired() -> None:
 
     await require_execution_ownership()
     await cleanup_dispatch_reservations(db.bind, task_queue)
+
+    # Unreferenced .torrent cache sweep: orphan files (resource row gone) and
+    # superseded versions (torrent_file now points elsewhere), both gated by
+    # an in-flight age grace. Own short read-only transaction; a DB failure
+    # aborts the round with nothing deleted rather than risking a referenced
+    # file, and a per-file failure never stops the rest of the sweep.
+    from app.services.torrent_inspect import sweep_torrent_cache
+
+    try:
+        async with committed_session() as sweep_db:
+            sweep_report = await sweep_torrent_cache(sweep_db)
+        if sweep_report["deleted"] or sweep_report["errors"]:
+            logger.info(
+                "Torrent cache sweep: deleted %d of %d candidate(s), %d error(s)",
+                sweep_report["deleted"], sweep_report["scanned"],
+                sweep_report["errors"],
+            )
+    except ExecutionOwnershipLostError:
+        raise
+    except Exception as e:
+        logger.warning("Torrent cache sweep failed: %s", e)
 
 
 async def _check_downloader_connections() -> None:

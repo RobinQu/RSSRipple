@@ -40,7 +40,7 @@ async def test_cleanup_preserves_authoritative_associations(
     assert report.video_file_count == 27 and report.scope == "franchise"
     record_testsuite_property("torrent_sha256", TORRENT_SHA)
     record_testsuite_property("synthetic_inputs", "work identities, age, policy, explicit manual season 1")
-    channel = Channel(id=str(uuid.uuid4()), name="Synthetic cleanup", type="rss_feed", url="https://example.invalid/rss", field_mapping={},
+    channel = Channel(id=str(uuid.uuid4()), name="Synthetic cleanup", type="rss_feed", url=f"https://example.invalid/rss/{str(uuid.uuid4())}", field_mapping={},
                       auto_cleanup_unresolved_enabled=not manual_cleanup, auto_cleanup_unresolved_days=21)
     collection = WorkCollection(id=str(uuid.uuid4()), title_cn="Synthetic collection")
     series = TVSeries(id=str(uuid.uuid4()), title_cn="Synthetic season", season_number=1,
@@ -108,7 +108,7 @@ async def test_cleanup_preserves_authoritative_associations(
                                                           ("manual", False, 0), ("auto", True, 0), ("llm", True, 0)])
 async def test_cleanup_assignment_protection_is_selective(db_session, source, bound, expected_deleted):
     channel = Channel(id=str(uuid.uuid4()), name="Synthetic assignment cleanup", type="rss_feed",
-                      url="https://example.invalid/rss", field_mapping={})
+                      url=f"https://example.invalid/rss/{str(uuid.uuid4())}", field_mapping={})
     movie = Movie(id=str(uuid.uuid4()), title_cn="Synthetic movie")
     db_session.add_all([channel, movie])
     await db_session.flush()

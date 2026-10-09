@@ -7,10 +7,11 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String
+from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.db_types import json_column
 from app.utils.sql_time import UTCNow
 
 
@@ -27,7 +28,7 @@ class OrganizeAuditEntry(Base):
         index=True,
     )
     action: Mapped[str] = mapped_column(String(64), nullable=False)
-    detail: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    detail: Mapped[dict | None] = mapped_column(json_column(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=UTCNow(), nullable=False
     )

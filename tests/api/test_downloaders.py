@@ -231,6 +231,11 @@ class TestDownloaderActions:
         mock_transmission.list_torrents.side_effect = Exception("conn err")
         res = await client.get(f"/api/v1/downloaders/{sample_downloader.id}/torrents")
         assert res.status_code == 502
+        body = res.json()
+        assert body["error"]["code"] == "TRANSMISSION_ERROR"
+        # Internal exception details must not leak into the response.
+        assert "conn err" not in body["error"]["message"]
+        assert body["meta"] == {}
 
     async def test_delete_rejects_linked_agents(self, client, sample_downloader):
         # Create an agent pointing at this downloader first

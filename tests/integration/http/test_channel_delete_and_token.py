@@ -10,10 +10,15 @@ Covers:
   3. POST /channels with fresh token → 201 success
   4. POST /channels with same token again → 409 DUPLICATE_SUBMISSION
   5. PUT /channels/{id} with same token twice → 409 on second call
+
+X-Form-Token is mandatory only for browser sessions (rssripple_auth cookie
+present); these cookie-less requests count as programmatic API clients and
+are exempt (test_create_channel_without_token_still_works pins that).
 """
 
 import os
 import time
+import uuid
 
 import httpx
 import pytest
@@ -29,14 +34,24 @@ FEED_URL = f"{TEST_SERVER}/rss/mikanani"
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _create_channel(name: str = "Token Test Channel", url: str = FEED_URL,
+def _unique_feed_url() -> str:
+    """Per-channel unique URL — same feed content, no uq_channels_url clash.
+
+    The test-server feed routes ignore unknown query params, so the suffix
+    changes nothing about the payload while letting several channels coexist
+    (and surviving a delete racing an in-flight fetch).
+    """
+    return f"{FEED_URL}?case={uuid.uuid4().hex[:8]}"
+
+
+def _create_channel(name: str = "Token Test Channel", url: str | None = None,
                     token: str | None = None) -> httpx.Response:
     headers = {"X-Form-Token": token} if token else {}
     return httpx.post(
         f"{RSSRIPPLE}/api/v1/channels",
         json={
             "name": name,
-            "url": url,
+            "url": url or _unique_feed_url(),
             "fetch_interval": 3600,
             "field_mapping": {
                 "list_locator": {"source": "entries"},
@@ -131,7 +146,12 @@ class TestFormToken:
         assert body["error"]["code"] == "DUPLICATE_SUBMISSION"
 
     def test_create_channel_without_token_still_works(self):
-        """POST /channels without X-Form-Token succeeds (token is optional)."""
+        """POST /channels without X-Form-Token succeeds for API clients.
+
+        Only browser sessions (requests carrying the rssripple_auth cookie)
+        must present a form token; these tests send no cookie, so they are
+        treated as programmatic API clients and stay exempt.
+        """
         resp = _create_channel(name="No Token Test")
         assert resp.status_code == 201, resp.text
         self.created_channel_ids.append(resp.json()["data"]["id"])

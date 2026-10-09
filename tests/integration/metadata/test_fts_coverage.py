@@ -9,7 +9,7 @@ Targets (per data/coverage-report.txt missing lines):
 - ``_upsert``/``_delete`` round-trips plus the error-swallowing wrappers for
   all three work kinds
 - empty-query early returns, the single-char Python-scan fallback (incl. its
-  limit and failure branches), and ``_search_pg_like`` token semantics
+  limit and failure branches), and ``_search_like`` token semantics
   (multi-token OR, sub-2-char token drop, LIKE escaping, failure swallow)
 - ``rebuild_*`` happy / failure / non-Turso paths
 - ``backfill_fts_if_empty`` (populate, missing-table skip, non-Turso no-op)
@@ -277,7 +277,7 @@ async def test_search_swallows_fts_errors(db_session, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# _search_pg_like (PostgreSQL path, exercised over the test session)
+# _search_like (PostgreSQL primary / Turso recall fallback, exercised over the test session)
 # ---------------------------------------------------------------------------
 
 

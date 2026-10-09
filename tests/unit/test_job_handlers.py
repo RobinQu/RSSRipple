@@ -51,7 +51,8 @@ async def _make_resource(**overrides) -> tuple[FileResource, dict]:
     series_id = None
     async with async_session_factory() as session:
         session.add(Channel(
-            id=channel_id, name="ch", type="rss_feed", url="https://x/rss",
+            id=channel_id, name="ch", type="rss_feed",
+            url=f"https://x/rss-{channel_id}",  # channels.url is unique
             field_mapping={"list_locator": {"source": "entries"}},
             metadata_agent_enabled=False,
         ))

@@ -15,8 +15,9 @@
   整理常开，无开关；不存在 enabled 规则时整步跳过。
 - 重建：通知 regenerate 后，pending/failed 计划随新快照重建（沿用已人工
   指定的 library/category，op 目标重渲染）；done/running 短路不重建。
-  规则/媒体库配置变更（规则增删改、库更新）经 :func:`replan_open_plans`
-  对全部未执行计划做同样的重建（配置变更 API 的附带动作，失败只记日志）。
+  规则/媒体库配置变更（规则增删改、库更新）由配置 API 调度后台任务
+  （:func:`schedule_replan`，进程内去重合并、失败只记日志）经
+  :func:`replan_open_plans` 对全部未执行计划做同样的重建。
 - 执行（:func:`execute_plan` / :func:`execute_plans`）：状态门禁 +
   单 ``asyncio.Lock`` 进程内串行（对齐 vault-organizer），阻塞文件 IO 经
   ``asyncio.to_thread``；执行器本体在 :mod:`app.services.organize_executor`。
@@ -35,6 +36,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
@@ -55,7 +57,11 @@ from app.models.organize_plan_op import OrganizePlanOp
 from app.models.organize_rule import OrganizeRule
 from app.schemas.notification import NotificationPayload
 from app.services.media_server_service import refresh_library
-from app.services.organize_executor import ExecOp, run_execution
+from app.services.organize_executor import (
+    ExecOp,
+    run_execution,
+    sweep_stale_staging_files,
+)
 from app.services.organize_ownership import owned_thread
 from app.services.organize_plan_state import configuration_revision, reserve_revision
 from app.services.organize_planner import (
@@ -98,6 +104,24 @@ _executor_lock = asyncio.Lock()
 # 本进程正在执行的计划 id：区分「真正执行中」与「崩溃遗留的 running」
 # （后者可重放，由执行器幂等状态表收敛）。
 _executing_plan_ids: set[str] = set()
+# 后台任务强引用表（asyncio 官方推荐模式：create_task 结果必须持有到
+# 完成，否则任务可能被 GC 提前回收）。
+_background_tasks: set[asyncio.Task] = set()
+# 配置重建（schedule_replan）的进程内去重：运行中的任务与合并重跑标记。
+_replan_task: asyncio.Task | None = None
+_replan_dirty = False
+_replan_reason = ""
+# staging 孤儿文件回收的节流（每次规划 tick 至多检查一次间隔）。
+_last_staging_sweep = 0.0
+_STAGING_SWEEP_INTERVAL_SECONDS = 3600.0
+
+
+def _spawn_background(coro) -> asyncio.Task:
+    """create_task + 模块级强引用，done 回调移除。"""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return task
 
 
 def is_plan_executing(plan_id: str) -> bool:
@@ -173,15 +197,19 @@ def _preset_template(payload: NotificationPayload) -> str:
 # ---------------------------------------------------------------- 磁盘文件收集
 
 
-async def _resolve_manifest(db, payload: NotificationPayload) -> list[dict] | None:
+async def _resolve_manifest(
+    db, payload: NotificationPayload
+) -> tuple[list[dict], tuple[str, str] | None] | None:
     """``payload.files`` 缺失时回退获取 torrent 文件清单。
 
     清单用于按 ``download_dir/<清单路径>`` **精确匹配**磁盘文件（单文件
     种子平铺在共享下载根、或快照生成时 RPC 不可用导致 files 缺失的场景），
     从而把「绝不扫描共享下载根」细化为「只触碰 torrent 清单列出的文件」。
-    来源顺序：``resource.torrent_file`` 缓存 → ``torrent_url`` 拉取（成功
-    后回写缓存路径，随计划 commit 持久化）→ 下载器 RPC。全部不可用返回
-    None（调用方维持原报错）。
+    来源顺序：``resource.torrent_file`` 缓存 → ``torrent_url`` 拉取 →
+    下载器 RPC。拉取成功**不在规划主事务回写** ``resource.torrent_file``
+    （规划只落计划行）：返回 ``(清单, (resource_id, 缓存路径) | None)``，
+    由调用方在计划提交后经 :func:`_persist_torrent_cache` 独立事务
+    best-effort 回写。全部不可用返回 None（调用方维持原报错）。
     """
     from app.services.torrent_inspect import (
         fetch_torrent_file,
@@ -218,6 +246,7 @@ async def _resolve_manifest(db, payload: NotificationPayload) -> list[dict] | No
         return None
 
     files: list[dict] | None = None
+    pending_cache: tuple[str, str] | None = None
     if task.file_resource_id:
         resource = await db.get(FileResource, task.file_resource_id)
         if resource is not None:
@@ -232,8 +261,10 @@ async def _resolve_manifest(db, payload: NotificationPayload) -> list[dict] | No
                     except Exception:  # noqa: BLE001 — best-effort
                         new_path = None
                     if new_path:
-                        resource.torrent_file = new_path
-                        files = _from_torrent(new_path)
+                        parsed = _from_torrent(new_path)
+                        if parsed is not None:
+                            files = parsed
+                            pending_cache = (resource.id, new_path)
     if files is None and task.transmission_torrent_id and task.downloader_id:
         downloader = await db.get(DownloaderInstance, task.downloader_id)
         if downloader is not None:
@@ -250,7 +281,27 @@ async def _resolve_manifest(db, payload: NotificationPayload) -> list[dict] | No
     if not files:
         return None
 
-    return validate_manifest(files)
+    return validate_manifest(files), pending_cache
+
+
+async def _persist_torrent_cache(pending: tuple[str, str] | None) -> None:
+    """规划期解析到的 .torrent 缓存路径在计划提交后独立事务回写（best-effort）。
+
+    规划/重建/分类主事务不再写 FileResource 行（两阶段边界：规划只落计划
+    行）；回写失败只记日志——这只是缓存暖场，下次规划会重新拉取。
+    """
+    if pending is None:
+        return
+    resource_id, path = pending
+    try:
+        from app.database import committed_session
+
+        async with committed_session() as session:
+            resource = await session.get(FileResource, resource_id)
+            if resource is not None and resource.torrent_file != path:
+                resource.torrent_file = path
+    except Exception as e:  # noqa: BLE001 — best-effort
+        logger.warning("[organize] torrent 缓存路径回写失败（resource %s）：%s", resource_id, e)
 
 
 async def _resolve_downloader(db, payload: NotificationPayload) -> Any | None:
@@ -320,6 +371,30 @@ def _audit(db, plan_id: str, action: str, detail: dict | None = None) -> None:
 # ---------------------------------------------------------------- 规划
 
 
+async def _maybe_sweep_staging_files(libraries: dict[str, Any]) -> None:
+    """定期回收库根/回收站范围内崩溃遗留的 ``.rssripple-*.tmp`` 孤儿文件。
+
+    随规划 tick 节流触发（进程内每小时至多一次）；只扫 organize 目标库根
+    与回收站目录，宽限年龄内的文件不动（可能仍在被使用），best-effort。
+    """
+    global _last_staging_sweep
+    now = time.monotonic()
+    if now - _last_staging_sweep < _STAGING_SWEEP_INTERVAL_SECONDS:
+        return
+    _last_staging_sweep = now
+    roots = sorted(
+        {p for lib in libraries.values() for p in (lib.root_path, lib.recycle_path) if p}
+    )
+    for root in roots:
+        try:
+            removed = await asyncio.to_thread(sweep_stale_staging_files, root)
+        except Exception as e:  # noqa: BLE001 — best-effort
+            logger.warning("[organize] 孤儿临时文件回收失败（%s）：%s", root, e)
+            continue
+        if removed:
+            logger.info("[organize] 回收崩溃遗留临时文件 %d 个（%s）", len(removed), root)
+
+
 async def plan_for_notifications(
     db, notifications: list[DownloadNotification]
 ) -> dict:
@@ -351,6 +426,7 @@ async def plan_for_notifications(
     ).scalars().all()
     rule_ns = [_rule_ns(r) for r in rules]
     lib_ns = {lib.id: await asyncio.to_thread(_library_ns, lib) for lib in libraries}
+    await _maybe_sweep_staging_files(lib_ns)
 
     for notification in notifications:
         try:
@@ -391,12 +467,14 @@ async def _plan_one(
         return await _rebuild_plan(db, existing, notification, rules, libraries, config_revision)
 
     payload = NotificationPayload.model_validate(notification.payload)
+    pending_cache: tuple[str, str] | None = None
     try:
         if not payload.files:
             # 快照缺 files（生成时 RPC 不可用等）：回退 torrent 文件清单做
             # 精确匹配，让平铺在共享下载根的单文件种子也能定位。
-            manifest = await _resolve_manifest(db, payload)
-            if manifest:
+            resolved = await _resolve_manifest(db, payload)
+            if resolved:
+                manifest, pending_cache = resolved
                 payload = payload.model_copy(update={"files": manifest})
         downloader = await _resolve_downloader(db, payload)
         result = await asyncio.to_thread(
@@ -432,6 +510,7 @@ async def _plan_one(
             {"notification_id": notification.id, "error": str(e)},
         )
         await db.commit()
+        await _persist_torrent_cache(pending_cache)
         return "failed"
 
     plan = OrganizePlan(
@@ -464,6 +543,7 @@ async def _plan_one(
          "needs_category": result.needs_category},
     )
     await db.commit()
+    await _persist_torrent_cache(pending_cache)
     _maybe_auto_execute(plan.id, result)
     return "uncategorized" if result.uncategorized else "planned"
 
@@ -486,10 +566,12 @@ async def _rebuild_plan(
     """
     expected_revision = plan.revision
     payload = NotificationPayload.model_validate(notification.payload)
+    pending_cache: tuple[str, str] | None = None
     try:
         if not payload.files:
-            manifest = await _resolve_manifest(db, payload)
-            if manifest:
+            resolved = await _resolve_manifest(db, payload)
+            if resolved:
+                manifest, pending_cache = resolved
                 payload = payload.model_copy(update={"files": manifest})
         downloader = await _resolve_downloader(db, payload)
         category = plan.category
@@ -504,6 +586,7 @@ async def _rebuild_plan(
         logger.error(
             "[organize] 计划 %s 重建失败（保留旧计划）：%s", plan.id, e
         )
+        await _persist_torrent_cache(pending_cache)
         return "failed"
 
     if not await reserve_revision(
@@ -552,6 +635,7 @@ async def _rebuild_plan(
         },
     )
     await db.commit()
+    await _persist_torrent_cache(pending_cache)
     _maybe_auto_execute(plan.id, result)
     return "rebuilt"
 
@@ -625,6 +709,7 @@ def schedule_auto_execute(plan_id: str) -> None:
 
     与 notify tick 并发写库时可能撞 Turso 锁/写冲突：经 ``retry_on_lock``
     整体重放——execute_plan 幂等（执行器幂等状态表收敛），重放安全。
+    任务经 :func:`_spawn_background` 持强引用，不会被 GC 提前回收。
     """
 
     async def _run() -> None:
@@ -639,7 +724,41 @@ def schedule_auto_execute(plan_id: str) -> None:
         except Exception as e:  # noqa: BLE001 — 后台任务，失败只记日志
             logger.error("[organize] 自动执行计划 %s 失败：%s", plan_id, e)
 
-    asyncio.create_task(_run())
+    _spawn_background(_run())
+
+
+def schedule_replan(engine, *, reason: str) -> asyncio.Task | None:
+    """配置变更后**后台**重建全部未执行计划；调用方（配置 API）立即返回。
+
+    进程内并发去重：已有重建在跑时只置合并标记，运行中的循环结束后以
+    最新配置补跑一轮（中途的多次变更天然合并）。与执行器的并发安全由
+    plan 级 revision/owner_token CAS 与共享文件锁保证——running 计划不在
+    重建状态集内，执行前的过期检查会自行重建。失败只记日志（对齐原同步
+    调用的附带动作语义）。返回后台任务（已在跑则返回 None）。
+    """
+    global _replan_task, _replan_dirty, _replan_reason
+    _replan_dirty = True
+    _replan_reason = reason
+    if _replan_task is not None and not _replan_task.done():
+        return None
+
+    async def _run() -> None:
+        global _replan_dirty
+        from sqlalchemy.ext.asyncio import AsyncSession
+
+        while _replan_dirty:
+            _replan_dirty = False
+            try:
+                # 配置已提交；独立会话避免重建的刷新/回滚影响调用方会话。
+                async with AsyncSession(bind=engine, expire_on_commit=False) as session:
+                    await replan_open_plans(session, reason=_replan_reason)
+                    await session.commit()
+            except Exception as e:  # noqa: BLE001 — 附带动作，失败只记日志
+                logger.warning("[organize] %s 后重建计划失败：%s", _replan_reason, e)
+                break
+
+    _replan_task = _spawn_background(_run())
+    return _replan_task
 
 
 # ---------------------------------------------------------------- 执行
@@ -750,7 +869,7 @@ async def _execute_plan_owned(db, plan_id: str) -> OrganizePlan:
         exec_ops = [
             ExecOp(
                 op_type=op.op_type, src=op.src, dst=op.dst, size=op.size,
-                reason=op.error_message or "",
+                reason=op.error_message or "", op_id=op.id,
             )
             for op in ops
         ]
@@ -812,15 +931,17 @@ async def _execute_plan_owned(db, plan_id: str) -> OrganizePlan:
             status="done" if outcome.ok else "failed", owner_token=None,
         ):
             raise OrganizeError("执行所有权已变化，拒绝回写旧结果")
-        # 回写 op 结果与审计
-        result_by_key = {
-            (r.op.op_type, r.op.src): (r.status, r.error)
+        # 回写 op 结果与审计：按 plan_ops 行 id 对齐（同 (op_type, src) 的
+        # 多条 op 不互相覆盖）。
+        result_by_op_id = {
+            r.op.op_id: (r.status, r.error)
             for r in outcome.op_results
+            if r.op.op_id is not None
         }
         for op in ops:
-            key = (op.op_type, op.src)
-            if key in result_by_key:
-                op.status, op.error_message = result_by_key[key]
+            result = result_by_op_id.get(op.id)
+            if result is not None:
+                op.status, op.error_message = result
         for entry in outcome.audits:
             _audit(db, plan.id, entry["action"], entry["detail"])
 
@@ -950,13 +1071,15 @@ async def classify_plan(
         for op in ops
         if op.op_type in ("move", "keep")
     ]
+    pending_cache: tuple[str, str] | None = None
     if not disk_files:
         try:
             if not payload.files:
                 # 与规划/重建同一回退：torrent 清单精确匹配（平铺单文件种子、
                 # 快照 torrent_name 缺失的多文件种子根目录布局）。
-                manifest = await _resolve_manifest(db, payload)
-                if manifest:
+                resolved = await _resolve_manifest(db, payload)
+                if resolved:
+                    manifest, pending_cache = resolved
                     payload = payload.model_copy(update={"files": manifest})
             downloader = await _resolve_downloader(db, payload)
             disk_files = await asyncio.to_thread(
@@ -1008,4 +1131,5 @@ async def classify_plan(
         {"library_id": library.id, "category": result.category, "ops": len(result.ops)},
     )
     await db.commit()
+    await _persist_torrent_cache(pending_cache)
     return plan

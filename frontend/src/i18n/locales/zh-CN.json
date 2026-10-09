@@ -41,7 +41,15 @@
     "on": "开",
     "off": "关",
     "yes": "是",
-    "no": "否"
+    "no": "否",
+    "pageNotFound": "抱歉，您访问的页面不存在。",
+    "backHome": "返回首页",
+    "remove": "移除",
+    "copy": "复制",
+    "expand": "展开",
+    "collapse": "收起",
+    "pause": "暂停",
+    "resume": "继续"
   },
   "nav": {
     "brand": "RSSRipple",
@@ -128,6 +136,17 @@
     "refetchAllMetadata": "重新抓取所有条目的 metadata",
     "fetchTriggerFailed": "抓取触发失败",
     "fetching": "抓取中...",
+    "pause": "暂停",
+    "resume": "恢复",
+    "pauseConfirm": "暂停该频道？",
+    "pauseConfirmContent": "暂停后不再定时抓取，也不能手动抓取；进行中的抓取不受影响，完成后仍会正常写回抓取状态。",
+    "resumeConfirm": "恢复该频道？",
+    "resumeConfirmContent": "恢复后将按抓取间隔重新定时抓取（约 30 秒内生效），并清除系统标记的错误状态。",
+    "paused": "频道已暂停",
+    "resumed": "频道已恢复",
+    "pauseFailed": "暂停失败",
+    "resumeFailed": "恢复失败",
+    "fetchPausedTip": "频道已暂停，恢复后才能抓取",
     "notFound": "频道未找到",
     "lastFetchPrefix": "上次抓取：",
     "lastFailed": "上次失败",
@@ -468,6 +487,8 @@
     "taskError": "错误",
     "copyError": "复制错误信息",
     "errorCopied": "错误信息已复制",
+    "copyFailed": "复制失败",
+    "taskActionFailed": "操作失败",
     "taskCreatedAt": "创建时间",
     "taskUpdatedAt": "最后更新时间",
     "deleteTaskConfirm": "删除下载任务？",
@@ -1293,6 +1314,14 @@
       "namePlaceholder": "例如 vault-organizer",
       "prefix": "前缀",
       "createdAt": "创建时间",
+      "expiresAt": "过期时间",
+      "expiresPlaceholder": "可选——留空表示永不过期",
+      "neverExpires": "永不过期",
+      "expired": "已过期",
+      "rotate": "轮换",
+      "rotateConfirm": "确定轮换该 API Key？旧密钥立即失效，新密钥仅显示一次。",
+      "rotatedTitle": "API Key 已轮换",
+      "rotateFailed": "轮换 API Key 失败",
       "deleteConfirm": "确定删除该 API Key？使用它的客户端将立即失去访问权限。",
       "createdTitle": "API Key 已创建",
       "shownOnce": "该密钥仅显示一次——请立即复制并妥善保存。",
@@ -1563,5 +1592,9 @@
     "candidate": "候选：{title}",
     "identity": "身份：{source}:{id}",
     "applied": "已更新 {count} 个字段"
+  },
+  "sidebar": {
+    "expand": "展开侧边栏",
+    "collapse": "收起侧边栏"
   }
 }

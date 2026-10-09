@@ -1,7 +1,7 @@
 """PendingDecision Pydantic schemas."""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -36,7 +36,7 @@ class ConfirmDecisionRequest(BaseModel):
 
 class BatchDecisionRequest(BaseModel):
     decision_ids: list[str]
-    action: str  # "skip" | "ai"
+    action: Literal["skip", "ai"]
 
 
 class DecisionActionResponse(BaseModel):

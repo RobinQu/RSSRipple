@@ -102,6 +102,14 @@ def _build_test_app(session_factory: async_sessionmaker, with_auth: bool = False
     # Install DB lock retry middleware (Turso-only, no-op on PostgreSQL)
     install_db_retry_middleware(test_app)
 
+    # Mirror production outer middlewares (security headers + request id) so
+    # API tests observe the same response headers / correlation behavior.
+    from app.middleware.request_id import RequestIdMiddleware
+    from app.middleware.security_headers import SecurityHeadersMiddleware
+
+    test_app.add_middleware(SecurityHeadersMiddleware)
+    test_app.add_middleware(RequestIdMiddleware)
+
     # Mount a no-op static files directory for /posters
     from fastapi.staticfiles import StaticFiles
 

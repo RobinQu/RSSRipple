@@ -13,7 +13,9 @@
 渲染约定：
 
 - ``[...]`` 是可选段标记（如预设中的 ``[ - {episode_title}]``）：段内渲染
-  结果只剩空白/连字符时整段剔除，否则去掉方括号保留内容。
+  结果只剩空白/连字符时整段剔除，否则去掉方括号保留内容。可选段边界只在
+  **模板文本**上识别——占位符取值中的方括号（如 ``[SubsPlease]`` 发布组
+  前缀）按字面量保留，不会被二次解释为可选段。
 - 渲染结果逐分量过 ``sanitize_component``（剔除 ``/`` 与控制字符、去首尾
   空白与尾部点空格、截断 150 字符；清洗后为空 → 报错），与 vault-organizer
   namer 的行为对齐。
@@ -164,14 +166,23 @@ def validate_template(template: str) -> None:
             raise ValueError("模板不允许包含 '.' 或 '..' 路径段")
 
 
-def _collapse_optional_groups(rendered: str) -> str:
-    """处理 ``[...]`` 可选段：内容仅剩空白/连字符则整段剔除，否则去括号。"""
+def _render_with_optional_groups(template: str, values: Mapping[str, Any]) -> str:
+    """format 模板并处理模板自身的 ``[...]`` 可选段：段内渲染结果只剩
+    空白/连字符则整段剔除，否则去括号保留内容。
 
-    def _sub(m: re.Match[str]) -> str:
-        inner = m.group(1)
-        return inner if inner.strip(" -–—") else ""
-
-    return _OPTIONAL_GROUP.sub(_sub, rendered)
+    可选段边界只在模板文本上匹配（与旧的渲染后正则匹配行为一致），
+    占位符取值中的方括号按字面量保留，不会被二次解释为可选段。
+    """
+    parts: list[str] = []
+    cursor = 0
+    for match in _OPTIONAL_GROUP.finditer(template):
+        parts.append(template[cursor:match.start()].format(**values))
+        inner = match.group(1).format(**values)
+        if inner.strip(" -–—"):
+            parts.append(inner)
+        cursor = match.end()
+    parts.append(template[cursor:].format(**values))
+    return "".join(parts)
 
 
 def render_template(template: str, context: Mapping[str, Any]) -> str:
@@ -195,10 +206,9 @@ def render_template(template: str, context: Mapping[str, Any]) -> str:
             value = _CONTROL_CHARS.sub("", _SLASHES.sub("", value))
         values[field_name] = value
     try:
-        rendered = template.format(**values)
+        rendered = _render_with_optional_groups(template, values)
     except (ValueError, KeyError, IndexError) as exc:
         raise TemplateRenderError(f"模板渲染失败：{exc}") from exc
-    rendered = _collapse_optional_groups(rendered)
     # 空分量（空的可选变量，如无合集时的 ``{collection}``）整层折叠；
     # 折叠后结果不可能以 ``/`` 开头（模板级的绝对路径在保存时已拒绝）。
     parts = [part for part in rendered.split("/") if part != ""]

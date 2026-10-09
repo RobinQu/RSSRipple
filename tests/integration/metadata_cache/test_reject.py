@@ -1,0 +1,85 @@
+"""Legacy schema from accepted main; recorded labels and synthetic historical values."""
+import hashlib
+import json
+from pathlib import Path
+
+import pytest
+from sqlalchemy import text
+from sqlalchemy.exc import DatabaseError
+
+from app.services import metadata_cache_schema as migration
+from tests.integration.dedup.conftest import dedup_postgres as dedup_postgres
+from tests.integration.dedup.conftest import dedup_turso as dedup_turso
+
+
+async def snapshot(engine):
+    async with engine.connect() as conn:
+        return [dict(row) for row in (await conn.execute(text('SELECT * FROM metadata_cache ORDER BY id'))).mappings()]
+
+
+async def check(pair, monkeypatch, mode):
+    engine, _ = pair
+    raw = Path('tests/fixtures/prod_works_v1.json').read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == 'd11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32'
+    label = json.loads(raw)['tables']['file_resources'][0]['title_raw']
+    async with engine.begin() as conn:
+        if engine.dialect.name == 'sqlite':
+            await conn.execute(text('BEGIN'))
+        await conn.execute(text('DROP TABLE metadata_cache'))
+        ddl = Path(__file__).with_name('legacy-'+engine.dialect.name+'.sql').read_text()
+        if mode == 'title_default':
+            ddl = ddl.replace('title VARCHAR(512) NOT NULL', "title VARCHAR(512) DEFAULT 'custom title' NOT NULL")
+        if mode == 'collation':
+            collation = '"C"' if engine.dialect.name == 'postgresql' else 'NOCASE'
+            ddl = ddl.replace('title VARCHAR(512) NOT NULL', f'title VARCHAR(512) COLLATE {collation} NOT NULL')
+        if mode == 'json_type':
+            ddl = ddl.replace('metadata_json JSON', 'metadata_json TEXT')
+        if mode == 'extra_column':
+            ddl = ddl.replace('id VARCHAR(36)', 'custom_field VARCHAR(20), id VARCHAR(36)')
+        await conn.execute(text(ddl))
+        for field in ['title', 'source']:
+            await conn.execute(text(f'CREATE INDEX ix_metadata_cache_{field} ON metadata_cache ({field})'))
+        rows = [{'id': f'00000000-0000-4000-8000-{n:012d}', 'title': label+f' [synthetic history {n}]',
+                 'source': 'metadata_agent:wikipedia', 'payload': json.dumps({'recorded_title': label, 'synthetic': n}, ensure_ascii=False),
+                 'generation': n % 8} for n in range(237)]
+        await conn.execute(text("INSERT INTO metadata_cache (id,title,source,metadata_json,generation,content_type,created_at,updated_at) "
+                                "VALUES (:id,:title,:source,:payload,:generation,NULL,'2020-01-02 03:04:05','2021-02-03 04:05:06')"), rows)
+    async with engine.begin() as conn:
+        if engine.dialect.name == 'sqlite':
+            await conn.execute(text('BEGIN'))
+        if mode == 'index':
+            await conn.execute(text('CREATE INDEX custom_cache_index ON metadata_cache (generation)'))
+        if mode == 'reference':
+            await conn.execute(text('CREATE TABLE custom_cache_ref (id VARCHAR(36) REFERENCES metadata_cache(id))'))
+        if mode == 'trigger':
+            if engine.dialect.name == 'postgresql':
+                await conn.execute(text("CREATE FUNCTION custom_cache_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$"))
+                await conn.execute(text('CREATE TRIGGER custom_cache_trigger BEFORE INSERT ON metadata_cache FOR EACH ROW EXECUTE FUNCTION custom_cache_guard()'))
+            else:
+                await conn.execute(text("CREATE TRIGGER custom_cache_trigger BEFORE INSERT ON metadata_cache BEGIN SELECT RAISE(ABORT, 'synthetic custom guard'); END"))
+    before = await snapshot(engine)
+    async with engine.connect() as conn:
+        schema = json.dumps(await conn.run_sync(migration._catalog), default=str, sort_keys=True)
+    if mode == 'collision':
+        monkeypatch.setattr(migration, 'cache_title_hash', lambda title: '0' * 64)
+    with pytest.raises(DatabaseError if mode == 'collision' else ValueError):
+        async with engine.begin() as conn:
+            if engine.dialect.name == 'sqlite':
+                await conn.execute(text('BEGIN'))
+            await migration.upgrade_metadata_cache_keys(conn)
+    await engine.dispose()
+    assert await snapshot(engine) == before
+    async with engine.connect() as conn:
+        assert json.dumps(await conn.run_sync(migration._catalog), default=str, sort_keys=True) == schema
+        if engine.dialect.name == 'sqlite':
+            assert not await conn.scalar(text("SELECT name FROM sqlite_master WHERE name='metadata_cache_v35_new'"))
+
+
+@pytest.mark.parametrize('mode', ['index', 'reference', 'collision', 'title_default', 'json_type', 'extra_column', 'trigger', 'collation'])
+async def test_postgres(dedup_postgres, monkeypatch, mode):
+    await check(dedup_postgres, monkeypatch, mode)
+
+
+@pytest.mark.parametrize('mode', ['index', 'reference', 'collision', 'title_default', 'json_type', 'extra_column', 'trigger', 'collation'])
+async def test_turso(dedup_turso, monkeypatch, mode):
+    await check(dedup_turso, monkeypatch, mode)

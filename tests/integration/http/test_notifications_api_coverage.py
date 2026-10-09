@@ -20,6 +20,7 @@ from tests.integration.http._http import (
     DEFAULT_FIELD_MAPPING,
     TEST_SERVER,
     _api,
+    unique_feed_url,
 )
 
 _CH = "Notifications Coverage Channel"
@@ -35,7 +36,7 @@ def _ensure_channel() -> str:
         method="post",
         json={
             "name": _CH,
-            "url": f"{TEST_SERVER}/rss/mikanani-1",
+            "url": unique_feed_url(f"{TEST_SERVER}/rss/mikanani-1"),
             "field_mapping": DEFAULT_FIELD_MAPPING,
             "fetch_interval": 3600,
             "metadata_agent_enabled": False,

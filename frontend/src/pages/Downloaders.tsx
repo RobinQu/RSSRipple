@@ -129,7 +129,7 @@ export default function Downloaders() {
       align: 'right',
       render: (_, record) => (
         <Space size={0}>
-          <Button
+          <Button aria-label={t('downloaders.testConnection')}
             type="text"
             size="small"
             icon={<Zap size={14} />}
@@ -137,9 +137,9 @@ export default function Downloaders() {
             onClick={() => handleTest(record.id)}
           />
           <Link to={`/downloaders/${record.id}/edit`}>
-            <Button type="text" size="small" icon={<Edit size={14} />} title={t('common.edit')} />
+            <Button aria-label={t('common.edit')} type="text" size="small" icon={<Edit size={14} />} title={t('common.edit')} />
           </Link>
-          <Button
+          <Button aria-label={t('common.delete')}
             type="text"
             size="small"
             danger

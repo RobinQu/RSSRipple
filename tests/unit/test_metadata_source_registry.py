@@ -205,3 +205,62 @@ def test_build_source_links_legacy_bare_wikipedia_bag_id():
         ("wikipedia", "Wikipedia (zh)", "https://zh.wikipedia.org/?curid=7301786"),
         ("wikipedia", "Wikipedia", "https://en.wikipedia.org/?curid=4053941"),
     ]
+
+
+# ---------------------------------------------------------------------------
+# Douban host restriction (影视作品 only — book./music. subdomains never match)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://movie.douban.com/subject/1292052", ("douban", "douban:1292052")),
+        ("https://www.douban.com/subject/1292052", ("douban", "douban:1292052")),
+        ("https://m.movie.douban.com/subject/1292052", None),
+        ("https://book.douban.com/subject/1007305", None),
+        ("https://music.douban.com/subject/14015323", None),
+        ("https://douban.com/subject/1292052", None),
+        ("https://douban.com.evil.example/subject/1292052", None),
+    ],
+)
+def test_douban_url_host_restriction(url, expected):
+    assert reg.source_and_id_from_url(url) == expected
+
+
+# ---------------------------------------------------------------------------
+# Wikipedia slug ids
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("external_id", "expected"),
+    [
+        ("wikipedia:進撃的巨人", True),
+        ("wikipedia:Some_Title", True),
+        ("Wikipedia:Some_Title", True),
+        ("wikipedia:zh:7301786", False),
+        ("wikipedia:7301786", False),
+        ("wikipedia:", False),
+        ("tmdb:82684", False),
+        (None, False),
+        ("", False),
+    ],
+)
+def test_is_wikipedia_slug_id(external_id, expected):
+    assert reg.is_wikipedia_slug_id(external_id) is expected
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://zh.wikipedia.org/wiki/進撃的巨人", "zh"),
+        ("https://en.wikipedia.org/?curid=7301786", "en"),
+        ("https://wikipedia.org/wiki/X", None),
+        ("https://example.com/wiki/X", None),
+        (None, None),
+        ("", None),
+    ],
+)
+def test_wikipedia_url_lang(url, expected):
+    assert reg.wikipedia_url_lang(url) == expected

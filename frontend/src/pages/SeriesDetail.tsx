@@ -150,7 +150,7 @@ export default function SeriesDetail() {
     <div>
       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
         <Link to="/works">
-          <Button type="text" icon={<ArrowLeft size={18} />} />
+          <Button type="text" icon={<ArrowLeft size={18} />} aria-label={t('common.back')} />
         </Link>
         <Title level={3} style={{ margin: 0, flex: '1 1 200px', minWidth: 0, wordBreak: 'break-word' }}>
           {series.title_cn || series.title_en || series.original_title}

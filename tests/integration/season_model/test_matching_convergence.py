@@ -139,7 +139,7 @@ async def test_wikipedia_path_converges_to_same_s3_work(migrated_db, db):
         id=str(uuid.uuid4()),
         name="replay-wikipedia",
         type="rss_feed",
-        url="https://example.com/replay-wikipedia",
+        url=f"https://example.com/replay-wikipedia/{str(uuid.uuid4())}",
         fetch_interval=1800,
         status="active",
         field_mapping={

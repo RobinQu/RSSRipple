@@ -19,7 +19,7 @@ import uuid
 import httpx
 import pytest
 
-from tests.integration.http._http import DEFAULT_FIELD_MAPPING
+from tests.integration.http._http import DEFAULT_FIELD_MAPPING, unique_feed_url
 
 TEST_SERVER = os.environ.get("TEST_SERVER_URL", "http://test-server:8080")
 APP_MEMORY = os.environ.get("RSSRIPPLE_URL", "http://app:9001")
@@ -89,7 +89,7 @@ def make_channel(app_url: str, name_suffix: str = "") -> str:
         f"{app_url}/api/v1/channels",
         json={
             "name": f"QueueTest-{uuid.uuid4().hex[:6]}{name_suffix}",
-            "url": f"{TEST_SERVER}/rss/mikanani",
+            "url": unique_feed_url(f"{TEST_SERVER}/rss/mikanani"),
             "metadata_agent_enabled": False,
             "field_mapping": DEFAULT_FIELD_MAPPING,
         },
@@ -108,7 +108,10 @@ def make_agent(app_url: str) -> tuple[str, str]:
         json={
             "name": f"QueueTest-DL-{uuid.uuid4().hex[:6]}",
             "type": "transmission",
-            "url": "http://transmission:9092/transmission/rpc",
+            # Unreachable daemon and never contacted by these tests (the
+            # channel is never fetched → the agent run dispatches nothing);
+            # the query suffix only satisfies uq_downloader_instances_url.
+            "url": f"http://transmission:9092/transmission/rpc?case={uuid.uuid4().hex[:6]}",
             "download_dir": "/downloads",
         },
         timeout=10,

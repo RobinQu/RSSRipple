@@ -36,7 +36,7 @@ _TEST_FIELD_MAPPING = {
 async def _seed_channel(db_session) -> Channel:
     ch = Channel(
         id=_uuid(), name="fr-ch", type="rss_feed",
-        url="https://example.com/rss",
+        url=f"https://example.com/rss/{_uuid()}",
         field_mapping=_TEST_FIELD_MAPPING, metadata_agent_enabled=False,
     )
     db_session.add(ch)

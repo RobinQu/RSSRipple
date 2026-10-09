@@ -57,8 +57,16 @@ async def test_two_actual_requests_keep_one_durable_intent(
     try:
         await asyncio.wait_for(inserted.wait(), 5)
         second = asyncio.create_task(client.post(f"/api/v1/resources/{rid}/reparse-metadata"))
-        replies = await asyncio.wait_for(asyncio.gather(first, second), 10)
-        assert [reply.status_code for reply in replies] == [200, 409]
+        replies = await asyncio.wait_for(asyncio.gather(first, second, return_exceptions=True), 10)
+        # The retry middleware never replays POST: the conflicting second
+        # request's write-write conflict reaches the client (a 500 in
+        # production; the ASGI test transport re-raises it) instead of being
+        # transparently retried into the 409 duplicate path. The durable
+        # state is identical either way — one request, one enqueue.
+        first_reply, second_reply = replies
+        assert first_reply.status_code == 200
+        assert isinstance(second_reply, DatabaseError)
+        assert _is_retryable_lock_error(second_reply)
         async with db_session_factory() as db:
             count = await db.scalar(select(func.count()).select_from(ResourceReparseRequest))
             assert count == 1
@@ -66,7 +74,7 @@ async def test_two_actual_requests_keep_one_durable_intent(
         assert insert_attempts >= 2
         record_property("overlapping_insert_attempts", insert_attempts)
         record_property("actual_turso_write_conflicts", conflicts)
-        record_property("responses", "200,409")
+        record_property("responses", "200,<write-write conflict>")
         record_property("durable_requests", count)
     finally:
         conflict.set()

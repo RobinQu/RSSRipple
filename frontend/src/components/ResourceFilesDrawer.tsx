@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, App, Button, Drawer, Empty, Input, Spin, Tree, Typography, theme } from 'antd';
+import { Alert, App, Button, Drawer, Empty, Grid, Input, Spin, Tree, Typography, theme } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { resourcesApi } from '../api/channels';
 import { formatBytes } from '../utils/format';
@@ -231,12 +231,13 @@ export default function ResourceFilesDrawer({
   title,
 }: ResourceFilesDrawerProps) {
   const { t } = useTranslation();
+  const screens = Grid.useBreakpoint();
   return (
     <Drawer
       title={title || t('resource.files')}
       open={open}
       onClose={onClose}
-      width={window.innerWidth < 768 ? '100%' : 420}
+      width={screens.md ? 420 : '100%'}
       destroyOnHidden
     >
       {resourceId && <ResourceFilesView resourceId={resourceId} />}

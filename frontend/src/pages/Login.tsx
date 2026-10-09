@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Alert, Button, Card, Input, Typography } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { authApi } from '../api/auth';
+import { resolveLoginRedirect } from '../utils/redirect';
 
 const { Title, Text } = Typography;
 
@@ -20,7 +21,7 @@ export default function Login() {
     if (r.success && r.data.authenticated) {
       // Full reload so every component re-mounts with a clean, authenticated
       // state rather than relying on stale in-memory data.
-      location.href = '/';
+      location.href = resolveLoginRedirect(location.search);
     } else {
       setError(r.error?.message || t('auth.failed'));
     }

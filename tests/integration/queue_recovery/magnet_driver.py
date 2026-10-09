@@ -40,7 +40,7 @@ async def main():
             channel_id = str(uuid.uuid4())
             await conn.execute(legacy.tables["channels"].insert().values(
                 id=channel_id, name="Synthetic migration", type="rss_feed",
-                url="https://example.invalid", field_mapping={},
+                url=f"https://example.invalid/{str(uuid.uuid4())}", field_mapping={},
             ))
             for index, status in enumerate((None, "running", "done")):
                 await conn.execute(resources.insert().values(
@@ -63,7 +63,7 @@ async def main():
             async with database.engine.begin() as conn:
                 await conn.execute(text("TRUNCATE TABLE " + tables + " CASCADE"))
             async with database.async_session_factory() as db:
-                channel = Channel(name="Synthetic magnet race", type="rss_feed", url="https://example.invalid", field_mapping={})
+                channel = Channel(name="Synthetic magnet race", type="rss_feed", url=f"https://example.invalid/{str(uuid.uuid4())}", field_mapping={})
                 db.add(channel)
                 await db.flush()
                 with pytest.MonkeyPatch.context() as patcher, tempfile.TemporaryDirectory() as directory:

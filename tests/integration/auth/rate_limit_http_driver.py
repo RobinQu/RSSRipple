@@ -137,7 +137,7 @@ async def coordinator():
             assert statuses.count(200) == 30 and statuses.count(429) == 10, statuses
             await clear_budget()
             for _ in range(5):
-                assert (await client.post(url2 + "/api/v1/auth/otp", json={"code": "invalid"})).status_code == 401
+                assert (await client.post(url2 + "/api/v1/auth/otp", json={"code": "000000"})).status_code == 401
             assert (await client.post(replacement + "/api/v1/auth/otp", json={"code": pyotp.TOTP(TEST_SECRET).now()})).status_code == 429
             async with database.async_session_factory() as db, db.begin():
                 await db.execute(update(AuthRateLimitBucket).values(resets_at=utcnow() - timedelta(seconds=1)))

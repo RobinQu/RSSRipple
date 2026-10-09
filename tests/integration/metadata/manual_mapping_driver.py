@@ -34,7 +34,7 @@ async def main():
                 from sqlalchemy import text
                 await conn.execute(text("PRAGMA journal_mode='mvcc'"))
         async with database.async_session_factory() as db:
-            channel = Channel(name="Synthetic concurrent mapping", url="https://example.invalid", field_mapping={},
+            channel = Channel(name="Synthetic concurrent mapping", url=f"https://example.invalid/{str(uuid.uuid4())}", field_mapping={},
                               metadata_source="tmdb")
             manual = Movie(title_en="Synthetic manual concurrent target", is_anime=False)
             automatic = Movie(title_en="Synthetic old automatic target", is_anime=False)

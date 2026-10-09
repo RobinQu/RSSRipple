@@ -391,3 +391,116 @@ async def test_sweep_deletes_on_enabled_channel(db_session, sample_channel):
             select(FileResource).where(FileResource.id == res.id)
         )
     ).scalar_one_or_none() is None
+
+
+# ---------------------------------------------------------------------------
+# JSON id-list scrubbing on resource deletion
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cleanup_scrubs_json_id_references(
+    db_session, sample_channel, sample_downloader
+):
+    """Deleted resource ids are scrubbed from AgentRun.matched_resource_ids,
+    AgentSuggestion.resources and PendingDecision.candidates; suggestions
+    left empty are deleted, pending decisions with < 2 candidates expire."""
+    from app.models.agent import Agent
+    from app.models.agent_run import AgentRun
+    from app.models.agent_suggestion import AgentSuggestion
+    from app.models.pending_decision import PendingDecision
+
+    dead = _make_resource(sample_channel.id, created_days_ago=30, guid="dead")
+    kept_resource = _make_resource(
+        sample_channel.id, created_days_ago=30, guid="kept",
+        episode_confidence="manual",
+    )
+    db_session.add_all([dead, kept_resource])
+    agent = Agent(
+        id=_uuid(), name="A", channel_id=sample_channel.id,
+        downloader_id=sample_downloader.id, conflict_resolution="auto",
+    )
+    db_session.add(agent)
+    await db_session.flush()
+
+    keep1, keep2 = _uuid(), _uuid()
+    run = AgentRun(
+        agent_id=agent.id, status="success",
+        matched_resource_ids=[dead.id, keep1],
+    )
+    suggestion_thinned = AgentSuggestion(
+        agent_id=agent.id, sample_title="thinned", resources=[dead.id, keep1],
+    )
+    suggestion_emptied = AgentSuggestion(
+        agent_id=agent.id, sample_title="emptied", resources=[dead.id],
+    )
+    decision_still_pending = PendingDecision(
+        agent_id=agent.id, decision_key="k1", reason="r",
+        candidates=[dead.id, keep1, keep2], status="pending",
+    )
+    decision_expired = PendingDecision(
+        agent_id=agent.id, decision_key="k2", reason="r",
+        candidates=[dead.id, keep1], status="pending",
+        llm_picked_resource_id=dead.id, llm_suggestion="pick dead",
+    )
+    db_session.add_all([
+        run, suggestion_thinned, suggestion_emptied,
+        decision_still_pending, decision_expired,
+    ])
+    await db_session.commit()
+
+    deleted = await cleanup_channel_unresolved_resources(
+        db_session, sample_channel.id, force=True
+    )
+    assert deleted == 1
+
+    assert run.matched_resource_ids == [keep1]
+    assert suggestion_thinned.resources == [keep1]
+    assert await db_session.get(AgentSuggestion, suggestion_emptied.id) is None
+    assert decision_still_pending.candidates == [keep1, keep2]
+    assert decision_still_pending.status == "pending"
+    assert decision_expired.candidates == [keep1]
+    assert decision_expired.status == "expired"
+    assert decision_expired.llm_picked_resource_id is None
+    assert decision_expired.llm_suggestion is None
+    # The surviving resource keeps its references (never scrubbed).
+    assert kept_resource.id not in run.matched_resource_ids
+
+
+@pytest.mark.asyncio
+async def test_cleanup_scrubs_across_agents_and_keeps_live_ids(
+    db_session, sample_channel, sample_downloader
+):
+    """Scrubbing matches exact ids only and touches every agent's rows."""
+    from app.models.agent import Agent
+    from app.models.agent_run import AgentRun
+
+    dead = _make_resource(sample_channel.id, created_days_ago=30, guid="dead")
+    db_session.add(dead)
+    agent = Agent(
+        id=_uuid(), name="A", channel_id=sample_channel.id,
+        downloader_id=sample_downloader.id, conflict_resolution="auto",
+    )
+    db_session.add(agent)
+    await db_session.flush()
+    # A run that does not reference the deleted id is untouched.
+    clean_run = AgentRun(
+        agent_id=agent.id, status="success", matched_resource_ids=[_uuid()],
+    )
+    db_session.add(clean_run)
+    await db_session.commit()
+
+    deleted = await cleanup_channel_unresolved_resources(
+        db_session, sample_channel.id, force=True
+    )
+    assert deleted == 1
+    assert len(clean_run.matched_resource_ids) == 1
+
+
+@pytest.mark.asyncio
+async def test_scrub_deleted_resource_ids_noop_on_empty(db_session):
+    from app.services.resource_cleanup import scrub_deleted_resource_ids
+
+    assert await scrub_deleted_resource_ids(db_session, []) == {
+        "agent_runs": 0, "agent_suggestions": 0, "pending_decisions": 0,
+    }

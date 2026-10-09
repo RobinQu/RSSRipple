@@ -1,7 +1,7 @@
 """Integration test server — FastAPI app combining all test services.
 
 Endpoints:
-- RSS feeds: GET /rss/dmhy, /rss/mikanani, /rss/eztv, /rss/movies
+- RSS feeds: GET /rss/dmhy, /rss/dmhy-bad-magnet, /rss/mikanani, /rss/eztv, /rss/movies
 - Tracker: GET /announce, /scrape
 - Torrent files: GET /torrents/{hash}.torrent
 - Test files: GET /files/{path}
@@ -29,6 +29,7 @@ from .mock_llm import router as mock_llm_router
 from .mock_plex import router as mock_plex_router
 from .mock_tmdb import router as mock_tmdb_router
 from .rss_server import (
+    generate_dmhy_bad_magnet_feed,
     generate_dmhy_feed,
     generate_eztv_feed,
     generate_kisssub_feed,
@@ -91,6 +92,16 @@ async def rss_dmhy(series: int = 0):
     releases = generate_anime_releases(series_index=series, episode_count=6)
     xml = generate_dmhy_feed(
         releases=releases,
+        server_url=SERVER_URL,
+        tracker_url=TRACKER_URL,
+    )
+    return Response(content=xml, media_type="application/rss+xml; charset=utf-8")
+
+
+@app.get("/rss/dmhy-bad-magnet")
+async def rss_dmhy_bad_magnet():
+    """dmhy.org-style feed with malformed-btih magnets (fast-fail resolution)."""
+    xml = generate_dmhy_bad_magnet_feed(
         server_url=SERVER_URL,
         tracker_url=TRACKER_URL,
     )

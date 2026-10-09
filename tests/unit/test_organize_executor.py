@@ -124,9 +124,27 @@ def test_precheck_passes_on_replay(tmp_path):
     assert violations == []
 
 
-def test_precheck_movedir_conflict(tmp_path):
+def test_precheck_movedir_existing_dst_dir_deferred_to_execution(tmp_path):
+    """dst 已存在且为目录（src 仍在）：可能是跨盘崩溃半成品，门禁不预先
+    拒绝，交给执行期逐文件内容比对裁决（外来冲突仍拒绝覆盖）。"""
     src = _mkfile(tmp_path / "dl" / "movie" / "x.nfo", 5).parent
     dst = _mkfile(tmp_path / "extras" / "movie" / "y.nfo", 5).parent
+    violations = precheck(
+        [ExecOp(op_type="movedir", src=str(src), dst=str(dst), size=0)]
+    )
+    assert violations == []
+    # 执行期：外来文件（y.nfo 无 src 对应）→ 冲突，绝不覆盖
+    error = execute_movedir(ExecOp(op_type="movedir", src=str(src), dst=str(dst), size=0))
+    assert error and "拒绝覆盖" in error
+    assert (src / "x.nfo").exists()
+    assert (dst / "y.nfo").exists()
+    assert not (dst / "x.nfo").exists()
+
+
+def test_precheck_movedir_conflict_non_dir_dst(tmp_path):
+    """dst 已存在但不是目录 → 必然冲突，门禁直接拒绝。"""
+    src = _mkfile(tmp_path / "dl" / "movie" / "x.nfo", 5).parent
+    dst = _mkfile(tmp_path / "extras" / "movie", 5)
     violations = precheck(
         [ExecOp(op_type="movedir", src=str(src), dst=str(dst), size=0)]
     )
@@ -605,3 +623,223 @@ def test_run_execution_movedir_failure(tmp_path, monkeypatch):
         a["action"] == "movedir" and a["detail"]["status"] == "failed"
         for a in outcome.audits
     )
+# ---------------------------------------------------------------- 孤儿 staging 回收
+
+
+def test_sweep_stale_staging_files_removes_only_old_orphans(tmp_path):
+    from app.services.organize_executor import sweep_stale_staging_files
+
+    root = tmp_path / "lib"
+    old_tmp = _mkfile(root / "Show" / ".rssripple-abc123.tmp", 10)
+    young_tmp = _mkfile(root / "Show" / ".rssripple-def456.tmp", 10)
+    normal = _mkfile(root / "Show" / "ep01.mkv", 10)
+    other_tmp = _mkfile(root / "Show" / "notes.tmp", 10)  # 非独占命名前缀
+    now = 1_000_000.0
+    for path, mtime in ((old_tmp, now - 90000), (young_tmp, now - 60),
+                        (normal, now - 90000), (other_tmp, now - 90000)):
+        os.utime(path, (mtime, mtime))
+
+    removed = sweep_stale_staging_files(root, now=now)
+    assert removed == [str(old_tmp)]
+    assert not old_tmp.exists()
+    assert young_tmp.exists()  # 宽限年龄内不动（可能仍在使用）
+    assert normal.exists()  # 绝不删正常文件
+    assert other_tmp.exists()  # 非 .rssripple-* 前缀不动
+
+
+def test_sweep_stale_staging_files_skips_dirs_and_missing_root(tmp_path):
+    from app.services.organize_executor import sweep_stale_staging_files
+
+    staging_dir = tmp_path / "lib" / ".rssripple-dir.tmp"
+    staging_dir.mkdir(parents=True)
+    old = 1_000_000.0 - 90000
+    os.utime(staging_dir, (old, old))
+    removed = sweep_stale_staging_files(tmp_path / "lib", now=1_000_000.0)
+    assert removed == []
+    assert staging_dir.exists()  # 同名模式目录不递归删除
+    assert sweep_stale_staging_files(tmp_path / "missing", now=1_000_000.0) == []
+
+
+def test_sweep_stale_staging_files_keeps_symlink(tmp_path):
+    from app.services.organize_executor import sweep_stale_staging_files
+
+    target = _mkfile(tmp_path / "lib" / "real.mkv", 5)
+    link = tmp_path / "lib" / ".rssripple-link.tmp"
+    os.symlink(target.name, link)
+    old = 1_000_000.0 - 90000
+    os.utime(link, (old, old), follow_symlinks=False)
+    assert sweep_stale_staging_files(tmp_path / "lib", now=1_000_000.0) == []
+    assert link.exists() and target.exists()
+
+
+# ---------------------------------------------------------------- movedir 跨盘 tmp+发布
+
+
+def _exdev_rename(s, d):
+    raise OSError(errno.EXDEV, "Invalid cross-device link")
+
+
+def test_movedir_exdev_stages_and_publishes_per_file(tmp_path, monkeypatch):
+    """跨盘 movedir：逐文件 tmp+校验+原子发布，全部完成后才删源。"""
+    src = _mkfile(tmp_path / "dl" / "movie" / "x.nfo", 5).parent
+    _mkfile(src / "sub" / "poster.jpg", 20)
+    dst = tmp_path / "extras" / "movie"
+    monkeypatch.setattr(os, "rename", _exdev_rename)
+    assert execute_movedir(ExecOp(op_type="movedir", src=str(src), dst=str(dst), size=0)) is None
+    assert (dst / "x.nfo").read_bytes() == b"x" * 5
+    assert (dst / "sub" / "poster.jpg").read_bytes() == b"x" * 20
+    assert not src.exists()  # 全部发布完成后源目录整体消失
+    # 无 staging 临时文件残留
+    assert not list(dst.rglob(".rssripple-*.tmp"))
+
+
+def test_movedir_crash_resume_converges_partial_dst(tmp_path, monkeypatch):
+    """跨盘崩溃半成品：dst 部分就位 + 源残留 → 重跑逐文件收敛，不报错。"""
+    from app.services import organize_executor as executor
+
+    src = _mkfile(tmp_path / "dl" / "movie" / "a.nfo", 5).parent
+    _mkfile(src / "b.jpg", 10)
+    _mkfile(src / "c.txt", 15)
+    dst = tmp_path / "extras" / "movie"
+    monkeypatch.setattr(os, "rename", _exdev_rename)
+
+    real_publish = executor._copy_and_publish
+    published = 0
+
+    def crashy_publish(s, d, size):
+        nonlocal published
+        if published >= 1:
+            raise RuntimeError("simulated SIGKILL mid-move")
+        published += 1
+        return real_publish(s, d, size)
+
+    monkeypatch.setattr(executor, "_copy_and_publish", crashy_publish)
+    # RuntimeError 不是 OSError/FileSafetyError：模仿崩溃直接逃出，半成品留盘
+    with pytest.raises(RuntimeError):
+        executor._converge_movedir(src, dst)
+    assert src.exists() and (dst / "a.nfo").exists()  # 半成品 + 源残留
+
+    monkeypatch.setattr(executor, "_copy_and_publish", real_publish)
+    assert execute_movedir(ExecOp(op_type="movedir", src=str(src), dst=str(dst), size=0)) is None
+    assert (dst / "a.nfo").read_bytes() == b"x" * 5
+    assert (dst / "b.jpg").read_bytes() == b"x" * 10
+    assert (dst / "c.txt").read_bytes() == b"x" * 15
+    assert not src.exists()
+
+
+def test_movedir_resume_cleans_stale_staging_tmp_in_dst(tmp_path, monkeypatch):
+    """半成品 dst 里遗留的 .rssripple-*.tmp 在续传前清理，不误判为冲突。"""
+    src = _mkfile(tmp_path / "dl" / "movie" / "a.nfo", 5).parent
+    dst = tmp_path / "extras" / "movie"
+    dst.mkdir(parents=True)
+    _mkfile(dst / ".rssripple-crash.tmp", 3)  # 崩溃遗留 staging
+    monkeypatch.setattr(os, "rename", _exdev_rename)
+    assert execute_movedir(ExecOp(op_type="movedir", src=str(src), dst=str(dst), size=0)) is None
+    assert (dst / "a.nfo").exists()
+    assert not (dst / ".rssripple-crash.tmp").exists()
+    assert not src.exists()
+
+
+def test_movedir_converge_rejects_content_mismatch(tmp_path, monkeypatch):
+    """dst 对应文件内容不同 → 冲突失败，双方保留，绝不覆盖。"""
+    src = _mkfile(tmp_path / "dl" / "movie" / "a.nfo", 5).parent
+    dst = tmp_path / "extras" / "movie"
+    _mkfile(dst / "a.nfo", 9)  # 同名但内容/大小不同
+    monkeypatch.setattr(os, "rename", _exdev_rename)
+    error = execute_movedir(ExecOp(op_type="movedir", src=str(src), dst=str(dst), size=0))
+    assert error and "拒绝覆盖" in error
+    assert (src / "a.nfo").read_bytes() == b"x" * 5
+    assert (dst / "a.nfo").stat().st_size == 9
+
+
+def test_movedir_converge_equal_content_cleans_source(tmp_path, monkeypatch):
+    """dst 已完整就位（上次崩溃在删源前）→ 直接删源收敛。"""
+    src = _mkfile(tmp_path / "dl" / "movie" / "a.nfo", 5).parent
+    dst = tmp_path / "extras" / "movie"
+    _mkfile(dst / "a.nfo", 5)
+    monkeypatch.setattr(os, "rename", _exdev_rename)
+    assert execute_movedir(ExecOp(op_type="movedir", src=str(src), dst=str(dst), size=0)) is None
+    assert not src.exists()
+    assert (dst / "a.nfo").exists()
+
+
+def test_movedir_converge_rejects_non_regular_file(tmp_path, monkeypatch):
+    """目录内含符号链接等非常规文件 → 失败保留源，不静默错移。"""
+    src = _mkfile(tmp_path / "dl" / "movie" / "a.nfo", 5).parent
+    os.symlink("a.nfo", src / "link.nfo")
+    dst = tmp_path / "extras" / "movie"
+    monkeypatch.setattr(os, "rename", _exdev_rename)
+    error = execute_movedir(ExecOp(op_type="movedir", src=str(src), dst=str(dst), size=0))
+    assert error and "保留源" in error
+    assert (src / "a.nfo").exists()
+
+
+# ---------------------------------------------------------------- fsync 持久化屏障
+
+
+def test_fsync_published_calls_fsync_on_file_and_parent(tmp_path, monkeypatch):
+    from app.services.organize_executor import _fsync_published
+
+    path = _mkfile(tmp_path / "lib" / "a.mkv", 5)
+    calls = []
+    real_fsync = os.fsync
+
+    def spy(fd):
+        calls.append(fd)
+        return real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", spy)
+    _fsync_published(path)
+    assert len(calls) == 2  # 文件本体 + 父目录
+
+
+def test_fsync_published_failure_logs_warning_without_raising(tmp_path, monkeypatch, caplog):
+    from app.services.organize_executor import _fsync_published
+
+    path = _mkfile(tmp_path / "lib" / "a.mkv", 5)
+
+    def boom(fd):
+        raise OSError(errno.EIO, "fsync boom")
+
+    monkeypatch.setattr(os, "fsync", boom)
+    with caplog.at_level("WARNING"):
+        _fsync_published(path)  # 不抛出
+    assert "fsync" in caplog.text
+
+
+@pytest.mark.parametrize("file_op", ["move", "hardlink", "copy"])
+def test_publish_fsyncs_destination(tmp_path, monkeypatch, file_op):
+    """move/hardlink/copy 发布成功后都过持久化屏障。"""
+    from app.services import organize_executor as executor
+
+    src = _mkfile(tmp_path / "dl" / "ep01.mkv", 100)
+    dst = tmp_path / "lib" / "ep01.mkv"
+    calls = []
+    real = executor._fsync_published
+
+    def spy(path):
+        calls.append(path)
+        return real(path)
+
+    monkeypatch.setattr(executor, "_fsync_published", spy)
+    [r] = execute_ops([_move(src, dst, 100)], file_op=file_op)
+    assert r.status == "done"
+    assert dst in calls
+
+
+def test_movedir_rename_fsyncs_dst(tmp_path, monkeypatch):
+    """同盘 movedir（os.rename 原子路径）发布后同样过持久化屏障。"""
+    from app.services import organize_executor as executor
+
+    src = _mkfile(tmp_path / "dl" / "movie" / "x.nfo", 5).parent
+    dst = tmp_path / "extras" / "movie"
+    calls = []
+    real = executor._fsync_published
+
+    def spy(path):
+        calls.append(path)
+        return real(path)
+
+    monkeypatch.setattr(executor, "_fsync_published", spy)
+    assert execute_movedir(ExecOp(op_type="movedir", src=str(src), dst=str(dst), size=0)) is None
+    assert dst in calls

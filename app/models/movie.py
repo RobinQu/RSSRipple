@@ -3,10 +3,11 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.db_types import json_column
 from app.utils.sql_time import UTCNow
 
 
@@ -19,18 +20,18 @@ class Movie(Base):
     title_cn: Mapped[str | None] = mapped_column(String(512), nullable=True)
     title_en: Mapped[str | None] = mapped_column(String(512), nullable=True)
     original_title: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    aliases: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    aliases: Mapped[list | None] = mapped_column(json_column(), nullable=True)
     # Normalized search haystack (title_cn + title_en + original_title +
     # aliases through ``normalize_title``), maintained by the ORM before_flush
     # hook. Indexed with pg_trgm GIN on PostgreSQL; Turso mirrors it into the
     # FTS sidecar via the fts_outbox drain.
     search_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    external_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    external_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     external_source: Mapped[str | None] = mapped_column(String(100), nullable=True)
     description: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     poster_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     rating: Mapped[float | None] = mapped_column(Float, nullable=True)
-    genre: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    genre: Mapped[list | None] = mapped_column(json_column(), nullable=True)
     status: Mapped[str | None] = mapped_column(String(100), nullable=True)
     release_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     runtime: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -45,7 +46,7 @@ class Movie(Base):
     # field listed here is never overwritten by an automatic metadata scan
     # (upsert / refresh) unless the refresh action is run with
     # ``override_manual_edits``. See metadata_service.MANUAL_EDITABLE_FIELDS.
-    manually_edited_fields: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    manually_edited_fields: Mapped[list | None] = mapped_column(json_column(), nullable=True)
     canonical_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
     wikipedia_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     wikipedia_page_id: Mapped[int | None] = mapped_column(Integer, nullable=True)

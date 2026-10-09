@@ -24,11 +24,11 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 
+import app.database as db_mod
 import app.services.batch_content_analysis as bca
 from app.models.channel import Channel
-from app.models.episode import Episode
 from app.models.file_resource import FileResource
 from app.models.movie import Movie
 from app.models.resource_file_assignment import ResourceFileAssignment
@@ -50,7 +50,7 @@ async def _make_resource(db_session, **over):
         id=_uuid(),
         name="Batch Coverage Channel",
         type="rss_feed",
-        url="https://example.com/rss",
+        url=f"https://example.com/rss/{_uuid()}",
         fetch_interval=1800,
         status="active",
         field_mapping={"list_locator": {"source": "entries"}},
@@ -442,14 +442,27 @@ async def test_bind_single_work_binds_rows_backfills_season_and_links(db_session
     assert resource.collection_id == collection.id
 
 
+async def _insert_sp_episodes(db_session, series_id, *episodes):
+    """Fabricate Season-0 Episode rows on a season-1 work — a legacy state
+    that predates the episodes composite FK (``season == parent
+    season_number``), so insert with FK enforcement suspended. The work must
+    already be committed. ``episodes`` items: ``(episode,)`` or
+    ``(episode, title)``."""
+    await db_session.commit()
+    async with db_mod.engine.begin() as conn:
+        await conn.execute(text("PRAGMA foreign_keys=OFF"))
+        for ep in episodes:
+            await conn.execute(text(
+                "INSERT INTO episodes (id, series_id, season, episode, title) "
+                "VALUES (:id, :sid, 0, :ep, :title)"
+            ), {"id": _uuid(), "sid": series_id, "ep": ep[0],
+                "title": ep[1] if len(ep) > 1 else None})
+
+
 async def test_bind_single_work_maps_fractional_specials(db_session):
     work = TVSeries(id=_uuid(), title_cn=" specials 作品", season_number=1)
     db_session.add(work)
-    await db_session.commit()
-    db_session.add_all([
-        Episode(series_id=work.id, season=0, episode=1, title="SP1"),
-        Episode(series_id=work.id, season=0, episode=2, title="SP2"),
-    ])
+    await _insert_sp_episodes(db_session, work.id, (1, "SP1"), (2, "SP2"))
     resource = await _make_resource(
         db_session, is_batch=True, batch_scope="season", season=None, series_id=work.id,
     )
@@ -517,8 +530,7 @@ async def test_resolve_fractional_specials_fallbacks_and_ambiguity(db_session):
     )
     assert out == {"Show - 11.5.mkv": 1, "Show - 22.5.mkv": 2}
     # Cardinality mismatch (1 special row vs 2 labels) is ambiguous → no guess.
-    db_session.add(Episode(series_id=work.id, season=0, episode=1))
-    await db_session.commit()
+    await _insert_sp_episodes(db_session, work.id, (1,))
     out = await bca.resolve_fractional_specials(
         db_session, work.id, ["Show - 11.5.mkv", "Show - 22.5.mkv"]
     )

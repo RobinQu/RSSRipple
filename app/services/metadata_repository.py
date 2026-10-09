@@ -15,6 +15,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.metadata_audio import AUDIO_CONTENT_TYPES
+from app.services.metadata_cache_store import cache_identity, store_cache
 from app.services.metadata_episode_reconcile import (
     _seasons_map_from,
     apply_episode_reconcile,
@@ -384,8 +385,7 @@ async def _get_cache(
     source_key = _cache_source_key(data_source_type)
     result = await db.execute(
         select(MetadataCache).where(
-            MetadataCache.title == raw_title.strip(),
-            MetadataCache.source == source_key,
+            *cache_identity(raw_title.strip(), source_key),
         )
     )
     cached = result.scalar_one_or_none()
@@ -397,7 +397,13 @@ async def _get_cache(
             "[metadata_cache] discarding generation-%s verdict for %r (current=%s)",
             cached.generation, raw_title[:60], METADATA_CACHE_GENERATION,
         )
-        await db.delete(cached)
+        from sqlalchemy import delete
+
+        # Atomic upsert retains row ids; a stale reader must not delete a
+        # newer generation committed after this read.
+        await db.execute(delete(MetadataCache).where(
+            MetadataCache.id == cached.id, MetadataCache.generation == cached.generation,
+        ))
         await db.flush()
         return None
     if cached and isinstance(cached.metadata_json, dict):
@@ -408,28 +414,10 @@ async def _get_cache(
 async def _set_cache(
     raw_title: str, data_source_type: str | None, meta: ResourceMetadata, db: AsyncSession
 ) -> None:
-    import uuid
-
-    from sqlalchemy import delete
-
-    from app.models.metadata_cache import MetadataCache
-
     source_key = _cache_source_key(data_source_type)
     title = raw_title.strip()
-    # Upsert: clear any existing row for this (title, source) so a
-    # force_refresh re-run replaces the stale result instead of violating
-    # the unique constraint, and different sources coexist as separate rows.
-    await db.execute(
-        delete(MetadataCache).where(
-            MetadataCache.title == title,
-            MetadataCache.source == source_key,
-        )
-    )
-    cache_entry = MetadataCache(
-        id=str(uuid.uuid4()),
-        title=title,
-        source=source_key,
-        content_type=meta.content_type,
+    await store_cache(
+        db, title=title, source=source_key, content_type=meta.content_type,
         metadata_json={
             "clean_title": meta.clean_title,
             "content_type": meta.content_type,
@@ -462,5 +450,4 @@ async def _set_cache(
             "search_error": meta.search_error,
         },
     )
-    db.add(cache_entry)
     await db.flush()

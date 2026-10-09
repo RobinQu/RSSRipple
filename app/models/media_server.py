@@ -10,7 +10,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -19,6 +19,10 @@ from app.utils.sql_time import UTCNow
 
 class MediaServerInstance(Base):
     __tablename__ = "media_server_instances"
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_media_server_instances_name"),
+        UniqueConstraint("url", name="uq_media_server_instances_url"),
+    )
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
@@ -58,6 +62,14 @@ class MediaServerBinding(Base):
     """
 
     __tablename__ = "media_server_bindings"
+    __table_args__ = (
+        # One binding per (server, path prefix): the longest-prefix match
+        # would be ambiguous with duplicates.
+        UniqueConstraint(
+            "server_id", "server_path_prefix",
+            name="uq_media_server_bindings_server_prefix",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())

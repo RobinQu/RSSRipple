@@ -1,0 +1,58 @@
+"""Two actual PG startups observed waiting on their shared DDL lock."""
+import asyncio
+from pathlib import Path
+
+from sqlalchemy import event, text
+
+from app import database
+from app.config import settings
+from app.models.metadata_cache import cache_title_hash
+from tests.integration.dedup.conftest import dedup_postgres as dedup_postgres
+from tests.integration.metadata_cache.test_boundaries import data
+
+
+async def test_two_actual_startups(dedup_postgres, monkeypatch):
+    engine, factory = dedup_postgres
+    monkeypatch.setattr(database, 'engine', engine)
+    monkeypatch.setattr(database, 'async_session_factory', factory)
+    monkeypatch.setattr(settings, 'database_url', engine.url.render_as_string(hide_password=False))
+    _, title = data(512, 'ascii')
+    async with engine.begin() as conn:
+        await conn.execute(text('DROP TABLE metadata_cache'))
+        await conn.execute(text(Path(__file__).with_name('legacy-postgresql.sql').read_text()))
+        await conn.execute(text('CREATE INDEX ix_metadata_cache_title ON metadata_cache(title)'))
+        await conn.execute(text('CREATE INDEX ix_metadata_cache_source ON metadata_cache(source)'))
+        await conn.execute(text("INSERT INTO metadata_cache(id,title,source,metadata_json,generation) "
+                                "VALUES ('00000000-0000-4000-8000-000000000001',:title,'synthetic','{}',0)"), {'title': title})
+    await engine.dispose()
+    statements = []
+    def capture(conn, cursor, statement, parameters, context, many):
+        statements.append(statement)
+    event.listen(engine.sync_engine, 'before_cursor_execute', capture)
+    tasks = []
+    try:
+        async with engine.connect() as blocker:
+            await blocker.execute(text('SELECT pg_advisory_xact_lock(72057594037927937)'))
+            tasks = [asyncio.create_task(database.create_tables()) for _ in range(2)]
+            async with engine.connect() as observer:
+                waiting = 0
+                for _ in range(100):
+                    waiting = await observer.scalar(text("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event='advisory'"))
+                    if waiting == 2:
+                        break
+                    assert not any(task.done() for task in tasks)
+                    await asyncio.sleep(.01)
+                assert waiting == 2
+            await blocker.rollback()
+        await asyncio.wait_for(asyncio.gather(*tasks), 20)
+        assert sum('ADD COLUMN title_hash VARCHAR(64)' in sql for sql in statements) == 1
+        await engine.dispose()
+        async with engine.connect() as conn:
+            row = (await conn.execute(text('SELECT title,title_hash,source,generation FROM metadata_cache'))).one()
+            assert tuple(row) == (title, cache_title_hash(title), 'synthetic', 0)
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        event.remove(engine.sync_engine, 'before_cursor_execute', capture)

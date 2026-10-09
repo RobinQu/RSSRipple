@@ -44,7 +44,7 @@ async def main():
             attempt, replacement = str(uuid.uuid4()), str(uuid.uuid4())
             async with database.async_session_factory() as db:
                 channel = Channel(
-                    name="Synthetic multiwork", type="rss_feed", url="https://example.invalid", field_mapping={}
+                    name="Synthetic multiwork", type="rss_feed", url=f"https://example.invalid/{str(uuid.uuid4())}", field_mapping={}
                 )
                 db.add(channel)
                 await db.flush()

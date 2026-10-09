@@ -7,10 +7,11 @@ uncompleted jobs survive server restarts and can be automatically resumed.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Integer, String
+from sqlalchemy import DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+from app.models.db_types import json_column
 from app.utils.sql_time import UTCNow
 
 
@@ -28,11 +29,11 @@ class EvalJob(Base):
     completed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Full title objects [{id, raw_title, source_feed, ...}] — needed for resume
-    titles: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    titles: Mapped[list] = mapped_column(json_column(), nullable=False, default=list)
     # Just the title IDs — for quick status checks
-    title_ids: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    title_ids: Mapped[list] = mapped_column(json_column(), nullable=False, default=list)
     # Partial results {title_id: result_dict} — populated incrementally
-    results: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    results: Mapped[dict] = mapped_column(json_column(), nullable=False, default=dict)
 
     error: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     max_concurrency: Mapped[int] = mapped_column(Integer, nullable=False, default=3)

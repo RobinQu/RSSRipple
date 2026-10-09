@@ -6,6 +6,8 @@ These endpoints are exempt from :class:`app.middleware.auth.AuthMiddleware`
 
 from __future__ import annotations
 
+import hmac
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,7 +40,7 @@ async def _request_authenticated(request: Request, db: AsyncSession) -> bool:
         presented_key = request.headers.get("x-api-key") or None
 
     if presented_key:
-        if settings.api_key and presented_key == settings.api_key:
+        if settings.api_key and hmac.compare_digest(presented_key, settings.api_key):
             return True
         if await check_api_key(db, presented_key):
             return True

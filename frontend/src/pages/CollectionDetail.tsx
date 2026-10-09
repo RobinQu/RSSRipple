@@ -160,6 +160,7 @@ export default function CollectionDetail() {
         <Button
           type="text"
           icon={<ArrowLeft size={18} />}
+          aria-label={t('common.back')}
           onClick={() => navigate('/works?view=collections')}
         />
         <Title
@@ -290,7 +291,7 @@ export default function CollectionDetail() {
                           data-label={t('common.operation')}
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <Button
+                          <Button aria-label={t('collections.detach')}
                             type="text"
                             size="small"
                             icon={<X size={13} />}

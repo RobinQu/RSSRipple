@@ -3,6 +3,7 @@
 All identities/counts are synthetic; a torrent corpus is not relevant here.
 """
 
+import httpx
 import pytest
 from sqlalchemy import func, select
 
@@ -60,6 +61,12 @@ async def test_effective_work_limit(client, channel_and_dl, db_session, scenario
 
 @pytest.mark.parametrize("first_edit", ["add", "replace", "narrow"])
 async def test_concurrent_edits_cannot_exceed_limit(client, channel_and_dl, db_session, monkeypatch, record_property, first_edit):  # noqa: F811
+    """A real Turso write-write conflict between two overlapping edits must
+    still leave the limit intact. The retry middleware no longer replays
+    POST/PUT (out-of-band side effects cannot be undone), so the losing
+    request's conflict propagates to the client (a 500 in production; the
+    ASGI test transport re-raises it) and its transaction rolls back; the
+    client may retry, at which point the limit check answers 400."""
     import asyncio
 
     from sqlalchemy.exc import DatabaseError
@@ -114,14 +121,21 @@ async def test_concurrent_edits_cannot_exceed_limit(client, channel_and_dl, db_s
     try:
         await asyncio.wait_for(reached.wait(), 5)
         second = asyncio.create_task(client.post(f"/api/v1/agents/{agent_id}/works", json=works[10]))
-        responses = await asyncio.wait_for(asyncio.gather(first, second), 10)
+        responses = await asyncio.wait_for(asyncio.gather(first, second, return_exceptions=True), 10)
         count = await db_session.scalar(select(func.count()).select_from(AgentWork).where(AgentWork.agent_id == agent_id))
         record_property("real_database_conflicts", real_conflicts)
-        record_property("statuses", str([r.status_code for r in responses]))
+        record_property("statuses", str([
+            r.status_code if isinstance(r, httpx.Response) else type(r).__name__ for r in responses
+        ]))
         record_property("persisted_works", count)
         assert real_conflicts >= 1
         assert count == 10
-        assert [r.status_code for r in responses] == [201 if first_edit == "add" else 200, 400]
+        first_reply, second_reply = responses
+        assert first_reply.status_code == (201 if first_edit == "add" else 200)
+        # The conflicting request is NOT replayed (POST/PUT are excluded from
+        # the retry middleware); the write-write conflict reaches the client.
+        assert isinstance(second_reply, DatabaseError)
+        assert _is_retryable_lock_error(second_reply)
         assert not (await db_session.get(Agent, agent_id)).scope_channel_wide
     finally:
         conflict_seen.set()

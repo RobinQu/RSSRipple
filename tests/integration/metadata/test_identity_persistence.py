@@ -26,7 +26,7 @@ async def test_process_persists_only_evidenced_identity(db_session, monkeypatch,
     channel = Channel(
         id=str(uuid.uuid4()),
         name="identity persistence",
-        url="https://example.invalid/rss",
+        url=f"https://example.invalid/rss/{str(uuid.uuid4())}",
         field_mapping=TEST_FIELD_MAPPING,
         metadata_source=primary_source,
         metadata_fallback_sources=[],

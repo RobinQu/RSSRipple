@@ -23,9 +23,10 @@ from app.services.metadata_service import (
     download_and_cache_poster,
     manual_search_metadata,
     manually_edited_fields,
+    resolve_wikipedia_slug_id,
     upsert_episodes,
 )
-from app.services.metadata_source_registry import REGISTRY_SOURCES, granularity_of
+from app.services.metadata_source_registry import REGISTRY_SOURCES, granularity_of, wikipedia_url_lang
 from app.services.metadata_sources import is_metadata_source_available
 
 _WORK_SCOPE_CHANGED = "work season or collection changed during lookup; refresh again"
@@ -330,6 +331,26 @@ async def preview_work_metadata(
     return {"changes": changes, "warnings": []}
 
 
+async def _bag_candidate_identity(
+    db: AsyncSession,
+    work_type: str,
+    work_id: str,
+    candidate: MetadataCandidate,
+    values: dict[str, Any],
+) -> None:
+    """Bag the candidate's identity; slug-form wikipedia ids additionally bag
+    the MediaWiki-resolved pageid so slug and numeric forms converge."""
+    await add_external_id(
+        db, work_type, work_id, candidate.identity_source, candidate.external_id
+    )
+    if candidate.identity_source == "wikipedia":
+        resolved = await resolve_wikipedia_slug_id(
+            candidate.external_id, values.get("wikipedia_url") or values.get("url")
+        )
+        if resolved:
+            await add_external_id(db, work_type, work_id, "wikipedia", resolved)
+
+
 async def apply_work_metadata(
     db: AsyncSession,
     work_id: str,
@@ -337,6 +358,8 @@ async def apply_work_metadata(
     candidate: MetadataCandidate,
     override_manual_edits: bool,
     only_missing: bool = False,
+    *,
+    identity_only: bool = False,
 ) -> dict[str, Any]:
     work_type = "movie" if content_type == "movie" else "series"
     from app.services.task_queue import require_execution_ownership
@@ -346,8 +369,14 @@ async def apply_work_metadata(
     if work is None:
         raise HTTPException(status_code=404, detail="work not found")
     expected_scope = (getattr(work, "season_number", None), work.collection_id)
-    values = await _expanded_candidate_values(work, content_type, candidate)
-    poster_url = candidate.poster_url or values.get("poster_url")
+    # identity_only (web-fallback refresh picks) needs no content values —
+    # skip the on-demand bangumi expansion, which may hit the network.
+    values = (
+        _candidate_values(candidate)
+        if identity_only
+        else await _expanded_candidate_values(work, content_type, candidate)
+    )
+    poster_url = None if identity_only else (candidate.poster_url or values.get("poster_url"))
     cached_poster = None
     if poster_url and not (only_missing and work.poster_url) and (
         override_manual_edits or "poster_url" not in manually_edited_fields(work)
@@ -393,6 +422,30 @@ async def apply_work_metadata(
     ) is not None:
         raise HTTPException(status_code=409, detail="external identity belongs to another work type")
 
+    if identity_only:
+        # Web-fallback refresh pick: the fallback grounds identity/links only
+        # (its matched_entity never carries trustworthy content — seasons,
+        # counts and episode lists are stripped at the fallback exit), so the
+        # refresh applies NO content fields; content stays primary-source
+        # authoritative. Bag the identity and fill the source URL when empty.
+        applied: list[str] = []
+        url = values.get("wikipedia_url") or values.get("url")
+        if (
+            candidate.identity_source == "wikipedia"
+            and url
+            and wikipedia_url_lang(url)
+            and work.wikipedia_url != url
+            and (override_manual_edits or not work.wikipedia_url)
+            and (override_manual_edits or "wikipedia_url" not in manually_edited_fields(work))
+        ):
+            work.wikipedia_url = url
+            applied.append("wikipedia_url")
+        await require_execution_ownership()
+        await _bag_candidate_identity(db, work_type, work.id, candidate, values)
+        await require_execution_ownership()
+        await db.commit()
+        return {"applied": applied, "skipped": [], "identity_only": True}
+
     preview = await preview_work_metadata(
         db, work_id, content_type, candidate, override_manual_edits, only_missing,
         resolved_values=values,
@@ -420,9 +473,7 @@ async def apply_work_metadata(
             applied.append("poster_url")
 
     await require_execution_ownership()
-    await add_external_id(
-        db, work_type, work.id, candidate.identity_source, candidate.external_id
-    )
+    await _bag_candidate_identity(db, work_type, work.id, candidate, values)
     if values.get("is_anime") is not None and not (only_missing and work.is_anime is not None):
         previous_is_anime = work.is_anime
         if override_manual_edits:
@@ -462,7 +513,11 @@ async def refresh_work_by_source(
     series-level entity's premiere belongs to season 1 and never lands on a
     later-season work. Season-0 specials works are skipped: a title search
     would match the MAIN entry and stuff its series-level data (premiere,
-    episode count, identity) into the specials work.
+    episode count, identity) into the specials work. When the requested
+    primary source misses and the picked candidate comes from the ordered web
+    fallback (``match_path="web_fallback"``), only identity/link fields are
+    applied (identity bag + empty ``wikipedia_url``) — content stays
+    authoritative to the primary source (``identity_only`` apply).
     """
     from app.services.task_queue import require_execution_ownership
 
@@ -533,9 +588,13 @@ async def refresh_work_by_source(
         "external_source": candidate.identity_source,
     }
     try:
+        # A web-fallback pick (the requested primary source missed and the
+        # ordered web fallback supplied the identity) applies identity/links
+        # only — content fields stay authoritative to the primary source.
         applied = await apply_work_metadata(
             db, work.id, content_type, candidate,
             override_manual_edits=override_manual_edits, only_missing=only_missing,
+            identity_only=candidate.match_path == "web_fallback",
         )
     except HTTPException as e:
         if e.status_code == 409 and e.detail == _WORK_SCOPE_CHANGED:

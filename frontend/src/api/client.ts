@@ -49,20 +49,124 @@ function normalizeResponse<T>(payload: unknown, fallbackMessage: string): APIRes
   };
 }
 
-async function request<T>(url: string, options?: RequestInit): Promise<APIResponse<T>> {
+const DEFAULT_TIMEOUT_MS = 30_000;
+
+const RETRYABLE_MIN_STATUS = 500;
+
+export function isRetryableStatus(status: number): boolean {
+  return status >= RETRYABLE_MIN_STATUS && status <= 599;
+}
+
+/** Exponential backoff between attempts: 300ms, 900ms, 2700ms, ... */
+export function retryBackoffMs(attempt: number, baseMs = 300): number {
+  return baseMs * 3 ** attempt;
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+export interface RetryConfig {
+  /** Extra attempts after the first one. */
+  retries: number;
+  /** Per-attempt timeout in ms; null disables the timeout. */
+  timeout: number | null;
+}
+
+export type FetchOutcome =
+  | { kind: 'response'; response: Response }
+  | { kind: 'timeout' };
+
+/**
+ * Runs fetch with per-attempt timeouts and bounded retries for transient
+ * failures (network errors, per-attempt timeouts, 5xx responses). Each attempt
+ * gets its own timeout budget. The caller's own abort signal is never
+ * retried — it aborts the whole operation immediately, including backoff
+ * sleeps. A network error on the final attempt is rethrown (matching the
+ * pre-retry behavior of request()).
+ */
+export async function fetchWithRetry(
+  fetchFn: typeof fetch,
+  input: string,
+  init: RequestInit,
+  config: RetryConfig,
+): Promise<FetchOutcome> {
+  for (let attempt = 0; ; attempt++) {
+    const timeoutSignal = config.timeout == null ? null : AbortSignal.timeout(config.timeout);
+    const signal = timeoutSignal
+      ? init.signal
+        ? AbortSignal.any([init.signal, timeoutSignal])
+        : timeoutSignal
+      : init.signal ?? undefined;
+    try {
+      const response = await fetchFn(input, { ...init, signal });
+      if (isRetryableStatus(response.status) && attempt < config.retries) {
+        await sleep(retryBackoffMs(attempt), init.signal ?? undefined);
+        continue;
+      }
+      return { kind: 'response', response };
+    } catch (e) {
+      if (init.signal?.aborted) throw e;
+      const canRetry = attempt < config.retries;
+      if (!canRetry) {
+        if (timeoutSignal?.aborted) return { kind: 'timeout' };
+        throw e;
+      }
+      await sleep(retryBackoffMs(attempt), init.signal ?? undefined);
+    }
+  }
+}
+
+export interface RequestOptions extends RequestInit {
+  /** Per-request timeout override in ms; null disables the timeout. */
+  timeout?: number | null;
+  /**
+   * Extra attempts on transient failure (network error / 5xx / timeout).
+   * Defaults to 2 for GET (idempotent) and 0 for other methods; pass a number
+   * to override or false to disable retries entirely.
+   */
+  retry?: number | false;
+}
+
+async function request<T>(url: string, options?: RequestOptions): Promise<APIResponse<T>> {
+  const { timeout = DEFAULT_TIMEOUT_MS, retry, ...init } = options ?? {};
+  const method = (init.method ?? 'GET').toUpperCase();
+  const retries =
+    retry === false ? 0 : typeof retry === 'number' ? Math.max(0, Math.floor(retry)) : method === 'GET' ? 2 : 0;
   const headers = {
     'Content-Type': 'application/json',
-    ...(options?.headers ?? {}),
+    ...(init.headers ?? {}),
   };
-  const response = await fetch(`${BASE_URL}${url}`, {
-    ...options,
-    headers,
-  });
+  const outcome = await fetchWithRetry(fetch, `${BASE_URL}${url}`, { ...init, headers }, { retries, timeout });
+  if (outcome.kind === 'timeout') {
+    return {
+      success: false,
+      data: null as unknown as T,
+      error: { code: 'TIMEOUT', message: `Request timed out after ${timeout}ms` },
+    };
+  }
+  const response = outcome.response;
   if (!response.ok) {
     if (response.status === 401 && location.pathname !== '/login') {
-      // Session expired or never established — send the user to login. The
-      // login page itself is excluded so its failed-OTP 401 stays local.
-      location.href = '/login';
+      // Session expired or never established — send the user to login,
+      // preserving the current location so it can be restored afterwards.
+      // The login page itself is excluded so its failed-OTP 401 stays local.
+      const target = location.pathname + location.search;
+      location.href = `/login?redirect=${encodeURIComponent(target)}`;
     }
     try {
       return normalizeResponse<T>(await response.json(), response.statusText);
@@ -74,24 +178,27 @@ async function request<T>(url: string, options?: RequestInit): Promise<APIRespon
 }
 
 export const api = {
-  get: <T>(url: string) => request<T>(url),
-  post: <T>(url: string, data?: unknown, extraHeaders?: Record<string, string>) =>
+  get: <T>(url: string, options?: RequestOptions) => request<T>(url, options),
+  post: <T>(url: string, data?: unknown, extraHeaders?: Record<string, string>, options?: RequestOptions) =>
     request<T>(url, {
+      ...options,
       method: 'POST',
       body: data ? JSON.stringify(data) : undefined,
-      headers: extraHeaders,
+      headers: { ...options?.headers, ...extraHeaders },
     }),
-  put: <T>(url: string, data?: unknown, extraHeaders?: Record<string, string>) =>
+  put: <T>(url: string, data?: unknown, extraHeaders?: Record<string, string>, options?: RequestOptions) =>
     request<T>(url, {
+      ...options,
       method: 'PUT',
       body: data ? JSON.stringify(data) : undefined,
-      headers: extraHeaders,
+      headers: { ...options?.headers, ...extraHeaders },
     }),
-  patch: <T>(url: string, data?: unknown, extraHeaders?: Record<string, string>) =>
+  patch: <T>(url: string, data?: unknown, extraHeaders?: Record<string, string>, options?: RequestOptions) =>
     request<T>(url, {
+      ...options,
       method: 'PATCH',
       body: data ? JSON.stringify(data) : undefined,
-      headers: extraHeaders,
+      headers: { ...options?.headers, ...extraHeaders },
     }),
-  delete: <T>(url: string) => request<T>(url, { method: 'DELETE' }),
+  delete: <T>(url: string, options?: RequestOptions) => request<T>(url, { ...options, method: 'DELETE' }),
 };

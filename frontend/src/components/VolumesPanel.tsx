@@ -115,7 +115,7 @@ export default function VolumesPanel() {
       align: 'right',
       render: (_, record) => (
         <Space size={4}>
-          <Button
+          <Button aria-label={t('volumes.probe')}
             type="text"
             size="small"
             icon={<Activity size={14} />}
@@ -123,7 +123,7 @@ export default function VolumesPanel() {
             loading={checkingId === record.id}
             onClick={() => handleCheck(record)}
           />
-          <Button
+          <Button aria-label={t('common.edit')}
             type="text"
             size="small"
             icon={<Pencil size={14} />}
@@ -133,7 +133,7 @@ export default function VolumesPanel() {
               setModalOpen(true);
             }}
           />
-          <Button
+          <Button aria-label={t('common.delete')}
             type="text"
             size="small"
             danger

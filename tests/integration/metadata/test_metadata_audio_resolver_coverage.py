@@ -21,7 +21,7 @@ from app.models.file_resource import FileResource
 async def _make_resource(db_session, **overrides) -> FileResource:
     ch = Channel(
         id=str(uuid.uuid4()), name="ch", type="rss_feed",
-        url="https://example.com/rss", fetch_interval=1800, status="active",
+        url=f"https://example.com/rss/{str(uuid.uuid4())}", fetch_interval=1800, status="active",
         field_mapping={}, metadata_agent_enabled=False,
     )
     db_session.add(ch)

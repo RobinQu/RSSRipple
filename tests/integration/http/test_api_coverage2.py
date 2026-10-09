@@ -21,6 +21,7 @@ Requirements: Docker test environment (app + test-server).
 
 from __future__ import annotations
 
+import os
 import time
 import uuid
 
@@ -38,10 +39,20 @@ from tests.integration.http._http import (
     single_season_fixture_fields,
 )
 
+# Mock-LLM app instance (app-llm): same image/code as the primary app, but its
+# magnet worker pool is idle — the primary app's pool is saturated by the
+# shared env fixture's 18 unresolvable dmhy magnets (900s default timeout
+# each, concurrency 4), so the deterministic terminal-state test below runs
+# here. Empty when the stack has no app-llm (e.g. the distributed suite).
+LLM_APP = os.environ.get("RSSRIPPLE_LLM_URL", "")
+
 MIKANANI_S3_URL = f"{TEST_SERVER}/rss/mikanani?series=3"  # 咒术回战 (linked channel)
 MIKANANI_S2_URL = f"{TEST_SERVER}/rss/mikanani?series=2"  # 药屋少女的呢喃 (ask channel)
 EZTV_S0_URL = f"{TEST_SERVER}/rss/eztv?show=0"  # The Last of Us (unmatched)
 DMHY_S2_URL = f"{TEST_SERVER}/rss/dmhy?series=2"  # magnet links (unmatched)
+# Malformed-btih magnets: libtorrent rejects them instantly, so resolution
+# reaches a terminal state deterministically (no P2P wait, no skip).
+DMHY_BAD_MAGNET_URL = f"{TEST_SERVER}/rss/dmhy-bad-magnet"
 BATCH_URL = f"{TEST_SERVER}/rss/mikanani-batch"  # 葬送的芙莉莲 batch + ep29
 JUJUTSU_TITLE_CN = "咒术回战"
 FRIEREN_TITLE_CN = "葬送的芙莉莲"
@@ -793,52 +804,118 @@ class TestMagnetResolve:
         else:
             assert r.json()["data"]["magnet_resolve"]["status"] == "pending"
 
-    def test_terminal_retry_flow(self, env):
+    def test_terminal_retry_flow(self):
         """Once a resolution reaches a terminal state, a manual retry with an
         invalid tracker list is rejected (422); a clean retry resets state and
-        re-enqueues (200 → pending)."""
+        re-enqueues (200 → pending).
 
-        def _terminal_state(res_id: str):
-            r = _api(f"/api/v1/resources/{res_id}/files")
-            if r.status_code != 200:
-                return None
-            state = (r.json()["data"].get("magnet_resolve") or {})
-            return state if state.get("status") in ("done", "failed") else None
+        Deterministic offline variant, run against the app-llm instance: the
+        dedicated ``/rss/dmhy-bad-magnet`` feed carries malformed-btih magnets,
+        so ``lt.parse_magnet_uri`` fails instantly and the attempt loop
+        (default budget: 2 attempts, 60s apart) lands on terminal ``failed``
+        in about a minute — no public trackers, DHT or swarm involved. The
+        primary app cannot host this test: this module's shared ``env``
+        fixture fetches 18 unresolvable dmhy magnets whose attempts occupy all
+        4 worker-pool slots for the full 900s timeout, starving any later
+        resolution. A missing terminal state is a hard failure, never a skip.
+        """
+        if not LLM_APP:
+            pytest.skip("RSSRIPPLE_LLM_URL not set (mock-LLM app not in stack)")
 
-        res_id = None
-        deadline = time.time() + 300
-        while time.time() < deadline and res_id is None:
-            for res in env["res_magnet"]:
-                state = _terminal_state(res["id"])
-                if state is not None:
-                    res_id = res["id"]
-                    break
-            if res_id is None:
-                time.sleep(10)
-        if res_id is None:
-            pytest.skip("no magnet resolution reached a terminal state in time")
+        def _llm_api(path: str, method: str = "get", **kw) -> httpx.Response:
+            c = httpx.Client(timeout=60.0, headers=API_HEADERS)
+            return getattr(c, method.lower())(f"{LLM_APP}{path}", **kw)
 
-        # Invalid tracker URLs are validated before anything is enqueued.
-        r = _api(
-            f"/api/v1/resources/{res_id}/magnet-resolve",
+        r = _llm_api(
+            "/api/v1/channels",
             method="post",
-            json={"trackers": ["not-a-tracker-url"]},
+            json={
+                "name": f"Cov2 Bad Magnet {uuid.uuid4().hex[:6]}",
+                # Unique suffix: reruns on a dirty DB must not trip the
+                # uq_channels_url constraint on a leftover channel.
+                "url": f"{DMHY_BAD_MAGNET_URL}?case={uuid.uuid4().hex[:8]}",
+                "field_mapping": MAGNET_FIELD_MAPPING,
+                "fetch_interval": 3600,
+                "metadata_agent_enabled": False,
+            },
         )
-        assert r.status_code == 422
-        assert r.json()["error"]["code"] == "VALIDATION_ERROR"
+        assert r.status_code == 201, f"create channel failed: {r.status_code} {r.text}"
+        channel_id = r.json()["data"]["id"]
 
-        r = _api(f"/api/v1/resources/{res_id}/magnet-resolve", method="post")
-        assert r.status_code == 200, f"magnet-resolve retry failed: {r.text}"
-        state = r.json()["data"]["magnet_resolve"]
-        assert state["status"] == "pending"
-        assert state["attempts"] == 0
+        try:
+            r = _llm_api(f"/api/v1/channels/{channel_id}/fetch", method="post")
+            assert r.status_code == 200, f"fetch trigger failed: {r.text}"
+            deadline = time.time() + 120
+            fetch_result = {}
+            while time.time() < deadline:
+                data = _llm_api(
+                    f"/api/v1/channels/{channel_id}/fetch-status"
+                ).json().get("data") or {}
+                if data.get("status") in ("done", "failed"):
+                    fetch_result = data
+                    break
+                time.sleep(2)
+            assert fetch_result.get("status") == "done", f"fetch failed: {fetch_result}"
 
-        # Immediately re-retrying conflicts while the new attempt is active
-        # (or legally re-enqueues when the seeder answered instantly).
-        r = _api(f"/api/v1/resources/{res_id}/magnet-resolve", method="post")
-        assert r.status_code in (200, 409)
-        if r.status_code == 409:
-            assert r.json()["error"]["code"] == "INVALID_STATE"
+            r = _llm_api(
+                f"/api/v1/channels/{channel_id}/resources", params={"page_size": 100}
+            )
+            assert r.status_code == 200, f"list resources failed: {r.text}"
+            candidates = [
+                res for res in r.json().get("data", [])
+                if (res.get("torrent_url") or "").startswith("magnet:")
+            ]
+            assert candidates, "no magnet resources after bad-magnet fetch"
+
+            def _terminal_state(res_id: str):
+                r = _llm_api(f"/api/v1/resources/{res_id}/files")
+                if r.status_code != 200:
+                    return None
+                state = (r.json()["data"].get("magnet_resolve") or {})
+                return state if state.get("status") in ("done", "failed") else None
+
+            res_id = None
+            deadline = time.time() + 240
+            while time.time() < deadline and res_id is None:
+                for res in candidates:
+                    state = _terminal_state(res["id"])
+                    if state is not None:
+                        res_id = res["id"]
+                        break
+                if res_id is None:
+                    time.sleep(5)
+            assert res_id is not None, (
+                "no bad-magnet resolution reached a terminal state within 240s — "
+                "the invalid-btih fast-fail path is broken"
+            )
+
+            # Invalid tracker URLs are validated before anything is enqueued.
+            r = _llm_api(
+                f"/api/v1/resources/{res_id}/magnet-resolve",
+                method="post",
+                json={"trackers": ["not-a-tracker-url"]},
+            )
+            assert r.status_code == 422
+            assert r.json()["error"]["code"] == "VALIDATION_ERROR"
+
+            r = _llm_api(f"/api/v1/resources/{res_id}/magnet-resolve", method="post")
+            assert r.status_code == 200, f"magnet-resolve retry failed: {r.text}"
+            state = r.json()["data"]["magnet_resolve"]
+            assert state["status"] == "pending"
+            assert state["attempts"] == 0
+
+            # Immediately re-retrying conflicts while the new attempt is active
+            # (or legally re-enqueues once the fast-failing attempt has already
+            # landed back in a terminal state).
+            r = _llm_api(f"/api/v1/resources/{res_id}/magnet-resolve", method="post")
+            assert r.status_code in (200, 409)
+            if r.status_code == 409:
+                assert r.json()["error"]["code"] == "INVALID_STATE"
+        finally:
+            try:
+                _llm_api(f"/api/v1/channels/{channel_id}", method="delete")
+            except Exception:
+                pass
 
 
 # =========================================================================

@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from app.models.agent import Agent
 from app.models.agent_work import AgentWork
@@ -34,6 +34,25 @@ from scripts.verify_season_split import (
 
 def _uuid() -> str:
     return str(uuid.uuid4())
+
+
+async def _insert_legacy_episodes(db_engine, series_id, rows) -> None:
+    """Fabricate pre-split Episode rows that violate the (now DB-enforced)
+    ``season == parent season_number`` invariant: insert them with FK
+    enforcement suspended, mirroring a database that predates the composite
+    FK. ``rows`` items: ``(season, episode)`` or ``(season, episode,
+    air_date)``. The parent series must already be committed.
+    """
+    async with db_engine.begin() as conn:
+        await conn.execute(text("PRAGMA foreign_keys=OFF"))
+        for row in rows:
+            season, episode = row[0], row[1]
+            air_date = row[2].isoformat() if len(row) > 2 and row[2] else None
+            await conn.execute(text(
+                "INSERT INTO episodes (id, series_id, season, episode, air_date) "
+                "VALUES (:id, :sid, :season, :episode, :air_date)"
+            ), {"id": _uuid(), "sid": series_id, "season": season,
+                "episode": episode, "air_date": air_date})
 
 
 def _resource(channel_id, **kw) -> FileResource:
@@ -90,17 +109,14 @@ async def _series_bag(db, work_id) -> set[str]:
     return {r.external_id for r in await list_external_ids(db, "series", work_id)}
 
 
-async def test_split_multi_season_series(db_session, sample_channel, sample_downloader):
+async def test_split_multi_season_series(db_engine, db_session, sample_channel, sample_downloader):
     series = await _legacy_multi_season_series(db_session)
     ch = sample_channel.id
+    await db_session.commit()  # series 先落库，供 FK-off 原始连接写历史违例行
 
-    # Episodes across both seasons.
-    db_session.add_all([
-        Episode(id=_uuid(), series_id=series.id, season=1, episode=1),
-        Episode(id=_uuid(), series_id=series.id, season=1, episode=2),
-        Episode(id=_uuid(), series_id=series.id, season=2, episode=1),
-        Episode(id=_uuid(), series_id=series.id, season=2, episode=2),
-    ])
+    # Episodes across both seasons (legacy pre-split state predates the
+    # episodes composite FK; fabricate it with enforcement suspended).
+    await _insert_legacy_episodes(db_engine, series.id, [(1, 1), (1, 2), (2, 1), (2, 2)])
     # Resources: per-season, absolute-locatable, indeterminate, multi_season pack.
     r1 = _resource(ch, series_id=series.id, season=1, episode=3)
     r2 = _resource(ch, series_id=series.id, season=2, episode=5)
@@ -338,18 +354,17 @@ async def test_duplicate_ip_legacy_series_absorbed(db_session, sample_channel):
 
 
 async def test_split_derives_season_start_dates_from_episode_air_dates(
-    db_session, sample_channel
+    db_engine, db_session, sample_channel
 ):
     """拆分出的非锚点季作品：start_date 由本季 Episode 的最早 air_date 离线
     推导（无则保持 NULL 待刷新）；锚点季保留原值。"""
     series = await _legacy_multi_season_series(db_session)
-    db_session.add_all([
-        Episode(id=_uuid(), series_id=series.id, season=2, episode=2,
-                air_date=date(2023, 7, 9)),
-        Episode(id=_uuid(), series_id=series.id, season=2, episode=1,
-                air_date=date(2023, 7, 2)),
-    ])
     await db_session.commit()
+    # 历史未拆分行上其他季的 Episode（早于复合 FK 的状态，FK-off 伪造）
+    await _insert_legacy_episodes(db_engine, series.id, [
+        (2, 2, date(2023, 7, 9)),
+        (2, 1, date(2023, 7, 2)),
+    ])
 
     report = await migrate_series(db_session, series, apply=True)
     await db_session.commit()

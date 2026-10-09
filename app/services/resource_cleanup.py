@@ -29,9 +29,12 @@ from datetime import timedelta
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.agent_run import AgentRun
+from app.models.agent_suggestion import AgentSuggestion
 from app.models.channel import Channel
 from app.models.download_task import DownloadTask
 from app.models.file_resource import FileResource
+from app.models.pending_decision import PendingDecision
 from app.models.resource_file_assignment import ResourceFileAssignment
 from app.models.resource_work_link import ResourceWorkLink
 from app.utils.time import utcnow
@@ -83,6 +86,76 @@ def _stale_unresolved_where(channel: Channel, cutoff):
     )
 
 
+async def scrub_deleted_resource_ids(db: AsyncSession, resource_ids) -> dict[str, int]:
+    """Scrub dangling references to deleted FileResource ids from JSON lists.
+
+    ``AgentRun.matched_resource_ids``, ``AgentSuggestion.resources`` and
+    ``PendingDecision.candidates`` hold resource ids inside JSON arrays with
+    no FK, so deleting a FileResource would otherwise leave dangling ids
+    behind. Each affected row is read, filtered and written back
+    (dialect-agnostic; a 36-char UUID cannot be a substring of another id,
+    so the LIKE prefilter is exact enough and Python does the precise
+    filter). Suggestions left with no resources are deleted (mirroring
+    ``_persist_suggestions``, which never persists empty groups). Pending
+    decisions that drop below the two-candidate minimum expire — the same
+    terminal state the scheduler's time-based expiry uses.
+    Returns per-table changed-row counts.
+    """
+    from sqlalchemy import String, cast, or_
+
+    ids = {str(r) for r in resource_ids}
+    counts = {"agent_runs": 0, "agent_suggestions": 0, "pending_decisions": 0}
+    if not ids:
+        return counts
+
+    def _chunks(seq, size=100):
+        seq = sorted(seq)
+        for i in range(0, len(seq), size):
+            yield seq[i:i + size]
+
+    async def _fetch(model, column):
+        rows = {}
+        for chunk in _chunks(ids):
+            prefilter = or_(*(cast(column, String).like(f"%{rid}%") for rid in chunk))
+            for row in (await db.scalars(select(model).where(prefilter))).all():
+                rows[row.id] = row
+        return list(rows.values())
+
+    for run in await _fetch(AgentRun, AgentRun.matched_resource_ids):
+        current = list(run.matched_resource_ids or [])
+        kept = [r for r in current if r not in ids]
+        if kept != current:
+            run.matched_resource_ids = kept
+            counts["agent_runs"] += 1
+
+    for suggestion in await _fetch(AgentSuggestion, AgentSuggestion.resources):
+        current = list(suggestion.resources or [])
+        kept = [r for r in current if r not in ids]
+        if kept == current:
+            continue
+        counts["agent_suggestions"] += 1
+        if kept:
+            suggestion.resources = kept
+        else:
+            await db.delete(suggestion)
+
+    for decision in await _fetch(PendingDecision, PendingDecision.candidates):
+        current = list(decision.candidates or [])
+        kept = [r for r in current if r not in ids]
+        if kept == current:
+            continue
+        counts["pending_decisions"] += 1
+        decision.candidates = kept
+        if decision.llm_picked_resource_id in ids:
+            decision.llm_picked_resource_id = None
+            decision.llm_suggestion = None
+        if decision.status == "pending" and len(kept) < 2:
+            # A pending choice requires >= 2 candidates; with fewer left the
+            # conflict is gone, so expire rather than strand an undecidable row.
+            decision.status = "expired"
+    return counts
+
+
 async def cleanup_channel_unresolved_resources(
     db: AsyncSession, channel_id: str, *, force: bool = False
 ) -> int:
@@ -103,6 +176,7 @@ async def cleanup_channel_unresolved_resources(
     days = channel.auto_cleanup_unresolved_days or 21
     cutoff = utcnow() - timedelta(days=days)
     predicate = _stale_unresolved_where(channel, cutoff)
+    candidate_ids: list[str] = []
     if db.get_bind().dialect.name == "postgresql":
         deleted = 0
         after_id = None
@@ -125,16 +199,40 @@ async def cleanup_channel_unresolved_resources(
             result = await db.execute(
                 delete(FileResource).where(FileResource.id.in_(ids), predicate)
             )
+            candidate_ids.extend(ids)
             deleted += result.rowcount or 0
     else:
         # Turso keeps the guarded deletion in its existing write transaction.
-        result = await db.execute(delete(FileResource).where(predicate))
-        deleted = result.rowcount or 0
+        candidate_ids = list((await db.scalars(
+            select(FileResource.id).where(predicate)
+        )).all())
+        if candidate_ids:
+            result = await db.execute(
+                delete(FileResource).where(FileResource.id.in_(candidate_ids), predicate)
+            )
+            deleted = result.rowcount or 0
+        else:
+            deleted = 0
     if deleted:
+        # Scrub JSON id-list references for the rows that are actually gone
+        # (a row whose predicate match changed mid-flight is kept and must
+        # keep its JSON references too).
+        surviving = set((await db.scalars(
+            select(FileResource.id).where(FileResource.id.in_(candidate_ids))
+        )).all())
+        gone = [rid for rid in candidate_ids if rid not in surviving]
+        scrubbed = await scrub_deleted_resource_ids(db, gone)
         logger.info(
             "[cleanup] channel %s: deleted %d unresolved resources older than %d days",
             channel_id, deleted, days,
         )
+        if any(scrubbed.values()):
+            logger.info(
+                "[cleanup] channel %s: scrubbed deleted ids from %d run(s), "
+                "%d suggestion(s), %d pending decision(s)",
+                channel_id, scrubbed["agent_runs"],
+                scrubbed["agent_suggestions"], scrubbed["pending_decisions"],
+            )
     return deleted
 
 

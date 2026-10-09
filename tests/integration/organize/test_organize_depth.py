@@ -8,8 +8,8 @@
 - 规划器多作品包（_plan_same_target_multi_work）：合并成功 / 目标不一致
   拒绝 / 作品元数据缺失 / 未命中规则。
 - manifest 回退链（_resolve_manifest）：torrent 缓存命中（多文件种子补
-  info/name 根分量）→ torrent_url 拉取回写缓存 → 下载器 RPC，以及不安全
-  路径分量的过滤。
+  info/name 根分量）→ torrent_url 拉取（缓存路径经 pending_cache 由调用方
+  在计划提交后独立事务回写）→ 下载器 RPC，以及不安全路径分量的过滤。
 """
 
 from __future__ import annotations
@@ -77,11 +77,17 @@ class TestPrecheck:
         ]
         violations = precheck(ops)
         assert len(violations) == 3
-        # movedir：dst 在且 src 也在 → 冲突；src 已被移走 → 幂等满足
+        # movedir：dst 为已存在目录时门禁不再预先裁决（可能是跨盘 movedir
+        # 崩溃半成品或外来冲突，交给执行期逐文件内容比对）；dst 存在但
+        # 不是目录 → 仍冲突；src 已被移走 → 幂等满足
         d1 = _mk(tmp_path / "d1" / "f.mkv", 3).parent
         d2 = _mk(tmp_path / "d2" / "f.mkv", 3).parent
-        assert any("目标目录已存在" in v for v in precheck([
+        assert precheck([
             ExecOp("movedir", str(d1), str(d2), 0),
+        ]) == []
+        dst_file = _mk(tmp_path / "taken", 3)
+        assert any("目标目录已存在" in v for v in precheck([
+            ExecOp("movedir", str(d1), str(dst_file), 0),
         ]))
         assert precheck([ExecOp("movedir", str(d2),
                                 str(tmp_path / "elsewhere"), 0)]) == []
@@ -446,7 +452,7 @@ async def _seed_task_with_resource(db_session, *, torrent_file=None,
     db_session.add(downloader)
     await db_session.flush()
     channel = Channel(
-        id=_uuid(), name="mf", type="rss_feed", url="https://x/rss",
+        id=_uuid(), name="mf", type="rss_feed", url=f"https://x/rss/{_uuid()}",
         field_mapping={"list_locator": {"source": "entries"}},
         metadata_agent_enabled=False,
     )
@@ -484,11 +490,14 @@ class TestResolveManifest:
             "Pack.Root", [(["A", "e01.mkv"], 100), (["e02.mkv"], 50)],
         ))
         task = await _seed_task_with_resource(db_session, torrent_file=str(tfile))
-        manifest = await osvc._resolve_manifest(
+        resolved = await osvc._resolve_manifest(
             db_session, osvc.NotificationPayload.model_validate(_payload_for(task.id))
         )
+        assert resolved is not None
+        manifest, pending_cache = resolved
         names = [e["name"] for e in manifest]
         assert names == ["Pack.Root/A/e01.mkv", "Pack.Root/e02.mkv"]
+        assert pending_cache is None  # 缓存命中无待回写
 
     async def test_unsafe_root_name_rejected(self, db_session, tmp_path):
         tfile = tmp_path / "weird.torrent"
@@ -499,7 +508,7 @@ class TestResolveManifest:
                 db_session, osvc.NotificationPayload.model_validate(_payload_for(task.id))
             )
 
-    async def test_url_fetch_writes_back_cache(self, db_session, tmp_path):
+    async def test_url_fetch_writes_back_cache(self, db_session, session_factory, tmp_path):
         torrent_bytes = _torrent_bytes("", [(["flat.mkv"], 100)])
 
         async def fake_fetch(url, resource_id):
@@ -514,11 +523,23 @@ class TestResolveManifest:
             "app.services.torrent_inspect.fetch_torrent_file",
             side_effect=fake_fetch,
         ):
-            manifest = await osvc._resolve_manifest(
+            resolved = await osvc._resolve_manifest(
                 db_session,
                 osvc.NotificationPayload.model_validate(_payload_for(task.id)),
             )
+        assert resolved is not None
+        manifest, pending_cache = resolved
         assert [e["name"] for e in manifest] == ["flat.mkv"]
+        # 规划期不回写 resource.torrent_file：缓存路径经 pending_cache 由
+        # 调用方在计划提交后独立事务回写
+        expected_path = str(tmp_path / f"{task.file_resource_id}.torrent")
+        assert pending_cache == (task.file_resource_id, expected_path)
+        resource = await db_session.get(FileResource, task.file_resource_id)
+        assert resource.torrent_file is None
+        await osvc._persist_torrent_cache(pending_cache)
+        async with session_factory() as db:
+            resource = await db.get(FileResource, task.file_resource_id)
+            assert resource.torrent_file == expected_path
 
     async def test_downloader_rpc_last_resort(self, db_session):
         task = await _seed_task_with_resource(db_session)
@@ -573,7 +594,7 @@ async def _seed_plan_chain(db_session, tmp_path, *, rule_filter=None,
     db_session.add(downloader)
     await db_session.flush()
     channel = Channel(
-        id=_uuid(), name="rp", type="rss_feed", url="https://x/rss",
+        id=_uuid(), name="rp", type="rss_feed", url=f"https://x/rss/{_uuid()}",
         field_mapping={"list_locator": {"source": "entries"}},
         metadata_agent_enabled=False,
     )

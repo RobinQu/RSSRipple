@@ -5,7 +5,6 @@ import type {
   BatchSuggestion,
   Channel,
   ChannelDetail,
-  ChannelStatus,
   FieldMapping,
   FileResource,
   FileResourceDetail,
@@ -63,7 +62,10 @@ export interface ChannelUpdate {
   name?: string;
   url?: string;
   fetch_interval?: number;
-  status?: ChannelStatus;
+  // Pause/resume via PUT. Only user-settable values — 'error' is
+  // system-managed; the POST .../pause|/resume endpoints are the
+  // recommended path (used by the UI buttons).
+  status?: 'active' | 'inactive';
   field_mapping?: FieldMapping;
   metadata_agent_enabled?: boolean;
   metadata_source?: MetadataSource | null;
@@ -131,6 +133,10 @@ export const channelsApi = {
   update: (id: string, data: ChannelUpdate, formToken?: string) =>
     api.put<Channel>(`/channels/${id}`, data, formToken ? { 'X-Form-Token': formToken } : undefined),
   delete: (id: string) => api.delete<null>(`/channels/${id}`),
+  // Pause/resume (recommended over PUT status): idempotent; pause keeps any
+  // in-flight fetch running but blocks scheduling + manual fetch (409).
+  pause: (id: string) => api.post<Channel>(`/channels/${id}/pause`, {}),
+  resume: (id: string) => api.post<Channel>(`/channels/${id}/resume`, {}),
   fetch: (id: string, force = false) =>
     api.post<{ task_id: string }>(`/channels/${id}/fetch?force=${force}`),
   fetchStatus: (id: string) =>

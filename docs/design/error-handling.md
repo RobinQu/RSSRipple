@@ -41,7 +41,13 @@
 | 错误码 | HTTP 状态码 | 说明 |
 |--------|-------------|------|
 | `UNAUTHORIZED` | 401 | 未认证或凭证无效（AuthMiddleware 对受保护路径统一返回；OTP 验证码错误同码） |
+| `BAD_REQUEST` | 400 | 通用错误请求（HTTPException(400) 经全局 handler 的默认错误码） |
+| `FETCH_ERROR` | 400 | 频道 RSS 抓取失败（analyze / preview-feed / analyze-stream 的 fetch 阶段） |
+| `EMPTY_FEED` | 400 | RSS 可抓取但无任何条目（频道 analyze） |
+| `NOT_PENDING` | 400 | 目标 PendingDecision 已非 pending 状态（重复确认/跳过/AI 决策） |
+| `LLM_NO_PICK` | 400 | AI 决策未能给出可用候选（PendingDecision 的 ai-pick 失败） |
 | `NOT_FOUND` | 404 | 请求的资源不存在 |
+| `CONFLICT` | 409 | 通用资源冲突（HTTPException(409) 默认码；如 Downloader 仍被 Agent 引用时删除） |
 | `VALIDATION_ERROR` | 422 | 请求参数验证失败（字段缺失/格式错误/枚举非法） |
 | `INVALID_FEED` | 422 | RSS URL 无效、不可达或解析失败 |
 | `DUPLICATE_SUBMISSION` | 409 | 表单 Token 已被使用或重复提交 |
@@ -57,8 +63,10 @@
 
 - 所有 HTTP 异常（RequestValidationError、HTTPException）由全局 exception handler 转换为统一响应格式。
 - 未捕获异常统一转换为 `INTERNAL_SERVER_ERROR`，并记录日志（含 request_id、用户、URL、堆栈）。
-- SSE 流式端点（`analyze-stream`、`analyze-url-stream`）发生错误时发送 `event: error` 事件：`data: {"code": "...", "message": "..."}`。
+- request_id 由 `RequestIdMiddleware` 生成/透传：客户端可携带 `X-Request-ID`（仅接受 ≤128 字符的 `[\w:.-]`，否则替换为新生成的 uuid4）；id 写入 `request.state.request_id` 与 contextvar（`app.middleware.request_id.get_request_id`），响应统一带回 `X-Request-ID` 头，500 响应 `meta.request_id` 与日志行均含该 id。
+- SSE 流式端点（`analyze-stream`、`analyze-url-stream`、`analyze-batch-stream`）发生错误时发送 `event: error` 事件：`data: {"code": "...", "message": "..."}` 或 `data: {"type": "error", "message": "..."}`。
 - Task queue 中的任务异常被捕获并记录到对应 Channel/Agent 的 `last_fetch_error`/`last_run_status` 字段，不抛出到全局。
+- Turso 后端的 db-lock 重试中间件只透明重放安全方法（GET/HEAD/OPTIONS）；POST/PATCH/PUT/DELETE 因 handler 内含带外副作用（入队、下载器 RPC 等）不重放，锁冲突错误直接返回给客户端重试。
 
 ---
 

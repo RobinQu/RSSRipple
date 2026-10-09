@@ -144,7 +144,9 @@ _SOURCE_SPECS: tuple[SourceSpec, ...] = (
         name="douban",
         label="豆瓣",
         canonical_id_form="douban:{digits}",
-        host_pattern=r"(^|\.)douban\.com$",
+        # This source covers 影视作品 only: book./music. subdomains share the
+        # /subject/{id} path shape but are books/music — never match them.
+        host_pattern=r"^(movie|www)\.douban\.com$",
         id_pattern=re.compile(r"/subject/(?P<id>\d+)"),
         link_template="https://movie.douban.com/subject/{id}/",
         granularity="season",
@@ -237,6 +239,30 @@ _WIKI_BARE_RE = re.compile(r"^wikipedia:(\d{1,12})$")
 _WIKI_URL_LANG_RE = re.compile(r"(?:^|\.)([a-z][a-z-]*)\.wikipedia\.org$")
 
 
+def wikipedia_url_lang(url: str | None) -> str | None:
+    """Language edition of a ``{lang}.wikipedia.org`` URL, or None."""
+    if not url:
+        return None
+    m = _WIKI_URL_LANG_RE.search((urlparse(url).hostname or "").lower())
+    return m.group(1) if m else None
+
+
+def is_wikipedia_slug_id(external_id: str | None) -> bool:
+    """True for slug-form wikipedia ids (``wikipedia:Some_Title``).
+
+    Slugs are page titles, not pageids: they never converge with the numeric
+    forms offline (resolution goes through the MediaWiki API — see
+    ``metadata_service.resolve_wikipedia_slug_id``).
+    """
+    if not external_id:
+        return False
+    s = external_id.strip().lower()
+    if not s.startswith("wikipedia:"):
+        return False
+    slug = s.split(":", 1)[1]
+    return bool(slug) and parse_wikipedia_id(s) == (None, None)
+
+
 def parse_wikipedia_id(external_id: str | None) -> tuple[str | None, str | None]:
     """Parse a wikipedia external id into (lang, pageid) for numeric forms.
 
@@ -276,8 +302,7 @@ def qualify_wikipedia_id(
     if pid is None or id_lang is not None:
         return s
     if not lang and wikipedia_url:
-        m = _WIKI_URL_LANG_RE.search((urlparse(wikipedia_url).hostname or "").lower())
-        lang = m.group(1) if m else None
+        lang = wikipedia_url_lang(wikipedia_url)
     if not lang:
         return s
     return f"wikipedia:{lang}:{pid}"
@@ -458,8 +483,8 @@ def build_source_links(
     has_wikipedia = False
 
     if wikipedia_url:
-        m = _WIKI_URL_LANG_RE.search((urlparse(wikipedia_url).hostname or "").lower())
-        label = f"Wikipedia ({m.group(1)})" if m else "Wikipedia"
+        lang = wikipedia_url_lang(wikipedia_url)
+        label = f"Wikipedia ({lang})" if lang else "Wikipedia"
         links.append({"source": "wikipedia", "label": label, "url": wikipedia_url})
         has_wikipedia = True
 
@@ -560,10 +585,12 @@ __all__ = [
     "canonicalize_external_id",
     "domains_for_sources",
     "granularity_of",
+    "is_wikipedia_slug_id",
     "make_season_identity",
     "parse_wikipedia_id",
     "qualify_wikipedia_id",
     "source_and_id_from_url",
     "split_season_identity",
     "wikipedia_match_keys",
+    "wikipedia_url_lang",
 ]

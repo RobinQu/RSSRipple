@@ -63,7 +63,7 @@ async def test_cleanup_does_not_erase_associations_committed_while_waiting(clean
 
     db = cleanup_pg_session
     channel = Channel(id=str(uuid.uuid4()), name="Synthetic concurrent cleanup", type="rss_feed",
-                      url="https://example.invalid/rss", field_mapping={})
+                      url=f"https://example.invalid/rss/{str(uuid.uuid4())}", field_mapping={})
     movies = [Movie(id=str(uuid.uuid4()), title_cn=f"Synthetic movie {i}") for i in range(2)]
     db.add_all([channel, *movies])
     await db.flush()
@@ -132,7 +132,7 @@ async def test_cleanup_batches_skip_locked_rows_and_rollback_atomically(cleanup_
     db = cleanup_pg_session
     assert await db.scalar(text("SHOW transaction_isolation")) == "read committed"
     channel = Channel(id=str(uuid.uuid4()), name="Synthetic batch cleanup", type="rss_feed",
-                      url="https://example.invalid/rss", field_mapping={})
+                      url=f"https://example.invalid/rss/{str(uuid.uuid4())}", field_mapping={})
     collection = WorkCollection(id=str(uuid.uuid4()), title_cn="Synthetic protected collection")
     db.add_all([channel, collection])
     await db.flush()

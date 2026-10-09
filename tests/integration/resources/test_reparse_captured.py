@@ -33,7 +33,7 @@ async def _captured_reparse(db_pair, monkeypatch, tmp_path, record_property):
     assert hashlib.sha256(torrent.read_bytes()).hexdigest() == TORRENT_SHA
     rid = str(uuid.uuid4())
     async with factory() as db:
-        channel = Channel(name="Recorded reparse input", type="rss_feed", url="https://example.invalid/feed",
+        channel = Channel(name="Recorded reparse input", type="rss_feed", url=f"https://example.invalid/feed/{str(uuid.uuid4())}",
                           field_mapping={}, metadata_agent_enabled=True)
         db.add(channel)
         await db.flush()

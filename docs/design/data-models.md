@@ -2,6 +2,8 @@
 
 所有 ORM 模型使用 SQLAlchemy 2.0 风格声明，主键均为 UUID v4 字符串，时间字段语义均为 UTC。数据库继续使用无时区时间列并保存 naive UTC；数据库默认值及 ORM 自动更新时间使用 `UTCNow`：PostgreSQL 显式将当前事务时间转为 UTC，Turso 使用原生 UTC CURRENT_TIMESTAMP。该表达式不覆盖全局 func.now 编译，不依赖会话时区。Python 显式写入继续使用 UTC 时间；日期列不受此规则影响。
 
+JSON 列统一经 `app/models/db_types.json_column()` 声明：Turso/SQLite 编译为通用 JSON（TEXT 存储），PostgreSQL 编译为原生 JSONB——与轻迁移 `ADD COLUMN ... JSONB` 路径一致；存量 PG 库的 `json` 列由启动轻迁移逐个 `ALTER COLUMN ... TYPE JSONB` 收敛（metadata_cache 除外，其模型暂仍声明通用 JSON）。
+
 新增 `FileResource.magnet_resolve_attempt_id: VARCHAR(36), nullable`，用于独立 magnet 解析尝试身份；历史行保持 NULL。新领取生成 UUID，状态及重试计数写入匹配该标识；回收/人工重试清空。缓存路径含 attempt 标识，完成状态 CAS 接受后才被资源引用。
 
 ### Channel（订阅频道）
@@ -13,7 +15,8 @@ class Channel(Base):
     id: str                              # UUID 主键
     name: str                            # 频道名称
     type: str                            # 枚举值: "rss_feed"（当前唯一支持）
-    url: str                             # RSS Feed URL
+    url: str                             # RSS Feed URL；全局唯一（新库 UniqueConstraint uq_channels_url；
+                                         # 存量库由启动轻迁移补同列唯一索引，存在重复行时跳过并记 warning、不删数据）
     fetch_interval: int                  # 定时抓取间隔（秒），默认 1800
     status: str                          # 枚举: "active" | "inactive" | "error"
     field_mapping: dict                  # LLM 生成或用户手动配置的字段映射规则（必填）
@@ -24,7 +27,7 @@ class Channel(Base):
                                          # 其他值被轻迁移归一为 "wikipedia"）；None = 运行时用默认值
     metadata_fallback_sources: list[str] | None  # Exa 回退有序站点白名单（注册表站点名）；
                                          # None = 默认顺序，[] = 禁用回退；仅补身份/链接
-    required_metadata_fields: list[str] | None   # 频道声明的必填元数据字段（覆盖全部 Filter DSL 字段：
+    required_metadata_fields: list[str]        # 频道声明的必填元数据字段（覆盖全部 Filter DSL 字段：
                                          # 资源级字段以 DSL 字段名为键，作品字段按 series./movie.
                                          # 成对归入语义键 rating/year/genre/is_anime/collection，
                                          # 资源级 franchise 合集展示名走 resource_collection 键；
@@ -41,7 +44,10 @@ class Channel(Base):
                                           # 永不可清除，不存在"不限制"状态；作品单季化后 season 键退役为可选、
                                           # absolute_episode/episode_confidence 两键退役出目录（存量频道声明
                                           # 由启动轻迁移一次性移除，哨兵 required_fields_per_season_v1）；
-                                          # 存量 NULL/残缺行由启动轻迁移收敛为基线
+                                          # 存量 NULL/残缺行由启动轻迁移收敛为基线；收敛后列硬化为
+                                          # NOT NULL（PostgreSQL SET NOT NULL，先校验无 NULL 行；
+                                          # Turso 走 upgrade_sqlite_table_invariants 表重建——channels
+                                          # 是父表，重建时挂起外键执法防止 DROP TABLE 级联子表）
     default_is_anime: bool               # 「默认标记为 Anime」：NOT NULL DEFAULT FALSE（轻迁移加列）；
                                          # 创建后不可改（PUT 提交不同值 422）；开启后该频道资源链接到的
                                          # 作品 is_anime 先置 True（详见 business-logic.md「is_anime 分层判定」）
@@ -155,7 +161,11 @@ resource_work_links                    # 资源↔作品 多关联（合集场�
 resource_file_assignments              # 文件级映射：torrent 清单条目 → 作品/季/集
     id: str                            # UUID pk
     resource_id → FileResource         # CASCADE
-    file_path: str                     # 清单相对路径，Unique(resource_id, file_path)
+    file_path: str                     # 清单相对路径，Unique(resource_id, file_path)；
+                                       # 写入时经 ORM @validates 做 UTF-8 字节预算校验
+                                       #（app/models/guards.py，总预算 2000B 含 resource_id
+                                       # 36B 预留）——全 CJK 超长路径会被 ValueError 拒绝，
+                                       # 不会撞上 PG btree 单行 ~2704B 上限
     file_size: int | None              # 冗余快照
     series_id/movie_id: str|None       # 双空=未指派（确定性层先于作品链接运行）
     work_title_hint: str | None        # 绑定具体作品前的簇标题提示（目录聚类/LLM 建议）
@@ -169,6 +179,8 @@ resource_file_assignments              # 文件级映射：torrent 清单条目 
 `FileResource.confirmation_ignored_at`：仅表示用户在 Dashboard 单个或批量永久忽略「文件资源元数据确认」的 UTC 时间。后台重解析不再写入或清除此列；人工忽略不会因任务成功、失败或重试消失。资源仍可在频道页检索和修订。临时隐藏由独立 `ResourceReparseRequest` 决定：请求存在且 `error_message IS NULL` 时暂不显示待确认；队列投递故障时显示待确认，人工忽略仍优先。
 
 Dashboard 待确认扫描索引：`Index(confirmation_ignored_at, created_at, id)`，同时支撑未忽略资源过滤及稳定倒序分页扫描。
+
+热 FK 查找索引（P1-D5，双库 EXPLAIN 验证；存量库由轻迁移补同名列索引）：`Index(series_id)`、`Index(movie_id)`、`Index(audio_work_id)`、`Index(collection_id)`。
 
 资源的 FK 互斥规则：
 - 若为剧集资源，`series_id` 非空，`movie_id` 必须为空；具体集数统一使用 `episode` 字段。
@@ -221,7 +233,8 @@ class TVSeries(Base):
                                          # before_flush 钩子同事务维护，启动时空值回填。Turso 镜像进 FTS
                                          # 边车（fts_outbox drain），PostgreSQL 上被 pg_trgm GIN 索引
     external_id: str | None              # 外部 ID（MetadataAgent 返回的参考 ID，如 TMDB/MAL/IMDb/Wikipedia ID；
-                                         # 季作品可袋合成季身份 {系列级id}#s{N}，见 WorkExternalId）
+                                         # 季作品可袋合成季身份 {系列级id}#s{N}，见 WorkExternalId）。
+                                         # 列长统一 VARCHAR(128)（与身份袋一致；存量 PG 库由轻迁移 ALTER 放宽）
     external_source: str | None          # 枚举字符串: "exa" | "tmdb" | "wikipedia" | "manual" | "local_match" | "llm_search"（旧版遗留）
     description: str | None              # 简介
     poster_url: str | None               # 海报本地缓存路径，格式 /posters/{hash}.jpg
@@ -229,7 +242,11 @@ class TVSeries(Base):
     genre: list[str] | None              # 类型标签（封闭 TMDB 27 类英文 canonical 名，取值约定见下文「genre 取值约定」）
     status: str | None                   # 剧集状态: "Ended" | "Returning Series" | "Canceled" 等
     season_number: int                   # 本作品是 IP 的第几季：NOT NULL DEFAULT 1（轻迁移加列）；
-                                         # 0 = 特典/SP（Plex Specials 约定）。身份属性，编辑页只读
+                                         # 0 = 特典/SP（Plex Specials 约定）。身份属性，编辑页只读。
+                                         # 冗余唯一约束 UniqueConstraint(id, season_number)
+                                         # uq_tv_series_id_season_number：本身被主键蕴含，存在
+                                         # 仅为支撑 episodes 的复合 FK（见 Episode），
+                                         # 使「Episode.season 恒等于 season_number」成为 DB 级不变量
     number_of_episodes: int | None       # 本季集数
     number_of_seasons: int | None        # 惰性孤儿列（作品单季化退役，永不写入；仅 legacy 未拆分行
                                          # 上可能残留系列级数据，season_split_migration 后不再被读取）
@@ -279,7 +296,7 @@ class Movie(Base):
     original_title: str | None
     aliases: list[str] | None
     search_text: str | None              # 归一化搜索 haystack（同 TVSeries.search_text，见其注释）
-    external_id: str | None
+    external_id: str | None              # 列长统一 VARCHAR(128)（同 TVSeries.external_id）
     external_source: str | None          # 枚举: "exa" | "tmdb" | "wikipedia" | "manual" | "local_match" | "llm_search"（旧版遗留）
     description: str | None
     poster_url: str | None
@@ -355,8 +372,11 @@ class WorkExternalId(Base):
                                          # 该表无 CheckConstraint，无 schema 变更）
     work_id: str                         # 跨表引用（tv_series.id / movies.id / work_collections.id），故意不带 FK
     source: str                          # registry 源名（wikipedia/tmdb/bangumi/mal/anilist/imdb/douban）
-    external_id: str                     # 完整 canonical "source:id" 字符串（镜像 TVSeries.external_id 约定）
+    external_id: str                     # 完整 canonical "source:id" 字符串（镜像 TVSeries.external_id 约定）；
+                                         # VARCHAR(128) 是全作品表统一列长
     created_at: datetime
+    updated_at: datetime                 # server_default/onupdate 当前 UTC（存量库轻迁移补列：
+                                         # Turso 表重建并回填 created_at，PG 就地 ADD COLUMN）
 ```
 
 **语义与规则**：
@@ -378,7 +398,17 @@ class WorkExternalId(Base):
 class WorkCollection(Base):
     __tablename__ = "work_collections"
     __table_args__ = (
-        UniqueConstraint("external_source", "external_id"),  # 幂等 upsert
+        # 部分唯一索引（双库 DDL 一致），仅约束带外部身份的行：
+        # 普通 UniqueConstraint 对 NULL 不生效（壳合集 (series_group, NULL)
+        # 会全部放行），而 COALESCE 表达式索引又会误伤合法的多个无身份
+        # 合集（壳合集/franchise 包/手工合集按标题区分、允许并存）。
+        Index("uq_work_collections_source_external",
+              "external_source", "external_id", unique=True,
+              sqlite_where="external_id IS NOT NULL",
+              postgresql_where="external_id IS NOT NULL"),
+        # 存量库由启动轻迁移补同一索引（先按有身份行查重，重复则跳过并记
+        # warning 不删数据；PG 先 DROP 同名旧约束）；Turso 旧库的
+        # sqlite_autoindex 保留为惰性冗余（更弱、无害）。
     )
 
     id: str                              # UUID
@@ -390,7 +420,7 @@ class WorkCollection(Base):
                                          # normalize_title；before_flush 钩子维护，**不进 FTS 边车**）
     manually_edited_fields: list[str] | None  # 人工编辑保护字段名列表（契约同作品的同名列）
     external_id: str | None              # 外部 ID（TMDB collection 为原始数字 id；Wikidata 为 franchise QID；
-                                         # series_group 壳合集为 NULL）
+                                         # series_group 壳合集为 NULL）。列长统一 VARCHAR(128)（同 TVSeries.external_id）
     external_source: str | None          # "tmdb_collection" | "wikidata" | "series_group" | None；
                                          # 不用 canonicalize_external_id
                                          # （其 TMDB 规则会把 tmdb-collection:131295 改写为
@@ -410,12 +440,31 @@ class WorkCollection(Base):
 ```python
 class Episode(Base):
     __tablename__ = "episodes"
-    __table_args__ = (UniqueConstraint("series_id", "season", "episode"),)
+    __table_args__ = (
+        UniqueConstraint("series_id", "season", "episode"),
+        # DB 级不变量「season 恒等于父作品 season_number」：复合 FK 指向
+        # tv_series 的冗余唯一约束 uq_tv_series_id_season_number；
+        # DEFERRABLE INITIALLY DEFERRED —— 季号订正（父 season_number 与
+        # 子行 season 在同一事务内重标，如 bangumi_relations
+        # ._correct_work_season）在 COMMIT 时才校验；ON DELETE CASCADE
+        # 取代旧的单列 series_id FK。存量库轻迁移先把可订正违例行按父
+        # season_number 重标（目标槽位被占的冲突行保留并跳过加约束、记
+        # warning——须先完成拆季迁移）；Turso 走表重建
+        # （upgrade_sqlite_table_invariants），PG 走 ADD CONSTRAINT。
+        ForeignKeyConstraint(["series_id", "season"],
+                             ["tv_series.id", "tv_series.season_number"],
+                             name="fk_episodes_series_season",
+                             ondelete="CASCADE",
+                             deferrable=True, initially="DEFERRED"),
+    )
 
     id: str                              # UUID
-    series_id: str → TVSeries            # 所属系列 FK
+    series_id: str → TVSeries            # 所属系列（经复合 FK 引用 (id, season_number)）
     season: int                          # 季号；作品单季化后**恒等于所属作品的 season_number**
-                                         #（去规范化，结构与唯一键不变，全部既有查询零改动）
+                                         #（去规范化，结构与唯一键不变，全部既有查询零改动；
+                                         # 由上述复合 FK 在 DB 层强制）；
+                                         # NOT NULL，ORM/server default 均为 1（存量库轻迁移：PG SET DEFAULT、
+                                         # Turso 表重建补 DEFAULT）
     episode: int                         # 集号
     title: str | None                    # 单集标题
     air_date: date | None                # 播出日期
@@ -491,13 +540,21 @@ class AgentWork(Base):
             "(series_id IS NOT NULL AND movie_id IS NULL) OR (series_id IS NULL AND movie_id IS NOT NULL)",
             name="chk_work_single_target",
         ),
+        # P1-D5 热 FK 索引：按 Agent 列订阅、按作品查订阅方
+        Index("ix_agent_works_agent_id", "agent_id"),
+        Index("ix_agent_works_series_id", "series_id"),
+        Index("ix_agent_works_movie_id", "movie_id"),
     )
 
     id: str                              # UUID
     agent_id: str → Agent                # 所属 Agent FK
     content_type: str                    # "tv" | "movie"
-    series_id: str | None → TVSeries     # 订阅剧集 FK（content_type="tv" 时非空）
-    movie_id: str | None → Movie         # 订阅电影 FK（content_type="movie" 时非空）
+    series_id: str | None → TVSeries     # 订阅剧集 FK（content_type="tv" 时非空）；ON DELETE CASCADE：
+                                         # XOR 约束要求恰一个目标非空，SET NULL 会在作品删除时立即
+                                         # 违例并阻断删除；删除被订阅作品应级联删除其订阅行
+                                         #（作品删除 API 仍以 409 拦截，去重合并先改指，CASCADE 为 DB 兜底；
+                                         # 存量库轻迁移：PG 换约束、Turso 表重建）
+    movie_id: str | None → Movie         # 订阅电影 FK（content_type="movie" 时非空）；同样 ON DELETE CASCADE
     enable_episode_dedup: bool           # 是否启用剧集集数维度去重，默认 true
                                          # 仅 TV 作品有效；电影固定按 movie_id 去重
     filter_overrides: dict | None        # 作品级别的过滤覆盖（FieldCondition 列表或 BoolCondition）
@@ -541,7 +598,7 @@ class DownloadTask(Base):
     notification: DownloadNotification | None   # 一对一（download_task_id 唯一）
 ```
 
-活动任务与实时种子匹配索引：`Index(status, agent_id)`、`Index(downloader_id, transmission_torrent_id)`。
+活动任务与实时种子匹配索引：`Index(status, agent_id)`、`Index(downloader_id, transmission_torrent_id)`；资源反查索引（P1-D5）：`Index(file_resource_id)`。
 
 ### DownloadNotification（下载完成通知）
 
@@ -596,7 +653,13 @@ class AgentWebhook(Base):
 ```python
 class WebhookDelivery(Base):
     __tablename__ = "webhook_deliveries"
-    __table_args__ = (UniqueConstraint("notification_id", "webhook_id"),)  # fan-out 幂等
+    __table_args__ = (
+        UniqueConstraint("notification_id", "webhook_id"),  # fan-out 幂等
+        # P1-D5 到期投递轮询索引：status='pending' 过滤 + created_at 升序分页。
+        # 评估过 (status, next_attempt_at) 并否决：大量 pending 未来重试分布下
+        # Turso 走 status 前缀 + 逐行回表，较全表扫描回归约 10x。
+        Index("ix_webhook_deliveries_status_created", "status", "created_at"),
+    )
 
     id: str                              # UUID
     notification_id: str → DownloadNotification  # FK CASCADE
@@ -678,7 +741,7 @@ class PendingDecision(Base):
     updated_at: datetime
 ```
 
-Dashboard 待决策扫描索引：`Index(status, created_at, id)`。
+Dashboard 待决策扫描索引：`Index(status, created_at, id)`。作品删除/去重改指按作品 FK 反查索引（P1-D5）：`Index(series_id)`、`Index(movie_id)`（`agent_id` 已被 `(agent_id, decision_key)` 部分唯一索引前缀覆盖，不重复建）。
 
 ### AgentRun（Agent 执行记录）
 
@@ -713,6 +776,8 @@ class AgentRun(Base):
     agent: Agent
 ```
 
+运行历史索引（P1-D5）：`Index(agent_id, started_at)` —— 运行历史 API 按 `agent_id` 过滤并 `ORDER BY started_at DESC` 分页，复合索引同时服务过滤与排序（EXPLAIN 验证优于单列索引的 index+sort）。
+
 ### DownloaderInstance（下载器实例）
 
 ```python
@@ -720,13 +785,14 @@ class DownloaderInstance(Base):
     __tablename__ = "downloader_instances"
 
     id: str                              # UUID
-    name: str                            # 下载器名称
+    name: str                            # 下载器名称；全局唯一（存量库由轻迁移补唯一索引，重复时跳过并记 warning）
     type: str                            # 枚举: "transmission" | "mock"
                                          #   transmission: 真实 Transmission RPC
                                          #   mock: 本地内存模拟器，用于测试 Agent 流程
                                          #        （所有连接测试通过；每个 add_torrent
                                          #         的任务在随机 1-10 秒后自动完成）
-    url: str                             # Transmission RPC URL（如 http://127.0.0.1:9091/transmission/rpc）
+    url: str                             # Transmission RPC URL（如 http://127.0.0.1:9091/transmission/rpc）；
+                                         # 全局唯一（同 name 的轻迁移补建语义）
                                          # mock 类型可省略，默认为 "mock://local"
     username: str | None                 # RPC 用户名
     password: str | None                 # RPC 密码
@@ -773,10 +839,11 @@ class ChannelRawTitleMapping(Base):
 ```python
 class MetadataCache(Base):
     __tablename__ = "metadata_cache"
-    __table_args__ = (UniqueConstraint("title", "source"),)
+    __table_args__ = (UniqueConstraint("title_hash", "source"),)
 
     id: str                              # UUID
-    title: str                           # 缓存 key：原始（未清洗）标题
+    title: str                           # TEXT；完整原始标题，repository 沿用 strip 语义
+    title_hash: str                      # VARCHAR(64)；存储标题 UTF-8 的 SHA-256 十六进制摘要
     source: str                          # 来源标识: "metadata_agent:<source>"（当前主要） | "llm_title"（旧版遗留）
     content_type: str | None             # 判断的内容类型: "tv" | "movie"
     metadata_json: dict                  # 缓存内容，格式 {"clean_title": "...", "content_type": "...", "episode": ..., "season": ..., ...}
@@ -892,3 +959,4 @@ Channel 的 `file_resources/agents/raw_title_mappings` 和 Agent 的 `works/down
 ### 完整搜索文本的存储
 
 `TVSeries`、`Movie`、`AudioWork`、`WorkCollection` 的派生 `search_text` 统一为 SQL `TEXT`，不使用 4096 字符上限。归一化后的全部标题及别名都必须保留；Unicode NFKC 可能扩大字符数，禁止按原始输入长度推断存储长度或截断尾部别名。原始 aliases 的 JSON 值保持原样。旧库列升级及空值回填见 db-migration.md。
+缓存物理唯一键使用 `(title_hash, source)`，不索引完整长标题。读和冲突更新必须同时比较完整 title；摘要碰撞只能未命中，不能命中或覆盖另一标题。ORM 插入/改名和实际 writer 统一计算摘要。

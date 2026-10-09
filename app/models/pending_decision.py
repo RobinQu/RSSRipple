@@ -3,10 +3,11 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, String, text
+from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.db_types import json_column
 from app.utils.sql_time import UTCNow
 
 
@@ -17,6 +18,11 @@ class PendingDecision(Base):
         Index("uq_pending_decisions_agent_key", "agent_id", "decision_key", unique=True,
               sqlite_where=text("status = 'pending'"), postgresql_where=text("status = 'pending'")),
         Index("ix_pending_decisions_status_created", "status", "created_at", "id"),
+        # Hot FK lookups (P1-D5): work-delete detach and metadata dedup
+        # re-point decisions by work FK; agent_id is already covered by the
+        # partial unique index prefix above.
+        Index("ix_pending_decisions_series_id", "series_id"),
+        Index("ix_pending_decisions_movie_id", "movie_id"),
     )
 
     id: Mapped[str] = mapped_column(
@@ -36,8 +42,8 @@ class PendingDecision(Base):
     # Part of the idempotency key so S1E3 and S4E3 don't collide.
     season: Mapped[int | None] = mapped_column(Integer, nullable=True)
     decision_key: Mapped[str | None] = mapped_column(String(80), nullable=True)
-    decision_scope: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    candidates: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    decision_scope: Mapped[dict | None] = mapped_column(json_column(), nullable=True)
+    candidates: Mapped[list] = mapped_column(json_column(), default=list, nullable=False)
     reason: Mapped[str] = mapped_column(String(2048), nullable=False)
     llm_suggestion: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     # The candidate the LLM picked (resource id), if any. Drives the

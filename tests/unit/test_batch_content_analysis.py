@@ -555,7 +555,6 @@ async def test_bind_single_work_assignments_refresh_failure_returns_zero():
 
 
 async def test_bind_single_work_assignments_binds_and_specials(db_session, sample_channel):
-    from app.models.episode import Episode
     from app.models.file_resource import FileResource
     from app.models.resource_file_assignment import ResourceFileAssignment
     from app.models.resource_work_link import ResourceWorkLink
@@ -568,7 +567,20 @@ async def test_bind_single_work_assignments_binds_and_specials(db_session, sampl
     work = TVSeries(id=_uuid(), title_cn="作品", collection_id=collection.id)
     other = TVSeries(id=_uuid(), title_cn="其他")
     db_session.add_all([collection, work, other])
-    await db_session.flush()
+    await db_session.commit()
+    # Season-0 row on a season-1 work: a legacy state that predates the
+    # episodes composite FK (season == parent season_number), so fabricate
+    # it with FK enforcement suspended.
+    from sqlalchemy import text
+
+    import app.database as db_mod
+
+    async with db_mod.engine.begin() as conn:
+        await conn.execute(text("PRAGMA foreign_keys=OFF"))
+        await conn.execute(text(
+            "INSERT INTO episodes (id, series_id, season, episode) "
+            "VALUES (:id, :sid, 0, 1)"
+        ), {"id": _uuid(), "sid": work.id})
     resource = FileResource(
         id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
         title_raw="pack", torrent_url="https://x/a.torrent",
@@ -588,7 +600,6 @@ async def test_bind_single_work_assignments_binds_and_specials(db_session, sampl
         ),
         ResourceWorkLink(id=_uuid(), resource_id=resource.id, series_id=work.id, source="auto"),
         ResourceWorkLink(id=_uuid(), resource_id=resource.id, series_id=other.id, source="auto"),
-        Episode(id=_uuid(), series_id=work.id, season=0, episode=1),
     ])
     await db_session.flush()
     await db_session.refresh(resource, ["file_assignments"])

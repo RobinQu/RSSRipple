@@ -12,10 +12,12 @@ NULL = 待绑定，以其为目标的计划落「待绑定」pending，补绑定
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from app.database import Base
+from app.models.db_types import json_column
+from app.models.guards import check_unique_key_bytes
 from app.utils.sql_time import UTCNow
 
 
@@ -66,7 +68,7 @@ class Library(Base):
     # tv | movie | mixed，仅提示性（由 CollectionType 派生），不做应用层强校验。
     kind: Mapped[str] = mapped_column(String(16), default="mixed", nullable=False)
     # BCP-47 语言标签 → Plex 字幕后缀映射（如 {"zh-CN": "zh-Hans"}），可空。
-    subtitle_lang_map: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    subtitle_lang_map: Mapped[dict | None] = mapped_column(json_column(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=UTCNow(), nullable=False
     )
@@ -77,3 +79,10 @@ class Library(Base):
     # Relationships
     media_server = relationship("MediaServerInstance", back_populates="libraries")
     volume = relationship("StorageVolume")
+
+    @validates("server_path")
+    def _server_path_within_unique_key(self, _key, value):
+        # uq_libraries_server_section_path 的 PG btree 单行字节护栏：
+        # 为 media_server_id（36）+ section_key（64）与索引内部开销预留后校验。
+        check_unique_key_bytes("server_path", value, reserved_bytes=36 + 64)
+        return value

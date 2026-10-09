@@ -44,7 +44,9 @@ async def test_replay_keeps_body_bytes_and_remaining_stream(monkeypatch, chunks,
         await send({"type": "http.response.start", "status": 200, "headers": []})
         await send({"type": "http.response.body", "body": b"ok"})
 
-    await DatabaseRetryMiddleware(application)({"type": "http"}, receive, send)
+    await DatabaseRetryMiddleware(application)(
+        {"type": "http", "method": "GET"}, receive, send
+    )
     assert len(attempts) == 2
     assert attempts[1] == chunks
     assert len(delivered) == 2
@@ -76,7 +78,9 @@ async def test_no_unsafe_replay(monkeypatch, mode):
         raise error
 
     with pytest.raises(type(error)) as raised:
-        await DatabaseRetryMiddleware(application)({"type": "http"}, receive, send)
+        await DatabaseRetryMiddleware(application)(
+            {"type": "http", "method": "GET"}, receive, send
+        )
     assert raised.value is error
     assert calls == (5 if mode == "exhausted" else 1)
     assert len(sent) == (1 if mode == "started" else 0)
@@ -90,6 +94,64 @@ async def test_lifespan_is_forwarded_without_http_retry():
 
     await DatabaseRetryMiddleware(application)({"type": "lifespan"}, None, None)
     assert seen == ["lifespan"]
+
+
+@pytest.mark.parametrize("method", ["POST", "PATCH", "PUT", "DELETE"])
+async def test_non_idempotent_methods_are_never_replayed(monkeypatch, method):
+    """POST/PATCH/PUT/DELETE handlers may enqueue jobs, call the downloader or
+    push SSE events before the failing commit; the middleware must not replay
+    those out-of-band effects. The error propagates on the first attempt."""
+    monkeypatch.setattr("app.database._backoff_delay", lambda _: 0)
+    calls = 0
+
+    async def receive():
+        return {"type": "http.request", "body": b"{}", "more_body": False}
+
+    async def send(message):
+        pass
+
+    async def application(scope, receive, send):
+        nonlocal calls
+        calls += 1
+        await receive()
+        raise conflict()
+
+    with pytest.raises(DatabaseError):
+        await DatabaseRetryMiddleware(application)(
+            {"type": "http", "method": method}, receive, send
+        )
+    assert calls == 1
+
+
+async def test_non_replayable_methods_skip_body_spooling(monkeypatch):
+    """A request that can never be replayed must not pay for body caching."""
+    import tempfile
+
+    def forbidden_spool(*args, **kwargs):
+        raise AssertionError("non-replayable request must not spool the body")
+
+    monkeypatch.setattr(
+        "app.middleware.db_retry.tempfile.SpooledTemporaryFile", forbidden_spool
+    )
+    seen_receive = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"x" * (2 * 1024 * 1024), "more_body": False}
+
+    async def send(message):
+        pass
+
+    async def application(scope, receive, send):
+        message = await receive()
+        seen_receive.append(message["body"])
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    assert tempfile.SpooledTemporaryFile is forbidden_spool
+    await DatabaseRetryMiddleware(application)(
+        {"type": "http", "method": "POST"}, receive, send
+    )
+    assert seen_receive == [b"x" * (2 * 1024 * 1024)]
 
 
 @pytest.mark.parametrize("outcome", ["complete", "cancel", "error"])
@@ -135,7 +197,9 @@ async def test_spilled_request_file_is_closed_on_every_exit(monkeypatch, outcome
         await send({"type": "http.response.start", "status": 200, "headers": []})
         await send({"type": "http.response.body", "body": b"ok"})
 
-    task = asyncio.create_task(DatabaseRetryMiddleware(application)({"type": "http"}, receive, send))
+    task = asyncio.create_task(DatabaseRetryMiddleware(application)(
+        {"type": "http", "method": "GET"}, receive, send,
+    ))
     try:
         await asyncio.wait_for(ready.wait(), 3)
         if outcome == "cancel":

@@ -247,6 +247,8 @@ class TestMemoryQueue:
         await queue.start()
         assert await queue.throttle("sync_progress", 60) is True
         assert await queue.throttle("sync_progress", 60) is True
+        # Nothing is stored, so releasing is a no-op.
+        await queue.release_throttle("sync_progress")
 
     async def test_multiple_different_keys(self, queue):
         counts = {}
@@ -286,6 +288,146 @@ class TestMemoryQueue:
         await queue.clear("lj1")
         jobs = await queue.list_jobs()
         assert [job["key"] for job in jobs] == ["lj2"]
+
+    async def test_terminal_state_retention_is_bounded(self, queue, monkeypatch):
+        """_jobs_by_key must not grow without bound: only the most recent
+        MEMORY_TERMINAL_JOB_RETENTION terminal jobs are kept, oldest finish
+        evicted first."""
+        import app.services.task_queue as tq
+
+        monkeypatch.setattr(tq, "MEMORY_TERMINAL_JOB_RETENTION", 3)
+
+        async def handler(payload):
+            return {"ok": True}
+
+        queue.register("echo", handler)
+        await queue.start()
+        for i in range(6):
+            await queue.enqueue("echo", f"ret{i}", {})
+            await _wait_done(queue, f"ret{i}")
+
+        jobs = await queue.list_jobs()
+        assert len(jobs) == 3
+        assert {job["key"] for job in jobs} == {"ret3", "ret4", "ret5"}
+        # An evicted state reads the same as a cleared one.
+        assert await queue.status("ret0") is None
+
+    async def test_clear_releases_dedup_key(self, queue):
+        """Regression: clear() popped only _jobs_by_key, leaving the key in
+        _active_keys — the dedup slot stayed occupied forever."""
+        await queue.start(consume=False)
+        job = await queue.enqueue("noop", "clear-k", {})
+        assert job is not None
+
+        await queue.clear("clear-k")
+        assert await queue.status("clear-k") is None
+        # The dedup slot was released together with the state entry.
+        job2 = await queue.enqueue("noop", "clear-k", {})
+        assert job2 is not None
+
+    async def test_clear_during_run_keeps_dedup_until_run_finishes(self, queue):
+        gate = asyncio.Event()
+        started = asyncio.Event()
+
+        async def handler(payload):
+            started.set()
+            await gate.wait()
+            return {"ok": True}
+
+        queue.register("slow", handler)
+        await queue.start()
+        await queue.enqueue("slow", "clear-run", {})
+        await asyncio.wait_for(started.wait(), timeout=1.0)
+
+        await queue.clear("clear-run")
+        assert await queue.status("clear-run") is None
+        # The in-flight run still owns the dedup key.
+        assert await queue.enqueue("slow", "clear-run", {}) is None
+
+        gate.set()
+        # _run's finally releases the key when the execution ends.
+        deadline = asyncio.get_event_loop().time() + 2.0
+        job = None
+        while job is None:
+            job = await queue.enqueue("slow", "clear-run", {})
+            if job is None:
+                assert asyncio.get_event_loop().time() < deadline, \
+                    "dedup key was not released after the cleared run finished"
+                await asyncio.sleep(0.01)
+        await _wait_done(queue, "clear-run")
+
+    async def test_cleared_queued_job_is_superseded_not_executed(self, queue):
+        """A descriptor cleared while queued must never execute, and its late
+        completion must not steal the replacement job's dedup key."""
+        gate = asyncio.Event()
+        started = asyncio.Event()
+        ran = []
+
+        async def blocker(payload):
+            started.set()
+            await gate.wait()
+
+        async def handler(payload):
+            ran.append(payload["n"])
+            return {"ok": True}
+
+        queue.register("blocker", blocker)
+        queue.register("job", handler)
+        await queue.start()
+
+        await queue.enqueue("blocker", "blocker-k", {})
+        await asyncio.wait_for(started.wait(), timeout=1.0)  # slot occupied
+        await queue.enqueue("job", "supersede-k", {"n": 1})
+        await queue.clear("supersede-k")
+        job = await queue.enqueue("job", "supersede-k", {"n": 2})
+        assert job is not None
+
+        gate.set()
+        await _wait_done(queue, "blocker-k")
+        state = await _wait_done(queue, "supersede-k")
+        assert state["status"] == JobStatus.DONE
+        assert ran == [2]  # the cleared descriptor never ran
+
+    async def test_stop_fails_queued_jobs_and_cancels_inflight(self, queue):
+        """stop() must not silently drop queued jobs or leak in-flight ones:
+        queued jobs move to FAILED with a reason, in-flight runs are cancelled
+        and gathered, and every dedup key is released."""
+        gate = asyncio.Event()
+        started = asyncio.Event()
+
+        async def slow(payload):
+            started.set()
+            await gate.wait()
+
+        queue.register("slow", slow)
+        await queue.start()
+
+        await queue.enqueue("slow", "stop-running", {})
+        await asyncio.wait_for(started.wait(), timeout=1.0)
+        await queue.enqueue("slow", "stop-queued-1", {})
+        await queue.enqueue("slow", "stop-queued-2", {})
+
+        await queue.stop()
+
+        for key in ("stop-running", "stop-queued-1", "stop-queued-2"):
+            state = await queue.status(key)
+            assert state["status"] == JobStatus.FAILED, key
+            assert "stopped" in state["error"], key
+            assert state["finished_at"] is not None, key
+        assert not queue._active_keys
+        assert not queue._run_tasks
+
+        await queue.stop()  # idempotent
+
+    async def test_stop_fails_never_consumed_jobs(self, queue):
+        """start(consume=False) (web role): jobs left in the backlog are
+        failed on stop instead of staying queued forever."""
+        await queue.start(consume=False)
+        await queue.enqueue("noop", "never-ran", {})
+        await queue.stop()
+        state = await queue.status("never-ran")
+        assert state["status"] == JobStatus.FAILED
+        assert "stopped" in state["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -451,6 +593,20 @@ class TestRedisQueue:
         assert await queue.throttle("sync_progress", 60) is False
         # A different key is independent.
         assert await queue.throttle("fts_drain", 60) is True
+
+    async def test_release_throttle_frees_tick_key(self, queue, redis_client):
+        """release_throttle() undoes a won tick so a failed enqueue does not
+        burn the interval (daily jobs would otherwise lose ≈24h)."""
+        await queue.start()
+        assert await queue.throttle("daily_cleanup", 3600) is True
+        assert await queue.throttle("daily_cleanup", 3600) is False
+        await queue.release_throttle("daily_cleanup")
+        assert not await redis_client.exists("rssripple:tick:daily_cleanup")
+        assert await queue.throttle("daily_cleanup", 3600) is True
+
+    async def test_release_throttle_before_start_is_noop(self):
+        q = RedisQueue()
+        await q.release_throttle("sync_progress")  # must not raise
 
     async def test_status_transitions(self, queue):
         started = asyncio.Event()

@@ -4,7 +4,7 @@ import copy
 import json
 
 import pytest
-from sqlalchemy import event, select, update
+from sqlalchemy import event, select, text, update
 
 from app.models.episode import Episode
 from app.models.file_resource import FileResource
@@ -102,6 +102,9 @@ async def test_invalid_review_never_clears_data(db_session, sample_channel, case
         work.number_of_seasons = 2
         work.seasons = [{"season_number": 1}, {"season_number": 2}]
     elif case == "episode":
+        # 模拟复合 FK 加约束前的历史违例行：挂起外键执法写入（此类行只可能
+        # 来自约束缺失的旧库）；提交后立即恢复执法。
+        await db_session.execute(text("PRAGMA foreign_keys=OFF"))
         episode.season = 2
     elif case == "resource":
         resource.season = 2
@@ -114,6 +117,8 @@ async def test_invalid_review_never_clears_data(db_session, sample_channel, case
     elif case == "tampered":
         review["snapshot"]["work"]["title_cn"] = "Tampered export"
     await db_session.commit()
+    if case == "episode":
+        await db_session.execute(text("PRAGMA foreign_keys=ON"))
     if case in {"multi-season", "episode", "resource", "assignment", "identity"}:
         review = await review_work(db_session, work.id)
         review["confirmed_season"] = 1

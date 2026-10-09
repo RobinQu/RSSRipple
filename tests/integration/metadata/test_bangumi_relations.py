@@ -113,7 +113,7 @@ async def _make_resource(db_session, **over):
         id=_uuid(),
         name="Bangumi Graph Channel",
         type="rss_feed",
-        url="https://example.com/rss",
+        url=f"https://example.com/rss/{_uuid()}",
         fetch_interval=1800,
         status="active",
         field_mapping={"list_locator": {"source": "entries"}},

@@ -36,7 +36,7 @@ async def lifecycle_db(lifecycle_backend):
     assert hashlib.sha256(raw).hexdigest() == "d11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32"
     recorded = json.loads(raw)["tables"]["file_resources"][0]
     async with factory() as db:
-        channel = Channel(name="Synthetic lease channel", type="rss_feed", url="https://synthetic.invalid/lease",
+        channel = Channel(name="Synthetic lease channel", type="rss_feed", url=f"https://synthetic.invalid/lease/{str(uuid.uuid4())}",
                           field_mapping={})
         downloader = DownloaderInstance(name="Synthetic", type="mock", url="mock://lease", download_dir="/tmp/no-media")
         db.add_all([channel, downloader])

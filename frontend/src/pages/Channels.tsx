@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
-import { Plus, Trash2, Edit, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, Edit, RefreshCw, Pause, Play } from 'lucide-react';
 import { Table, Button, Space, Typography, App, Empty, Spin, Tag } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { channelsApi } from '../api/channels';
@@ -104,6 +104,29 @@ export default function Channels() {
     }
   };
 
+  const handleTogglePause = (record: Channel) => {
+    const isPaused = record.status === 'inactive';
+    modal.confirm({
+      title: t(isPaused ? 'channels.resumeConfirm' : 'channels.pauseConfirm'),
+      content: t(isPaused ? 'channels.resumeConfirmContent' : 'channels.pauseConfirmContent'),
+      okText: t('common.confirm'),
+      cancelText: t('common.cancel'),
+      onOk: async () => {
+        const r = isPaused
+          ? await channelsApi.resume(record.id)
+          : await channelsApi.pause(record.id);
+        if (r.success) {
+          message.success(t(isPaused ? 'channels.resumed' : 'channels.paused'));
+          loadChannels();
+        } else {
+          message.error(
+            r.error?.message || t(isPaused ? 'channels.resumeFailed' : 'channels.pauseFailed'),
+          );
+        }
+      },
+    });
+  };
+
   const columns: TableColumnsType<Channel> = [
     {
       title: t('common.name'),
@@ -148,24 +171,33 @@ export default function Channels() {
     {
       title: t('common.operation'),
       key: 'actions',
-      width: 180,
+      width: 210,
       align: 'right',
       render: (_, record) => {
         const isFetching = fetchingIds.has(record.id);
+        const isPaused = record.status === 'inactive';
         return (
           <Space size={4}>
-            <Button
+            <Button aria-label={t('channels.fetchNow')}
               type="text"
               size="small"
-              disabled={isFetching}
+              disabled={isFetching || isPaused}
               icon={isFetching ? <Spin size="small" /> : <RefreshCw size={14} />}
               onClick={() => handleFetch(record.id)}
-              title={t('channels.fetchNow')}
+              title={isPaused ? t('channels.fetchPausedTip') : t('channels.fetchNow')}
+            />
+            <Button
+              aria-label={t(isPaused ? 'channels.resume' : 'channels.pause')}
+              type="text"
+              size="small"
+              icon={isPaused ? <Play size={14} /> : <Pause size={14} />}
+              onClick={() => handleTogglePause(record)}
+              title={t(isPaused ? 'channels.resume' : 'channels.pause')}
             />
             <Link to={`/channels/${record.id}/edit`}>
-              <Button type="text" size="small" icon={<Edit size={14} />} title={t('common.edit')} />
+              <Button aria-label={t('common.edit')} type="text" size="small" icon={<Edit size={14} />} title={t('common.edit')} />
             </Link>
-            <Button
+            <Button aria-label={t('common.delete')}
               type="text"
               size="small"
               danger

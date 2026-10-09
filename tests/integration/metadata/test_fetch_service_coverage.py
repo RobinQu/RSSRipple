@@ -80,7 +80,7 @@ class _Entry(dict):
 
 async def _make_channel(db_session, **overrides) -> Channel:
     defaults = dict(
-        id=_uuid(), name="ch", type="rss_feed", url="https://example.com/rss",
+        id=_uuid(), name="ch", type="rss_feed", url=f"https://example.com/rss/{_uuid()}",
         fetch_interval=1800, status="active",
         field_mapping={"list_locator": {"source": "entries"},
                        "field_mappings": {"torrent_url": {"source": "link"}}},
@@ -212,7 +212,7 @@ async def test_reset_channel_metadata_for_source_change(db_session):
     linked = _make_resource(channel.id, metadata_failure_type="not_found",
                             metadata_attempts=2, series_id=series.id)
     channel_b = Channel(
-        id=_uuid(), name="ch2", type="rss_feed", url="https://example.com/rss2",
+        id=_uuid(), name="ch2", type="rss_feed", url=f"https://example.com/rss2/{_uuid()}",
         fetch_interval=1800, status="active", field_mapping={},
         metadata_agent_enabled=False,
     )

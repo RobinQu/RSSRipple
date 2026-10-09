@@ -173,6 +173,40 @@ class TestRenderTemplate:
         assert "//" not in out
 
 
+class TestOptionalGroupValueProtection:
+    """可选段标记只对模板自身的 [...] 生效；占位符取值中的方括号按字面量保留。"""
+
+    def test_bracketed_group_prefix_in_title_preserved(self):
+        ctx = {**MOVIE_CONTEXT, "title": "[SubsPlease] Frieren"}
+        out = render_template("{title}{ext}", ctx)
+        assert out == "[SubsPlease] Frieren.mkv"
+
+    def test_whitespace_dash_brackets_in_value_not_stripped(self):
+        """旧实现会把取值里的 ``[ - ]`` 当空可选段误删。"""
+        ctx = {**MOVIE_CONTEXT, "title": "Show [ - ] Extra"}
+        out = render_template("{title}{ext}", ctx)
+        assert out == "Show [ - ] Extra.mkv"
+
+    def test_template_optional_group_still_collapses(self):
+        ctx = {**TV_CONTEXT, "episode_title": None}
+        assert render_template(PRESET_TV, ctx) == (
+            "攻壳机动队/Season 01/攻壳机动队 - s01e04.mkv"
+        )
+
+    def test_bracketed_value_inside_optional_group_kept(self):
+        ctx = {**TV_CONTEXT, "episode_title": "[SubsPlease] 机器人回旋曲"}
+        out = render_template(PRESET_TV, ctx)
+        assert out == (
+            "攻壳机动队/Season 01/"
+            "攻壳机动队 - s01e04 - [SubsPlease] 机器人回旋曲.mkv"
+        )
+
+    def test_nested_brackets_in_template_unchanged_semantics(self):
+        """模板里嵌套方括号的匹配行为与旧实现一致（内层先匹配）。"""
+        ctx = {**MOVIE_CONTEXT, "title": "X"}
+        assert render_template("a[b[c]d]/{title}{ext}", ctx) == "a[bcd]/X.mkv"
+
+
 class TestSanitizeComponent:
     def test_strips_slash_control_and_trailing_dots(self):
         assert sanitize_component("a/b\x01c .. ") == "abc"

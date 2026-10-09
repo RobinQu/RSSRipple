@@ -38,7 +38,7 @@ def _uuid() -> str:
 @pytest.fixture
 async def channel(db_session):
     ch = Channel(
-        id=_uuid(), name="ch", type="rss_feed", url="https://example.com/rss",
+        id=_uuid(), name="ch", type="rss_feed", url=f"https://example.com/rss/{_uuid()}",
         field_mapping={}, metadata_agent_enabled=False, status="active",
     )
     db_session.add(ch)

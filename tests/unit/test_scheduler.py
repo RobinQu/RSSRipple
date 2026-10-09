@@ -517,9 +517,99 @@ async def test_periodic_job_wrapper_swallows_enqueue_errors(monkeypatch):
     fake_queue = MagicMock()
     fake_queue.throttle = AsyncMock(return_value=True)
     fake_queue.enqueue = AsyncMock(side_effect=ConnectionError("redis down"))
+    fake_queue.release_throttle = AsyncMock()
     monkeypatch.setattr(tq_mod, "task_queue", fake_queue)
 
     await sch._enqueue_sync_progress()  # must not raise
+
+    # The won tick key was rolled back so the next tick retries instead of
+    # losing the whole interval.
+    fake_queue.release_throttle.assert_awaited_once_with("sync_progress")
+
+
+@pytest.mark.asyncio
+async def test_periodic_job_wrapper_survives_release_failure(monkeypatch):
+    """A failing throttle rollback must not crash the scheduler job either."""
+    import app.services.task_queue as tq_mod
+
+    fake_queue = MagicMock()
+    fake_queue.throttle = AsyncMock(return_value=True)
+    fake_queue.enqueue = AsyncMock(side_effect=ConnectionError("redis down"))
+    fake_queue.release_throttle = AsyncMock(side_effect=ConnectionError("still down"))
+    monkeypatch.setattr(tq_mod, "task_queue", fake_queue)
+
+    await sch._enqueue_daily_cleanup()  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_periodic_job_throttle_not_burned_on_enqueue_failure(monkeypatch):
+    """End-to-end against a real RedisQueue (fakeredis): when enqueue fails
+    after throttle() won, the tick key is released so the next scheduler
+    tick can proceed instead of waiting out the throttle TTL (≈24h for the
+    daily jobs)."""
+    import fakeredis
+
+    import app.services.task_queue as tq_mod
+
+    queue = tq_mod.RedisQueue(
+        redis_client=fakeredis.FakeAsyncRedis(decode_responses=True),
+    )
+    await queue.start(consume=False)
+
+    async def failing_enqueue(*args, **kwargs):
+        raise ConnectionError("redis blip")
+
+    monkeypatch.setattr(queue, "enqueue", failing_enqueue)
+    monkeypatch.setattr(tq_mod, "task_queue", queue)
+    try:
+        await sch._enqueue_daily_cleanup()  # throttle won → enqueue failed → released
+        # The tick key is free again: the next scheduler tick proceeds.
+        assert await queue.throttle("daily_cleanup", 3600) is True
+    finally:
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_scheduler_job_defaults_misfire_grace(monkeypatch):
+    """Every interval job inherits a wide misfire_grace_time — APScheduler's
+    default of 1s skipped ticks outright when the event loop was blocked at
+    the fire moment. Daily cron jobs keep their explicit 1-hour override."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "scheduler_enabled", True)
+    try:
+        await sch.init_scheduler()
+        scheduler = sch.get_scheduler()
+        grace = sch._MISFIRE_GRACE_SECONDS
+        assert scheduler._job_defaults["misfire_grace_time"] == grace
+        for job_id in (
+            "agent_run_reconcile",  # explicit 30s — its own tighter override
+            "agent_resource_dispatch", "resource_reparse_dispatch",
+            "agent_publication_dispatch", "sync_progress", "check_downloaders",
+            "metadata_backfill", "download_notifications", "magnet_resolve_sweep",
+        ):
+            job = scheduler.get_job(job_id)
+            assert job is not None, job_id
+        for job_id in (
+            "agent_resource_dispatch", "resource_reparse_dispatch",
+            "agent_publication_dispatch", "sync_progress", "check_downloaders",
+            "metadata_backfill", "download_notifications", "magnet_resolve_sweep",
+        ):
+            assert scheduler.get_job(job_id).misfire_grace_time == grace, job_id
+        assert scheduler.get_job("daily_cleanup").misfire_grace_time == 3600
+        assert scheduler.get_job("daily_dedup").misfire_grace_time == 3600
+
+        # Per-channel fetch/refresh jobs inherit the same default.
+        channel = SimpleNamespace(
+            id="grace-ch", fetch_interval=300, status="active",
+            metadata_refresh_enabled=True, metadata_refresh_interval_minutes=60,
+        )
+        sch.schedule_channel(channel)
+        assert scheduler.get_job("channel:grace-ch").misfire_grace_time == grace
+        assert scheduler.get_job("channel-refresh:grace-ch").misfire_grace_time == grace
+        sch.unschedule_channel("grace-ch")
+    finally:
+        await sch.shutdown_scheduler()
 
 
 # ---------------------------------------------------------------------------

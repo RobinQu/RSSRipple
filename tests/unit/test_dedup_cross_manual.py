@@ -19,6 +19,11 @@ async def test_cross_type_preserves_manual_intent(db_session, path, case):
     await db_session.flush()
     series = TVSeries(id=str(uuid.uuid4()), title_en="Synthetic cross work", collection_id=collection.id)
     movie = Movie(id=str(uuid.uuid4()), title_en="Synthetic cross work")
+    # Cross-type pairing now requires evidence beyond a shared title (equal
+    # dates or an identity overlap) — give the pair a shared identity so the
+    # merge machinery is exercised.
+    series.external_source = movie.external_source = "tmdb"
+    series.external_id = movie.external_id = "tmdb:9001"
     source, target = (movie, series) if path == "keep_series" else (series, movie)
     if case == "unsupported":
         name = "runtime" if path == "keep_series" else "number_of_episodes"

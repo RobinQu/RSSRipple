@@ -29,6 +29,18 @@ API_KEY = os.environ.get("INTEGRATION_API_KEY", "test-integration-key")
 API_HEADERS = {"X-API-Key": API_KEY}
 
 
+def unique_feed_url(url: str) -> str:
+    """Per-channel unique URL — same feed content, no uq_channels_url clash.
+
+    The test-server feed routes ignore unknown query params. A channel delete
+    can race the app-llm scheduler's fetch job and be skipped silently, so
+    reusing a bare feed URL across tests can hit the unique constraint on a
+    leftover row.
+    """
+    sep = "&" if "?" in url else "?"
+    return f"{url}{sep}case={uuid.uuid4().hex[:8]}"
+
+
 def _client() -> httpx.Client:
     """Fresh HTTP client against the RSSRipple app."""
     return httpx.Client(timeout=TIMEOUT, headers=API_HEADERS)

@@ -141,3 +141,60 @@ def test_summarize_filters_request_decodes_bytes():
     assert req.resource_ids == ["a", "b"]
     req2 = SummarizeFiltersRequest.model_validate({"resource_ids": []})
     assert req2.resource_ids == []
+
+
+# ---------------------------------------------------------------------------
+# Review hardening: typed schemas for previously weakly-typed fields
+
+
+def test_otp_request_code_validation():
+    from pydantic import ValidationError
+
+    from app.schemas.auth import OTPRequest
+
+    assert OTPRequest(code="123456").code == "123456"
+    assert OTPRequest(code="12345678").code == "12345678"
+    for bad in ("12345", "123456789", "abcdef", "", "12 456"):
+        with pytest.raises(ValidationError):
+            OTPRequest(code=bad)
+
+
+def test_batch_decision_action_literal():
+    from pydantic import ValidationError
+
+    from app.schemas.pending_decision import BatchDecisionRequest
+
+    assert BatchDecisionRequest(decision_ids=[], action="skip").action == "skip"
+    assert BatchDecisionRequest(decision_ids=[], action="ai").action == "ai"
+    with pytest.raises(ValidationError):
+        BatchDecisionRequest(decision_ids=[], action="bogus")
+
+
+def test_association_media_fields_typed_and_dict_compatible():
+    from pydantic import ValidationError
+
+    from app.schemas.file_resource import (
+        ResourceAssociationUpdateRequest,
+        ResourceMediaFields,
+    )
+
+    # Known keys apply; unknown keys are ignored (matching the old dict loop).
+    fields = ResourceMediaFields.model_validate(
+        {"resolution": "2160p", "not_a_media_field": "x"}
+    )
+    assert "resolution" in fields
+    assert fields["resolution"] == "2160p"
+    assert "not_a_media_field" not in fields
+    # List-typed keys keep their type.
+    fields2 = ResourceMediaFields.model_validate({"subtitle_langs": ["zh-CN"]})
+    assert fields2["subtitle_langs"] == ["zh-CN"]
+    assert "resolution" not in fields2
+    # Wrong value types are rejected instead of silently stored.
+    with pytest.raises(ValidationError):
+        ResourceMediaFields.model_validate({"subtitle_langs": "zh-CN"})
+    # The request model accepts a plain dict payload as before.
+    req = ResourceAssociationUpdateRequest.model_validate(
+        {"is_batch": False, "fields": {"title_cn": "标题"}}
+    )
+    assert isinstance(req.fields, ResourceMediaFields)
+    assert req.fields["title_cn"] == "标题"

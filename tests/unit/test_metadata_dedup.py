@@ -7,7 +7,7 @@ canonical-external-id upsert was in place.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -503,15 +503,18 @@ async def test_cross_type_no_episode_evidence_keeps_movie(db_session, channel):
 
 
 async def test_cross_type_shared_title_without_external_id(db_session, channel):
-    """Pairs can also be detected via shared normalized title (trad/simp fold)."""
+    """Pairs can also be detected via shared normalized title (trad/simp fold)
+    — with date evidence that agrees (a shared title alone no longer suffices
+    when neither side carries a date)."""
     movie = Movie(
         id=_uuid(), title_cn="關於我轉生變成史萊姆這檔事",
         external_id="wikipedia:5139056", external_source="wikipedia",
-        content_type="movie",
+        content_type="movie", release_date=date(2018, 10, 1),
     )
     series = TVSeries(
         id=_uuid(), title_cn="关于我转生变成史莱姆这档事",  # simplified twin
         external_id="exa:abc", external_source="exa", content_type="tv",
+        start_date=date(2018, 10, 2),
     )
     db_session.add_all([movie, series])
     await db_session.flush()
@@ -530,6 +533,68 @@ async def test_cross_type_shared_title_without_external_id(db_session, channel):
     assert (await db_session.execute(select(Movie))).scalars().all() == []
     await db_session.refresh(r)
     assert r.series_id == series.id
+
+
+async def test_cross_type_shared_title_without_any_evidence_does_not_merge(db_session):
+    """A shared normalized title with no date on either side and no identity
+    overlap is NOT proof across types — the pair must be left alone."""
+    from sqlalchemy import select
+
+    movie = Movie(id=_uuid(), title_cn="重生", content_type="movie")
+    series = TVSeries(id=_uuid(), title_cn="重生", content_type="tv")
+    db_session.add_all([movie, series])
+    await db_session.flush()
+
+    report = await dedup.merge_cross_type_duplicates(db_session)
+    await db_session.flush()
+
+    assert report.cross_type_merges == 0
+    assert len((await db_session.execute(select(Movie))).scalars().all()) == 1
+    assert len((await db_session.execute(select(TVSeries))).scalars().all()) == 1
+
+
+async def test_cross_type_shared_title_with_bag_overlap_merges(db_session):
+    """Without date evidence, an identity-bag overlap (one side bagged the
+    other side's primary id) is strong enough to pair across types."""
+    from sqlalchemy import select
+
+    from app.services.external_ids import add_external_id
+
+    movie = Movie(id=_uuid(), title_cn="同一作品", content_type="movie")
+    series = TVSeries(
+        id=_uuid(), title_cn="同一作品", content_type="tv",
+        external_id="tmdb:555", external_source="tmdb",
+    )
+    db_session.add_all([movie, series])
+    await db_session.flush()
+    await add_external_id(db_session, "movie", movie.id, "tmdb", "tmdb:555")
+
+    report = await dedup.merge_cross_type_duplicates(db_session)
+    await db_session.flush()
+
+    assert report.cross_type_merges == 1
+    # No episode evidence anywhere → the Movie survives.
+    assert (await db_session.execute(select(TVSeries))).scalars().all() == []
+
+
+async def test_cross_type_bag_overlap_converges_wikipedia_pageid_forms(db_session):
+    """The bag-overlap check compares wikipedia ids by pageid: a qualified
+    ``wikipedia:zh:{pid}`` bag row matches a legacy bare primary."""
+    movie = Movie(
+        id=_uuid(), title_cn="跨形态作品", content_type="movie",
+        external_id="wikipedia:5139056", external_source="wikipedia",
+    )
+    series = TVSeries(id=_uuid(), title_cn="跨形态作品", content_type="tv")
+    db_session.add_all([movie, series])
+    await db_session.flush()
+    from app.services.external_ids import add_external_id
+
+    await add_external_id(db_session, "series", series.id, "wikipedia", "wikipedia:zh:5139056")
+
+    report = await dedup.merge_cross_type_duplicates(db_session)
+    await db_session.flush()
+
+    assert report.cross_type_merges == 1
 
 
 # ---------------------------------------------------------------------------
@@ -1209,3 +1274,80 @@ async def test_dedup_keeps_original_legacy_evidence_and_does_not_add_retired_pro
     assert survivor.number_of_seasons == 3
     assert survivor.seasons == [{"season_number": 1}]
     assert survivor.manually_edited_fields == ["title_cn"]
+
+
+# ---------------------------------------------------------------------------
+# Lean keyset-paginated scanning (the daily pass never full-loads ORM graphs)
+# ---------------------------------------------------------------------------
+
+
+async def test_merge_duplicate_series_scans_in_keyset_pages(db_session, monkeypatch):
+    """Duplicate groups spanning several id-keyset pages still cluster and
+    merge; singletons on other pages are untouched."""
+    from sqlalchemy import select
+
+    monkeypatch.setattr(dedup, "_DEDUP_SCAN_PAGE_SIZE", 2)
+    # Two duplicate pairs interleaved with singletons → multiple pages.
+    rows = [
+        TVSeries(id=_uuid(), title_cn="分页剧", content_type="tv"),
+        TVSeries(id=_uuid(), title_cn="无关剧A", content_type="tv"),
+        TVSeries(id=_uuid(), title_cn="分页电影化", content_type="tv"),
+        TVSeries(id=_uuid(), title_cn="无关剧B", content_type="tv"),
+        TVSeries(id=_uuid(), title_cn="分頁劇", content_type="tv"),  # trad twin of 分页剧
+    ]
+    db_session.add_all(rows)
+    await db_session.flush()
+
+    report = await dedup.merge_duplicate_series(db_session)
+    await db_session.flush()
+
+    assert report.series_groups == 1
+    assert report.series_removed == 1
+    remaining = (await db_session.execute(select(TVSeries))).scalars().all()
+    assert len(remaining) == 4
+
+
+async def test_merge_duplicate_movies_scans_in_keyset_pages(db_session, monkeypatch):
+    from sqlalchemy import select
+
+    monkeypatch.setattr(dedup, "_DEDUP_SCAN_PAGE_SIZE", 2)
+    rows = [
+        Movie(id=_uuid(), title_cn="分页电影", content_type="movie"),
+        Movie(id=_uuid(), title_cn="无关片A", content_type="movie"),
+        Movie(id=_uuid(), title_cn="无关片B", content_type="movie"),
+        Movie(id=_uuid(), title_cn="分頁電影", content_type="movie"),  # trad twin
+    ]
+    db_session.add_all(rows)
+    await db_session.flush()
+
+    report = await dedup.merge_duplicate_movies(db_session)
+    await db_session.flush()
+
+    assert report.movie_groups == 1
+    assert report.movies_removed == 1
+    assert len((await db_session.execute(select(Movie))).scalars().all()) == 3
+
+
+async def test_cross_type_scans_in_keyset_pages(db_session, monkeypatch):
+    """Cross-type pairing also runs on lean snapshots; a matching pair across
+    pages still merges (shared identity)."""
+    from sqlalchemy import select
+
+    monkeypatch.setattr(dedup, "_DEDUP_SCAN_PAGE_SIZE", 1)
+    movie = Movie(
+        id=_uuid(), title_cn="跨页电影", content_type="movie",
+        external_id="tmdb:4141", external_source="tmdb",
+    )
+    series = TVSeries(
+        id=_uuid(), title_cn="跨页电影", content_type="tv",
+        external_id="tmdb:4141", external_source="tmdb",
+    )
+    db_session.add_all([movie, series])
+    await db_session.flush()
+
+    report = await dedup.merge_cross_type_duplicates(db_session)
+    await db_session.flush()
+
+    assert report.cross_type_merges == 1
+    # No episode evidence → the Movie survives.
+    assert (await db_session.execute(select(TVSeries))).scalars().all() == []

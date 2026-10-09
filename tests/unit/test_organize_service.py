@@ -122,7 +122,8 @@ async def _seed(db, payload: dict, *, volume=None, downloader_dir=None):
     from app.models.channel import Channel
 
     channel = Channel(
-        id=_uuid(), name="ch", type="rss_feed", url="https://example.com/rss",
+        id=_uuid(), name="ch", type="rss_feed",
+        url=f"https://example.com/rss-{_uuid()}",  # channels.url is unique
         fetch_interval=1800, status="active",
         field_mapping={
             "list_locator": {"source": "entries"},
@@ -130,9 +131,10 @@ async def _seed(db, payload: dict, *, volume=None, downloader_dir=None):
         },
         metadata_agent_enabled=False,
     )
+    dl_id = _uuid()
     dl = DownloaderInstance(
-        id=_uuid(), name="dl", type="transmission",
-        url="http://127.0.0.1:9091/transmission/rpc",
+        id=dl_id, name=f"dl-{dl_id}", type="transmission",  # name/url are unique
+        url=f"http://127.0.0.1:9091/transmission/rpc-{dl_id}",
         download_dir=downloader_dir or payload["task"]["download_dir"],
         volume_id=volume.id if volume is not None else None,
         status="disconnected",
@@ -1167,7 +1169,8 @@ async def test_resolve_manifest_empty_parse(db_session, tmp_path, monkeypatch):
 
 
 async def test_resolve_manifest_fetches_torrent_url(db_session, tmp_path, monkeypatch):
-    """torrent_url 拉取成功 → 回写 torrent_file 缓存并解析清单。"""
+    """torrent_url 拉取成功 → 返回清单 + 待回写缓存路径；规划期不直接写
+    resource.torrent_file（由调用方在计划提交后独立事务回写）。"""
     from app.schemas.notification import NotificationPayload
     from app.services.organize_service import _resolve_manifest
 
@@ -1184,9 +1187,12 @@ async def test_resolve_manifest_fetches_torrent_url(db_session, tmp_path, monkey
         AsyncMock(return_value=str(torrent_path)),
     )
     payload = NotificationPayload.model_validate(notification.payload)
-    manifest = await _resolve_manifest(db_session, payload)
+    resolved = await _resolve_manifest(db_session, payload)
+    assert resolved is not None
+    manifest, pending = resolved
     assert manifest and manifest[0]["name"] == "a.mkv"
-    assert resource.torrent_file == str(torrent_path)
+    assert pending == (resource.id, str(torrent_path))
+    assert resource.torrent_file is None  # 规划主事务不携带资源行副作用写
 
 
 async def test_resolve_manifest_fetch_failure_continues(db_session, tmp_path, monkeypatch):
@@ -1239,8 +1245,8 @@ async def test_resolve_manifest_from_downloader_rpc(db_session, tmp_path, monkey
     with pytest.raises(organize_service.PlanError, match="路径"):
         await _resolve_manifest(db_session, payload)
     wrapper.get_torrent_files.return_value = {"files": [{"name": "safe.mkv", "length": 4}]}
-    manifest = await _resolve_manifest(db_session, payload)
-    assert manifest == [{"name": "safe.mkv", "size": 4}]
+    resolved = await _resolve_manifest(db_session, payload)
+    assert resolved == ([{"name": "safe.mkv", "size": 4}], None)
 
 
 async def test_resolve_manifest_rpc_failure_returns_none(db_session, tmp_path, monkeypatch):
@@ -1930,3 +1936,218 @@ async def test_persisted_unsafe_plan_preserves_files_and_task(db_session, tmp_pa
         assert not Path(op.dst).exists()
     cleanup.assert_not_awaited()
     assert "cleanup" not in [a.action for a in await _audits(db_session, plan.id)]
+
+
+# ---------------------------------------------------------------- 缺陷修复回归
+
+
+async def test_execute_writes_back_op_results_by_op_id(db_session, tmp_path):
+    """同 (op_type, src) 的多条 op 按 plan_ops 行 id 回写，不互相覆盖。"""
+    plan, _ = await _planned_series_plan(db_session, tmp_path)
+    [op] = (
+        await db_session.execute(
+            select(OrganizePlanOp).where(OrganizePlanOp.plan_id == plan.id)
+        )
+    ).scalars().all()
+    dup_dst = str(Path(op.dst).with_name("dup.mkv"))
+    db_session.add(
+        OrganizePlanOp(
+            plan_id=plan.id, seq=op.seq + 1, op_type="move",
+            src=op.src, dst=dup_dst, size=op.size,
+        )
+    )
+    await db_session.commit()
+    plan = await execute_plan(db_session, plan.id)
+    # 第二条 op 执行时源已被第一条移走 → failed；第一条必须是 done
+    # （旧实现按 (op_type, src) 键回写，后者会覆盖前者）。
+    assert plan.status == "failed"
+    ops = (
+        await db_session.execute(
+            select(OrganizePlanOp)
+            .where(OrganizePlanOp.plan_id == plan.id)
+            .order_by(OrganizePlanOp.seq)
+        )
+    ).scalars().all()
+    assert ops[0].status == "done" and ops[0].error_message is None
+    assert ops[1].status == "failed" and ops[1].error_message
+    assert Path(ops[0].dst).exists() and not Path(dup_dst).exists()
+
+
+async def test_plan_defers_torrent_cache_writeback(db_session, tmp_path, monkeypatch):
+    """torrent_url 拉取成功后：计划照常落库，缓存路径经独立事务回写资源行。"""
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "Hamnet.2025.1080p.mkv", 300)
+    lib = await _make_library(db_session, tmp_path / "lib", name="Movies", kind="movie")
+    await _make_rule(db_session, lib.id, "{title} ({year})/{title} ({year}){ext}")
+    notification = await _seed(db_session, _movie_payload(str(dl_dir)))
+    resource = (
+        await db_session.execute(select(FileResource))
+    ).scalars().one()
+    resource.torrent_file = None
+    resource.torrent_url = "https://example.com/x.torrent"
+    torrent_path = _write_torrent(tmp_path / "r.torrent", [("Hamnet.2025.1080p.mkv", 300)])
+    await db_session.commit()
+    monkeypatch.setattr(
+        "app.services.torrent_inspect.fetch_torrent_file",
+        AsyncMock(return_value=str(torrent_path)),
+    )
+    stats = await plan_for_notifications(db_session, [notification])
+    assert stats["planned"] == 1
+    await db_session.refresh(resource)
+    assert resource.torrent_file == str(torrent_path)  # 独立事务回写，读取路径兼容
+
+
+async def test_plan_torrent_cache_writeback_failure_isolated(
+    db_session, tmp_path, monkeypatch, caplog
+):
+    """缓存回写失败只记日志，不影响规划结果与计划落库。"""
+    from app import database as db_mod
+
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "Hamnet.2025.1080p.mkv", 300)
+    lib = await _make_library(db_session, tmp_path / "lib", name="Movies", kind="movie")
+    await _make_rule(db_session, lib.id, "{title} ({year})/{title} ({year}){ext}")
+    notification = await _seed(db_session, _movie_payload(str(dl_dir)))
+    resource = (
+        await db_session.execute(select(FileResource))
+    ).scalars().one()
+    resource.torrent_file = None
+    resource.torrent_url = "https://example.com/x.torrent"
+    torrent_path = _write_torrent(tmp_path / "r.torrent", [("Hamnet.2025.1080p.mkv", 300)])
+    await db_session.commit()
+    monkeypatch.setattr(
+        "app.services.torrent_inspect.fetch_torrent_file",
+        AsyncMock(return_value=str(torrent_path)),
+    )
+
+    def boom():
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(db_mod, "committed_session", boom)
+    with caplog.at_level("WARNING"):
+        stats = await plan_for_notifications(db_session, [notification])
+    assert stats["planned"] == 1
+    assert "回写失败" in caplog.text
+    await db_session.refresh(resource)
+    assert resource.torrent_file is None
+
+
+async def test_schedule_auto_execute_holds_strong_reference(db_session, monkeypatch):
+    """后台任务由模块级集合持强引用，完成后经 done 回调移除。"""
+    from app import database as db_mod
+
+    class FakeCtx:
+        async def __aenter__(self):
+            return SimpleNamespace()
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(db_mod, "committed_session", lambda: FakeCtx())
+
+    async def fake_retry(factory):
+        return await factory()
+
+    monkeypatch.setattr(db_mod, "retry_on_lock", fake_retry)
+    started = asyncio.Event()
+    finish = asyncio.Event()
+
+    async def fake_execute(session, plan_id):
+        started.set()
+        await asyncio.wait_for(finish.wait(), 10)
+
+    monkeypatch.setattr(organize_service, "execute_plan", fake_execute)
+    organize_service.schedule_auto_execute("plan-strong-ref")
+    await asyncio.wait_for(started.wait(), 5)
+    running = [
+        t for t in organize_service._background_tasks
+        if isinstance(t, asyncio.Task) and not t.done()
+    ]
+    assert len(running) == 1  # 强引用持有中
+    finish.set()
+    await running[0]
+    await asyncio.sleep(0)  # done 回调移除
+    assert running[0] not in organize_service._background_tasks
+
+
+async def test_schedule_replan_background_and_dedup(db_session, db_engine, monkeypatch):
+    """配置重建在后台执行；运行中再次调度只置合并标记，结束后补跑一轮。"""
+    organize_service._replan_task = None
+    organize_service._replan_dirty = False
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    runs: list[str] = []
+    real = organize_service.replan_open_plans
+
+    async def blocking_replan(session, *, reason):
+        runs.append(reason)
+        if len(runs) == 1:
+            entered.set()
+            await asyncio.wait_for(release.wait(), 10)
+        return await real(session, reason=reason)
+
+    monkeypatch.setattr(organize_service, "replan_open_plans", blocking_replan)
+    try:
+        task1 = organize_service.schedule_replan(db_engine, reason="第一次")
+        assert task1 is not None
+        await asyncio.wait_for(entered.wait(), 5)
+        task2 = organize_service.schedule_replan(db_engine, reason="第二次")
+        assert task2 is None  # 并发去重：不启动第二个任务
+        release.set()
+        await task1
+        assert runs == ["第一次", "第二次"]  # 合并标记触发补跑
+        assert organize_service._replan_dirty is False
+    finally:
+        organize_service._replan_task = None
+        organize_service._replan_dirty = False
+
+
+async def test_schedule_replan_failure_logged_not_raised(
+    db_session, db_engine, monkeypatch, caplog
+):
+    """后台重建失败只记日志（对齐原同步附带动作语义）。"""
+    organize_service._replan_task = None
+    organize_service._replan_dirty = False
+
+    async def boom(session, *, reason):
+        raise RuntimeError("replan down")
+
+    monkeypatch.setattr(organize_service, "replan_open_plans", boom)
+    try:
+        with caplog.at_level("WARNING"):
+            task = organize_service.schedule_replan(db_engine, reason="规则更新")
+            assert task is not None
+            await task  # 不抛出
+        assert "replan down" in caplog.text
+    finally:
+        organize_service._replan_task = None
+        organize_service._replan_dirty = False
+
+
+async def test_plan_for_notifications_sweeps_stale_staging_files(
+    db_session, tmp_path, monkeypatch
+):
+    """规划 tick 节流触发孤儿 staging 回收：超龄 .rssripple-*.tmp 删除，
+    正常文件与未超龄临时文件不动。"""
+    import time as _time
+
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "ep04.mkv", 300)
+    lib = await _make_library(db_session, tmp_path / "lib")
+    await _make_rule(db_session, lib.id, TV_TEMPLATE)
+    notification = await _seed(
+        db_session, _series_payload(str(dl_dir), files=[{"name": "ep04.mkv"}])
+    )
+    lib_root = tmp_path / "lib"
+    orphan = _mkfile(lib_root / ".rssripple-orphan.tmp", 5)
+    young = _mkfile(lib_root / ".rssripple-young.tmp", 5)
+    normal = _mkfile(lib_root / "keep.mkv", 5)
+    old = _time.time() - 90000
+    os.utime(orphan, (old, old))
+    monkeypatch.setattr(organize_service, "_last_staging_sweep", 0.0)
+
+    stats = await plan_for_notifications(db_session, [notification])
+    assert stats["planned"] == 1
+    assert not orphan.exists()
+    assert young.exists()
+    assert normal.exists()

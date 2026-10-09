@@ -294,6 +294,7 @@ export default function LibrarySettingsDrawer({
             size="small"
             icon={<ArrowUp size={13} />}
             title={t('libraries.moveUp')}
+            aria-label={t('libraries.moveUp')}
             disabled={libraryRules.findIndex((x) => x.id === record.id) === 0}
             onClick={() => handleMoveRule(record, -1)}
           />
@@ -302,6 +303,7 @@ export default function LibrarySettingsDrawer({
             size="small"
             icon={<ArrowDown size={13} />}
             title={t('libraries.moveDown')}
+            aria-label={t('libraries.moveDown')}
             disabled={libraryRules.findIndex((x) => x.id === record.id) === libraryRules.length - 1}
             onClick={() => handleMoveRule(record, 1)}
           />
@@ -376,6 +378,7 @@ export default function LibrarySettingsDrawer({
             size="small"
             icon={<Pencil size={14} />}
             title={t('common.edit')}
+            aria-label={t('common.edit')}
             onClick={() => {
               setEditingRule(record);
               setRuleModalOpen(true);
@@ -387,6 +390,7 @@ export default function LibrarySettingsDrawer({
             danger
             icon={<Trash2 size={14} />}
             title={t('common.delete')}
+            aria-label={t('common.delete')}
             onClick={() => handleDeleteRule(record)}
           />
         </Space>

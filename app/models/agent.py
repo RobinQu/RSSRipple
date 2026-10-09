@@ -3,10 +3,11 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.db_types import json_column
 from app.utils.sql_time import UTCNow
 
 
@@ -41,8 +42,8 @@ class Agent(Base):
     # winner dispatches/suggests without any LLM call; a remaining tie goes to
     # the LLM, then the heuristic scorer. Preferences only ever reorder —
     # they never filter candidates out of the conflict set.
-    pick_preferences: Mapped[list | None] = mapped_column(JSON, nullable=True)
-    filter_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    pick_preferences: Mapped[list | None] = mapped_column(json_column(), nullable=True)
+    filter_config: Mapped[dict | None] = mapped_column(json_column(), nullable=True)
     status: Mapped[str] = mapped_column(
         Enum("active", "paused", "error", name="agent_status"),
         default="active",

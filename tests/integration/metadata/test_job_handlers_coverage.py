@@ -13,12 +13,11 @@ from datetime import timedelta
 from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 import app.database as db_mod
 import app.job_handlers as jh
 from app.models.channel import Channel
-from app.models.episode import Episode
 from app.models.file_resource import FileResource
 from app.models.movie import Movie
 from app.models.series import TVSeries
@@ -31,7 +30,7 @@ def _uuid() -> str:
 
 async def _make_channel(db_session, **overrides) -> Channel:
     defaults = dict(
-        id=_uuid(), name="ch", type="rss_feed", url="https://example.com/rss",
+        id=_uuid(), name="ch", type="rss_feed", url=f"https://example.com/rss/{_uuid()}",
         fetch_interval=1800, status="active", field_mapping={},
         metadata_agent_enabled=False,
     )
@@ -285,10 +284,16 @@ class TestAnalyzeBatchFiles:
         series = TVSeries(id=_uuid(), title_cn="剧集A", content_type="tv",
                           season_number=1)
         db_session.add(series)
-        # A Season-0 row so the fractional "11.5" label maps deterministically.
-        db_session.add(Episode(
-            id=_uuid(), series_id=series.id, season=0, episode=7,
-        ))
+        await db_session.commit()
+        # A Season-0 row so the fractional "11.5" label maps deterministically
+        # (a legacy state predating the episodes composite FK — insert with
+        # enforcement suspended).
+        async with db_mod.engine.begin() as conn:
+            await conn.execute(text("PRAGMA foreign_keys=OFF"))
+            await conn.execute(text(
+                "INSERT INTO episodes (id, series_id, season, episode) "
+                "VALUES (:id, :sid, 0, 7)"
+            ), {"id": _uuid(), "sid": series.id})
         res = _make_resource(channel.id, series_id=series.id, season=1,
                              is_batch=True, batch_scope="season",
                              episode=None, episode_start=1, episode_end=2)

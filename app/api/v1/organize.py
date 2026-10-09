@@ -16,7 +16,6 @@ this module only does request validation and response shaping.
 from __future__ import annotations
 
 import asyncio
-import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -70,22 +69,15 @@ from app.utils.download_paths import validate_download_subdir
 
 router = APIRouter()
 
-logger = logging.getLogger(__name__)
 
+def _replan_after_config_change(db: AsyncSession, reason: str) -> None:
+    """规则/媒体库配置变更后调度后台重建全部未执行计划（replan_open_plans）。
 
-async def _replan_after_config_change(db: AsyncSession, reason: str) -> None:
-    """规则/媒体库配置变更后刷新全部未执行计划（replan_open_plans）。
-
-    附带动作：变更本身已提交，重建失败只记日志、不影响响应。
+    附带动作：变更本身已提交即返回，重建在后台任务中执行（进程内去重
+    合并，失败只记日志），不阻塞响应——大量未执行计划时同步重建曾是
+    请求延迟来源。
     """
-    try:
-        # Configuration is already committed. Keep best-effort replanning's
-        # refresh/rollback effects out of the response session's identity map.
-        async with AsyncSession(bind=db.bind, expire_on_commit=False) as replan_db:
-            await organize_service.replan_open_plans(replan_db, reason=reason)
-            await replan_db.commit()
-    except Exception as e:  # noqa: BLE001
-        logger.warning("[organize] %s 后重建计划失败：%s", reason, e)
+    organize_service.schedule_replan(db.bind, reason=reason)
 
 
 def _error(status_code: int, code: str, message: str) -> JSONResponse:
@@ -247,7 +239,7 @@ async def update_library(
             .execution_options(populate_existing=True)
         )
     ).scalar_one()
-    await _replan_after_config_change(db, f"媒体库「{lib.name}」更新")
+    _replan_after_config_change(db, f"媒体库「{lib.name}」更新")
     return success_response(await asyncio.to_thread(_library_out, lib))
 
 
@@ -361,7 +353,7 @@ async def create_organize_rule(
     db.add(rule)
     await db.commit()
     await db.refresh(rule)
-    await _replan_after_config_change(db, f"规则「{rule.name}」创建")
+    _replan_after_config_change(db, f"规则「{rule.name}」创建")
     return success_response(OrganizeRuleOut.model_validate(rule).model_dump())
 
 
@@ -556,7 +548,7 @@ async def update_organize_rule(
         rule.auto_execute = body.auto_execute
     await db.commit()
     await db.refresh(rule)
-    await _replan_after_config_change(db, f"规则「{rule.name}」更新")
+    _replan_after_config_change(db, f"规则「{rule.name}」更新")
     return success_response(OrganizeRuleOut.model_validate(rule).model_dump())
 
 
@@ -575,7 +567,7 @@ async def delete_organize_rule(rule_id: str, db: AsyncSession = Depends(get_db))
     )
     await db.delete(rule)
     await db.commit()
-    await _replan_after_config_change(db, f"规则「{rule_name}」删除")
+    _replan_after_config_change(db, f"规则「{rule_name}」删除")
     return success_response({"deleted": True})
 
 

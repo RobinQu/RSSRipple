@@ -17,6 +17,8 @@ from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+from sqlalchemy import select
+
 from app.models.agent import Agent
 from app.models.agent_webhook import AgentWebhook
 from app.models.channel import Channel
@@ -39,11 +41,19 @@ async def _seed_task(db, *, status="downloading", agent=None, downloader=None,
                      completed_at=None, torrent_id: int | None = 7,
                      downloader_status="disconnected") -> SimpleNamespace:
     channel = Channel(
-        id=_uuid(), name="ch", type="rss_feed", url="https://example.com/rss",
+        id=_uuid(), name="ch", type="rss_feed", url=f"https://example.com/rss/{_uuid()}",
         fetch_interval=1800, status="active",
         field_mapping={"list_locator": {"source": "entries"}},
         metadata_agent_enabled=False,
     )
+    # downloader_instances.url 有唯一约束：同库重复 seed 时复用既有行
+    #（URL 必须保持指向真实 transmission 容器，改 URL 会断 RPC）。
+    if downloader is None:
+        downloader = await db.scalar(
+            select(DownloaderInstance).where(
+                DownloaderInstance.url == "http://127.0.0.1:9091/transmission/rpc"
+            )
+        )
     dl = downloader or DownloaderInstance(
         id=_uuid(), name="dl", type="transmission",
         url="http://127.0.0.1:9091/transmission/rpc",
@@ -251,7 +261,7 @@ async def test_cleanup_expired_decisions_tasks_and_notifications(
 ):
     now = utcnow()
     channel = Channel(
-        id=_uuid(), name="ch", type="rss_feed", url="https://example.com/rss",
+        id=_uuid(), name="ch", type="rss_feed", url=f"https://example.com/rss/{_uuid()}",
         fetch_interval=1800, status="active",
         field_mapping={"list_locator": {"source": "entries"}},
         metadata_agent_enabled=False,

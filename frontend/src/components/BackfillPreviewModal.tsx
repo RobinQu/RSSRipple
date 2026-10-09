@@ -97,7 +97,10 @@ export default function BackfillPreviewModal({
       <div style={{ marginBottom: 8 }}>
         <Space size={12}>
           {newly.length > 0 && (
-            <a
+            <Button
+              type="link"
+              size="small"
+              style={{ padding: 0, height: 'auto' }}
               onClick={() => {
                 const next: Record<string, boolean> = {};
                 newly.forEach((r) => { next[r.id] = !allChecked; });
@@ -105,7 +108,7 @@ export default function BackfillPreviewModal({
               }}
             >
               {allChecked ? t('agents.previewUnselectAll') : t('agents.previewSelectAll')}
-            </a>
+            </Button>
           )}
           {data.no_longer_matching.length > 0 && (
             <Tooltip title={t('agents.previewNoLongerHint')}>

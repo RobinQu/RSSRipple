@@ -24,6 +24,10 @@ async def test_committed_group_change_prevents_stale_merge(dedup_postgres, monke
             rows = [Movie(title_en='Synthetic old group'), Movie(title_en='Synthetic old group')]
         elif case in {'cross_title', 'cross_identity'}:
             rows = [Movie(title_en='Synthetic old group'), TVSeries(title_en='Synthetic old group', collection_id=collection.id)]
+        if case == 'cross_title':
+            # Cross-type title pairing requires agreeing date evidence — give
+            # both sides the same year so the pair matches pre-edit.
+            rows[0].release_date = rows[1].start_date = date(2000, 1, 1)
         else:
             other = WorkCollection(title_cn='合成另一合集')
             seed.add(other)

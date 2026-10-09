@@ -66,9 +66,9 @@ FieldCondition 也被 **Agent 优选偏好**（`pick_preferences`）复用：一
   - `eq`：字段值等于 value（字符串去首尾空格后比较）。
   - `ne`：字段值不等于 value。
   - `contains`：字段值包含 value 子串。
-  - `fuzzy`：使用 thefuzz `fuzz.ratio` >= 70 判定为匹配。
+  - `fuzzy`：使用内置相似度（`text_normalizer.similarity_score`：Levenshtein 比率与 bigram Dice 系数取较大值）>= 70 判定为匹配。
   - `in`：value 为字符串数组（或逗号分隔字符串拆分为数组），字段值命中任一元素（子串匹配，等价于多值 OR contains）。
-  - `regex`：用 `re.search(pattern, field_value, re.IGNORECASE)` 匹配。
+  - `regex`：用 `re.search(pattern, field_value, re.IGNORECASE)` 匹配。**ReDoS 限制**：pattern 长度上限 200 字符，且禁止嵌套量词（量词化分组内再含量词，如 `(a+)+`、`(x|y+)*`——Python `re` 无执行超时，灾难性回溯不可中断，故以静态检测拦截）；保存时违规返回 422，存量违规配置在求值时视为不匹配并记 warning 日志（`check_regex_safety`）。
   - `gt/gte/lt/lte`：数值大小比较。
 - **空值操作符**：`is_empty` / `is_not_empty` 对所有字段类型可用，不需要 `value`（key 可省略）。空定义为 `None`、空白字符串或空列表；数字 `0` 与布尔 `false` 不算空。匹配空字段必须用这两个操作符，**禁止**用 `eq ""` 表达。
 - **空值处理**：若字段值为 None/空：

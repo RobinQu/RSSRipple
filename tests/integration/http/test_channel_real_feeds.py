@@ -14,7 +14,13 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from tests.integration.http._http import DEFAULT_FIELD_MAPPING, TEST_SERVER, _api, _poll_fetch
+from tests.integration.http._http import (
+    DEFAULT_FIELD_MAPPING,
+    TEST_SERVER,
+    _api,
+    _poll_fetch,
+    unique_feed_url,
+)
 
 
 def _create_channel(
@@ -126,8 +132,10 @@ class TestChannelCRUD:
 
     def test_delete_channel(self):
         """DELETE, verify 200, confirm gone from list."""
-        # Create a temporary channel for deletion test
-        resp = _create_channel("CRUD Test - Delete Me", DMHY_FEED_URL)
+        # Create a temporary channel for deletion test. Unique URL: the
+        # class-scoped dmhy_channel fixture still holds the bare DMHY_FEED_URL
+        # (uq_channels_url).
+        resp = _create_channel("CRUD Test - Delete Me", unique_feed_url(DMHY_FEED_URL))
         assert resp.status_code == 201
         ch_id = resp.json()["data"]["id"]
 

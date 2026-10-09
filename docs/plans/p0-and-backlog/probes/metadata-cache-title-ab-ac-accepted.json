@@ -1,0 +1,25 @@
+{
+  "accepted": true,
+  "main_base": "83a72c29a253a8d7c6c1afa08056eaf87c15bc58",
+  "candidate": "/tmp/rssripple-v35-rebased-jhysx9no",
+  "effective_files": 25,
+  "frozen_candidate_inputs_verified": 6871,
+  "frozen_hash_check": "all 6871 files sha256 match metadata-cache-title-aa-frozen.json (missing=0 changed=0)",
+  "gates": {
+    "ab_unit_api": {"passed": 4183, "skipped": 12, "failed": 0, "coverage": "96.43% >= 95%", "log": "/tmp/rssripple-v35-ab-unit.log"},
+    "ac_integration": {"passed": 4239, "skipped": 17, "failed": 0, "coverage_integration_only": "90% >= 85%", "coverage_combined_with_unit": "98%", "log": "/tmp/rssripple-v35-ac-integration.log"}
+  },
+  "coverage_artifacts": [
+    "metadata-cache-title-ab.coverage.unit.gz",
+    "metadata-cache-title-ab-unit-coverage.xml.gz",
+    "metadata-cache-title-ac.coverage.integration.gz",
+    "metadata-cache-title-ac.coverage.integration-llm.gz",
+    "metadata-cache-title-ac.coverage.test-runner.gz",
+    "metadata-cache-title-ac-coverage.xml.gz",
+    "metadata-cache-title-ac-corpus-reports.tar.gz"
+  ],
+  "merge_note": "25 files three-way merged onto the TODO-remediation worktree (base 83a72c2, theirs = frozen candidate): 16 new files copied, 2 clean, 7 merged with zero conflicts; merged tree re-gated: unit+API 4463 passed/0 failed, single-node integration 3749 passed/0 failed, distributed PG+Redis integration 3686 passed/0 failed, ruff clean.",
+  "review": "V35-REVIEW.md",
+  "stack_cleanup": "rssripple-v35-final-ac and rssripple-v35-unit-ab down -v; 0 containers, 0 volumes remain",
+  "pushed_or_deployed": false
+}

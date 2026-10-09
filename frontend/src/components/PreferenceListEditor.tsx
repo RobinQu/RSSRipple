@@ -59,7 +59,7 @@ export default function PreferenceListEditor({
               onDelete={() => onChange(value.filter((_, k) => k !== i))}
             />
           </div>
-          <Button
+          <Button aria-label={t('agents.preferenceMoveUp')}
             htmlType="button"
             type="text"
             size="small"
@@ -68,7 +68,7 @@ export default function PreferenceListEditor({
             title={t('agents.preferenceMoveUp')}
             onClick={() => move(i, -1)}
           />
-          <Button
+          <Button aria-label={t('agents.preferenceMoveDown')}
             htmlType="button"
             type="text"
             size="small"

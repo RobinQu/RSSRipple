@@ -115,7 +115,7 @@ async def main():
                 id=uid(),
                 name="notification-race",
                 type="rss_feed",
-                url="https://example.invalid/rss",
+                url=f"https://example.invalid/rss/{str(uuid.uuid4())}",
                 field_mapping={
                     "list_locator": {"source": "entries"},
                     "field_mappings": {"torrent_url": {"source": "link"}},

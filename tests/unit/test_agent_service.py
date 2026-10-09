@@ -255,6 +255,175 @@ class TestDispatchDownload:
 
 
 # ---------------------------------------------------------------------------
+# Dispatch error folding (submission-stage failures must not accumulate rows)
+# ---------------------------------------------------------------------------
+
+
+class TestDispatchErrorFolding:
+    """Error tasks deliberately don't occupy a dedup slot, so a permanently
+    failing dispatch would otherwise add one error row per agent run. The
+    latest submission-stage error row per (resource, agent, downloader) is
+    refreshed in place instead."""
+
+    def _make_agent(self, channel, downloader, **overrides):
+        base = dict(
+            id=_uuid(), name="a", channel_id=channel.id,
+            downloader_id=downloader.id, status="active",
+            scope_channel_wide=True, conflict_resolution="ask",
+        )
+        base.update(overrides)
+        return Agent(**base)
+
+    async def _tasks(self, db_session, resource_id):
+        return (await db_session.execute(
+            select(DownloadTask).where(DownloadTask.file_resource_id == resource_id)
+        )).scalars().all()
+
+    async def test_missing_downloader_error_folded_across_dispatches(
+        self, db_session, channel, downloader, monkeypatch
+    ):
+        agent = self._make_agent(channel, downloader)
+        db_session.add(agent)
+        res = _make_resource(channel.id)
+        db_session.add(res)
+        await db_session.flush()
+        monkeypatch.setattr(db_session, "get", AsyncMock(return_value=None))
+
+        first = await dispatch_download(agent, res, db_session)
+        second = await dispatch_download(agent, res, db_session)
+
+        assert first.id == second.id
+        rows = await self._tasks(db_session, res.id)
+        assert len(rows) == 1
+        assert rows[0].status == "error"
+        assert "not found" in rows[0].error_message
+        # retry_count doubles as the repeat-occurrence counter: 1 fold.
+        assert rows[0].retry_count == 1
+
+    async def test_path_error_folded_across_dispatches(self, db_session, channel, downloader):
+        agent = self._make_agent(channel, downloader, download_subdir="valid/subdir")
+        db_session.add(agent)
+        res = _make_resource(channel.id)
+        db_session.add(res)
+        await db_session.flush()
+
+        with patch(
+            "app.services.agent_service.resolve_download_dir",
+            side_effect=DownloadPathError("download_subdir escapes downloader download_dir"),
+        ):
+            first = await dispatch_download(agent, res, db_session)
+            second = await dispatch_download(agent, res, db_session)
+
+        assert first.id == second.id
+        rows = await self._tasks(db_session, res.id)
+        assert len(rows) == 1
+        assert rows[0].retry_count == 1
+        assert rows[0].download_dir == downloader.download_dir
+
+    async def test_rpc_error_folded_across_attempts(self, db_session, channel, downloader):
+        """Transient add_torrent RPC failures fold the same way: one visible,
+        retryable row instead of one row per failed attempt."""
+        agent = self._make_agent(channel, downloader)
+        db_session.add(agent)
+        res = _make_resource(channel.id)
+        db_session.add(res)
+        await db_session.flush()
+
+        with patch(
+            "app.clients.transmission.TransmissionWrapper.add_torrent",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("connection refused"),
+        ):
+            first = await dispatch_download(agent, res, db_session)
+            second = await dispatch_download(agent, res, db_session)
+
+        assert first.id == second.id
+        rows = await self._tasks(db_session, res.id)
+        assert len(rows) == 1
+        assert rows[0].status == "error"
+        assert "connection refused" in rows[0].error_message
+        assert rows[0].retry_count == 1
+
+    async def test_successful_dispatch_after_error_creates_fresh_row(
+        self, db_session, channel, downloader
+    ):
+        """Folding never hides recovery: once the RPC succeeds a new
+        downloading row is created alongside the historical error row."""
+        agent = self._make_agent(channel, downloader)
+        db_session.add(agent)
+        res = _make_resource(channel.id)
+        db_session.add(res)
+        await db_session.flush()
+
+        with patch(
+            "app.clients.transmission.TransmissionWrapper.add_torrent",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("connection refused"),
+        ):
+            err = await dispatch_download(agent, res, db_session)
+        with patch(
+            "app.clients.transmission.TransmissionWrapper.add_torrent",
+            new_callable=AsyncMock,
+            return_value={"torrent_id": 9, "name": "x", "hash": "h"},
+        ):
+            ok = await dispatch_download(agent, res, db_session)
+
+        assert ok.id != err.id
+        assert ok.status == "downloading"
+        rows = await self._tasks(db_session, res.id)
+        assert {t.status for t in rows} == {"error", "downloading"}
+
+    async def test_download_stage_error_row_is_not_folded(
+        self, db_session, channel, downloader
+    ):
+        """An error row that once reached the daemon (torrent id set — e.g. a
+        failed manual retry action) is download history, not a submission
+        failure; a new failing dispatch gets its own row."""
+        agent = self._make_agent(channel, downloader)
+        db_session.add(agent)
+        res = _make_resource(channel.id)
+        db_session.add(res)
+        historical = DownloadTask(
+            agent_id=agent.id, file_resource_id=res.id, downloader_id=downloader.id,
+            download_dir="/downloads/rssripple", status="error",
+            error_message="resume failed", transmission_torrent_id=123,
+        )
+        db_session.add(historical)
+        await db_session.flush()
+
+        with patch(
+            "app.clients.transmission.TransmissionWrapper.add_torrent",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("connection refused"),
+        ):
+            task = await dispatch_download(agent, res, db_session)
+
+        assert task.id != historical.id
+        rows = await self._tasks(db_session, res.id)
+        assert len(rows) == 2
+
+    async def test_fold_is_scoped_per_resource(
+        self, db_session, channel, downloader, monkeypatch
+    ):
+        agent = self._make_agent(channel, downloader)
+        db_session.add(agent)
+        res1 = _make_resource(channel.id)
+        res2 = _make_resource(channel.id)
+        db_session.add_all([res1, res2])
+        await db_session.flush()
+        monkeypatch.setattr(db_session, "get", AsyncMock(return_value=None))
+
+        t1a = await dispatch_download(agent, res1, db_session)
+        t2 = await dispatch_download(agent, res2, db_session)
+        t1b = await dispatch_download(agent, res1, db_session)
+
+        assert t1a.id == t1b.id
+        assert t2.id != t1a.id
+        assert len(await self._tasks(db_session, res1.id)) == 1
+        assert len(await self._tasks(db_session, res2.id)) == 1
+
+
+# ---------------------------------------------------------------------------
 # _generate_llm_pick
 # ---------------------------------------------------------------------------
 

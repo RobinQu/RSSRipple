@@ -15,10 +15,11 @@ The ``metadata_json`` column stores the complete result dict, whose shape
 depends on the ``source`` value.
 """
 
+import hashlib
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, String, UniqueConstraint
+from sqlalchemy import JSON, DateTime, String, Text, UniqueConstraint, event
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -48,16 +49,26 @@ from app.utils.sql_time import UTCNow
 METADATA_CACHE_GENERATION = 7
 
 
+def cache_title_hash(title: str) -> str:
+    """Hash the exact stored title; namespace callers own their normalization."""
+    return hashlib.sha256(title.encode("utf-8")).hexdigest()
+
+
+def _default_title_hash(context):
+    return cache_title_hash(context.get_current_parameters()["title"])
+
+
 class MetadataCache(Base):
     __tablename__ = "metadata_cache"
     __table_args__ = (
-        UniqueConstraint("title", "source", name="uq_metadata_cache_key"),
+        UniqueConstraint("title_hash", "source", name="uq_metadata_cache_key"),
     )
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
-    title: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    title_hash: Mapped[str] = mapped_column(String(64), nullable=False, default=_default_title_hash)
     source: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     content_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False)
@@ -72,3 +83,9 @@ class MetadataCache(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=UTCNow(), onupdate=UTCNow(), nullable=False
     )
+
+
+@event.listens_for(MetadataCache, "before_insert")
+@event.listens_for(MetadataCache, "before_update")
+def _update_title_hash(mapper, connection, target):
+    target.title_hash = cache_title_hash(target.title)

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 
 import httpx
 import pytest
@@ -44,6 +45,18 @@ TIMEOUT = 60.0
 def _api(path: str, method: str = "get", **kw) -> httpx.Response:
     c = httpx.Client(timeout=TIMEOUT, headers=API_HEADERS)
     return getattr(c, method.lower())(f"{LLM_APP}{path}", **kw)
+
+
+def _uniq_url(url: str) -> str:
+    """Per-channel unique URL — same feed content, no uq_channels_url clash.
+
+    The test-server feed routes ignore unknown query params. A channel delete
+    can race the app-llm scheduler's fetch job and be skipped silently, so
+    reusing a bare feed URL across tests can hit the unique constraint on a
+    leftover row.
+    """
+    sep = "&" if "?" in url else "?"
+    return f"{url}{sep}case={uuid.uuid4().hex[:8]}"
 
 
 def _poll_fetch(channel_id: str, timeout: int = 120) -> dict:
@@ -113,7 +126,7 @@ class TestFeedAnalysis:
             method="post",
             json={
                 "name": "LLM Analyze Channel",
-                "url": MIKANANI_S1_URL,
+                "url": _uniq_url(MIKANANI_S1_URL),
                 "field_mapping": RICH_FIELD_MAPPING,
                 "fetch_interval": 3600,
                 "metadata_agent_enabled": False,
@@ -169,7 +182,7 @@ def _llm_env():
         method="post",
         json={
             "name": "LLM Pick Channel",
-            "url": MIKANANI_S1_URL,
+            "url": _uniq_url(MIKANANI_S1_URL),
             "field_mapping": RICH_FIELD_MAPPING,
             "fetch_interval": 3600,
             "metadata_agent_enabled": False,
@@ -289,7 +302,7 @@ class TestLLMCandidatePick:
 
 
 # =========================================================================
-# TestMetadataAgentMock — UnifiedMetadataAgent ReAct loop via mock tools
+# TestEndToEndMockPipeline — create → fetch → LLM match → link → dispatch
 # =========================================================================
 
 MIKANANI_S0_URL = f"{TEST_SERVER}/rss/mikanani?series=0"  # 黄泉使者
@@ -311,6 +324,96 @@ def _fake_tmdb_key():
     _api("/api/v1/system-settings", method="put", json={"tmdb_api_key": ""})
 
 
+class TestEndToEndMockPipeline:
+    """Full offline chain on the mock-LLM app, recorded/synthetic inputs only.
+
+    Channel creation → feed fetch → fetch-time metadata agent (mock LLM ReAct
+    + mock TMDB tool) → work upsert + resource link → agent backfill dispatch
+    with the mock LLM pick. No public network involved.
+
+    Shared-DB note: other suites on app-llm (e.g. test_genre_unification.py)
+    may have already upserted the canned tmdb:900001#s1 series, in which case
+    the fetch links through the local DB title match instead of a fresh mock
+    agent run. Both paths converge on the same series identity, so the
+    assertions below are scoped to this run's own channel/agent (linked
+    resource counts, dispatched task counts) rather than global freshness.
+    """
+
+    def test_fetch_llm_match_link_dispatch(self, _fake_tmdb_key):
+        r = _api(
+            "/api/v1/channels",
+            method="post",
+            json={
+                "name": "E2E Mock Pipeline Channel",
+                "url": _uniq_url(MIKANANI_S0_URL),
+                "field_mapping": RICH_FIELD_MAPPING,
+                "fetch_interval": 3600,
+                "metadata_agent_enabled": True,
+                "metadata_source": "tmdb",
+            },
+        )
+        assert r.status_code == 201, f"create channel failed: {r.text}"
+        ch_id = r.json()["data"]["id"]
+
+        try:
+            _api(f"/api/v1/channels/{ch_id}/fetch", method="post")
+            result = _poll_fetch(ch_id)
+            assert result.get("status") == "done", f"fetch failed: {result}"
+
+            # The canned series exists — upserted by this run's mock LLM
+            # agent, or by an earlier suite on the shared app-llm DB (the
+            # fetch then links through the local DB title match instead).
+            r = _api("/api/v1/series", params={"page_size": 100, "title": "黄泉使者"})
+            series = [
+                s for s in r.json()["data"]
+                if s.get("external_id") == "tmdb:900001#s1"
+            ]
+            assert series, "expected the canned tmdb:900001#s1 series"
+            series_id = series[0]["id"]
+
+            r = _api(f"/api/v1/channels/{ch_id}/resources", params={"page_size": 100})
+            resources = r.json().get("data", [])
+            linked = [res for res in resources if res.get("series_id") == series_id]
+            assert len(linked) == 18, (
+                f"expected all 18 S0 resources linked to the canned series, "
+                f"got {len(linked)}"
+            )
+
+            # Agent backfill dispatch: auto conflict resolution with the mock
+            # LLM pick — 6 episodes × 3 groups → exactly 6 dispatched tasks.
+            dl_id = _ensure_mock_downloader()
+            r = _api(
+                "/api/v1/agents",
+                method="post",
+                json={
+                    "name": "E2E Mock Pipeline Agent",
+                    "channel_id": ch_id,
+                    "downloader_id": dl_id,
+                    "scope_channel_wide": True,
+                    "llm_enabled": True,
+                    "conflict_resolution": "auto",
+                    "dispatch_resource_ids": [res["id"] for res in linked],
+                },
+            )
+            assert r.status_code == 201, f"create agent failed: {r.text}"
+            agent_id = r.json()["data"]["id"]
+
+            r = _api(f"/api/v1/agents/{agent_id}/tasks", params={"page_size": 100})
+            tasks = r.json()["data"]
+            assert len(tasks) == 6, (
+                f"expected 6 dispatched tasks (one per episode), got {len(tasks)}"
+            )
+            linked_ids = {res["id"] for res in linked}
+            assert all(t["file_resource_id"] in linked_ids for t in tasks)
+        finally:
+            _api(f"/api/v1/channels/{ch_id}", method="delete")
+
+
+# =========================================================================
+# TestMetadataAgentMock — UnifiedMetadataAgent ReAct loop via mock tools
+# =========================================================================
+
+
 class TestMetadataAgentMock:
     """metadata_agent_enabled channel driven by the mock LLM tool calls."""
 
@@ -321,7 +424,7 @@ class TestMetadataAgentMock:
             method="post",
             json={
                 "name": "LLM Metadata Channel (found)",
-                "url": MIKANANI_S0_URL,
+                "url": _uniq_url(MIKANANI_S0_URL),
                 "field_mapping": RICH_FIELD_MAPPING,
                 "fetch_interval": 3600,
                 "metadata_agent_enabled": True,
@@ -359,7 +462,7 @@ class TestMetadataAgentMock:
             method="post",
             json={
                 "name": "LLM Metadata Channel (not-found)",
-                "url": MIKANANI_S2_URL,
+                "url": _uniq_url(MIKANANI_S2_URL),
                 "field_mapping": RICH_FIELD_MAPPING,
                 "fetch_interval": 3600,
                 "metadata_agent_enabled": True,
@@ -395,7 +498,7 @@ class TestMetadataAgentMock:
             method="post",
             json={
                 "name": "LLM Manual Search Channel",
-                "url": MIKANANI_S0_URL,
+                "url": _uniq_url(MIKANANI_S0_URL),
                 "field_mapping": RICH_FIELD_MAPPING,
                 "fetch_interval": 3600,
                 "metadata_agent_enabled": False,
@@ -458,7 +561,7 @@ class TestMetadataAgentMock:
             method="post",
             json={
                 "name": "LLM Metadata Channel mockmovie",
-                "url": MIKANANI_S3_URL,
+                "url": _uniq_url(MIKANANI_S3_URL),
                 "field_mapping": RICH_FIELD_MAPPING,
                 "fetch_interval": 3600,
                 "metadata_agent_enabled": True,
@@ -496,7 +599,7 @@ class TestMetadataAgentMock:
             method="post",
             json={
                 "name": "LLM Metadata Channel mockaudio",
-                "url": MIKANANI_S4_URL,
+                "url": _uniq_url(MIKANANI_S4_URL),
                 "field_mapping": RICH_FIELD_MAPPING,
                 "fetch_interval": 3600,
                 "metadata_agent_enabled": True,
@@ -573,7 +676,7 @@ class TestFeedAnalysisVariants:
                 method="post",
                 json={
                     "name": "LLM Escapes Channel",
-                    "url": MIKANANI_S1_URL,
+                    "url": _uniq_url(MIKANANI_S1_URL),
                     "field_mapping": RICH_FIELD_MAPPING,
                     "fetch_interval": 3600,
                     "metadata_agent_enabled": False,
@@ -603,7 +706,7 @@ class TestFeedAnalysisVariants:
                 method="post",
                 json={
                     "name": "LLM Bad JSON Channel",
-                    "url": MIKANANI_S1_URL,
+                    "url": _uniq_url(MIKANANI_S1_URL),
                     "field_mapping": RICH_FIELD_MAPPING,
                     "fetch_interval": 3600,
                     "metadata_agent_enabled": False,
@@ -631,7 +734,7 @@ class TestFeedAnalysisVariants:
                 method="post",
                 json={
                     "name": "LLM Empty Channel",
-                    "url": MIKANANI_S1_URL,
+                    "url": _uniq_url(MIKANANI_S1_URL),
                     "field_mapping": RICH_FIELD_MAPPING,
                     "fetch_interval": 3600,
                     "metadata_agent_enabled": False,

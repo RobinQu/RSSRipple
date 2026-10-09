@@ -274,16 +274,27 @@ def test_prompt_block_requires_best_effort():
     assert "best-effort" in block
 
 
-async def test_ensure_genre_infers_from_synopsis():
-    from types import SimpleNamespace
-    from unittest.mock import AsyncMock
+@pytest.fixture
+def clear_genre_inference_cache():
+    from app.services import metadata_agent as ma
 
+    ma._GENRE_INFERENCE_CACHE.clear()
+    yield
+    ma._GENRE_INFERENCE_CACHE.clear()
+
+
+def _genre_agent(response=None, side_effect=None):
     from app.services.metadata_agent import UnifiedMetadataAgent as MetadataAgent
 
     agent = MetadataAgent.__new__(MetadataAgent)
     agent._model = SimpleNamespace(
-        ainvoke=AsyncMock(return_value=SimpleNamespace(content='["Science Fiction", "Horror"]'))
+        ainvoke=AsyncMock(return_value=response, side_effect=side_effect)
     )
+    return agent
+
+
+async def test_ensure_genre_infers_from_synopsis(clear_genre_inference_cache):
+    agent = _genre_agent(response=SimpleNamespace(content='["Science Fiction", "Horror"]'))
     fd = {
         "matched_entity": {
             "title_cn": "弗兰肯斯坦",
@@ -295,14 +306,8 @@ async def test_ensure_genre_infers_from_synopsis():
     assert fd["matched_entity"]["genre"] == ["Science Fiction", "Horror"]
 
 
-async def test_ensure_genre_skips_when_genre_present_or_no_desc():
-    from types import SimpleNamespace
-    from unittest.mock import AsyncMock
-
-    from app.services.metadata_agent import UnifiedMetadataAgent as MetadataAgent
-
-    agent = MetadataAgent.__new__(MetadataAgent)
-    agent._model = SimpleNamespace(ainvoke=AsyncMock())
+async def test_ensure_genre_skips_when_genre_present_or_no_desc(clear_genre_inference_cache):
+    agent = _genre_agent()
     fd = {"matched_entity": {"genre": ["Drama"], "description": "x"}}
     await agent._ensure_genre(fd)
     assert fd["matched_entity"]["genre"] == ["Drama"]
@@ -314,14 +319,57 @@ async def test_ensure_genre_skips_when_genre_present_or_no_desc():
     agent._model.ainvoke.assert_not_called()
 
 
-async def test_ensure_genre_tolerates_llm_failure():
-    from types import SimpleNamespace
-    from unittest.mock import AsyncMock
-
-    from app.services.metadata_agent import UnifiedMetadataAgent as MetadataAgent
-
-    agent = MetadataAgent.__new__(MetadataAgent)
-    agent._model = SimpleNamespace(ainvoke=AsyncMock(side_effect=RuntimeError("llm down")))
+async def test_ensure_genre_tolerates_llm_failure(clear_genre_inference_cache):
+    agent = _genre_agent(side_effect=RuntimeError("llm down"))
     fd = {"matched_entity": {"genre": None, "description": "something"}}
     await agent._ensure_genre(fd)  # must not raise
     assert fd["matched_entity"].get("genre") is None
+
+
+async def test_ensure_genre_caches_repeat_inference(clear_genre_inference_cache):
+    """Same title+synopsis re-finalized (batch pack + episodes of one fresh
+    work) costs one LLM call, not one per resource."""
+    agent = _genre_agent(response=SimpleNamespace(content='["Action"]'))
+    entity = {"title_en": "cached work", "genre": None, "description": "same synopsis"}
+    fd1 = {"matched_entity": dict(entity)}
+    fd2 = {"matched_entity": dict(entity)}
+    await agent._ensure_genre(fd1)
+    await agent._ensure_genre(fd2)
+    assert agent._model.ainvoke.await_count == 1
+    assert fd1["matched_entity"]["genre"] == ["Action"]
+    assert fd2["matched_entity"]["genre"] == ["Action"]
+    # Each finalize dict gets its own list; mutating one must not poison the cache.
+    fd1["matched_entity"]["genre"].append("bogus")
+    assert fd2["matched_entity"]["genre"] == ["Action"]
+    fd3 = {"matched_entity": dict(entity)}
+    await agent._ensure_genre(fd3)
+    assert fd3["matched_entity"]["genre"] == ["Action"]
+    assert agent._model.ainvoke.await_count == 1
+
+
+async def test_ensure_genre_cache_distinguishes_synopses(clear_genre_inference_cache):
+    agent = _genre_agent(response=SimpleNamespace(content='["Drama"]'))
+    await agent._ensure_genre({"matched_entity": {"title_en": "w", "genre": None, "description": "synopsis A"}})
+    await agent._ensure_genre({"matched_entity": {"title_en": "w", "genre": None, "description": "synopsis B"}})
+    assert agent._model.ainvoke.await_count == 2
+
+
+async def test_ensure_genre_failure_and_unparseable_stay_uncached(clear_genre_inference_cache):
+    """Transient failures and garbage replies must not poison the cache: the
+    next finalization retries the call (best-effort semantics preserved)."""
+    agent = _genre_agent()
+    agent._model.ainvoke = AsyncMock(
+        side_effect=[
+            RuntimeError("llm down"),
+            SimpleNamespace(content="no array here"),
+            SimpleNamespace(content='["Comedy"]'),
+        ]
+    )
+    fd = {"matched_entity": {"title_en": "w", "genre": None, "description": "retryable synopsis"}}
+    await agent._ensure_genre(fd)
+    assert fd["matched_entity"].get("genre") is None
+    await agent._ensure_genre(fd)
+    assert fd["matched_entity"].get("genre") is None
+    await agent._ensure_genre(fd)
+    assert fd["matched_entity"]["genre"] == ["Comedy"]
+    assert agent._model.ainvoke.await_count == 3

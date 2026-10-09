@@ -39,6 +39,153 @@ async def _refresh_runtime_config() -> None:
 # Channel fetch / agent run
 # ---------------------------------------------------------------------------
 
+# Windowed runs (scan_since) select resource ids in keyset pages of this
+# size, so a "no limit" (scan_since=None) full-history scan never fetches
+# the whole channel in a single unbounded query.
+_RUN_AGENT_SCAN_PAGE_SIZE = 1000
+# The processing phase materialises the selected resources (with their
+# series/movie/collection/work-link selectinload graph) and feeds them to
+# ``process_resources`` in batches of this size, so a large windowed /
+# backfill run never holds the entire selection in memory at once.
+_RUN_AGENT_PROCESS_BATCH_SIZE = 500
+
+
+async def _select_window_resource_ids(session, channel_id, scan_since):
+    """Keyset-paginated id selection for windowed runs.
+
+    Returns ``(ids, max_created_at)`` with ids ordered by
+    ``(created_at, id)``. Pages of ``_RUN_AGENT_SCAN_PAGE_SIZE`` rows use a
+    (created_at, id) keyset cursor; ``OFFSET`` paging would re-scan skipped
+    rows on every page and a plain ``.all()`` is unbounded for a
+    ``scan_since=None`` full-history scan. The id list itself is still
+    collected in full — the window-retry snapshot needs it — but ids are
+    small compared to the ORM object graph loaded later.
+    """
+    from sqlalchemy import and_, or_, select
+
+    from app.models.file_resource import FileResource
+
+    ids: list[str] = []
+    last_created_at = None
+    last_id = None
+    while True:
+        stmt = (
+            select(FileResource.id, FileResource.created_at)
+            .where(FileResource.channel_id == channel_id)
+            .order_by(FileResource.created_at.asc(), FileResource.id.asc())
+            .limit(_RUN_AGENT_SCAN_PAGE_SIZE)
+        )
+        if scan_since is not None:
+            stmt = stmt.where(FileResource.created_at > scan_since)
+        if last_created_at is not None:
+            stmt = stmt.where(or_(
+                FileResource.created_at > last_created_at,
+                and_(
+                    FileResource.created_at == last_created_at,
+                    FileResource.id > last_id,
+                ),
+            ))
+        rows = (await session.execute(stmt)).all()
+        if not rows:
+            break
+        ids.extend(r.id for r in rows)
+        last_created_at = rows[-1].created_at
+        last_id = rows[-1].id
+        if len(rows) < _RUN_AGENT_SCAN_PAGE_SIZE:
+            break
+    return ids, last_created_at
+
+
+def _merge_run_result(total, part) -> None:
+    """Fold a per-batch ``RunResult`` into the run-wide aggregate."""
+    total.total_resources += part.total_resources
+    total.matched += part.matched
+    total.dispatched += part.dispatched
+    total.pending_decisions += part.pending_decisions
+    total.filter_failed += part.filter_failed
+    total.duplicates_skipped += part.duplicates_skipped
+    total.unrecognized += part.unrecognized
+    total.suggestions.extend(part.suggestions)
+    total.errors.extend(part.errors)
+    total.matched_resource_ids.extend(part.matched_resource_ids)
+
+
+async def _process_selected_resources(
+    session, agent, selected_ids, *, consumption_snapshot, required_metadata_fields,
+):
+    """Materialise and process the run's selected resources in bounded batches.
+
+    Previously one query loaded EVERY selected resource with its full
+    selectinload graph (series/movie/collection/work-links) and one list
+    fed a single ``process_resources`` call — unbounded for a "no limit"
+    windowed scan over a channel's whole history. Now resources are
+    materialised and processed in batches of
+    ``_RUN_AGENT_PROCESS_BATCH_SIZE``, following the selection order with a
+    local ``created_at`` sort inside each batch (identical to the old
+    single-batch behaviour whenever the selection fits in one batch, which
+    is always the case for targeted runs).
+
+    Trade-off: same-key conflict candidates that straddle a batch boundary
+    are no longer grouped into ONE in-run conflict resolution. They are
+    still correctly deduplicated by the same cross-run machinery that
+    already protects repeated runs (active/completed DownloadTask lookup,
+    PendingDecision upsert), so no double download or duplicate decision
+    can result; in the worst case an "ask"-mode conflict surfaces as a
+    dispatch plus a skipped duplicate instead of one merged decision.
+    """
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from app.models.file_resource import FileResource
+    from app.models.movie import Movie
+    from app.models.resource_work_link import ResourceWorkLink
+    from app.models.series import TVSeries
+    from app.services.agent_service import RunResult, process_resources
+
+    async def process_batch(resources):
+        return await process_resources(
+            agent,
+            resources,
+            session,
+            autocommit=True,
+            consumption_snapshot=consumption_snapshot,
+            required_metadata_fields=required_metadata_fields,
+        )
+
+    if not selected_ids:
+        # Preserve the empty-run behaviour of the old single call (legacy
+        # decision retirement / suggestion persistence still run).
+        return await process_batch([])
+
+    run_result = RunResult()
+    for offset in range(0, len(selected_ids), _RUN_AGENT_PROCESS_BATCH_SIZE):
+        batch_ids = selected_ids[offset:offset + _RUN_AGENT_PROCESS_BATCH_SIZE]
+        result = await session.execute(
+            select(FileResource)
+            .where(FileResource.id.in_(batch_ids))
+            # series/movie are read by the filter DSL (movie.rating …) and
+            # the LLM pick summary — eager-load to avoid async lazy loads.
+            # The work's collection feeds the series.collection /
+            # movie.collection DSL fields, so chain-load it too; the
+            # resource's own collection feeds the resource-level
+            # ``collection`` field (franchise packs); work_links carry the
+            # works of links-only multi-season packs (per-season works) —
+            # chain-load the works so the DSL year fields can aggregate
+            # across them.
+            .options(
+                selectinload(FileResource.series).selectinload(TVSeries.collection),
+                selectinload(FileResource.movie).selectinload(Movie.collection),
+                selectinload(FileResource.collection),
+                selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series),
+                selectinload(FileResource.work_links).selectinload(ResourceWorkLink.movie),
+            )
+            .order_by(FileResource.created_at.asc())
+        )
+        resources = list(result.scalars().all())
+        _merge_run_result(run_result, await process_batch(resources))
+    return run_result
+
+
 async def _handle_fetch_channel(payload: dict) -> dict:  # pragma: no cover
     from app.models.channel import Channel
     from app.services.fetch_service import fetch_channel_resources
@@ -65,14 +212,10 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
     from app.models.agent import Agent
     from app.models.agent_run import AgentRun
     from app.models.file_resource import FileResource
-    from app.models.movie import Movie
-    from app.models.resource_work_link import ResourceWorkLink
-    from app.models.series import TVSeries
     from app.services.agent_resource_requests import snapshot_requests
     from app.services.agent_run_execution import LEASE_SECONDS, maintain_run_lease, require_agent_execution_ownership
     from app.services.agent_run_finalization import RunCompletion, fail_run, finish_run
     from app.services.agent_run_lifecycle import create_lease
-    from app.services.agent_service import process_resources
     from app.services.task_queue import require_execution_ownership
     from app.utils.time import utcnow
 
@@ -142,18 +285,13 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
             # scan_since is null ("no limit"). Only the scan range of THIS
             # run is affected — the watermark still advances past everything
             # considered (dedup makes re-processing idempotent), so the next
-            # delta run resumes normal incremental behaviour.
-            stmt = (
-                select(FileResource.id, FileResource.created_at)
-                .where(FileResource.channel_id == channel_id)
-                .order_by(FileResource.created_at.asc())
+            # delta run resumes normal incremental behaviour. Selection is
+            # keyset-paginated so the "no limit" case never issues one
+            # unbounded query over the channel's entire history.
+            selected_ids, advance_to = await _select_window_resource_ids(
+                session, channel_id, scan_since
             )
-            if scan_since is not None:
-                stmt = stmt.where(FileResource.created_at > scan_since)
-            rows = (await session.execute(stmt)).all()
-            selected_ids = [r.id for r in rows]
-            if rows:
-                advance_to = max(r.created_at for r in rows)
+            if selected_ids:
                 from app.services.agent_publication_progress import prepare_window_retry
 
                 window_snapshot = await prepare_window_retry(session, window_snapshot, selected_ids, scan_since)
@@ -193,35 +331,10 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
                 if not agent:
                     raise RuntimeError(f"Agent {agent_id} not found")
 
-                resources: list[FileResource] = []
-                if selected_ids:
-                    result = await session.execute(
-                        select(FileResource)
-                        .where(FileResource.id.in_(selected_ids))
-                        # series/movie are read by the filter DSL (movie.rating …) and
-                        # the LLM pick summary — eager-load to avoid async lazy loads.
-                        # The work's collection feeds the series.collection /
-                        # movie.collection DSL fields, so chain-load it too; the
-                        # resource's own collection feeds the resource-level
-                        # ``collection`` field (franchise packs); work_links carry the
-                        # works of links-only multi-season packs (per-season works) —
-                        # chain-load the works so the DSL year fields can aggregate
-                        # across them.
-                        .options(
-                            selectinload(FileResource.series).selectinload(TVSeries.collection),
-                            selectinload(FileResource.movie).selectinload(Movie.collection),
-                            selectinload(FileResource.collection),
-                            selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series),
-                            selectinload(FileResource.work_links).selectinload(ResourceWorkLink.movie),
-                        )
-                        .order_by(FileResource.created_at.asc())
-                    )
-                    resources = list(result.scalars().all())
-                run_result = await process_resources(
-                    agent,
-                    resources,
+                run_result = await _process_selected_resources(
                     session,
-                    autocommit=True,
+                    agent,
+                    selected_ids,
                     consumption_snapshot=publication_snapshot or window_snapshot,
                     required_metadata_fields=(
                         agent.channel.required_metadata_fields if agent.channel else None
@@ -247,9 +360,34 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
 # batch - and with it the shared task queue.
 _REFRESH_WORK_TIMEOUT = 120  # seconds
 
+
+def _monotonic() -> float:
+    """Monotonic clock, factored out so tests can control the job budget."""
+    return asyncio.get_running_loop().time()
+
+
+def _refresh_batch_summary(results: list[dict], total: int) -> dict:
+    """Job-result fields describing a (possibly truncated) refresh batch.
+
+    ``processed`` counts only works that were actually attempted; entries
+    skipped by the whole-job time budget carry the boolean marker
+    ``skipped: True`` (note: ``refresh_work_by_source`` itself returns a
+    ``skipped`` LIST of field names on success — only the boolean marks a
+    budget skip) and keep ``len(results) == total``, so a partial run is
+    observable without changing the existing response keys.
+    """
+    processed = sum(1 for r in results if r.get("skipped") is not True)
+    return {
+        "processed": processed,
+        "total": total,
+        "truncated": processed < total,
+    }
+
+
 async def _refresh_works_batch(
     items: list[dict], source: str, override_manual_edits: bool = False,
     trusted_sites: list[str] | None = None, strategy: str = "fill_missing",
+    time_budget: float | None = None,
 ) -> list[dict]:
     """Shared per-work refresh loop for every metadata-refresh caller.
 
@@ -260,12 +398,27 @@ async def _refresh_works_batch(
     ``process_title_only`` with ``source`` as the only branch parameter).
     One short transaction per work; a single hung external search cannot
     stall the whole batch.
+
+    Besides the per-work ``_REFRESH_WORK_TIMEOUT``, the whole job has a
+    wall-clock budget (``settings.refresh_job_time_budget_seconds``;
+    ``time_budget`` overrides it, values <= 0 disable it). Without it a
+    batch of N works could occupy one of the queue's few concurrency slots
+    for up to N × the per-work timeout. When the budget is spent the
+    remaining works are recorded as skipped
+    (``error: "job_time_budget_exceeded"``) instead of refreshed — the job
+    reports a partial result rather than running unbounded.
     """
     from app.database import retry_on_lock
     from app.models.movie import Movie
     from app.models.series import TVSeries
     from app.services.metadata_search import refresh_work_by_source
     from app.services.task_queue import ExecutionOwnershipLostError, require_execution_ownership
+
+    if time_budget is None:
+        from app.config import settings
+
+        time_budget = settings.refresh_job_time_budget_seconds
+    deadline = _monotonic() + time_budget if time_budget and time_budget > 0 else None
 
     async def refresh_one(work_id, content_type):
         await require_execution_ownership()
@@ -281,7 +434,22 @@ async def _refresh_works_batch(
             )
 
     results: list[dict] = []
-    for item in items:
+    for index, item in enumerate(items):
+        if deadline is not None and _monotonic() >= deadline:
+            logger.warning(
+                "[refresh_works] job time budget exhausted after %d/%d works; "
+                "skipping the remaining %d",
+                index, len(items), len(items) - index,
+            )
+            for remaining in items[index:]:
+                results.append({
+                    "id": remaining.get("id"),
+                    "content_type": remaining.get("content_type"),
+                    "found": False,
+                    "skipped": True,
+                    "error": "job_time_budget_exceeded",
+                })
+            break
         await require_execution_ownership()
         work_id = item.get("id")
         content_type = item.get("content_type")
@@ -323,7 +491,11 @@ async def _handle_refresh_works_metadata(payload: dict) -> dict:
         items, source, trusted_sites=payload.get("trusted_sites"),
         strategy=payload.get("strategy") or "sync_non_manual",
     )
-    return {"status": "done", "processed": len(results), "results": results}
+    return {
+        "status": "done",
+        **_refresh_batch_summary(results, len(items)),
+        "results": results,
+    }
 
 
 async def _handle_refresh_channel_works(payload: dict) -> dict:
@@ -371,7 +543,11 @@ async def _handle_refresh_channel_works(payload: dict) -> dict:
         trusted_sites=channel.metadata_fallback_sources,
         strategy="sync_non_manual" if channel.metadata_refresh_full_scope else "fill_missing",
     )
-    return {"status": "done", "processed": len(results), "results": results}
+    return {
+        "status": "done",
+        **_refresh_batch_summary(results, len(items)),
+        "results": results,
+    }
 
 
 async def _handle_reprocess_resource_metadata(payload: dict) -> dict:

@@ -298,6 +298,34 @@ class TestChannelFieldValues:
         assert res.status_code == 200
         assert res.json()["data"] == ["1080p"]
 
+    async def test_prefix_filter_escapes_like_wildcards(
+        self, client, sample_channel, db_session_factory,
+    ):
+        """User input must be matched literally: % and _ are not wildcards."""
+        await _make_resource(db_session_factory, sample_channel.id, resolution="1080p")
+        await _make_resource(db_session_factory, sample_channel.id, resolution="10_0p")
+        # A bare % would match everything if left unescaped.
+        res = await client.get(
+            f"/api/v1/channels/{sample_channel.id}/field-values"
+            "?field=resolution&q=%25"  # q="%"
+        )
+        assert res.status_code == 200
+        assert res.json()["data"] == []
+        # A bare _ would match any single leading char if left unescaped.
+        res = await client.get(
+            f"/api/v1/channels/{sample_channel.id}/field-values"
+            "?field=resolution&q=_"
+        )
+        assert res.status_code == 200
+        assert res.json()["data"] == []
+        # Literal underscore prefix still matches.
+        res = await client.get(
+            f"/api/v1/channels/{sample_channel.id}/field-values"
+            "?field=resolution&q=10_"
+        )
+        assert res.status_code == 200
+        assert res.json()["data"] == ["10_0p"]
+
     async def test_subtitle_langs_unnest(self, client, sample_channel, db_session_factory):
         await _make_resource(
             db_session_factory, sample_channel.id,
@@ -336,6 +364,24 @@ class TestResourceMetadata:
     async def test_metadata_404(self, client):
         res = await client.get("/api/v1/resources/nope/metadata")
         assert res.status_code == 404
+        body = res.json()
+        assert body["error"]["code"] == "NOT_FOUND"
+        assert body["meta"] == {}
+
+    async def test_metadata_500_hides_internal_error(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        monkeypatch.setattr(
+            "app.api.v1.resources.fetch_and_link_metadata",
+            AsyncMock(side_effect=RuntimeError("boom-details")),
+        )
+        res = await client.get(f"/api/v1/resources/{rid}/metadata")
+        assert res.status_code == 500
+        body = res.json()
+        assert body["error"]["code"] == "INTERNAL_SERVER_ERROR"
+        assert "boom-details" not in body["error"]["message"]
+        assert body["meta"] == {}
 
     async def test_metadata_unlinked_triggers_match(self, client, sample_channel, db_session_factory):
         rid = await _make_resource(db_session_factory, sample_channel.id, title_raw="RAW-unlinked")
@@ -1397,6 +1443,8 @@ class TestResourceAssociations:
         )
         assert res.status_code == 422
         assert res.json()["error"]["code"] == "VALIDATION_ERROR"
+        # Machine-readable wizard step: works/collection violations → step 0.
+        assert res.json()["meta"] == {"step": "collection"}
 
     async def test_unknown_work_rejected(self, client, sample_channel, db_session_factory):
         rid = await _make_resource(db_session_factory, sample_channel.id)
@@ -1407,6 +1455,8 @@ class TestResourceAssociations:
             ]},
         )
         assert res.status_code == 422
+        # Unclassifiable validation messages carry no step hint.
+        assert res.json()["meta"] == {}
 
     async def test_single_tv_season_pack_derives_season_and_mirrors_fk(
         self, client, sample_channel, db_session_factory,
@@ -1610,6 +1660,8 @@ class TestResourceAssociations:
         )
         assert res.status_code == 422
         assert "重叠" in res.json()["error"]["message"]
+        # Episode-run overlap is fixed on the wizard's file-mapping step.
+        assert res.json()["meta"] == {"step": "assignments"}
 
     async def test_gap_returns_warning_not_error(
         self, client, sample_channel, db_session_factory,
@@ -1654,6 +1706,7 @@ class TestResourceAssociations:
         )
         assert res.status_code == 422
         assert "季" in res.json()["error"]["message"]
+        assert res.json()["meta"] == {"step": "assignments"}
 
     async def test_assignment_outside_works_rejected(
         self, client, sample_channel, db_session_factory,
@@ -1688,6 +1741,7 @@ class TestResourceAssociations:
             },
         )
         assert res.status_code == 422
+        assert res.json()["meta"] == {"step": "collection"}
 
     async def test_fields_applied_in_same_call(
         self, client, sample_channel, db_session_factory,
@@ -1736,6 +1790,7 @@ class TestResourceAssociations:
         )
         assert res.status_code == 422
         assert "合集" in res.json()["error"]["message"]
+        assert res.json()["meta"] == {"step": "collection"}
 
     async def test_collection_consistency_accepted(
         self, client, sample_channel, db_session_factory,
@@ -2354,7 +2409,11 @@ class TestResourceAssociationsErrors:
             json={"is_batch": False, "works": []},
         )
         assert res.status_code == 500
-        assert res.json()["error"]["code"] == "INTERNAL_SERVER_ERROR"
+        body = res.json()
+        assert body["error"]["code"] == "INTERNAL_SERVER_ERROR"
+        # Internal exception details must not leak into the response.
+        assert "boom" not in body["error"]["message"]
+        assert body["meta"] == {}
 
     async def test_active_agent_reenqueue_and_organize_refresh(
         self, client, sample_channel, sample_downloader, db_session_factory,
@@ -2418,7 +2477,7 @@ class TestResourceAssociationsErrors:
 
 class TestAnalyzeBatchStream:
     """POST /resources/{id}/analyze-batch-stream — cached replay and live
-    SSE events (status/delta/result/warning)."""
+    SSE events (status/delta/result plus ``event: error`` failure frames)."""
 
     async def _stream(self, client, rid, fake_queue, monkeypatch):
         monkeypatch.setattr("app.services.task_queue.task_queue", fake_queue)
@@ -2437,6 +2496,44 @@ class TestAnalyzeBatchStream:
     async def test_404(self, client):
         res = await client.post("/api/v1/resources/nope/analyze-batch-stream")
         assert res.status_code == 404
+        assert res.json()["meta"] == {}
+
+    async def test_status_poll_error_emits_error_event(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        from types import SimpleNamespace
+
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        fake = SimpleNamespace(
+            status=AsyncMock(side_effect=[None, RuntimeError("queue exploded")]),
+            enqueue=AsyncMock(return_value={"job_id": "j", "status": "queued"}),
+        )
+        res = await self._stream(client, rid, fake, monkeypatch)
+        assert res.status_code == 200
+        assert "event: error" in res.text
+        assert "queue exploded" not in res.text
+        events = self._events(res)
+        assert events[-1]["type"] == "error"
+
+    async def test_overall_timeout_emits_error_event(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        from types import SimpleNamespace
+
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        fake = SimpleNamespace(
+            status=AsyncMock(return_value={"status": "running", "result": {}}),
+            enqueue=AsyncMock(return_value={"job_id": "j", "status": "queued"}),
+        )
+        monkeypatch.setattr(
+            "app.api.v1.resources._BATCH_STREAM_TIMEOUT_SECONDS", 0,
+        )
+        res = await self._stream(client, rid, fake, monkeypatch)
+        assert res.status_code == 200
+        assert "event: error" in res.text
+        events = self._events(res)
+        assert events[-1]["type"] == "error"
+        assert "超时" in events[-1]["message"]
 
     async def test_cached_result_replayed(
         self, client, sample_channel, db_session_factory, monkeypatch,
@@ -2519,8 +2616,9 @@ class TestAnalyzeBatchStream:
         )
         res = await self._stream(client, rid, fake, monkeypatch)
         assert res.status_code == 200
+        assert "event: error" in res.text
         events = self._events(res)
-        assert events[-1]["type"] == "warning"
+        assert events[-1]["type"] == "error"
 
     async def test_live_stream_failed(
         self, client, sample_channel, db_session_factory, monkeypatch,
@@ -2537,8 +2635,9 @@ class TestAnalyzeBatchStream:
         )
         res = await self._stream(client, rid, fake, monkeypatch)
         assert res.status_code == 200
+        assert "event: error" in res.text
         events = self._events(res)
-        assert events[-1]["type"] == "warning"
+        assert events[-1]["type"] == "error"
         assert events[-1]["message"] == "boom"
 
 

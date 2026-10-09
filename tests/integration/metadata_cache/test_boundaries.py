@@ -1,0 +1,63 @@
+"""Recorded title prefix, synthetic legal-length suffix, actual cache writer."""
+import hashlib
+import json
+import random
+import string
+import uuid
+from pathlib import Path
+
+import pytest
+from sqlalchemy import insert, select
+
+from app.models.channel import Channel
+from app.models.file_resource import FileResource
+from app.models.metadata_cache import MetadataCache
+from app.services.metadata_repository import _get_cache, _set_cache
+from app.services.metadata_resource_meta import ResourceMetadata
+from tests.integration.dedup.conftest import dedup_postgres as dedup_postgres
+from tests.integration.dedup.conftest import dedup_turso as dedup_turso
+
+
+def data(length, alphabet):
+    raw = Path('tests/fixtures/prod_works_v1.json').read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == 'd11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32'
+    recorded = json.loads(raw)['tables']['file_resources'][0]
+    prefix = recorded['title_raw'][:80] + ' [synthetic] '
+    rng = random.Random(3500 + length)
+    chars = string.ascii_letters + string.digits if alphabet == 'ascii' else ''.join(chr(n) for n in range(0x4e00, 0x9fff))
+    title = prefix + ''.join(rng.choices(chars, k=length-len(prefix)-5)) + ' tail'
+    assert len(title) == length
+    return recorded, title
+
+
+async def check(pair, length, alphabet):
+    engine, factory = pair
+    recorded, title = data(length, alphabet)
+    channel, resource = str(uuid.uuid4()), str(uuid.uuid4())
+    async with engine.begin() as conn:
+        await conn.execute(insert(Channel).values(id=channel, name='synthetic cache boundary',
+                           url='https://synthetic.invalid/cache', field_mapping={}))
+        await conn.execute(insert(FileResource).values(id=resource, channel_id=channel,
+                           guid=recorded['guid'], title_raw=title, torrent_url=recorded['torrent_url']))
+    async with factory() as db:
+        assert (await db.get(FileResource, resource)).title_raw == title
+        # No provider or LLM call: use an explicitly synthetic verdict.
+        await _set_cache(title, 'wikipedia', ResourceMetadata(clean_title='synthetic result', found=False), db)
+        await db.commit()
+    async with factory() as db:
+        cached = await _get_cache(title, 'wikipedia', db)
+        assert cached is not None and cached.clean_title == 'synthetic result'
+        assert await _get_cache(title, 'tmdb', db) is None
+        assert await db.scalar(select(MetadataCache.title)) == title
+
+
+@pytest.mark.parametrize('length', [512, 513, 1024])
+@pytest.mark.parametrize('alphabet', ['ascii', 'cjk'])
+async def test_postgres(dedup_postgres, length, alphabet):
+    await check(dedup_postgres, length, alphabet)
+
+
+@pytest.mark.parametrize('length', [512, 513, 1024])
+@pytest.mark.parametrize('alphabet', ['ascii', 'cjk'])
+async def test_turso(dedup_turso, length, alphabet):
+    await check(dedup_turso, length, alphabet)

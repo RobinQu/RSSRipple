@@ -7,6 +7,8 @@ session factory.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pyotp
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -19,6 +21,7 @@ from app.services.auth_service import (
     get_or_create_totp_secret,
     make_cookie,
 )
+from app.utils.time import utcnow
 from tests.api.conftest import _build_test_app
 
 
@@ -90,14 +93,81 @@ class TestMiddlewareGating:
         assert res.status_code == 200
         assert res.json()["data"]["authenticated"] is False
 
-    async def test_non_api_path_open(self, auth_client):
-        res = await auth_client.get("/openapi.json")
+    async def test_docs_and_openapi_gated(self, auth_client):
+        """AUTH_ENABLED on: /docs, /redoc, /openapi.json require credentials."""
+        for path in ("/docs", "/redoc", "/openapi.json"):
+            res = await auth_client.get(path)
+            assert res.status_code == 401, path
+            assert res.json()["error"]["code"] == "UNAUTHORIZED"
+
+    async def test_docs_accessible_with_cookie(self, auth_client, db_session):
+        secret = await get_or_create_cookie_secret(db_session)
+        await db_session.commit()
+        auth_client.cookies.set(AUTH_COOKIE_NAME, make_cookie(secret))
+        assert (await auth_client.get("/docs")).status_code == 200
+        assert (await auth_client.get("/openapi.json")).status_code == 200
+
+    async def test_docs_accessible_with_api_key(self, auth_client, monkeypatch):
+        monkeypatch.setattr(settings, "api_key", "static-secret")
+        res = await auth_client.get(
+            "/openapi.json", headers={"Authorization": "Bearer static-secret"}
+        )
         assert res.status_code == 200
+
+    async def test_non_api_path_open(self, auth_client):
+        # Unknown SPA-style paths are not API/docs/posters — middleware passes
+        # them through (404 from the router, not 401 from the gate).
+        res = await auth_client.get("/some/client/route")
+        assert res.status_code == 404
 
     async def test_auth_disabled_passthrough(self, auth_client, monkeypatch):
         monkeypatch.setattr(settings, "auth_enabled", False)
         res = await auth_client.get("/api/v1/dashboard")
         assert res.status_code == 200
+
+
+class TestApiKeyExpiryGating:
+    async def test_expired_db_key_401(self, auth_client, db_session):
+        row, plaintext = await create_api_key(db_session, "stale")
+        row.expires_at = utcnow() - timedelta(hours=1)
+        await db_session.commit()
+        res = await auth_client.get(
+            "/api/v1/dashboard", headers={"Authorization": f"Bearer {plaintext}"}
+        )
+        assert res.status_code == 401
+        assert res.json()["error"]["code"] == "UNAUTHORIZED"
+
+    async def test_unexpired_db_key_passes(self, auth_client, db_session):
+        row, plaintext = await create_api_key(db_session, "fresh")
+        row.expires_at = utcnow() + timedelta(hours=1)
+        await db_session.commit()
+        res = await auth_client.get(
+            "/api/v1/dashboard", headers={"Authorization": f"Bearer {plaintext}"}
+        )
+        assert res.status_code == 200
+
+    async def test_rotate_retires_old_key_new_key_works(
+        self, auth_client, db_session, monkeypatch
+    ):
+        monkeypatch.setattr(settings, "api_key", "static-secret")
+        row, old_plaintext = await create_api_key(db_session, "ops")
+        await db_session.commit()
+
+        res = await auth_client.post(
+            f"/api/v1/api-keys/{row.id}/rotate",
+            headers={"Authorization": "Bearer static-secret"},
+        )
+        assert res.status_code == 200
+        new_plaintext = res.json()["data"]["key"]
+
+        old_res = await auth_client.get(
+            "/api/v1/dashboard", headers={"Authorization": f"Bearer {old_plaintext}"}
+        )
+        assert old_res.status_code == 401
+        new_res = await auth_client.get(
+            "/api/v1/dashboard", headers={"Authorization": f"Bearer {new_plaintext}"}
+        )
+        assert new_res.status_code == 200
 
 
 class TestOtpLogin:
@@ -169,3 +239,30 @@ class TestCookieValidation:
         )
         assert res.status_code == 200
         assert res.json()["data"]["authenticated"] is True
+
+    async def test_status_uses_constant_time_compare(self, auth_client, monkeypatch):
+        """/auth/status must compare the static key via hmac.compare_digest."""
+        import hmac as hmac_mod
+
+        calls: list[tuple[str, str]] = []
+        real = hmac_mod.compare_digest
+
+        def spy(a, b):
+            calls.append((a, b))
+            return real(a, b)
+
+        monkeypatch.setattr(settings, "api_key", "static-secret")
+        monkeypatch.setattr(hmac_mod, "compare_digest", spy)
+
+        ok = await auth_client.get(
+            "/api/v1/auth/status", headers={"X-API-Key": "static-secret"}
+        )
+        assert ok.json()["data"]["authenticated"] is True
+        assert ("static-secret", "static-secret") in calls
+
+        calls.clear()
+        bad = await auth_client.get(
+            "/api/v1/auth/status", headers={"X-API-Key": "static-secreX"}
+        )
+        assert bad.json()["data"]["authenticated"] is False
+        assert ("static-secreX", "static-secret") in calls

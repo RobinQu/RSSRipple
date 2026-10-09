@@ -168,6 +168,51 @@ async def test_prod_mode_omits_stack_trace(error_client):
 
 
 # ---------------------------------------------------------------------------
+# request_id: correlation across 500 response body, headers, and logs
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_unhandled_exception_response_carries_request_id(error_client, caplog):
+    """500 responses expose request_id in meta + X-Request-ID header + log line."""
+    with patch(MOCK_VALIDATE, new_callable=AsyncMock, side_effect=RuntimeError("kaboom")):
+        with caplog.at_level(logging.ERROR, logger="app.main"):
+            res = await error_client.post(
+                "/api/v1/channels",
+                json={"name": "x", "url": "http://test.example/rss.xml", "field_mapping": TEST_FIELD_MAPPING},
+            )
+    assert res.status_code == 500
+    rid = res.headers["x-request-id"]
+    assert rid
+    assert res.json()["meta"]["request_id"] == rid
+    error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert any(rid in r.message for r in error_records)
+
+
+@pytest.mark.asyncio
+async def test_inbound_request_id_is_honored_on_500(error_client):
+    """A client-supplied X-Request-ID is echoed through the 500 path."""
+    with patch(MOCK_VALIDATE, new_callable=AsyncMock, side_effect=RuntimeError("kaboom")):
+        res = await error_client.post(
+            "/api/v1/channels",
+            json={"name": "x", "url": "http://test.example/rss.xml", "field_mapping": TEST_FIELD_MAPPING},
+            headers={"X-Request-ID": "client-trace-42"},
+        )
+    assert res.status_code == 500
+    assert res.headers["x-request-id"] == "client-trace-42"
+    assert res.json()["meta"]["request_id"] == "client-trace-42"
+
+
+@pytest.mark.asyncio
+async def test_security_headers_present_on_api_responses(client):
+    """The shared test app mirrors production outer middlewares."""
+    res = await client.get("/api/v1/auth/status")
+    assert res.headers["x-content-type-options"] == "nosniff"
+    assert res.headers["x-frame-options"] == "DENY"
+    assert res.headers["referrer-policy"] == "no-referrer"
+    assert "default-src 'self'" in res.headers["content-security-policy"]
+
+
+# ---------------------------------------------------------------------------
 # Channel creation: specific 500 scenario (DB flush error)
 # ---------------------------------------------------------------------------
 

@@ -25,7 +25,7 @@ async def test_cleanup_old_snapshot_preserves_newly_committed_child(
     db_session, snapshot, kind, operation, record_testsuite_property,
 ):
     channel = Channel(id=str(uuid.uuid4()), name="Synthetic stale snapshot", type="rss_feed",
-                      url="https://example.invalid/rss", field_mapping={})
+                      url=f"https://example.invalid/rss/{str(uuid.uuid4())}", field_mapping={})
     movie = Movie(id=str(uuid.uuid4()), title_cn="Synthetic movie")
     downloader = DownloaderInstance(id=str(uuid.uuid4()), name="Synthetic downloader", type="transmission",
                                     url="http://example.invalid/rpc", download_dir="/downloads")

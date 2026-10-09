@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,6 +50,7 @@ from app.services.dedup_work_lock import lock_merge_works
 from app.services.external_ids import add_external_id, merge_external_id_bags
 from app.services.metadata_episode_reconcile import is_unsplit_legacy_series
 from app.services.metadata_service import canonicalize_external_id
+from app.services.metadata_source_registry import parse_wikipedia_id
 from app.services.text_normalizer import normalize_title
 
 logger = logging.getLogger(__name__)
@@ -432,14 +434,61 @@ def _group_still_matches(rows):
     return len(groups) == 1 and not _year_conflict(dates)
 
 
-def _same_cross_type_work(movie, series, movie_keys, series_keys):
+def _identity_tokens(source: str | None, external_id: str | None) -> set[tuple[str, str]]:
+    """Comparable identity tokens for one (source, id) pair.
+
+    Wikipedia numeric ids reduce to their pageid (both storage forms collapse);
+    synthetic per-season suffixes stay part of the token (a season-scoped
+    identity is not the series-level one).
+    """
+    canon = canonicalize_external_id(external_id, source)
+    if not canon:
+        return set()
+    _lang, pid = parse_wikipedia_id(canon)
+    if pid:
+        return {("wikipedia", pid)}
+    if ":" in canon:
+        return {(canon.split(":", 1)[0], canon)}
+    src = (source or "").strip().lower()
+    return {(src, canon)} if src else set()
+
+
+async def _work_identity_tokens(db: AsyncSession, work_type: str, work) -> set[tuple[str, str]]:
+    """Primary id + identity-bag ids of one work, as comparable tokens."""
+    from app.services.external_ids import list_external_ids
+
+    tokens = _identity_tokens(work.external_source, work.external_id)
+    for row in await list_external_ids(db, work_type, work.id):
+        tokens |= _identity_tokens(row.source, row.external_id)
+    return tokens
+
+
+async def _identity_bags_overlap(db: AsyncSession, movie, series) -> bool:
+    """True when the two works share any known external identity (either
+    side's primary id against the other side's bag included)."""
+    movie_tokens = await _work_identity_tokens(db, "movie", movie)
+    if not movie_tokens:
+        return False
+    series_tokens = await _work_identity_tokens(db, "series", series)
+    return bool(movie_tokens & series_tokens)
+
+
+async def _same_cross_type_work(db: AsyncSession, movie, series, movie_keys, series_keys) -> bool:
     movie_id = canonicalize_external_id(movie.external_id, movie.external_source, "movie")
     series_id = canonicalize_external_id(series.external_id, series.external_source, "tv")
     if (movie_id and series_id and movie_id == series_id) or (
         movie.external_id and movie.external_id == series.external_id
     ):
         return True
-    return bool(movie_keys & series_keys) and not _year_conflict([movie.release_date, series.start_date])
+    if not (movie_keys & series_keys):
+        return False
+    dates = [movie.release_date, series.start_date]
+    if all(d is not None for d in dates):
+        # Both sides dated: years must agree within the usual ±1 slack.
+        return not _year_conflict(dates)
+    # Date evidence missing on at least one side: a shared title alone is NOT
+    # proof across types (同名电影 vs 剧集) — require an identity-bag overlap.
+    return await _identity_bags_overlap(db, movie, series)
 
 
 async def _merge_work_metadata(db, survivor, duplicates, protected):
@@ -624,7 +673,7 @@ async def merge_duplicate_series(db: AsyncSession, report: DedupReport | None = 
     cluster.
     """
     report = report or DedupReport()
-    all_series = list((await db.execute(select(TVSeries))).scalars().all())
+    all_series = await _scan_work_snapshots(db, TVSeries, _DEDUP_SERIES_COLS)
     # Only cluster entities that carry at least one usable title
     keyed = [s for s in all_series if _title_keys(s)]
     for group in _cluster_by_shared_title(keyed, bucket_of=_series_cluster_bucket):
@@ -637,8 +686,11 @@ async def merge_duplicate_series(db: AsyncSession, report: DedupReport | None = 
                     )
                 )
                 continue
+            orm_rows = await _reload_works(db, TVSeries, [g.id for g in group])
+            if len(orm_rows) < 2:
+                continue  # group rows deleted concurrently
             try:
-                await _merge_series_group(db, group, report, automatic=True)
+                await _merge_series_group(db, orm_rows, report, automatic=True)
             except DedupConflictError as exc:
                 report.notes.append(str(exc))
     return report
@@ -647,7 +699,7 @@ async def merge_duplicate_series(db: AsyncSession, report: DedupReport | None = 
 async def merge_duplicate_movies(db: AsyncSession, report: DedupReport | None = None) -> DedupReport:
     """Merge Movie rows that share any normalized title."""
     report = report or DedupReport()
-    all_movies = list((await db.execute(select(Movie))).scalars().all())
+    all_movies = await _scan_work_snapshots(db, Movie, _DEDUP_MOVIE_COLS)
     keyed = [m for m in all_movies if _title_keys(m)]
     for group in _cluster_by_shared_title(keyed):
         if len(group) > 1:
@@ -659,8 +711,11 @@ async def merge_duplicate_movies(db: AsyncSession, report: DedupReport | None = 
                     )
                 )
                 continue
+            orm_rows = await _reload_works(db, Movie, [g.id for g in group])
+            if len(orm_rows) < 2:
+                continue  # group rows deleted concurrently
             try:
-                await _merge_movie_group(db, group, report, automatic=True)
+                await _merge_movie_group(db, orm_rows, report, automatic=True)
             except DedupConflictError as exc:
                 report.notes.append(str(exc))
     return report
@@ -673,6 +728,70 @@ async def merge_duplicate_metadata(db: AsyncSession) -> DedupReport:
     await merge_duplicate_movies(db, report)
     await merge_cross_type_duplicates(db, report)
     return report
+
+
+# ---------------------------------------------------------------------------
+# Lean keyset-paginated work-table scans
+#
+# The daily dedup pass clusters/pairs by a handful of columns; loading every
+# row as a full ORM entity is unbounded. Scan lean snapshots in id-keyset
+# pages instead, and re-fetch ORM entities (revalidated under the merge lock)
+# only for groups/pairs that actually merge.
+# ---------------------------------------------------------------------------
+
+_DEDUP_SCAN_PAGE_SIZE = 500
+
+_DEDUP_COMMON_COLS = (
+    "id", "title_cn", "title_en", "original_title", "aliases",
+    "external_id", "external_source", "collection_id", "created_at",
+)
+_DEDUP_SERIES_COLS = _DEDUP_COMMON_COLS + (
+    "season_number", "seasons", "number_of_seasons", "start_date",
+)
+_DEDUP_MOVIE_COLS = _DEDUP_COMMON_COLS + ("release_date",)
+
+
+async def _scan_work_snapshots(db: AsyncSession, model, columns: tuple[str, ...]) -> list[SimpleNamespace]:
+    """Lean keyset-paginated scan of a work table for dedup clustering.
+
+    Id-keyset pages (no OFFSET — skipped rows would be re-scanned per page)
+    of only the columns clustering/pairing reads. Snapshots are duck-typed
+    stand-ins for the ORM row: every consumer (``_title_keys``,
+    ``_series_cluster_bucket``, ``_same_cross_type_work`` …) goes through
+    attribute access. Staleness relative to a concurrent edit is handled the
+    same way the old full load was: merge paths re-fetch and revalidate
+    (``_group_still_matches`` / the post-lock pairing recheck).
+    """
+    out: list[SimpleNamespace] = []
+    last_id: str | None = None
+    while True:
+        stmt = (
+            select(*(getattr(model, c) for c in columns))
+            .order_by(model.id)
+            .limit(_DEDUP_SCAN_PAGE_SIZE)
+        )
+        if last_id is not None:
+            stmt = stmt.where(model.id > last_id)
+        rows = (await db.execute(stmt)).all()
+        if not rows:
+            break
+        out.extend(
+            SimpleNamespace(**dict(zip(columns, tuple(row), strict=True))) for row in rows
+        )
+        last_id = rows[-1][0]
+        if len(rows) < _DEDUP_SCAN_PAGE_SIZE:
+            break
+    return out
+
+
+async def _reload_works(db: AsyncSession, model, ids: list[str]) -> list:
+    """Re-fetch fresh ORM entities for a merging group/pair by id."""
+    if not ids:
+        return []
+    result = await db.execute(
+        select(model).where(model.id.in_(ids)).execution_options(populate_existing=True)
+    )
+    return list(result.scalars().all())
 
 
 # ---------------------------------------------------------------------------
@@ -702,14 +821,18 @@ async def merge_cross_type_duplicates(
     content_type verdict can still file the same entity (e.g.
     ``wikipedia:5139056``) once as a Movie and once as a TVSeries. Pairing
     rule: identical canonical external_id, or a shared normalized title key
-    (titles + aliases, trad/simp-folded). Survivor rule: any episode-bearing
-    resource (or Episode rows) on either side means the work is a series;
-    otherwise the Movie survives. The loser's references are re-pointed and
-    its titles/aliases merged before deletion.
+    (titles + aliases, trad/simp-folded) backed by evidence — when both sides
+    carry a date their years must agree within ±1; when date evidence is
+    missing on either side, a shared title alone is insufficient and the
+    pair merges only on an identity-bag overlap (primary ids included).
+    Survivor rule: any episode-bearing resource (or Episode rows) on either
+    side means the work is a series; otherwise the Movie survives. The
+    loser's references are re-pointed and its titles/aliases merged before
+    deletion.
     """
     report = report or DedupReport()
-    movies = list((await db.execute(select(Movie))).scalars().all())
-    series_all = list((await db.execute(select(TVSeries))).scalars().all())
+    movies = await _scan_work_snapshots(db, Movie, _DEDUP_MOVIE_COLS)
+    series_all = await _scan_work_snapshots(db, TVSeries, _DEDUP_SERIES_COLS)
     if not movies or not series_all:
         return report
 
@@ -717,17 +840,26 @@ async def merge_cross_type_duplicates(
     removed_movies: set[str] = set()
     removed_series: set[str] = set()
 
-    for movie in movies:
-        if movie.id in removed_movies:
+    for movie_snap in movies:
+        if movie_snap.id in removed_movies:
             continue
-        m_keys = _title_keys(movie)
-        for series in series_all:
-            if series.id in removed_series:
+        m_keys = _title_keys(movie_snap)
+        for series_snap in series_all:
+            if series_snap.id in removed_series:
                 continue
-            if not _same_cross_type_work(movie, series, m_keys, series_keys[series.id]):
+            if not await _same_cross_type_work(db, movie_snap, series_snap, m_keys, series_keys[series_snap.id]):
                 continue
+            # Pairing ran on lean snapshots; re-fetch fresh ORM entities for
+            # the merge itself (a concurrent edit may have deleted either).
+            reloaded_m = await _reload_works(db, Movie, [movie_snap.id])
+            if not reloaded_m:
+                break  # movie gone — next movie
+            reloaded_s = await _reload_works(db, TVSeries, [series_snap.id])
+            if not reloaded_s:
+                continue  # series gone — try the next pairing
+            movie, series = reloaded_m[0], reloaded_s[0]
             await lock_merge_works(db, [series, movie])
-            if not _same_cross_type_work(movie, series, _title_keys(movie), _title_keys(series)):
+            if not await _same_cross_type_work(db, movie, series, _title_keys(movie), _title_keys(series)):
                 report.notes.append(f"[candidate-changed] {movie.id},{series.id}")
                 continue
 

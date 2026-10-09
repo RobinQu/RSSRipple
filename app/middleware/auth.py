@@ -4,10 +4,13 @@ Gate rules:
 
 - ``settings.auth_enabled`` is False → everything passes.
 - ``/api/v1/auth/*`` → always open (login/status endpoints).
-- ``/api/v1/*`` and ``/posters/*`` → require a valid API key (env bootstrap
-  key or a ``api_keys`` row, presented via ``Authorization: Bearer`` or
-  ``X-API-Key``) OR a valid session cookie (issued by ``/api/v1/auth/otp``).
-- Everything else (SPA index, ``/assets``) → open.
+- ``/api/v1/*``, ``/posters/*``, and the API documentation surface
+  (``/docs``, ``/redoc``, ``/openapi.json`` and sub-paths) → require a valid
+  API key (env bootstrap key or an unexpired ``api_keys`` row, presented via
+  ``Authorization: Bearer`` or ``X-API-Key``) OR a valid session cookie
+  (issued by ``/api/v1/auth/otp``). Browsers carry the session cookie to
+  ``/docs`` automatically once logged in, so the Swagger UI keeps working.
+- Everything else (``/health``, SPA index, ``/assets``) → open.
 """
 
 from __future__ import annotations
@@ -16,20 +19,27 @@ import hmac
 import json
 import logging
 
+from sqlalchemy import select
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.config import settings
+from app.models.api_key import ApiKey
 from app.services.auth_service import (
     AUTH_COOKIE_NAME,
-    check_api_key,
     get_or_create_cookie_secret,
+    hash_api_key,
     validate_cookie,
 )
+from app.utils.time import utcnow
 
 logger = logging.getLogger(__name__)
 
 _OPEN_PREFIXES = ("/api/v1/auth/",)
 _PROTECTED_PREFIXES = ("/api/v1/", "/posters/")
+# OpenAPI schema + API browsers: leaking the full schema unauthenticated would
+# hand an attacker the complete route/field map, so these follow the same
+# cookie/API-key gate when AUTH_ENABLED is on.
+_PROTECTED_DOC_PATHS = ("/docs", "/redoc", "/openapi.json")
 
 _UNAUTHORIZED_BODY = {
     "success": False,
@@ -65,7 +75,12 @@ class AuthMiddleware:
     def _is_open(path: str) -> bool:
         if any(path.startswith(p) for p in _OPEN_PREFIXES):
             return True
-        return not any(path.startswith(p) for p in _PROTECTED_PREFIXES)
+        if any(path.startswith(p) for p in _PROTECTED_PREFIXES):
+            return False
+        # Exact docs paths plus sub-paths (e.g. /docs/oauth2-redirect).
+        return not any(
+            path == p or path.startswith(p + "/") for p in _PROTECTED_DOC_PATHS
+        )
 
     async def _is_authenticated(self, scope: Scope) -> bool:
         headers = {
@@ -107,10 +122,19 @@ class AuthMiddleware:
                     if validate_cookie(cookie_value, secret):
                         return True
                 if presented_key:
-                    return await check_api_key(session, presented_key)
+                    return await self._check_db_api_key(session, presented_key)
         except Exception as e:  # noqa: BLE001 — never 500 on auth plumbing
             logger.warning("auth check failed (%s); treating as unauthenticated", e)
         return False
+
+    @staticmethod
+    async def _check_db_api_key(session, presented: str) -> bool:
+        """Whether *presented* matches a stored, unexpired API key."""
+        stmt = select(ApiKey.id).where(
+            ApiKey.key_hash == hash_api_key(presented),
+            ApiKey.expires_at.is_(None) | (ApiKey.expires_at > utcnow()),
+        )
+        return (await session.execute(stmt)).first() is not None
 
     @staticmethod
     async def _reject(scope: Scope, receive: Receive, send: Send) -> None:

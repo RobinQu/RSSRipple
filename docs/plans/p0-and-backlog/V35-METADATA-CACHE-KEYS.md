@@ -124,3 +124,14 @@ V34 已完成完整双门禁并合入 main `2affb9a`（有效 28 文件＋单列
 - ac 完整隔离集成，会话 **74751**，专用项目 `rssripple-v35-final-ac`；启动会话 **69082** 实际退出 0，两应用健康，固定镜像身份与 V34 相同。日志 `/tmp/rssripple-v35-ac-integration.log`。首次启动请求自动审批超时而未执行，允许的一次重试成功；不是测试失败或不安全判定。
 
 [门禁会话记录](probes/metadata-cache-title-aa-ab-ac-result.json)。当前尚无最终结果，不关闭 TODO。续接原句柄；结束后须正常停止应用写出覆盖率、组合 ≥85% 门禁、导出 5 份原始覆盖率/4 份语料报告，核对 V34 ai/aj 跳过基线、冻结哈希和项目清理，完成五轴终审及真实 Git 内容核验。未修改 main 运行代码，未推送或部署。
+
+## ab/ac 门禁终态与合入验收（2026-10-09）
+
+- ab 完整单元/API：**4183 passed、12 skipped、0 failed**，覆盖率 **96.43% ≥ 95%** 门禁通过（日志 `/tmp/rssripple-v35-ab-unit.log`）。
+- ac 完整隔离集成：**4239 passed、17 skipped、0 failed**（日志 `/tmp/rssripple-v35-ac-integration.log`）。测试结束后正常停止两个应用写出覆盖率；仅集成三份原始数据组合 **90% ≥ 85%** 门禁通过（与单元合并 98%）。5 份原始覆盖率与语料报告已归档至 probes/（清单见验收 JSON）。
+- 冻结核验：候选全部 **6871 文件** sha256 与 `metadata-cache-title-aa-frozen.json` 一致（missing=0、changed=0）。
+- 跳过基线：ac 17 项跳过均为既定条件跳过（live magnet 公网验收等），无新增异常跳过。
+- 五轴终审：以 [V35-REVIEW](V35-REVIEW.md) 预审为基础，门禁终态确认后无需修订；完整键、原子更新、迁移保留/回滚边界维持预审结论。
+- 栈清理：`rssripple-v35-final-ac` 与 `rssripple-v35-unit-ab` 已 `down -v`，容器与卷均为 0。
+- **合入方式**：因主干工作树已含 TODO 清理批（未提交），25 个有效文件以三方合并（base `83a72c2`、theirs=冻结候选）落入工作树，零冲突；合并后树重新过完整门禁：单元/API **4463 passed、0 failed**（本次合并回归未重测覆盖率，覆盖率门禁以候选 ab/ac 为准），单节点集成 **3749 passed、0 failed**，分布式 PG+Redis 集成 **3686 passed、0 failed**，Ruff 全绿。分布式画像下 metadata_cache 套件 24 项运行、27 项按设计跳过（需独立 PG fixture）。
+- 验收记录：[metadata-cache-title-ab-ac-accepted.json](probes/metadata-cache-title-ab-ac-accepted.json)。TODO 两条 V35 跟踪项随之移除。未推送远端、未部署。

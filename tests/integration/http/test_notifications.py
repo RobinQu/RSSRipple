@@ -31,6 +31,7 @@ from tests.integration.http._http import (
     MIKANANI_1_URL,
     RICH_FIELD_MAPPING,
     associate_metadata_request,
+    unique_feed_url,
 )
 
 LLM_APP = os.environ.get("RSSRIPPLE_LLM_URL", "")
@@ -85,7 +86,7 @@ def test_notification_pipeline_end_to_end():
         method="post",
         json={
             "name": "Notify Test Channel",
-            "url": MIKANANI_1_URL,
+            "url": unique_feed_url(MIKANANI_1_URL),
             "field_mapping": RICH_FIELD_MAPPING,
             # app-llm runs the scheduler: a due-soon interval would trigger an
             # automatic fetch racing the manual one and hold fetch-status at
@@ -121,41 +122,59 @@ def test_notification_pipeline_end_to_end():
     # asserted to carry the canonical work.genre. The title is deliberately
     # unique — reusing 葬送的芙莉莲 would duplicate the _llm_env series and
     # trip the same-title collision guard for auto-link in other tests.
-    r = associate_metadata_request(
-        f"/api/v1/resources/{resources[0]['id']}/metadata/link",
-        api=_api,
-        method="put",
-        json={
-            "selected_result": {
-                "content_type": "tv",
-                "title_cn": "通知专用测试剧集",
-                "title_en": "Notify Genre Test Series",
-                "external_id": "notify-genre-series",
-                "external_source": "tmdb",
-                "genre": ["Anime", "Fantasy"],
-                # Single-season evidence: without it the linked resource lands
-                # season=None + episode_confidence=ambiguous (season-verify
-                # rule) and dispatch skips it → no task → no notification.
-                "number_of_seasons": 1,
-            }
-        },
-    )
-    assert r.status_code == 200, r.text
+    # The channel's initial fetch keeps committing resources in the
+    # background (creation auto-enqueues one and the scheduler fires another);
+    # a concurrent fetch transaction can fail the association write with a
+    # transient Turso write-write conflict (500) — retry a few times.
+    r = None
+    for _attempt in range(5):
+        r = associate_metadata_request(
+            f"/api/v1/resources/{resources[0]['id']}/metadata/link",
+            api=_api,
+            method="put",
+            json={
+                "selected_result": {
+                    "content_type": "tv",
+                    "title_cn": "通知专用测试剧集",
+                    "title_en": "Notify Genre Test Series",
+                    "external_id": "notify-genre-series",
+                    "external_source": "tmdb",
+                    "genre": ["Anime", "Fantasy"],
+                    # Single-season evidence: without it the linked resource lands
+                    # season=None + episode_confidence=ambiguous (season-verify
+                    # rule) and dispatch skips it → no task → no notification.
+                    "number_of_seasons": 1,
+                }
+            },
+        )
+        if r.status_code == 200:
+            break
+        time.sleep(3)
+    assert r is not None and r.status_code == 200, r.text if r is not None else ""
     notify_series_id = r.json()["data"]["series_id"]
     assert notify_series_id
 
-    r = _api(
-        "/api/v1/agents",
-        method="post",
-        json={
-            "name": "Notify Test Agent",
-            "channel_id": channel_id,
-            "downloader_id": dl_id,
-            "scope_channel_wide": True,
-            "dispatch_resource_ids": [resources[0]["id"]],
-        },
-    )
-    assert r.status_code == 201, r.text
+    # Same transient write-write conflict as the association above: the
+    # backfill dispatch writes channel-scoped rows while the background
+    # fetch is still committing. The conflicted transaction aborts cleanly
+    # (no agent row persists), so retrying is safe.
+    r = None
+    for _attempt in range(10):
+        r = _api(
+            "/api/v1/agents",
+            method="post",
+            json={
+                "name": "Notify Test Agent",
+                "channel_id": channel_id,
+                "downloader_id": dl_id,
+                "scope_channel_wide": True,
+                "dispatch_resource_ids": [resources[0]["id"]],
+            },
+        )
+        if r.status_code == 201:
+            break
+        time.sleep(3)
+    assert r is not None and r.status_code == 201, r.text if r is not None else ""
     agent_id = r.json()["data"]["id"]
 
     # ── 2. register a mock webhook (url is inert for mock webhooks) ──────

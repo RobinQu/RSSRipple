@@ -24,13 +24,18 @@ Design:
   (``drain_fts_outbox``) replays them onto the sidecar (idempotent full-state
   DELETE+INSERT). The hourly ``reconcile_fts`` diff is a backstop for paths
   that bypass the outbox (scripts, direct SQL).
-- **Candidate retrieval** — ``fts_match`` retrieves candidates; callers
-  compute ``similarity_score`` for precise ranking. Single-character queries
-  (ngram produces no tokens below ``min_token_size``=2) fall back to a Python
-  scan of the base tables.
+- **Candidate retrieval** — ``fts_match`` retrieves candidates; retrieval is
+  pre-ranked by the same ``similarity_score`` callers use for final ranking
+  (Turso's ``fts_score`` returns 0 under the pinned driver, so SQL-side BM25
+  ordering is unavailable). Empty FTS recall (separator punctuation breaks
+  ngram contiguity, or a lagging index) falls back to a bounded, ranked
+  ``LIKE`` pre-filter over the normalized ``search_text`` column
+  (``_search_like``) — never an unbounded full-table ORM scan. On PostgreSQL
+  and for single-character queries (ngram produces no tokens below
+  ``min_token_size``=2) the LIKE path is the primary one.
 
 On PostgreSQL there is no sidecar: searches match the in-table ``search_text``
-column via ``pg_trgm`` GIN. ``_search_pg_like`` replicates the ngram tokenizer
+column via ``pg_trgm`` GIN. ``_search_like`` replicates the ngram tokenizer
 semantics (whitespace-split, ≥2-char tokens OR-ed as literal substrings) so the
 candidate set matches the Turso sidecar for CJK and English alike.
 """
@@ -44,7 +49,7 @@ from sqlalchemy import delete, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.config import settings
-from app.services.text_normalizer import normalize_title
+from app.services.text_normalizer import normalize_title, similarity_score
 
 logger = logging.getLogger(__name__)
 
@@ -179,50 +184,46 @@ async def _delete(table: str, entity_id: str) -> None:
 
 
 async def _search_fts(table: str, norm: str, limit: int) -> list[str]:
-    """fts_match over a shadow table. Callers rank by similarity themselves,
-    so no relevance ordering is applied here."""
+    """fts_match over a shadow table, ranked by bigram similarity.
+
+    Turso's native FTS is Tantivy-backed — SQLite FTS5's ``bm25()`` does not
+    exist, and Turso's own ``fts_score()`` returns 0 for every row under the
+    pinned driver (pyturso 0.8.2; upstream tursodatabase/turso#7636), so
+    SQL-side relevance ordering is unavailable. All matching shadow rows are
+    fetched and ranked in Python with the same ``similarity_score`` the
+    callers use for final ranking, so ``limit`` keeps the most relevant
+    candidates instead of the first N in internal index order. Shadow tables
+    mirror the (small) work tables, so a full match scan stays cheap. Ties
+    break on entity_id for determinism.
+    """
     engine = _get_fts_engine()
     async with engine.connect() as conn:
         result = await conn.execute(
             text(
-                f"SELECT entity_id FROM {table} "
-                "WHERE fts_match(title_cn, title_en, original_title, aliases, :query) "
-                "LIMIT :limit"
+                f"SELECT entity_id, title_cn, title_en, original_title, aliases FROM {table} "
+                "WHERE fts_match(title_cn, title_en, original_title, aliases, :query)"
             ),
-            {"query": norm, "limit": limit},
+            {"query": norm},
         )
-        return [row[0] for row in result.fetchall()]
-
-
-async def _search_entities_like(db: AsyncSession, model: Any, norm: str, limit: int) -> list[str]:
-    """FTS-less substring search over a work table (single-char Turso queries).
-
-    The ngram tokenizer cannot produce tokens for queries shorter than its
-    ``min_token_size`` (2), so ``fts_match`` returns nothing for a single CJK
-    character. Fall back to scanning the (small) work table and matching the
-    normalized query against the normalized titles/aliases in Python — same
-    normalization as the FTS indexed content, so matching semantics stay
-    consistent across backends.
-    """
-    ids: list[str] = []
-    try:
-        result = await db.execute(select(model))
-        entities = result.scalars().all()
-    except Exception as e:
-        logger.warning("[fts] LIKE fallback search failed: %s", e)
-        return []
-    for e in entities:
-        haystack = " ".join(filter(None, [
-            normalize_title(e.title_cn),
-            normalize_title(e.title_en),
-            normalize_title(e.original_title),
-            " ".join(normalize_title(a) for a in (e.aliases or []) if a),
-        ]))
-        if norm in haystack:
-            ids.append(e.id)
-            if len(ids) >= limit:
-                break
-    return ids
+        rows = result.fetchall()
+    scored = sorted(
+        (
+            (
+                max(
+                    (
+                        similarity_score(norm, field)
+                        for field in (row[1], row[2], row[3], row[4])
+                        if field
+                    ),
+                    default=0,
+                ),
+                row[0],
+            )
+            for row in rows
+        ),
+        key=lambda pair: (-pair[0], pair[1]),
+    )
+    return [entity_id for _score, entity_id in scored[:limit]]
 
 
 def _escape_like(term: str) -> str:
@@ -237,28 +238,39 @@ def _escape_like(term: str) -> str:
     return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-async def _search_pg_like(db: AsyncSession, model: Any, norm: str, limit: int) -> list[str]:
-    """Indexed substring search over ``search_text`` (PostgreSQL).
+# Bounded over-fetch for the LIKE path: SQL has no relevance ordering, so a
+# generous capped page is fetched and ranked by ``similarity_score`` in Python
+# (same ranking as the Turso FTS path), and ``limit`` cuts the most relevant
+# candidates instead of the first N in storage order.
+_LIKE_FETCH_CAP = 500
 
-    ``search_text`` holds the normalized title concatenation maintained by the
-    ORM before_flush hook; the ``pg_trgm`` GIN index accelerates the
-    ``LIKE '%q%'`` pattern. Same normalization as the Turso FTS indexed
-    content, so matching semantics stay consistent across backends.
 
-    Matching mirrors the Turso ``ngram`` tokenizer (``min_token_size``=2):
-    the normalized query is split on whitespace and each token with ≥2
-    characters is matched as a literal substring (``LIKE '%tok%'``), with the
-    tokens OR-ed together. For CJK titles (no whitespace) this degenerates to
-    an exact substring match — the same result as Turso's contiguous
-    AND-of-bigrams. A single-character query (Turso's Python-scan fallback) is
-    matched as a substring too.
+async def _search_like(db: AsyncSession, model: Any, norm: str, limit: int) -> list[str]:
+    """Substring search over the normalized ``search_text`` column.
+
+    The primary search path on PostgreSQL (``pg_trgm`` GIN accelerates the
+    ``LIKE '%q%'`` patterns) and the bounded recall fallback on Turso when
+    ``fts_match`` comes back empty (separator punctuation breaks ngram
+    contiguity — "Initial D: Battle Stage" never matches an "initial d battle
+    stage" query — and a lagging sidecar returns nothing). Either way the
+    base table is filtered by SQL and only matching ids/titles are
+    materialised — never an unbounded full-table ORM scan.
+
+    ``search_text`` holds the normalized title/alias concatenation maintained
+    by the ORM before_flush hook on both backends. Matching mirrors the Turso
+    ``ngram`` tokenizer (``min_token_size``=2): the normalized query is split
+    on whitespace and each token with ≥2 characters is matched as a literal
+    substring (``LIKE '%tok%'``), with the tokens OR-ed together. For CJK
+    titles (no whitespace) this degenerates to an exact substring match — the
+    same result as Turso's contiguous AND-of-bigrams. A single-character
+    query is matched as a substring too.
     """
     try:
         tokens = norm.split()
         if len(tokens) == 1:
             # Single token (CJK title, single English word, or a single
             # character): contiguous substring match — Turso's single-token
-            # AND-of-bigrams, or its single-char Python-scan fallback.
+            # AND-of-bigrams, or its single-char fallback.
             patterns = tokens
         else:
             # Multi-word query: OR the ≥2-char tokens (Turso's ngram
@@ -270,12 +282,34 @@ async def _search_pg_like(db: AsyncSession, model: Any, norm: str, limit: int) -
             model.search_text.like(f"%{_escape_like(t)}%", escape="\\")
             for t in patterns
         ]
-        stmt = select(model.id).where(or_(*conditions)).limit(limit)
+        stmt = (
+            select(model.id, model.title_cn, model.title_en, model.original_title, model.aliases)
+            .where(or_(*conditions))
+            .limit(max(limit, _LIKE_FETCH_CAP))
+        )
         result = await db.execute(stmt)
-        return [row[0] for row in result.all()]
+        rows = result.all()
     except Exception as e:
         logger.warning("[fts] search_text LIKE search failed: %s", e)
         return []
+    scored = sorted(
+        (
+            (
+                max(
+                    (
+                        similarity_score(norm, field)
+                        for field in (row[1], row[2], row[3], *(row[4] or []))
+                        if field
+                    ),
+                    default=0,
+                ),
+                row[0],
+            )
+            for row in rows
+        ),
+        key=lambda pair: (-pair[0], pair[1]),
+    )
+    return [entity_id for _score, entity_id in scored[:limit]]
 
 
 # ---------------------------------------------------------------------------
@@ -328,25 +362,30 @@ async def _drain_pending_changes(db: AsyncSession) -> None:
 async def search_series_fts(
     db: AsyncSession, query: str, limit: int = 30
 ) -> list[str]:
-    """Search series by title. Returns a list of series entity IDs."""
+    """Search series by title. Returns a list of series entity IDs.
+
+    Turso: ranked ``fts_match`` over the sidecar; an empty recall (separator
+    punctuation breaks ngram contiguity, or a lagging index) falls back to
+    the bounded, ranked ``search_text`` LIKE pre-filter — never an unbounded
+    full-table scan. PostgreSQL and single-character queries use the LIKE
+    path directly.
+    """
     norm = normalize_title(query)
     if not norm:
         return []
+    from app.models.series import TVSeries
+
     await _drain_pending_changes(db)
-    if not _fts_available(db):
-        from app.models.series import TVSeries
-
-        return await _search_pg_like(db, TVSeries, norm, limit)
-    if len(norm) < 2:
-        # ngram tokenizer emits no tokens for single-character queries.
-        from app.models.series import TVSeries
-
-        return await _search_entities_like(db, TVSeries, norm, limit)
+    if not _fts_available(db) or len(norm) < 2:
+        # No sidecar on PostgreSQL; the ngram tokenizer (min_token_size=2)
+        # emits no tokens for a single-character query.
+        return await _search_like(db, TVSeries, norm, limit)
     try:
-        return await _search_fts("tv_series_fts", norm, limit)
+        ids = await _search_fts("tv_series_fts", norm, limit)
     except Exception as e:
         logger.warning("[fts] search_series_fts failed for %r: %s", norm[:60], e)
         return []
+    return ids or await _search_like(db, TVSeries, norm, limit)
 
 
 async def rebuild_series_fts(db: AsyncSession) -> int:
@@ -401,25 +440,22 @@ async def delete_movie_fts(db: AsyncSession, movie_id: str) -> None:
 async def search_movie_fts(
     db: AsyncSession, query: str, limit: int = 30
 ) -> list[str]:
-    """Search movies by title. Returns a list of movie entity IDs."""
+    """Search movies by title. Returns a list of movie entity IDs (same
+    retrieval/fallback contract as :func:`search_series_fts`)."""
     norm = normalize_title(query)
     if not norm:
         return []
+    from app.models.movie import Movie
+
     await _drain_pending_changes(db)
-    if not _fts_available(db):
-        from app.models.movie import Movie
-
-        return await _search_pg_like(db, Movie, norm, limit)
-    if len(norm) < 2:
-        # ngram tokenizer emits no tokens for single-character queries.
-        from app.models.movie import Movie
-
-        return await _search_entities_like(db, Movie, norm, limit)
+    if not _fts_available(db) or len(norm) < 2:
+        return await _search_like(db, Movie, norm, limit)
     try:
-        return await _search_fts("movie_fts", norm, limit)
+        ids = await _search_fts("movie_fts", norm, limit)
     except Exception as e:
         logger.warning("[fts] search_movie_fts failed for %r: %s", norm[:60], e)
         return []
+    return ids or await _search_like(db, Movie, norm, limit)
 
 
 async def rebuild_movie_fts(db: AsyncSession) -> int:
@@ -474,25 +510,22 @@ async def delete_audio_work_fts(db: AsyncSession, audio_work_id: str) -> None:
 async def search_audio_work_fts(
     db: AsyncSession, query: str, limit: int = 30
 ) -> list[str]:
-    """Search audio works by title. Returns a list of audio work entity IDs."""
+    """Search audio works by title. Returns a list of audio work entity IDs
+    (same retrieval/fallback contract as :func:`search_series_fts`)."""
     norm = normalize_title(query)
     if not norm:
         return []
+    from app.models.audio_work import AudioWork
+
     await _drain_pending_changes(db)
-    if not _fts_available(db):
-        from app.models.audio_work import AudioWork
-
-        return await _search_pg_like(db, AudioWork, norm, limit)
-    if len(norm) < 2:
-        # ngram tokenizer emits no tokens for single-character queries.
-        from app.models.audio_work import AudioWork
-
-        return await _search_entities_like(db, AudioWork, norm, limit)
+    if not _fts_available(db) or len(norm) < 2:
+        return await _search_like(db, AudioWork, norm, limit)
     try:
-        return await _search_fts("audio_work_fts", norm, limit)
+        ids = await _search_fts("audio_work_fts", norm, limit)
     except Exception as e:
         logger.warning("[fts] search_audio_work_fts failed for %r: %s", norm[:60], e)
         return []
+    return ids or await _search_like(db, AudioWork, norm, limit)
 
 
 async def rebuild_audio_work_fts(db: AsyncSession) -> int:

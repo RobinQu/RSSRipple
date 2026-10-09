@@ -520,17 +520,16 @@ async def _match_local_fts(
         (Movie, fts_service.search_movie_fts),
     ):
         ids = await search(db, hint, limit=20)
-        if ids:
-            rows = (
-                await db.execute(select(model).where(model.id.in_(ids)))
-            ).scalars().all()
-        else:
-            # The ngram AND-match cannot bridge separator punctuation
-            # ("Initial D: Battle Stage" never matches an "initial d battle
-            # stage" query), so an empty FTS result falls back to the same
-            # full-table scan match_series_by_title / match_movie_by_title
-            # use; the threshold + guards below do the filtering.
-            rows = (await db.execute(select(model))).scalars().all()
+        if not ids:
+            # An empty recall is final: ``search_*_fts`` already fell back to
+            # its bounded, ranked search_text LIKE pre-filter, which covers
+            # the separator-punctuation case ("Initial D: Battle Stage" never
+            # ngram-matches an "initial d battle stage" query, but LIKE-matches
+            # its tokens) — no unbounded full-table scan here.
+            continue
+        rows = (
+            await db.execute(select(model).where(model.id.in_(ids)))
+        ).scalars().all()
         for work in rows:
             if (
                 not _form_allows(form, work)

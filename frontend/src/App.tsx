@@ -22,6 +22,7 @@ const CollectionDetail = lazy(() => import('./pages/CollectionDetail'));
 const MediaLibrary = lazy(() => import('./pages/MediaLibrary'));
 const SettingsPage = lazy(() => import('./pages/Settings'));
 const Login = lazy(() => import('./pages/Login'));
+const NotFound = lazy(() => import('./pages/NotFound'));
 
 function App() {
   return (
@@ -72,6 +73,7 @@ function App() {
           <Route path="media-servers" element={<Navigate to="/media-library" replace />} />
           <Route path="organize" element={<Navigate to="/media-library" replace />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route path="*" element={<NotFound />} />
         </Route>
       </Routes>
     </PageErrorBoundary>

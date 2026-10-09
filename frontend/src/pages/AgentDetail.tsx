@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
@@ -7,260 +7,84 @@ import useUrlTab from '../hooks/useUrlTab';
 import { useDownloadTaskPrefs } from '../hooks/useDownloadTaskPrefs';
 import {
   Tabs,
-  Table,
   Button,
   Space,
   Card,
-  Tag,
   Typography,
-  Empty,
   Spin,
-  App,
-  Statistic,
-  Row,
-  Col,
-  Divider,
-  Alert,
-  InputNumber,
-  Tooltip,
-  Checkbox,
-  Drawer,
-  Popover,
-  Modal,
-  Radio,
-  DatePicker,
 } from 'antd';
-import dayjs from 'dayjs';
-import type { Dayjs } from 'dayjs';
-import type { TableColumnsType } from 'antd';
-import {
-  Pause,
-  Play,
-  RotateCcw,
-  Trash2,
-  CheckCircle,
-  SkipForward,
-  FlaskConical,
-  PlayCircle,
-  CalendarClock,
-  ArrowLeft,
-  Edit,
-  AlertTriangle,
-  Copy,
-  ListTree,
-} from 'lucide-react';
-import { agentsApi } from '../api/agents';
-import { tasksApi, decisionsApi } from '../api/tasks';
+import { ArrowLeft, Edit } from 'lucide-react';
 import StatusBadge from '../components/StatusBadge';
-import FilterBuilder from '../components/FilterBuilder';
-import DownloadTaskTable from '../components/DownloadTaskTable';
-import ResourceDetailDrawer from '../components/ResourceDetailDrawer';
-import {
-  collectFieldConditions,
-  describeCondition,
-  findInvalidConditions,
-  isFilterEmpty,
-  nullIfEmptyFilter,
-} from '../components/filterUtils';
-import WorkSelector from '../components/WorkSelector';
-import BackfillPreviewModal from '../components/BackfillPreviewModal';
 import NotificationsPanel from '../components/NotificationsPanel';
+import ResourceDetailDrawer from '../components/ResourceDetailDrawer';
 import ResourceFilesDrawer from '../components/ResourceFilesDrawer';
-import SeasonInput from '../components/SeasonInput';
-import { formatBytes, timeAgo } from '../utils/format';
-import { withMobileLabels } from '../utils/table';
+import { timeAgo } from '../utils/format';
 import { agentTaskColumnStorageKey } from '../utils/requiredFields';
 import { agentTaskSortStorageKey } from '../utils/sortSettings';
-import type {
-  Agent,
-  AgentRun,
-  AgentWork,
-  DownloadTask,
-  FileResource,
-  FilterTestResponse,
-  PendingDecision,
-  RulesPreviewResponse,
-} from '../types';
-import { resourcesApi } from '../api/channels';
+import { useAgentDetailData } from './agent-detail/useAgentDetailData';
+import WorksTab from './agent-detail/WorksTab';
+import TasksTab from './agent-detail/TasksTab';
+import DecisionsTab from './agent-detail/DecisionsTab';
+import FiltersTab from './agent-detail/FiltersTab';
+import RunTab from './agent-detail/RunTab';
+import type { Agent, FileResource } from '../types';
 
 const { Title, Text } = Typography;
 
 // Page-level tabs mirrored to `?tab=` (see useUrlTab).
 const AGENT_DETAIL_TABS = ['works', 'tasks', 'decisions', 'filters', 'notifications', 'run'] as const;
 
-// Per-candidate draft for the ambiguous-episode correction action (season +
-// episode + absolute_episode, all optional; the backend PATCH preserves any
-// field the user left out).
-interface EpisodeDraft {
-  season: number | null;
-  episode: number | null;
-  absolute_episode: number | null;
-}
-
+/** Agent detail page: header summary + per-tab panels. All data loading lives
+ * in ``agent-detail/useAgentDetailData`` (request-guarded) and each tab is a
+ * self-contained component under ``agent-detail/``; this file only wires tab
+ * state, the shared drawers and the cross-tab refresh callbacks. */
 export default function AgentDetail() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
-  const { message, modal } = App.useApp();
-  const [agent, setAgent] = useState<Agent | null>(null);
-  useDocumentTitle(agent?.name ?? t('agents.title'));
-  // Channel required-fields gate for the filter DSL editor (null =
-  // unrestricted; pick preferences are exempt and never receive this).
-  const allowedFilterFields = useAgentFilterFields(agent?.channel_id);
   const [tab, setTab] = useUrlTab('works', AGENT_DETAIL_TABS);
-  const [loadingAgent, setLoadingAgent] = useState(true);
-
-  // Tasks
-  const [tasks, setTasks] = useState<DownloadTask[]>([]);
-  const [taskPage, setTaskPage] = useState(1);
-  const [taskTotal, setTaskTotal] = useState(0);
-  const [taskStatus, setTaskStatus] = useState<string | undefined>();
-  const [loadingTasks, setLoadingTasks] = useState(false);
   // Task-table sort/column prefs (shared with the downloader local-task
   // table), persisted per agent in localStorage.
   const taskPrefs = useDownloadTaskPrefs(
     id ? agentTaskSortStorageKey(id) : undefined,
     id ? agentTaskColumnStorageKey(id) : undefined,
   );
+  const {
+    agent,
+    setAgent,
+    loadingAgent,
+    loadAgent,
+    tasks,
+    taskPage,
+    setTaskPage,
+    taskTotal,
+    taskStatus,
+    setTaskStatus,
+    loadingTasks,
+    loadTasks,
+    decisions,
+    decTotal,
+    loadingDec,
+    candidateCache,
+    loadDecisions,
+    works,
+    setWorks,
+    worksDirty,
+    setWorksDirty,
+    loadingWorks,
+    loadWorks,
+    filterConfig,
+    setFilterConfig,
+  } = useAgentDetailData(id, taskPrefs.sortParam);
+
+  useDocumentTitle(agent?.name ?? t('agents.title'));
+  // Channel required-fields gate for the filter DSL editor (null =
+  // unrestricted; pick preferences are exempt and never receive this).
+  const allowedFilterFields = useAgentFilterFields(agent?.channel_id);
+
   // Read-only resource view opened by clicking a task row.
   const [selectedTaskResource, setSelectedTaskResource] = useState<FileResource | null>(null);
-  // Batch retry: selected task ids + in-flight flag for the tasks tab.
-  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
-  const [taskBatchLoading, setTaskBatchLoading] = useState(false);
-
-  // Decisions
-  const [decisions, setDecisions] = useState<PendingDecision[]>([]);
-  const [decPage] = useState(1);
-  const [decTotal, setDecTotal] = useState(0);
-  const [loadingDec, setLoadingDec] = useState(false);
-  const [candidateCache, setCandidateCache] = useState<Record<string, FileResource>>({});
-  // Ambiguous-episode decisions: per-candidate draft (season / episode /
-  // absolute_episode) + in-flight flag for the "correct episode" action.
-  const [episodeDrafts, setEpisodeDrafts] = useState<Record<string, EpisodeDraft>>({});
-  const [savingEpisodeCid, setSavingEpisodeCid] = useState<string | null>(null);
-  // File-listing drawer for decision candidates.
+  // File-listing drawer shared by the decisions tab and the run drawer.
   const [filesResourceId, setFilesResourceId] = useState<string | null>(null);
-  // Batch selection + AI auto-handle loading state for the decisions tab.
-  const [selectedDecisionIds, setSelectedDecisionIds] = useState<string[]>([]);
-  const [aiPickLoading, setAiPickLoading] = useState<string | null>(null);
-  const [batchLoading, setBatchLoading] = useState(false);
-
-  // Works
-  const [works, setWorks] = useState<AgentWork[]>([]);
-  const [loadingWorks, setLoadingWorks] = useState(false);
-  // Buffered works editing: add/remove/edit only touch local state; the
-  // list-level "Save" button batch-replaces works via PUT /agents/{id}. This
-  // mirrors AgentForm's behaviour and lets the user configure per-work
-  // filter_overrides before committing — the per-work inline Save is gone.
-  const [worksDirty, setWorksDirty] = useState(false);
-  const [savingWorks, setSavingWorks] = useState(false);
-  // Works-tab rule-change preview (scenario ②): when the works list changes,
-  // show the backfill selection modal before committing — same flow as
-  // AgentForm, so editing works from the detail page also surfaces the
-  // resource match diff instead of silently saving.
-  const [worksPreview, setWorksPreview] = useState<RulesPreviewResponse | null>(null);
-  const [worksPreviewSelected, setWorksPreviewSelected] = useState<Record<string, boolean>>({});
-  const [pendingWorksSave, setPendingWorksSave] = useState<AgentWork[] | null>(null);
-  const [worksPreviewSaving, setWorksPreviewSaving] = useState(false);
-
-  // Filters
-  const [filterConfig, setFilterConfig] = useState(agent?.filter_config ?? null);
-  const [filterTest, setFilterTest] = useState<FilterTestResponse | null>(null);
-  const [testingFilters, setTestingFilters] = useState(false);
-  const [savingFilter, setSavingFilter] = useState(false);
-
-  // Run status
-  const [runStatus, setRunStatus] = useState<string | null>(null);
-  const [runPolling, setRunPolling] = useState(false);
-  // Windowed run ("run from a chosen start time") modal.
-  const [scanModalOpen, setScanModalOpen] = useState(false);
-  const [scanMode, setScanMode] = useState<'since' | 'all'>('since');
-  const [scanTime, setScanTime] = useState<Dayjs>(() => dayjs().subtract(14, 'day'));
-  // Run history (run-control tab).
-  const [runs, setRuns] = useState<AgentRun[]>([]);
-  const [runPage, setRunPage] = useState(1);
-  const [runTotal, setRunTotal] = useState(0);
-  const [loadingRuns, setLoadingRuns] = useState(false);
-  // Hide routine no-op runs by default; only runs that dispatched tasks,
-  // produced decisions, or are running/failed show up unless unchecked.
-  const [runsNonEmptyOnly, setRunsNonEmptyOnly] = useState(true);
-  // Drawer showing a single run's matched file resources.
-  const [runDrawerRun, setRunDrawerRun] = useState<AgentRun | null>(null);
-
-  const loadAgent = useCallback(async () => {
-    if (!id) return;
-    setLoadingAgent(true);
-    const r = await agentsApi.get(id);
-    if (r.success) {
-      setAgent(r.data);
-      setFilterConfig(r.data.filter_config ?? null);
-      if (r.data.works) setWorks(r.data.works);
-    }
-    setLoadingAgent(false);
-  }, [id]);
-
-  const loadTasks = useCallback(async () => {
-    if (!id) return;
-    setLoadingTasks(true);
-    const r = await tasksApi.listByAgent(id, taskPage, 20, taskStatus, taskPrefs.sortParam);
-    if (r.success) {
-      setTasks(r.data);
-      if (r.meta) setTaskTotal(r.meta.total);
-    }
-    setLoadingTasks(false);
-  }, [id, taskPage, taskStatus, taskPrefs.sortParam]);
-
-  const loadDecisions = useCallback(async () => {
-    if (!id) return;
-    setLoadingDec(true);
-    const r = await decisionsApi.listByAgent(id, decPage, 20, 'pending');
-    if (r.success) {
-      setDecisions(r.data);
-      if (r.meta) setDecTotal(r.meta.total);
-      // Prefetch candidates
-      const ids = new Set<string>();
-      r.data.forEach((d) => d.candidates.forEach((c) => ids.add(c)));
-      const missing = Array.from(ids).filter((rid) => !candidateCache[rid]);
-      if (missing.length > 0) {
-        const fetched = await Promise.all(
-          missing.map((rid) =>
-            resourcesApi.get(rid).then((res) => (res.success ? [rid, res.data] as const : null)),
-          ),
-        );
-        const next = { ...candidateCache };
-        fetched.forEach((entry) => {
-          if (entry) next[entry[0]] = entry[1];
-        });
-        setCandidateCache(next);
-      }
-    }
-    setLoadingDec(false);
-  }, [id, decPage, candidateCache]);
-
-  const loadWorks = useCallback(async () => {
-    if (!id) return;
-    setLoadingWorks(true);
-    const r = await agentsApi.listWorks(id);
-    if (r.success) {
-      setWorks(r.data);
-      setWorksDirty(false);
-    }
-    setLoadingWorks(false);
-  }, [id]);
-
-  const loadRuns = useCallback(async () => {
-    if (!id) return;
-    setLoadingRuns(true);
-    const r = await agentsApi.listRuns(id, runPage, 20, runsNonEmptyOnly);
-    if (r.success) {
-      setRuns(r.data);
-      if (r.meta) setRunTotal(r.meta.total);
-    }
-    setLoadingRuns(false);
-  }, [id, runPage, runsNonEmptyOnly]);
-
-  useEffect(() => {
-    loadAgent();
-  }, [loadAgent]);
 
   useEffect(() => {
     if (tab === 'tasks') loadTasks();
@@ -271,454 +95,23 @@ export default function AgentDetail() {
   }, [tab, loadDecisions]);
 
   useEffect(() => {
-    if (tab === 'run') loadRuns();
-  }, [tab, loadRuns]);
-
-  useEffect(() => {
     // Reload works when entering the tab, but never overwrite unsaved edits.
     if (tab === 'works' && !worksDirty) loadWorks();
   }, [tab, loadWorks, worksDirty]);
 
-  // Lightweight tab-count poll: refresh the works/tasks/decisions counts every
-  // 15s so badges like "下载任务 (N)" stay current without a manual refresh.
-  // Uses page_size=1 for the list endpoints to keep the payload tiny, and
-  // never overwrites unsaved works edits (worksDirty guard).
-  const refreshCounts = useCallback(async () => {
-    if (!id) return;
-    try {
-      const [agentRes, taskRes, decRes] = await Promise.all([
-        agentsApi.get(id),
-        tasksApi.listByAgent(id, 1, 1, taskStatus),
-        decisionsApi.listByAgent(id, 1, 1, 'pending'),
-      ]);
-      if (agentRes.success) {
-        setAgent(agentRes.data);
-        if (!worksDirty && agentRes.data.works) setWorks(agentRes.data.works);
-      }
-      if (taskRes.success && taskRes.meta) setTaskTotal(taskRes.meta.total);
-      if (decRes.success && decRes.meta) setDecTotal(decRes.meta.total);
-    } catch {
-      /* ignore transient poll errors */
-    }
-  }, [id, worksDirty, taskStatus]);
-
-  useEffect(() => {
-    // Fetch immediately on mount - otherwise the badges show (0) for up to
-    // 15s (or until the tab is first opened) after navigation.
-    refreshCounts();
-    const interval = setInterval(refreshCounts, 15000);
-    return () => clearInterval(interval);
-  }, [refreshCounts]);
-
-  // Poll run status
-  useEffect(() => {
-    if (!runPolling || !id) return;
-    const t = setInterval(async () => {
-      const r = await agentsApi.runStatus(id);
-      if (r.success && r.data) {
-        setRunStatus(r.data.status);
-        if (r.data.status === 'done' || r.data.status === 'failed' || r.data.status === 'success') {
-          setRunPolling(false);
-          setRunStatus(r.data.status);
-          loadTasks();
-          setRunPage(1);
-          loadRuns();
-          setTimeout(() => setRunStatus(null), 2000);
-        }
-      }
-    }, 1500);
-    return () => clearInterval(t);
-  }, [runPolling, id, loadTasks, loadRuns]);
-
-  const handleRun = async (scanWindow?: { scan_since: string | null }): Promise<boolean> => {
-    if (!id) return false;
-    const r = await agentsApi.run(id, scanWindow);
-    if (r.success) {
-      message.success(t('agents.runTriggered'));
-      setRunStatus('queued');
-      setRunPolling(true);
-      return true;
-    }
-    message.error(r.error?.message || t('agents.runFailed'));
-    return false;
+  const handleWorksChange = (next: typeof works) => {
+    setWorks(next);
+    setWorksDirty(true);
   };
 
-  const handleWindowedRun = async () => {
-    const scan_since = scanMode === 'all' ? null : scanTime.toISOString();
-    if (await handleRun({ scan_since })) setScanModalOpen(false);
-  };
-
-  const handlePause = async (tid: string) => {
-    await tasksApi.pause(tid);
+  /** Works save settled: adopt the returned agent (works + counts) and
+   * refresh the tasks list (the save may have dispatched backfill). */
+  const handleWorksSaved = (updated: Agent) => {
+    if (updated.works) setWorks(updated.works);
+    setAgent(updated);
+    setWorksDirty(false);
     loadTasks();
   };
-  const handleResume = async (tid: string) => {
-    await tasksApi.resume(tid);
-    loadTasks();
-  };
-  const handleRetry = async (tid: string) => {
-    await tasksApi.retry(tid);
-    loadTasks();
-  };
-  const handleBatchRetry = async (taskIds?: string[]) => {
-    if (!id) return;
-    setTaskBatchLoading(true);
-    const r = await tasksApi.batchRetry(id, taskIds);
-    setTaskBatchLoading(false);
-    if (r.success) {
-      const { retried, failed } = r.data;
-      message.success(t('agents.batchRetryDone', { retried, failed }));
-      setSelectedTaskIds([]);
-      loadTasks();
-    } else {
-      message.error(r.error?.message || t('agents.saveFailed'));
-    }
-  };
-  const handleBatchRetryAll = () => {
-    modal.confirm({
-      title: t('agents.batchRetryAllConfirm'),
-      onOk: () => handleBatchRetry(),
-    });
-  };
-  const handleDeleteTask = (tid: string) => {
-    let deleteData = false;
-    modal.confirm({
-      title: t('agents.deleteTaskConfirm'),
-      content: (
-        <div>
-          <div>{t('agents.deleteTaskWarning')}</div>
-          <Checkbox
-            style={{ marginTop: 8 }}
-            onChange={(e) => {
-              deleteData = e.target.checked;
-            }}
-          >
-            {t('agents.deleteTaskData')}
-          </Checkbox>
-        </div>
-      ),
-      okText: t('common.delete'),
-      okButtonProps: { danger: true },
-      onOk: async () => {
-        await tasksApi.delete(tid, deleteData);
-        loadTasks();
-      },
-    });
-  };
-
-  const handleConfirm = async (did: string, rid: string) => {
-    const r = await decisionsApi.confirm(did, rid);
-    if (r.success) {
-      message.success(t('dashboard.confirmed'));
-      loadDecisions();
-      loadTasks();
-    } else message.error(r.error?.message || t('dashboard.failed'));
-  };
-  const handleSkip = async (did: string) => {
-    await decisionsApi.skip(did);
-    loadDecisions();
-  };
-
-  const handleAiPick = async (did: string) => {
-    setAiPickLoading(did);
-    const r = await decisionsApi.aiPick(did);
-    setAiPickLoading(null);
-    if (r.success) {
-      message.success(t('agents.aiHandled'));
-      loadDecisions();
-      loadTasks();
-    } else {
-      message.error(r.error?.message || t('agents.aiHandleFailed'));
-    }
-  };
-
-  const handleBatch = async (action: 'skip' | 'ai') => {
-    if (!id || selectedDecisionIds.length === 0) return;
-    setBatchLoading(true);
-    const r = await decisionsApi.batch(id, selectedDecisionIds, action);
-    setBatchLoading(false);
-    if (r.success) {
-      const { dispatched, skipped, failed } = r.data;
-      message.success(t('agents.batchDone', { dispatched, skipped, failed }));
-      setSelectedDecisionIds([]);
-      loadDecisions();
-      loadTasks();
-    } else {
-      message.error(r.error?.message || t('agents.saveFailed'));
-    }
-  };
-
-  const handleCorrectEpisode = async (cid: string, displayedDraft?: EpisodeDraft) => {
-    // A prefilled form has no local draft until the first edit.  Fall back to
-    // the displayed values so confirming them still performs the correction.
-    const draft = episodeDrafts[cid] ?? displayedDraft;
-    if (!draft || draft.episode == null) return;
-    setSavingEpisodeCid(cid);
-    const r = await resourcesApi.correctEpisode(cid, {
-      episode: draft.episode,
-      ...(draft.season != null ? { season: draft.season } : {}),
-      ...(draft.absolute_episode != null ? { absolute_episode: draft.absolute_episode } : {}),
-    });
-    setSavingEpisodeCid(null);
-    if (r.success) {
-      message.success(t('agents.episodeSaved'));
-      setEpisodeDrafts((prev) => {
-        const next = { ...prev };
-        delete next[cid];
-        return next;
-      });
-      loadDecisions();
-      loadTasks();
-    } else {
-      message.error(r.error?.message || t('agents.saveFailed'));
-    }
-  };
-
-  const isAmbiguousDecision = (d: PendingDecision): boolean => {
-    const cands = d.candidate_resources;
-    return !!cands && cands.length > 0 && cands.every((r) => r.episode_confidence === 'ambiguous');
-  };
-
-  // Show the raw release title as a secondary line whenever it differs from
-  // the parsed/formatted title — the raw title carries the subtitle group,
-  // SxxExx markers and release tags a human needs to disambiguate candidates.
-  const renderRawTitle = (r: FileResource | undefined) => {
-    const raw = r?.title_raw;
-    if (!raw) return null;
-    const formatted = r?.title_cn || r?.title_en;
-    if (!formatted || raw === formatted) return null;
-    return (
-      <div
-        style={{
-          fontSize: 12,
-          color: 'var(--rr-text-muted)',
-          marginTop: 2,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 4,
-          minWidth: 0,
-        }}
-      >
-        <span style={{ flexShrink: 0 }}>{t('channels.rawTitle')}:</span>
-        <Tooltip title={raw}>
-          <span
-            style={{
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              flex: 1,
-              minWidth: 0,
-            }}
-          >
-            {raw}
-          </span>
-        </Tooltip>
-      </div>
-    );
-  };
-
-  const handleSaveFilter = async () => {
-    if (!id || !agent) return;
-    // Backend rejects value-taking operators with empty values (422).
-    if (findInvalidConditions(filterConfig).length > 0) {
-      message.error(t('filter.emptyValueNotAllowed'));
-      return;
-    }
-    setSavingFilter(true);
-    const r = await agentsApi.update(id, {
-      name: agent.name,
-      channel_id: agent.channel_id,
-      downloader_id: agent.downloader_id,
-      filter_config: nullIfEmptyFilter(filterConfig),
-    });
-    setSavingFilter(false);
-    if (r.success) {
-      message.success(t('agents.filterSaved'));
-      loadAgent();
-    } else message.error(r.error?.message || t('agents.saveFailed'));
-  };
-
-  const _serializeWorks = () =>
-    works.map((w) => ({
-      content_type: w.content_type,
-      series_id: w.series_id,
-      movie_id: w.movie_id,
-      enable_episode_dedup: w.enable_episode_dedup,
-      filter_overrides: nullIfEmptyFilter(w.filter_overrides),
-      display_name_override: w.display_name_override,
-    }));
-
-  const doSaveWorks = async (worksList: AgentWork[], dispatchIds: string[]) => {
-    if (!id || !agent) return;
-    setWorksPreviewSaving(true);
-    const r = await agentsApi.update(id, {
-      name: agent.name,
-      channel_id: agent.channel_id,
-      downloader_id: agent.downloader_id,
-      works: worksList.map((w) => ({
-        content_type: w.content_type,
-        series_id: w.series_id,
-        movie_id: w.movie_id,
-        enable_episode_dedup: w.enable_episode_dedup,
-        filter_overrides: nullIfEmptyFilter(w.filter_overrides),
-        display_name_override: w.display_name_override,
-      })),
-      dispatch_resource_ids: dispatchIds,
-    });
-    setWorksPreviewSaving(false);
-    if (r.success) {
-      message.success(t('agents.worksSaved'));
-      if (r.data.works) {
-        setWorks(r.data.works);
-        setAgent(r.data);
-      }
-      setWorksDirty(false);
-      setWorksPreview(null);
-      setPendingWorksSave(null);
-      loadTasks();
-    } else {
-      message.error(r.error?.message || t('agents.saveFailed'));
-    }
-  };
-
-  const handleSaveWorks = async () => {
-    if (!id || !agent) return;
-    // Backend rejects value-taking operators with empty values (422).
-    if (works.some((w) => findInvalidConditions(w.filter_overrides).length > 0)) {
-      message.error(t('filter.emptyValueNotAllowed'));
-      return;
-    }
-    setSavingWorks(true);
-    try {
-      // Preview the rule diff before committing. The works tab only changes
-      // works, so scope_channel_wide + filter_config come from the current
-      // agent (unchanged).
-      const pv = await agentsApi.rulesPreview({
-        agent_id: id,
-        scope_channel_wide: agent.scope_channel_wide,
-        filter_config: agent.filter_config,
-        works: _serializeWorks(),
-      });
-      if (!pv.success) {
-        message.error(pv.error?.message || t('agents.previewFailed'));
-        return;
-      }
-      const newly = pv.data.newly_matching;
-      const noLonger = pv.data.no_longer_matching;
-      if (newly.length > 0 || noLonger.length > 0) {
-        const initSel: Record<string, boolean> = {};
-        newly.forEach((r) => { initSel[r.id] = true; });
-        setWorksPreview(pv.data);
-        setWorksPreviewSelected(initSel);
-        setPendingWorksSave(works);
-        return;
-      }
-      // No match impact: save directly with empty backfill (still advances
-      // the watermark).
-      await doSaveWorks(works, []);
-    } finally {
-      setSavingWorks(false);
-    }
-  };
-
-  const handleWorksPreviewConfirm = (dispatchIds: string[]) => {
-    if (!pendingWorksSave) return;
-    doSaveWorks(pendingWorksSave, dispatchIds);
-  };
-
-  const handleTestFilters = async () => {
-    if (!id) return;
-    setTestingFilters(true);
-    const r = await agentsApi.testFilters(id);
-    setTestingFilters(false);
-    if (r.success) setFilterTest(r.data);
-    else message.error(r.error?.message || t('agents.testFailed'));
-  };
-
-  const copyText = async (text: string) => {
-    // navigator.clipboard requires a secure context; fall back for plain http.
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-    }
-    message.success(t('agents.errorCopied'));
-  };
-
-  // Extra fixed-right columns appended after the shared task table's
-  // progress column: error popover + row actions (agent-tab specific). The
-  // shared table supplies work/metadata/status/progress columns.
-  const taskExtraColumns: TableColumnsType<DownloadTask> = [
-    {
-      title: t('agents.taskError'),
-      dataIndex: 'error_message',
-      key: 'err',
-      width: 56,
-      align: 'center',
-      // Error details live behind a popover: hover to read, click the copy
-      // button to take the full log.
-      render: (v: string | null) =>
-        v ? (
-          <Popover
-            trigger={['hover', 'click']}
-            placement="left"
-            content={
-              <div style={{ maxWidth: 360 }}>
-                <Text style={{ fontSize: 12, display: 'block', wordBreak: 'break-word' }}>{v}</Text>
-                <Button
-                  size="small"
-                  type="text"
-                  icon={<Copy size={13} />}
-                  style={{ marginTop: 6, padding: 0 }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    copyText(v);
-                  }}
-                >
-                  {t('agents.copyError')}
-                </Button>
-              </div>
-            }
-          >
-            <Button
-              type="text"
-              size="small"
-              danger
-              icon={<AlertTriangle size={15} />}
-              onClick={(e) => e.stopPropagation()}
-            />
-          </Popover>
-        ) : null,
-    },
-    {
-      title: t('common.actions'),
-      key: 'actions',
-      width: 160,
-      align: 'right',
-      // Pinned right so pause/resume/retry/delete stay reachable without
-      // scrolling to the far end of the (wide) table.
-      fixed: 'right',
-      render: (_, record) => (
-        <Space size={0} onClick={(e) => e.stopPropagation()}>
-          {record.status === 'downloading' && (
-            <Button type="text" size="small" icon={<Pause size={14} />} onClick={() => handlePause(record.id)} />
-          )}
-          {record.status === 'paused' && (
-            <Button type="text" size="small" icon={<Play size={14} style={{ color: 'var(--rr-success)' }} />} onClick={() => handleResume(record.id)} />
-          )}
-          {(record.status === 'error' || record.status === 'paused') && (
-            <Button type="text" size="small" icon={<RotateCcw size={14} style={{ color: 'var(--rr-primary)' }} />} onClick={() => handleRetry(record.id)} />
-          )}
-          <Button type="text" size="small" danger icon={<Trash2 size={14} />} onClick={() => handleDeleteTask(record.id)} />
-        </Space>
-      ),
-    },
-  ];
 
   if (loadingAgent || !agent) {
     return <Spin style={{ display: 'flex', justifyContent: 'center', padding: 48 }} />;
@@ -728,7 +121,7 @@ export default function AgentDetail() {
     <div>
       <Space align="center" style={{ marginBottom: 24 }}>
         <Link to="/agents">
-          <Button type="text" icon={<ArrowLeft size={18} />} />
+          <Button type="text" icon={<ArrowLeft size={18} />} aria-label={t('common.back')} />
         </Link>
         <Title level={3} style={{ margin: 0 }}>
           {agent.name}
@@ -779,488 +172,61 @@ export default function AgentDetail() {
             key: 'works',
             label: `${t('agents.subscribedWorks')} (${works.length})`,
             children: (
-              <Card loading={loadingWorks}>
-                {/* Global filter shown read-only here so the works tab shows
-                    the effective rules: global conditions AND work overrides. */}
-                <div style={{ marginBottom: 16 }}>
-                  <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
-                    {t('agents.globalFilter')}
-                  </Text>
-                  {isFilterEmpty(agent.filter_config) ? (
-                    <Text type="secondary" style={{ fontSize: 12 }}>{t('format.dash')}</Text>
-                  ) : (
-                    <Space wrap size={[4, 4]}>
-                      {collectFieldConditions(agent.filter_config).map((c, i) => (
-                        <Tag key={i} style={{ margin: 0 }}>{describeCondition(c, t)}</Tag>
-                      ))}
-                    </Space>
-                  )}
-                </div>
-                <WorkSelector
-                  value={works}
-                  onChange={(w) => {
-                    setWorks(w);
-                    setWorksDirty(true);
-                  }}
-                  maxWorks={10}
-                  channelId={agent.channel_id}
-                  globalFilter={agent.filter_config}
-                />
-                <Divider />
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    flexWrap: 'wrap',
-                    gap: 12,
-                  }}
-                >
-                  <Alert
-                    type="info"
-                    showIcon
-                    message={t('agents.worksEditNote')}
-                    style={{ flex: '1 1 260px' }}
-                  />
-                  <Button
-                    type="primary"
-                    loading={savingWorks}
-                    disabled={!worksDirty}
-                    onClick={handleSaveWorks}
-                  >
-                    {t('common.save')}
-                  </Button>
-                </div>
-                <BackfillPreviewModal
-                  open={!!worksPreview}
-                  data={worksPreview}
-                  selected={worksPreviewSelected}
-                  onSelectedChange={setWorksPreviewSelected}
-                  onCancel={() => { setWorksPreview(null); setPendingWorksSave(null); }}
-                  onConfirm={handleWorksPreviewConfirm}
-                  onSkip={() => handleWorksPreviewConfirm([])}
-                  saving={worksPreviewSaving}
-                />
-              </Card>
+              <WorksTab
+                agent={agent}
+                works={works}
+                worksDirty={worksDirty}
+                loadingWorks={loadingWorks}
+                onWorksChange={handleWorksChange}
+                onSaved={handleWorksSaved}
+              />
             ),
           },
           {
             key: 'tasks',
             label: `${t('agents.downloadTasks')} (${taskTotal})`,
-            children: (
-              <Card>
-                <DownloadTaskTable
-                  tasks={tasks}
-                  loading={loadingTasks}
-                  page={taskPage}
-                  total={taskTotal}
-                  onPageChange={setTaskPage}
-                  sorts={taskPrefs.sorts}
-                  onSortsChange={(next) => {
-                    taskPrefs.handleSortsChange(next);
-                    setTaskPage(1);
-                  }}
-                  columnCfg={taskPrefs.columnCfg}
-                  onColumnsChange={taskPrefs.handleColumnsChange}
-                  columnSettingsHint={t('agents.taskColumnSettingsHint')}
-                  statusFilter={taskStatus}
-                  onStatusFilterChange={(v) => {
-                    setTaskStatus(v);
-                    setTaskPage(1);
-                  }}
-                  toolbarExtra={
-                    <>
-                      <Button
-                        size="small"
-                        loading={taskBatchLoading}
-                        onClick={handleBatchRetryAll}
-                      >
-                        {t('agents.batchRetryAll')}
-                      </Button>
-                      <Button
-                        size="small"
-                        type="primary"
-                        loading={taskBatchLoading}
-                        disabled={selectedTaskIds.length === 0}
-                        onClick={() => handleBatchRetry(selectedTaskIds)}
-                      >
-                        {t('agents.batchRetrySelected', { n: selectedTaskIds.length })}
-                      </Button>
-                    </>
-                  }
-                  extraColumns={taskExtraColumns}
-                  rowSelection={{
-                    selectedRowKeys: selectedTaskIds,
-                    onChange: (keys) => setSelectedTaskIds(keys as string[]),
-                    // Only error/paused tasks are retryable (same as the backend filter).
-                    getCheckboxProps: (record) => ({
-                      disabled: !['error', 'paused'].includes(record.status),
-                    }),
-                  }}
-                  onRowClick={(task) => {
-                    if (task.file_resource) setSelectedTaskResource(task.file_resource);
-                  }}
-                  emptyText={<Empty description={t('agents.noTasks')} />}
-                />
-              </Card>
-            ),
+            children: id ? (
+              <TasksTab
+                agentId={id}
+                tasks={tasks}
+                loading={loadingTasks}
+                page={taskPage}
+                total={taskTotal}
+                statusFilter={taskStatus}
+                taskPrefs={taskPrefs}
+                onPageChange={setTaskPage}
+                onStatusFilterChange={setTaskStatus}
+                onReload={loadTasks}
+                onOpenResource={setSelectedTaskResource}
+              />
+            ) : null,
           },
           {
             key: 'decisions',
             label: `${t('dashboard.pendingDecisions')} (${decTotal})`,
-            children: (
-              <Card>
-                <Spin spinning={loadingDec}>
-                  {decisions.length === 0 ? (
-                    <Empty description={t('dashboard.noPendingDecisions')} />
-                  ) : (
-                    <>
-                      <Space style={{ marginBottom: 12 }}>
-                        <Button
-                          size="small"
-                          loading={batchLoading}
-                          disabled={selectedDecisionIds.length === 0}
-                          onClick={() => handleBatch('skip')}
-                        >
-                          {t('agents.batchSkip', { n: selectedDecisionIds.length })}
-                        </Button>
-                        <Button
-                          size="small"
-                          type="primary"
-                          loading={batchLoading}
-                          disabled={selectedDecisionIds.length === 0}
-                          onClick={() => handleBatch('ai')}
-                        >
-                          {t('agents.batchAi', { n: selectedDecisionIds.length })}
-                        </Button>
-                      </Space>
-                      <Space direction="vertical" style={{ width: '100%' }} size={12}>
-                        {decisions.map((d) => {
-                          const ambiguous = isAmbiguousDecision(d);
-                          const checked = selectedDecisionIds.includes(d.id);
-                          return (
-                        <Card key={d.id} size="small">
-                          <div
-                            style={{
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'flex-start',
-                              marginBottom: 12,
-                            }}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                              <Checkbox
-                                checked={checked}
-                                onChange={(e) => {
-                                  setSelectedDecisionIds((prev) =>
-                                    e.target.checked
-                                      ? [...prev, d.id]
-                                      : prev.filter((x) => x !== d.id),
-                                  );
-                                }}
-                              />
-                              <div>
-                                <Text strong>{d.reason}</Text>
-                                <div style={{ fontSize: 12, color: 'var(--rr-text-muted)', marginTop: 4 }}>
-                                  {t('agents.candidateCount', { n: d.candidates.length })} · {timeAgo(d.created_at)}
-                                </div>
-                                {ambiguous && (
-                                  <div style={{ fontSize: 12, color: 'var(--rr-warning)', marginTop: 4 }}>
-                                    {t('agents.ambiguousHint')}
-                                  </div>
-                                )}
-                                {d.llm_suggestion && (
-                                  <div
-                                    style={{
-                                      marginTop: 8,
-                                      padding: 8,
-                                      borderRadius: 6,
-                                      background: 'var(--rr-primary-soft)',
-                                      border: '1px solid var(--rr-info-border)',
-                                      fontSize: 12,
-                                      color: 'var(--rr-primary)',
-                                    }}
-                                  >
-                                    <strong>{t('dashboard.aiSuggestion')}</strong>
-                                    {d.llm_suggestion}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                            <Space size={6}>
-                              {!ambiguous && (
-                                <Button
-                                  size="small"
-                                  type="primary"
-                                  loading={aiPickLoading === d.id}
-                                  onClick={() => handleAiPick(d.id)}
-                                >
-                                  {t('agents.aiHandle')}
-                                </Button>
-                              )}
-                              <Button size="small" onClick={() => handleSkip(d.id)}>
-                                <SkipForward size={12} /> {t('common.skip')}
-                              </Button>
-                            </Space>
-                          </div>
-                          <Space direction="vertical" style={{ width: '100%' }} size={6}>
-                            {d.candidates.map((cid) => {
-                              const r = candidateCache[cid] ?? d.candidate_resources?.find((x) => x.id === cid);
-                              const isAiPick = !ambiguous && cid === d.llm_picked_resource_id;
-                              if (ambiguous) {
-                                const base = {
-                                  season: r?.season ?? null,
-                                  episode: r?.episode ?? null,
-                                  absolute_episode: r?.absolute_episode ?? null,
-                                };
-                                const draft = { ...base, ...(episodeDrafts[cid] ?? {}) };
-                                const patchDraft = (patch: Partial<EpisodeDraft>) =>
-                                  setEpisodeDrafts((prev) => ({
-                                    ...prev,
-                                    [cid]: { ...base, ...(prev[cid] ?? {}), ...patch },
-                                  }));
-                                return (
-                                  <div
-                                    key={cid}
-                                    style={{
-                                      display: 'flex',
-                                      justifyContent: 'space-between',
-                                      alignItems: 'center',
-                                      padding: '8px 12px',
-                                      borderRadius: 6,
-                                      border: '1px solid var(--rr-border-soft)',
-                                      gap: 12,
-                                    }}
-                                  >
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                      <Text ellipsis style={{ fontSize: 13 }}>
-                                        {r?.title_cn || r?.title_raw || cid.slice(0, 8)}
-                                      </Text>
-                                      {renderRawTitle(r)}
-                                      <Space size={4} wrap style={{ fontSize: 11, color: 'var(--rr-text-muted)', marginTop: 2 }}>
-                                        {r?.subtitle_group && <Tag style={{ margin: 0 }}>{r.subtitle_group}</Tag>}
-                                        {r?.resolution && <Tag style={{ margin: 0 }}>{r.resolution}</Tag>}
-                                        {r?.season != null && <span>S{r.season}</span>}
-                                        {r?.episode != null && (
-                                          <span>{t('agents.rawEpisode', { n: r.episode })}</span>
-                                        )}
-                                      </Space>
-                                    </div>
-                                    <Space size={6} align="center" wrap>
-                                      {r && (
-                                        <Tooltip title={t('resource.files')}>
-                                          <Button
-                                            type="text"
-                                            size="small"
-                                            icon={<ListTree size={14} />}
-                                            onClick={() => setFilesResourceId(r.id)}
-                                          />
-                                        </Tooltip>
-                                      )}
-                                      <SeasonInput
-                                        size="small"
-                                        value={draft.season}
-                                        placeholder={t('resource.seasonLabel')}
-                                        onChange={(v) => patchDraft({ season: v })}
-                                        style={{ width: 72 }}
-                                      />
-                                      <InputNumber
-                                        size="small"
-                                        min={1}
-                                        value={draft.episode}
-                                        placeholder={t('agents.correctEpisodePlaceholder')}
-                                        onChange={(v) =>
-                                          patchDraft({ episode: typeof v === 'number' ? v : null })
-                                        }
-                                        style={{ width: 72 }}
-                                      />
-                                      <InputNumber
-                                        size="small"
-                                        min={0}
-                                        value={draft.absolute_episode}
-                                        placeholder={t('resource.absoluteEpisodePlaceholder')}
-                                        onChange={(v) =>
-                                          patchDraft({ absolute_episode: typeof v === 'number' ? v : null })
-                                        }
-                                        style={{ width: 130 }}
-                                      />
-                                      <Button
-                                        type="primary"
-                                        size="small"
-                                        loading={savingEpisodeCid === cid}
-                                        disabled={draft.episode == null}
-                                        onClick={() => handleCorrectEpisode(cid, draft)}
-                                      >
-                                        {t('agents.correctEpisode')}
-                                      </Button>
-                                    </Space>
-                                  </div>
-                                );
-                              }
-                              return (
-                                <div
-                                  key={cid}
-                                  style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                    padding: '8px 12px',
-                                    borderRadius: 6,
-                                    border: `1px solid ${isAiPick ? 'var(--rr-primary)' : 'var(--rr-border-soft)'}`,
-                                    background: isAiPick ? 'var(--rr-primary-soft)' : 'transparent',
-                                    gap: 12,
-                                  }}
-                                >
-                                  {r ? (
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                      <Space size={6} align="center" style={{ marginBottom: 2 }}>
-                                        <Text ellipsis style={{ fontSize: 13 }}>
-                                          {r.title_cn || r.title_raw}
-                                        </Text>
-                                        {isAiPick && (
-                                          <Tag color="blue" style={{ margin: 0 }}>{t('agents.aiPickTag')}</Tag>
-                                        )}
-                                      </Space>
-                                      {renderRawTitle(r)}
-                                      <Space size={4} wrap style={{ fontSize: 11, color: 'var(--rr-text-muted)', marginTop: 2 }}>
-                                        {r.subtitle_group && <Tag style={{ margin: 0 }}>{r.subtitle_group}</Tag>}
-                                        {r.resolution && <Tag style={{ margin: 0 }}>{r.resolution}</Tag>}
-                                        {r.video_codec && <Tag style={{ margin: 0 }}>{r.video_codec}</Tag>}
-                                        {r.file_size != null && <span>{formatBytes(r.file_size)}</span>}
-                                      </Space>
-                                    </div>
-                                  ) : (
-                                    <Text type="secondary" style={{ fontSize: 12 }}>{t('common.loading')}</Text>
-                                  )}
-                                  <Space size={6} align="center" wrap>
-                                    {r && (
-                                      <Tooltip title={t('resource.files')}>
-                                        <Button
-                                          type="text"
-                                          size="small"
-                                          icon={<ListTree size={14} />}
-                                          onClick={() => setFilesResourceId(r.id)}
-                                        />
-                                      </Tooltip>
-                                    )}
-                                    <Button
-                                      type="primary"
-                                      size="small"
-                                      icon={<CheckCircle size={12} />}
-                                      onClick={() => handleConfirm(d.id, cid)}
-                                    >
-                                      {t('common.confirm')}
-                                    </Button>
-                                  </Space>
-                                </div>
-                              );
-                            })}
-                          </Space>
-                        </Card>
-                        );
-                      })}
-                      </Space>
-                    </>
-                  )}
-                </Spin>
-              </Card>
-            ),
+            children: id ? (
+              <DecisionsTab
+                agentId={id}
+                decisions={decisions}
+                candidateCache={candidateCache}
+                loading={loadingDec}
+                onDecisionsChange={loadDecisions}
+                onTasksChange={loadTasks}
+                onShowFiles={setFilesResourceId}
+              />
+            ) : null,
           },
           {
             key: 'filters',
             label: t('agents.filter'),
             children: (
-              <div>
-                <Card style={{ marginBottom: 16 }}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      flexWrap: 'wrap',
-                      gap: 8,
-                      marginBottom: 12,
-                    }}
-                  >
-                    <Text strong>{t('agents.globalFilter')}</Text>
-                    <Space>
-                      <Button
-                        icon={<FlaskConical size={14} />}
-                        onClick={handleTestFilters}
-                        loading={testingFilters}
-                      >
-                        {t('agents.test')}
-                      </Button>
-                      <Button type="primary" onClick={handleSaveFilter} loading={savingFilter}>
-                        {t('common.save')}
-                      </Button>
-                    </Space>
-                  </div>
-                  <FilterBuilder value={filterConfig} onChange={setFilterConfig} allowedFields={allowedFilterFields} />
-                </Card>
-
-                {filterTest && (
-                  <Card title={t('agents.testResults')} size="small">
-                    <Row gutter={16} style={{ marginBottom: 16 }}>
-                      <Col xs={24} sm={8}>
-                        <Statistic title={t('agents.totalResources')} value={filterTest.total} />
-                      </Col>
-                      <Col xs={24} sm={8}>
-                        <Statistic
-                          title={t('agents.passed')}
-                          value={filterTest.passed}
-                          valueStyle={{ color: 'var(--rr-success)' }}
-                        />
-                      </Col>
-                      <Col xs={24} sm={8}>
-                        <Statistic
-                          title={t('agents.failed')}
-                          value={filterTest.total - filterTest.passed}
-                          valueStyle={{ color: 'var(--rr-error)' }}
-                        />
-                      </Col>
-                    </Row>
-                    <div style={{ maxHeight: 500, overflow: 'auto' }}>
-                      {filterTest.resources.map((r) => (
-                        <div
-                          key={r.resource_id}
-                          style={{
-                            padding: 10,
-                            marginBottom: 6,
-                            borderRadius: 6,
-                            border: `1px solid ${r.passed ? 'var(--rr-success-border)' : 'var(--rr-error-border)'}`,
-                            background: r.passed
-                              ? 'var(--rr-success-soft)'
-                              : 'var(--rr-error-soft)',
-                          }}
-                        >
-                          <Space style={{ marginBottom: 4 }}>
-                            {r.passed ? (
-                              <CheckCircle size={14} color="var(--rr-success)" />
-                            ) : (
-                              <Tag color="error">FAIL</Tag>
-                            )}
-                            <Text strong ellipsis style={{ fontSize: 13 }}>
-                              {r.title_raw}
-                            </Text>
-                          </Space>
-                          <div>
-                            {r.condition_results.map((c, i) => (
-                              <Tag
-                                key={i}
-                                color={c.passed ? 'green' : 'red'}
-                                style={{ fontSize: 11, margin: 2 }}
-                              >
-                                {c.field} {c.operator} {String(c.value)}
-                              </Tag>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </Card>
-                )}
-              </div>
+              <FiltersTab
+                agent={agent}
+                filterConfig={filterConfig}
+                onFilterConfigChange={setFilterConfig}
+                allowedFilterFields={allowedFilterFields}
+                onSaved={loadAgent}
+              />
             ),
           },
           {
@@ -1273,203 +239,17 @@ export default function AgentDetail() {
           {
             key: 'run',
             label: t('agents.runControl'),
-            children: (
-              <Card>
-                <Space direction="vertical" size={16} style={{ width: '100%' }}>
-                  <Text type="secondary">
-                    {t('agents.runControlDesc')}
-                  </Text>
-                  <div>
-                    <Space size={12}>
-                      <Tooltip title={t('agents.runNowHint')}>
-                        <Button
-                          type="primary"
-                          size="large"
-                          icon={<PlayCircle size={16} />}
-                          loading={runPolling}
-                          onClick={() => handleRun()}
-                        >
-                          {t('agents.runNow')}
-                        </Button>
-                      </Tooltip>
-                      <Tooltip title={t('agents.runSinceHint')}>
-                        <Button
-                          size="large"
-                          icon={<CalendarClock size={16} />}
-                          loading={runPolling}
-                          onClick={() => setScanModalOpen(true)}
-                        >
-                          {t('agents.runSince')}
-                        </Button>
-                      </Tooltip>
-                    </Space>
-                  </div>
-                  <Modal
-                    title={t('agents.runSinceTitle')}
-                    open={scanModalOpen}
-                    onOk={handleWindowedRun}
-                    onCancel={() => setScanModalOpen(false)}
-                    okText={t('agents.runNow')}
-                    confirmLoading={runPolling}
-                    destroyOnHidden
-                  >
-                    <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                      <Radio.Group
-                        value={scanMode}
-                        onChange={(e) => setScanMode(e.target.value)}
-                      >
-                        <Radio value="since">{t('agents.runSinceModeSince')}</Radio>
-                        <Radio value="all">{t('agents.runSinceModeAll')}</Radio>
-                      </Radio.Group>
-                      {scanMode === 'since' && (
-                        <DatePicker
-                          showTime
-                          value={scanTime}
-                          onChange={(v) => { if (v) setScanTime(v); }}
-                          disabledDate={(d) => d.isAfter(dayjs().endOf('day'))}
-                          allowClear={false}
-                          style={{ width: '100%' }}
-                        />
-                      )}
-                      <Alert type="info" showIcon message={t('agents.runSinceNotice')} />
-                    </Space>
-                  </Modal>
-                  {runStatus && (
-                    <div>
-                      <StatusBadge status={runStatus} />
-                      <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
-                        {runStatus === 'queued' && t('agents.queued')}
-                        {runStatus === 'running' && t('agents.processing')}
-                        {runStatus === 'done' && t('agents.runComplete')}
-                        {runStatus === 'failed' && t('status.failed')}
-                      </Text>
-                    </div>
-                  )}
-                  <Divider style={{ margin: '8px 0' }} />
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                      <Text strong>
-                        {t('agents.runHistory')}
-                      </Text>
-                      <Checkbox
-                        checked={runsNonEmptyOnly}
-                        onChange={(e) => {
-                          setRunsNonEmptyOnly(e.target.checked);
-                          setRunPage(1);
-                        }}
-                      >
-                        {t('agents.runsNonEmptyOnly')}
-                      </Checkbox>
-                    </div>
-                    <Table<AgentRun>
-                      className="stack-table"
-                      columns={withMobileLabels(runColumns(t, (r) => setRunDrawerRun(r)))}
-                      dataSource={runs}
-                      rowKey="id"
-                      loading={loadingRuns}
-                      size="small"
-                      pagination={{
-                        current: runPage,
-                        pageSize: 20,
-                        total: runTotal,
-                        onChange: setRunPage,
-                        showSizeChanger: false,
-                      }}
-                      locale={{ emptyText: <Empty description={t('agents.noRuns')} /> }}
-                    />
-                  </div>
-                </Space>
-              </Card>
-            ),
+            children: id ? (
+              <RunTab
+                agentId={id}
+                active={tab === 'run'}
+                onActivity={loadTasks}
+                onShowFiles={setFilesResourceId}
+              />
+            ) : null,
           },
         ]}
       />
-
-      <Drawer
-        open={!!runDrawerRun}
-        onClose={() => setRunDrawerRun(null)}
-        title={runDrawerRun ? `${t('agents.runMatchedResources')} · ${timeAgo(runDrawerRun.started_at)}` : ''}
-        width={window.innerWidth < 768 ? '100%' : 680}
-        destroyOnClose
-      >
-        {runDrawerRun && (
-          <Space direction="vertical" size={12} style={{ width: '100%' }}>
-            <Space size={12} wrap>
-              <StatusBadge status={runDrawerRun.status} />
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                {t('agents.runStatsLine', {
-                  total: runDrawerRun.total_resources,
-                  dispatched: runDrawerRun.dispatched,
-                  pd: runDrawerRun.pending_decisions,
-                  failed: runDrawerRun.filter_failed,
-                  dup: runDrawerRun.duplicates_skipped,
-                })}
-              </Text>
-            </Space>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {t('agents.matchedResources', { n: runDrawerRun.matched_resources.length })}
-            </Text>
-            {runDrawerRun.matched_resources.length === 0 ? (
-              <Empty description={t('agents.noMatchedResources')} />
-            ) : (
-              runDrawerRun.matched_resources.map((r) => {
-                const langs = r.subtitle_langs && r.subtitle_langs.length > 0 ? r.subtitle_langs.join('/') : null;
-                return (
-                  <div
-                    key={r.id}
-                    style={{
-                      padding: 10,
-                      border: '1px solid var(--rr-border-soft)',
-                      borderRadius: 8,
-                      background: 'var(--rr-surface-elevated)',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <Text strong style={{ fontSize: 13, color: 'var(--rr-text)', wordBreak: 'break-word' }}>
-                          {r.title_raw}
-                        </Text>
-                        {r.title_cn && r.title_cn !== r.title_raw && (
-                          <div style={{ marginTop: 2, fontSize: 12, color: 'var(--rr-text-muted)', wordBreak: 'break-word' }}>
-                            {r.title_cn}
-                          </div>
-                        )}
-                      </div>
-                      <Tooltip title={t('resource.files')}>
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={<ListTree size={14} />}
-                          onClick={() => setFilesResourceId(r.id)}
-                        />
-                      </Tooltip>
-                    </div>
-                    <Space size={4} wrap style={{ fontSize: 11, color: 'var(--rr-text-secondary)', marginTop: 4 }}>
-                      {r.dispatched && (
-                        <Tag color="success" style={{ margin: 0 }}>{t('agents.tagDispatched')}</Tag>
-                      )}
-                      {r.pending_decision && (
-                        <Tag color="warning" style={{ margin: 0 }}>{t('agents.pendingDecisionAction')}</Tag>
-                      )}
-                      {r.subtitle_group && <Tag style={{ margin: 0 }}>{r.subtitle_group}</Tag>}
-                      {r.resolution && <Tag style={{ margin: 0 }}>{r.resolution}</Tag>}
-                      {r.source && <Tag style={{ margin: 0 }}>{r.source}</Tag>}
-                      {r.video_codec && <Tag style={{ margin: 0 }}>{r.video_codec}</Tag>}
-                      {r.audio_codec && <Tag style={{ margin: 0 }}>{r.audio_codec}</Tag>}
-                      {r.season != null && <span>S{r.season}</span>}
-                      {r.episode != null && <span>EP{r.episode}</span>}
-                      {r.subtitle_type && <Tag style={{ margin: 0 }}>{r.subtitle_type}</Tag>}
-                      {langs && <Tag color="blue" style={{ margin: 0 }}>{langs}</Tag>}
-                      {r.file_size != null && <span>{formatBytes(r.file_size)}</span>}
-                      {r.published_at && <span>· {timeAgo(r.published_at)}</span>}
-                    </Space>
-                  </div>
-                );
-              })
-            )}
-          </Space>
-        )}
-      </Drawer>
 
       <ResourceFilesDrawer
         resourceId={filesResourceId}
@@ -1487,85 +267,3 @@ export default function AgentDetail() {
     </div>
   );
 }
-
-const runColumns = (
-  t: (k: string, opts?: Record<string, unknown>) => string,
-  onView: (r: AgentRun) => void,
-): TableColumnsType<AgentRun> => [
-  {
-    title: t('agents.runStarted'),
-    dataIndex: 'started_at',
-    key: 'started_at',
-    width: 180,
-    render: (v: string, r: AgentRun) => (
-      <Space size={4}>
-        <Text type="secondary" style={{ fontSize: 12 }}>{timeAgo(v)}</Text>
-        {r.scan_since && (
-          <Tag color="blue" style={{ fontSize: 10, marginInlineEnd: 0 }}>
-            {new Date(r.scan_since).getFullYear() <= 1970
-              ? t('agents.runSinceAllShort')
-              : t('agents.runSinceTag', { time: new Date(r.scan_since).toLocaleDateString() })}
-          </Tag>
-        )}
-      </Space>
-    ),
-  },
-  {
-    title: t('agents.runFinished'),
-    dataIndex: 'finished_at',
-    key: 'finished_at',
-    width: 180,
-    render: (v: string | null) =>
-      v ? <Text type="secondary" style={{ fontSize: 12 }}>{timeAgo(v)}</Text> : <Text type="secondary">—</Text>,
-  },
-  {
-    title: t('agents.taskStatus'),
-    dataIndex: 'status',
-    key: 'status',
-    width: 120,
-    render: (status: string) => <StatusBadge status={status} />,
-  },
-  {
-    title: t('agents.runMatched'),
-    key: 'matched',
-    width: 100,
-    render: (_, r) => (
-      <Text style={{ fontSize: 12 }}>
-        {r.matched}
-        {r.matched > 0 && <Text type="secondary" style={{ fontSize: 11 }}> · {t('agents.runDispatched', { n: r.dispatched })}</Text>}
-      </Text>
-    ),
-  },
-  {
-    title: t('agents.runStats'),
-    key: 'stats',
-    render: (_, r) => (
-      <Text type="secondary" style={{ fontSize: 11 }}>
-        {t('agents.runStatsLine', {
-          total: r.total_resources,
-          dispatched: r.dispatched,
-          pd: r.pending_decisions,
-          failed: r.filter_failed,
-          dup: r.duplicates_skipped,
-        })}
-      </Text>
-    ),
-  },
-  {
-    title: t('common.actions'),
-    key: 'actions',
-    width: 120,
-    align: 'right',
-    render: (_, r) => (
-      <Button
-        size="small"
-        disabled={r.matched_resources.length === 0 && r.pending_decisions === 0}
-        onClick={() => onView(r)}
-      >
-        {r.status === 'pending_decisions'
-          ? t('agents.pendingDecisionAction')
-          : t('agents.viewResources', { n: r.matched_resources.length })}
-      </Button>
-    ),
-  },
-];

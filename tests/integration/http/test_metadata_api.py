@@ -8,7 +8,9 @@ Tests the metadata pipeline:
   - Manual metadata linking to create/update series
 
 Requirements: Docker test environment with app + test-server services.
-LLM-dependent tests skip gracefully when no API keys are configured.
+test_manual_metadata_search skips gracefully when no LLM is configured on the
+primary app; TestMetadataLink runs offline against the mock-LLM/mock-TMDB app
+instance (RSSRIPPLE_LLM_URL) instead.
 
 Usage:
     docker compose -f docker-compose.test.yml up --build
@@ -18,6 +20,7 @@ Usage:
 from __future__ import annotations
 
 import os
+import uuid
 
 import httpx
 import pytest
@@ -27,6 +30,7 @@ from tests.integration.http._http import (
     DEFAULT_FIELD_MAPPING,
     MIKANANI_EXT_URL,
     RSSRIPPLE,
+    TEST_SERVER,
     _api,
     _poll_fetch,
     associate_metadata_request,
@@ -35,6 +39,31 @@ from tests.integration.http._http import (
 
 _HAS_LLM = bool(os.environ.get("LLM_API_KEY"))
 _HAS_TMDB = bool(os.environ.get("TMDB_API_KEY"))
+
+# Second app instance wired to the deterministic mock LLM + mock TMDB
+# (RSSRIPPLE_LLM_URL → app-llm); empty when the stack has no app-llm.
+LLM_APP = os.environ.get("RSSRIPPLE_LLM_URL", "")
+MIKANANI_S0_URL = f"{TEST_SERVER}/rss/mikanani?series=0"  # 黄泉使者
+
+
+def _llm_api(path: str, method: str = "get", **kw) -> httpx.Response:
+    """HTTP call against the mock-LLM app instance."""
+    c = httpx.Client(timeout=120.0, headers=API_HEADERS)
+    return getattr(c, method.lower())(f"{LLM_APP}{path}", **kw)
+
+
+def _poll_fetch_llm(channel_id: str, timeout: int = 120) -> dict:
+    """Poll fetch-status on the mock-LLM app until terminal."""
+    import time
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        r = _llm_api(f"/api/v1/channels/{channel_id}/fetch-status")
+        data = r.json().get("data") or {}
+        if data.get("status") in ("done", "failed"):
+            return data
+        time.sleep(2)
+    raise TimeoutError(f"Fetch did not complete for channel {channel_id}")
 
 
 def _api_llm_search(path: str, **kw) -> httpx.Response:
@@ -179,67 +208,112 @@ class TestMetadataMatching:
 
 
 class TestMetadataLink:
-    """Manual metadata linking — creating series/movies from search results."""
+    """Manual metadata search + link against the mock-provider app (app-llm).
+
+    Fully offline: the mock LLM drives the ReAct search loop and the
+    test-server's mock TMDB answers the tool calls, so no real provider keys
+    are involved. Skipped only when the stack has no mock-LLM instance
+    (RSSRIPPLE_LLM_URL unset, e.g. the distributed suite).
+    """
 
     def test_link_metadata_creates_series(self):
-        """PUT /resources/{id}/metadata/link — link a resource to a series."""
-        if not TestMetadataMatching.first_resource_id:
-            pytest.skip("No resources available — prerequisite test failed")
-        if not _HAS_LLM and not _HAS_TMDB:
-            pytest.skip("No metadata API keys configured — cannot perform search+link")
+        """Online search (mock TMDB) → select candidate → link → series exists."""
+        if not LLM_APP:
+            pytest.skip("RSSRIPPLE_LLM_URL not set (mock-LLM app not in stack)")
 
-        # First, search for a known TV show (long-timeout client: real LLM)
-        r_search = search_metadata_request(
-            f"/api/v1/resources/{TestMetadataMatching.first_resource_id}/metadata/search",
-            api=_api_llm_search,
-            json={
-                "search_title": "Breaking Bad",
-                "content_type": "tv",
-                "data_source_type": "exa",
-            },
+        # Point the app's TMDB source at the test-server mock (the app-llm
+        # entrypoint redirects api.themoviedb.org there; the key just needs
+        # to be non-empty for the source to bind its search tool).
+        r = _llm_api(
+            "/api/v1/system-settings", method="put", json={"tmdb_api_key": "mock-tmdb"}
         )
-        if r_search.status_code != 200:
-            pytest.skip(f"Search unavailable: {r_search.status_code}")
+        assert r.status_code == 200, f"set fake tmdb key failed: {r.text}"
 
-        results = r_search.json().get("data", {}).get("results", [])
-        if not results:
-            # Create a synthetic result for the test
-            # This simulates what a user would select after LLM search
-            selected = {
-                "content_type": "tv",
-                "title_cn": "绝命毒师",
-                "title_en": "Breaking Bad",
-                "original_title": "Breaking Bad",
-                "description": "Test series created by integration test",
-                "external_id": "test:breaking-bad",
-                "external_source": "manual",
-            }
-        else:
+        channel_id = None
+        try:
+            # Channel only supplies a resource to link; the agent stays off so
+            # the fetch does not consume the mock LLM per entry.
+            r = _llm_api(
+                "/api/v1/channels",
+                method="post",
+                json={
+                    "name": "Metadata Link Mock-LLM Test",
+                    # Unique suffix: a leftover S0 channel from another file
+                    # (silent delete/scheduler race) must not trip the
+                    # uq_channels_url constraint.
+                    "url": f"{MIKANANI_S0_URL}&case={uuid.uuid4().hex[:8]}",
+                    "field_mapping": DEFAULT_FIELD_MAPPING,
+                    "fetch_interval": 3600,
+                    "metadata_agent_enabled": False,
+                },
+            )
+            assert r.status_code == 201, f"create channel failed: {r.text}"
+            channel_id = r.json()["data"]["id"]
+
+            r = _llm_api(f"/api/v1/channels/{channel_id}/fetch", method="post")
+            assert r.status_code == 200, f"fetch trigger failed: {r.text}"
+            result = _poll_fetch_llm(channel_id)
+            assert result["status"] == "done", f"fetch failed: {result}"
+
+            r = _llm_api(
+                f"/api/v1/channels/{channel_id}/resources", params={"page_size": 1}
+            )
+            assert r.status_code == 200 and r.json()["data"], "no resources after fetch"
+            resource_id = r.json()["data"][0]["id"]
+
+            # Manual search: the mock LLM finalizes with the canned Frieren
+            # entity (tmdb:900002) — deterministic, no real provider. (Not
+            # 黄泉使者: tmdb:900001 is reserved for test_llm_mock.py's
+            # end-to-end pipeline test, which asserts it does not exist yet.)
+            r_search = search_metadata_request(
+                f"/api/v1/resources/{resource_id}/metadata/search",
+                api=_llm_api,
+                json={
+                    "search_title": "Frieren",
+                    "content_type": "tv",
+                    "data_source_type": "tmdb",
+                },
+            )
+            assert r_search.status_code == 200, (
+                f"metadata search failed: {r_search.status_code} {r_search.text}"
+            )
+            results = r_search.json().get("data", {}).get("results", [])
+            assert results, "expected candidates from the mock metadata provider"
             selected = results[0]
-            # Ensure content_type is present
+            assert selected.get("external_id") == "tmdb:900002"
             if "content_type" not in selected:
                 selected["content_type"] = "tv"
 
-        # Link metadata
-        r_link = associate_metadata_request(
-            f"/api/v1/resources/{TestMetadataMatching.first_resource_id}/metadata/link",
-            method="put",
-            json={"selected_result": selected},
-        )
-        assert r_link.status_code == 200, (
-            f"metadata link failed: {r_link.status_code} {r_link.text}"
-        )
-        body = r_link.json()
-        assert body["success"] is True
+            # Link the selected candidate to the resource.
+            r_link = associate_metadata_request(
+                f"/api/v1/resources/{resource_id}/metadata/link",
+                api=_llm_api,
+                json={"selected_result": selected},
+            )
+            assert r_link.status_code == 200, (
+                f"metadata link failed: {r_link.status_code} {r_link.text}"
+            )
+            assert r_link.json()["success"] is True
 
-        # Verify a new series exists (either from the search result or created by link)
-        r_series = _api("/api/v1/series", params={"page_size": 100})
-        assert r_series.status_code == 200
-        series_list = r_series.json().get("data", [])
-        # After linking, at least one series should exist
-        assert len(series_list) >= 1, (
-            f"Expected at least 1 series after linking, got {len(series_list)}"
-        )
+            # The resource is now linked to a persisted series.
+            r = _llm_api(f"/api/v1/resources/{resource_id}")
+            assert r.status_code == 200
+            series_id = (r.json().get("data") or {}).get("series_id")
+            assert series_id, f"resource not linked after metadata link: {r.text}"
+
+            r_series = _llm_api("/api/v1/series", params={"page_size": 100})
+            assert r_series.status_code == 200
+            series_list = r_series.json().get("data", [])
+            assert any(s["id"] == series_id for s in series_list), (
+                f"linked series {series_id} missing from /series listing"
+            )
+        finally:
+            if channel_id:
+                try:
+                    _llm_api(f"/api/v1/channels/{channel_id}", method="delete")
+                except Exception:
+                    pass
+            _llm_api("/api/v1/system-settings", method="put", json={"tmdb_api_key": ""})
 
     @classmethod
     def teardown_class(cls):

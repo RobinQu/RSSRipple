@@ -42,7 +42,7 @@ async def _make_task(
         id=_uuid(),
         name="cleanup-channel",
         type="rss_feed",
-        url="https://example.com/rss",
+        url=f"https://example.com/rss/{_uuid()}",
         fetch_interval=1800,
         status="active",
         field_mapping={

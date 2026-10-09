@@ -2,7 +2,7 @@
 
 import json as _json
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -68,6 +68,10 @@ class ChannelUpdate(BaseModel):
     name: str | None = None
     url: str | None = None
     fetch_interval: int | None = None
+    # Pause/resume via PUT. Only user-settable values are accepted — "error"
+    # is system-managed (fetch write-back) and rejected with 422. The
+    # dedicated POST .../pause|/resume endpoints are the recommended path.
+    status: Literal["active", "inactive"] | None = None
     field_mapping: dict | None = None
     metadata_agent_enabled: bool | None = None
     metadata_source: str | None = None

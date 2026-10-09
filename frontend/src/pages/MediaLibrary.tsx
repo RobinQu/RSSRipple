@@ -409,7 +409,7 @@ export default function MediaLibrary() {
       align: 'right',
       render: (_, record) => (
         <Space size={4}>
-          <Button
+          <Button aria-label={t('organize.detail')}
             type="text"
             size="small"
             icon={<Eye size={14} />}
@@ -417,7 +417,7 @@ export default function MediaLibrary() {
             onClick={() => setDrawerPlanId(record.id)}
           />
           {isExecutable(record) && (
-            <Button
+            <Button aria-label={t('organize.execute')}
               type="text"
               size="small"
               icon={<Play size={14} />}
@@ -426,7 +426,7 @@ export default function MediaLibrary() {
             />
           )}
           {record.pending_reason === 'unbound' && isCancellable(record) && (
-            <Button
+            <Button aria-label={t('organize.executeNeedsBinding')}
               type="text"
               size="small"
               icon={<Play size={14} />}
@@ -435,7 +435,7 @@ export default function MediaLibrary() {
             />
           )}
           {isCancellable(record) && (
-            <Button
+            <Button aria-label={t('organize.cancelPlan')}
               type="text"
               size="small"
               danger
@@ -740,7 +740,7 @@ export default function MediaLibrary() {
           if (!row.server) return null;
           return (
             <Space size={4}>
-              <Button
+              <Button aria-label={t('mediaServers.test')}
                 type="text"
                 size="small"
                 icon={<PlugZap size={14} />}
@@ -748,7 +748,7 @@ export default function MediaLibrary() {
                 loading={testingId === row.server.id}
                 onClick={() => handleTest(row.server as MediaServerListItem)}
               />
-              <Button
+              <Button aria-label={t('mediaServers.scan')}
                 type="text"
                 size="small"
                 icon={<ScanSearch size={14} />}
@@ -756,7 +756,7 @@ export default function MediaLibrary() {
                 loading={scanningId === row.server.id}
                 onClick={() => handleScan(row.server as MediaServerListItem)}
               />
-              <Button
+              <Button aria-label={t('common.edit')}
                 type="text"
                 size="small"
                 icon={<Pencil size={14} />}
@@ -766,7 +766,7 @@ export default function MediaLibrary() {
                   setServerModalOpen(true);
                 }}
               />
-              <Button
+              <Button aria-label={t('common.delete')}
                 type="text"
                 size="small"
                 danger
@@ -780,7 +780,7 @@ export default function MediaLibrary() {
         return (
           <Space size={4}>
             {!row.library.bound && (
-              <Button
+              <Button aria-label={t('mediaServers.bind')}
                 type="text"
                 size="small"
                 icon={<Link size={14} />}
@@ -788,7 +788,7 @@ export default function MediaLibrary() {
                 onClick={() => setBindLibrary(row.library)}
               />
             )}
-            <Button
+            <Button aria-label={t('common.delete')}
               type="text"
               size="small"
               danger

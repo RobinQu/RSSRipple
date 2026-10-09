@@ -43,6 +43,12 @@ def _schema(request):
                 table.foreign_keys.difference_update(constraint.elements)
         # Only fixture metadata is changed; Base.metadata remains intact.
         table._columns.remove(column)
+        # A real pre-AudioWork database has no index over the column either;
+        # the copied metadata would otherwise emit CREATE INDEX on a column
+        # the legacy table does not have (the light migration re-adds both).
+        for index in list(table.indexes):
+            if any(col is column for col in index.columns):
+                table.indexes.remove(index)
     return legacy
 
 

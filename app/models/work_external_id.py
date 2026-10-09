@@ -58,3 +58,6 @@ class WorkExternalId(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=UTCNow(), nullable=False
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=UTCNow(), onupdate=UTCNow(), nullable=False
+    )

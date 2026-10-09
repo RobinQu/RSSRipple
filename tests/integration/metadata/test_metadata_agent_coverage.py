@@ -196,7 +196,15 @@ async def test_attach_tmdb_episode_list_empty_result_not_attached(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-async def test_ensure_genre_skips_without_description():
+@pytest.fixture
+def clear_genre_inference_cache():
+    """_ensure_genre memoizes by title+synopsis; keep tests isolated."""
+    ma._GENRE_INFERENCE_CACHE.clear()
+    yield
+    ma._GENRE_INFERENCE_CACHE.clear()
+
+
+async def test_ensure_genre_skips_without_description(clear_genre_inference_cache):
     agent = _agent()
     agent._model = SimpleNamespace(
         ainvoke=AsyncMock(side_effect=AssertionError("LLM must not be called"))
@@ -206,7 +214,7 @@ async def test_ensure_genre_skips_without_description():
     assert "genre" not in finalize["matched_entity"]
 
 
-async def test_ensure_genre_skips_when_genre_present():
+async def test_ensure_genre_skips_when_genre_present(clear_genre_inference_cache):
     agent = _agent()
     agent._model = SimpleNamespace(
         ainvoke=AsyncMock(side_effect=AssertionError("LLM must not be called"))
@@ -216,7 +224,7 @@ async def test_ensure_genre_skips_when_genre_present():
     assert finalize["matched_entity"]["genre"] == ["Drama"]
 
 
-async def test_ensure_genre_infers_from_non_string_content():
+async def test_ensure_genre_infers_from_non_string_content(clear_genre_inference_cache):
     agent = _agent()
     # Some providers return structured content; it is JSON-encoded before parsing.
     agent._model = SimpleNamespace(
@@ -227,7 +235,7 @@ async def test_ensure_genre_infers_from_non_string_content():
     assert finalize["matched_entity"]["genre"] == ["Action"]
 
 
-async def test_ensure_genre_llm_failure_leaves_genre_unset():
+async def test_ensure_genre_llm_failure_leaves_genre_unset(clear_genre_inference_cache):
     agent = _agent()
     agent._model = SimpleNamespace(ainvoke=AsyncMock(side_effect=RuntimeError("boom")))
     finalize = {"matched_entity": {"title_cn": "X", "description": "d"}}

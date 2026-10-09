@@ -10,10 +10,11 @@ first-match-wins：``filter``（BoolCondition DSL 根节点 JSON，null=匹配
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+from app.models.db_types import json_column
 from app.utils.sql_time import UTCNow
 
 
@@ -30,7 +31,7 @@ class OrganizeRule(Base):
     )
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # BoolCondition DSL 根节点 JSON；null = 匹配全部通知。
-    filter: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    filter: Mapped[dict | None] = mapped_column(json_column(), nullable=True)
     library_id: Mapped[str] = mapped_column(
         String(36),
         ForeignKey("libraries.id", ondelete="RESTRICT"),

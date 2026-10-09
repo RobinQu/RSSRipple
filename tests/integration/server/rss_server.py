@@ -102,6 +102,49 @@ def generate_dmhy_feed(
     return "\n".join(xml_parts)
 
 
+def generate_dmhy_bad_magnet_feed(
+    server_url: str = "http://test-server:8080",
+    tracker_url: str = "http://test-server:8080/announce",
+) -> str:
+    """dmhy-style feed whose enclosure magnets carry a malformed btih.
+
+    ``lt.parse_magnet_uri`` rejects the info hash immediately, so magnet
+    resolution reaches the terminal ``failed`` state within the retry budget
+    instead of waiting out the P2P metadata timeout (default 900s). Used by
+    ``test_api_coverage2.py::TestMagnetResolve::test_terminal_retry_flow``.
+    """
+    now = datetime.now(UTC)
+    xml_parts = [
+        '<?xml version="1.0" encoding="utf-8"?>',
+        '<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:wfw="http://wellformedweb.org/CommentAPI/">',
+        "<channel>",
+        "<title><![CDATA[季度全集-動漫花園資源網]]></title>",
+        f"<link>{server_url}</link>",
+        "<description><![CDATA[動漫花園資訊網 - 測試數據]]></description>",
+        "<language>zh-cn</language>",
+        f"<pubDate>{_rfc822(now)}</pubDate>",
+    ]
+    for i in range(2):
+        title = f"[LoliHouse] 坏磁链测试 / Bad Magnet Test - {i + 1:02d} [简繁内封字幕] WebRip 1080p HEVC-10bit AAC"
+        guid = f"{server_url}/topics/view/bad-magnet-{i}.html"
+        pub_date = now - timedelta(hours=2 - i)
+        # Not 40-hex / 32-base32 — libtorrent rejects it before any P2P work.
+        magnet = f"magnet:?xt=urn:btih:not-a-valid-info-hash-{i}&dn=&tr={tracker_url}"
+        xml_parts.extend([
+            "<item>",
+            f"<title><![CDATA[{title}]]></title>",
+            f"<link>{guid}</link>",
+            f"<pubDate>{_rfc822(pub_date)}</pubDate>",
+            f'<description><![CDATA[<p>{title}</p>]]></description>',
+            f'<enclosure url="{magnet}" length="1" type="application/x-bittorrent"></enclosure>',
+            "<author><![CDATA[LoliHouse]]></author>",
+            f'<guid isPermaLink="true">{guid}</guid>',
+            "</item>",
+        ])
+    xml_parts.extend(["</channel>", "</rss>"])
+    return "\n".join(xml_parts)
+
+
 def generate_mikanani_feed(
     releases: list[AnimeRelease] | None = None,
     server_url: str = "http://test-server:8080",

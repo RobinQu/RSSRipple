@@ -61,16 +61,24 @@ def _uuid() -> str:
 async def _seed_chain(db, *, work, resource_kw=None, mock=True, enabled=True,
                       torrent_id: int | None = 42) -> SimpleNamespace:
     channel = Channel(
-        id=_uuid(), name="ch", type="rss_feed", url="https://example.com/rss",
+        id=_uuid(), name="ch", type="rss_feed", url=f"https://example.com/rss/{_uuid()}",
         fetch_interval=1800, status="active",
         field_mapping={"list_locator": {"source": "entries"}},
         metadata_agent_enabled=False,
     )
-    downloader = DownloaderInstance(
-        id=_uuid(), name="dl", type="transmission",
-        url="http://127.0.0.1:9091/transmission/rpc",
-        download_dir="/downloads", status="disconnected",
+    # downloader_instances.url 有唯一约束：同库重复 seed 时复用既有行
+    #（URL 必须保持指向真实 transmission 容器，改 URL 会断 RPC）。
+    downloader = await db.scalar(
+        select(DownloaderInstance).where(
+            DownloaderInstance.url == "http://127.0.0.1:9091/transmission/rpc"
+        )
     )
+    if downloader is None:
+        downloader = DownloaderInstance(
+            id=_uuid(), name="dl", type="transmission",
+            url="http://127.0.0.1:9091/transmission/rpc",
+            download_dir="/downloads", status="disconnected",
+        )
     agent = Agent(
         id=_uuid(), name="agent", channel_id=channel.id,
         downloader_id=downloader.id,

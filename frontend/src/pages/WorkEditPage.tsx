@@ -187,7 +187,7 @@ export default function WorkEditPage({ contentType }: { contentType: ContentType
     <div style={{ maxWidth: 720 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24 }}>
         <Link to={detailPath}>
-          <Button type="text" icon={<ArrowLeft size={18} />} />
+          <Button type="text" icon={<ArrowLeft size={18} />} aria-label={t('common.back')} />
         </Link>
         <Title level={3} style={{ margin: 0 }}>
           {t('works.editWork')}

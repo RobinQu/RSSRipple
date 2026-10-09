@@ -26,7 +26,7 @@ vault-organizer 的独立部署形态在功能对等后归档（见"分期路线
 ### TODO：跨目标多作品分组子计划（长期方案）
 
 当前 `OrganizePlan` 的 `rule_id/library_id/category` 是计划级字段，因此短期方案刻意不支持同一下载包跨媒体库或使用不同 file_op。长期改造必须新增 `OrganizePlanGroup`（父计划 1:N，分组持有 `work_type/work_id/rule_id/library_id/category/file_op/status`，现有 ops 改挂 group），并完成：父状态聚合；分组级分类/执行/重试；按卷独立磁盘空间门禁；多个 MediaServer Section 刷新；所有分组终态成功后才清理下载任务/源目录；取消、审计和 regenerate 的分组幂等重建；旧单组计划迁移。该 TODO 未完成前，跨目标多作品计划必须保持 failed，不得自动降级。
-- **只扫种子独立目录**：文件定位只扫 `download_dir/torrent_name`（或文件清单逐项存在性精确匹配）；**绝不扫描共享下载根**——那里混放所有任务的文件。清单来源顺序：payload `files` 快照 → torrent 清单回退（`resource.torrent_file` 缓存 → `torrent_url` 拉取 → 下载器 RPC，见 `_resolve_manifest`；回退清单也须整份校验）；torrent_name 为空时**不做任何目录遍历**，只按清单精确匹配，匹配不到即规划失败。
+- **只扫种子独立目录**：文件定位只扫 `download_dir/torrent_name`（或文件清单逐项存在性精确匹配）；**绝不扫描共享下载根**——那里混放所有任务的文件。清单来源顺序：payload `files` 快照 → torrent 清单回退（`resource.torrent_file` 缓存 → `torrent_url` 拉取 → 下载器 RPC，见 `_resolve_manifest`；回退清单也须整份校验）；拉取成功的缓存路径**不在规划主事务回写资源行**（规划只落计划行），由调用方在计划提交后经独立事务 best-effort 回写；torrent_name 为空时**不做任何目录遍历**，只按清单精确匹配，匹配不到即规划失败。
 - **输入路径边界**：所有来源先校验完整 files 与 torrent_name，禁绝对/驱动器路径、空名、非字符串、控制字符、首尾空白及 `.`/`..` 分量。任一非法项拒绝整个计划，不过滤后执行其余文件；原始 torrent 条目先校验再补根名。候选及枚举结果经解析后必须仍在下载根内（含目录/文件符号链接）；种子目录不得指回共享根。校验集中于 organize_source/path_safety；新规划拒绝落 failed/零 ops，清单回退错误也纳入持久化错误边界。
 - **冲突绝不覆盖**：规划预检与执行前置门禁两道防线，同计划目标重叠或影响其他源一律拒绝；已有文件目标按内容/inode 验证，文件发布原子不覆盖。
 - **清空目录只走 `os.rmdir` 自底向上**（只删空目录），**绝不 `rm -rf`**。
@@ -76,9 +76,9 @@ class MediaServerInstance(Base):
     __tablename__ = "media_server_instances"
 
     id: str                              # UUID
-    name: str
+    name: str                            # Unique
     type: str                            # "plex" | "emby" | "jellyfin"
-    url: str
+    url: str                             # Unique
     token: str                           # 明文存 DB（对齐 DownloaderInstance.password 惯例）
     enabled: bool                        # 停用后不再扫描/刷新，保留行与派生 Library
     created_at / updated_at
@@ -89,6 +89,7 @@ class MediaServerBinding(Base):
     id: str                              # UUID
     server_id: str → MediaServerInstance # FK CASCADE
     server_path_prefix: str              # 服务器视角路径前缀（如 "/data/Movies"）
+                                         # Unique(server_id, server_path_prefix)：同前缀重复注册会使最长前缀匹配歧义
     volume_id: str → StorageVolume
     subpath: str                         # 卷内相对路径：server_path_prefix ==
                                          # volume.mount_path + subpath
@@ -118,7 +119,11 @@ class Library(Base):
                                          # 来源服务器（SET NULL 保留行）
     section_key: str | None              # Plex section key / Emby·Jellyfin 虚拟目录标识
                                          # （刷新寻址用；取代 P1 的 plex_section 列）
-    server_path: str | None              # 服务器视角原始根路径（bindings 解析的输入，留档）
+    server_path: str | None              # 服务器视角原始根路径（bindings 解析的输入，留档）；
+                                         # 写入经 ORM @validates 做 UTF-8 字节预算校验
+                                         #（app/models/guards.py；uq_libraries_server_section_path
+                                         # 的 PG btree 单行 ~2704B 上限护栏，为
+                                         # media_server_id/section_key 预留 100B）
     volume_id: str | None → StorageVolume
     root_subpath: str | None             # 卷内相对路径；规划时 root_path 由 service 解析 =
                                          # volume.mount_path + root_subpath（不再是静态列）
@@ -243,6 +248,7 @@ class OrganizeAuditEntry(Base):
 
 - **保存时校验**：非法占位符 / 非法格式说明符 → 422；模板渲染结果含绝对路径、`..` 段 → 422。
 - **运行时缺数据**（如 TV 模板缺 `season`）→ 规划失败（落 failed 计划行，见"触发链路"）；仅 `episode_title` 与 `collection` 例外——缺失渲染为空段/空串并折叠层级。
+- **可选段**：模板文本中的 `[...]` 是可选段标记（如预设的 `[ - {episode_title}]`），段内渲染只剩空白/连字符时整段剔除；边界只在**模板文本**上识别，占位符取值中的方括号（如 `[SubsPlease]` 发布组前缀）按字面量保留，不被二次解释。
 - **内置 Plex 兼容预设**（创建规则时可一键填入）：
   - TV：`{title}/Season {season:02d}/{title} - {episode_code}[ - {episode_title}]{ext}`
   - 电影：`{category}/{title} ({year})/{title} ({year}){ext}`
@@ -278,7 +284,7 @@ class OrganizeAuditEntry(Base):
 **未执行计划的刷新（replan）**：pending/failed 计划的语义是「按当前规则与库绑定待执行」，因此两类时机都会触发重建（共用 `_rebuild_plan`：人工指定的 library/category 沿用，其余按当前规则 first-match 重路由、op 目标重渲染；done/running/cancelled 不动）：
 
 1. **通知 regenerate**（快照变化）：notify tick / 手动重新生成消费到 payload 已变的通知时自动重建（上方链路）。
-2. **配置变更**（快照未变）：规则增删改（`POST/PUT/DELETE /organize-rules`）与媒体库更新（`PUT /libraries/{id}`，卷绑定/根子路径修复）提交后，API 同步调用 `replan_open_plans` 对**全部**未执行计划重建——规则改指库则计划重路由、新建规则收编待分类计划、补绑定后待绑定计划渲染出 ops。**当前规则无一命中时退回「待分类」**（rule_id/library_id 置空、ops 清空，绝不让规则指向停留在已不匹配的旧规则上；人工指定过 library 的计划走合成规则分支、不受规则集变化影响）。附带动作：重建失败只记日志，不影响配置变更本身的响应；无 enabled 规则时整步跳过（规则全禁用不清空既有计划）。
+2. **配置变更**（快照未变）：规则增删改（`POST/PUT/DELETE /organize-rules`）与媒体库更新（`PUT /libraries/{id}`，卷绑定/根子路径修复）提交后，API 调度**后台任务**经 `replan_open_plans` 对**全部**未执行计划重建（请求不阻塞；进程内并发去重——运行中再次变更只置合并标记，结束后以最新配置补跑一轮）——规则改指库则计划重路由、新建规则收编待分类计划、补绑定后待绑定计划渲染出 ops。**当前规则无一命中时退回「待分类」**（rule_id/library_id 置空、ops 清空，绝不让规则指向停留在已不匹配的旧规则上；人工指定过 library 的计划走合成规则分支、不受规则集变化影响）。附带动作：重建失败只记日志，不影响配置变更本身的响应；无 enabled 规则时整步跳过（规则全禁用不清空既有计划）。
 
 重建均落 `plan_rebuilt` 审计；命中 `auto_execute` 规则的重建与新建一样随后台自动执行。
 
@@ -292,11 +298,11 @@ class OrganizeAuditEntry(Base):
 - **整计划路径门禁**：planner 在单作品/多作品全部 ops（含最终 movedir）组装后、executor 在执行旧计划前，共用 `organize_file_safety.plan_path_conflicts`。真实父目录路径归一化后，不同操作写同目标、文件/目录目标重叠、目标占其他源、路径循环均拒绝；保留正片先搬出、keep 文件随源目录后移的合法流程。错误带路径与操作序号，不自动合并/改名。
 - **前置门禁（precheck）**：逐 op 复核文件与计划快照；任何违例整个计划 failed，不触碰文件。move/copy 源目标都在时必须完整分块比较（无缓存、无浅比较）；比较前后核对 dev/inode/size/mtime/ctime，读取错误或变化失败并保源。hardlink 已有目标必须同 inode。同步 IO 均在线程中执行。
 - **幂等状态表**：同路径也须存在且大小正确；同 inode 可证明一致。move 源目标都在且内容一致才删源收敛（删除前再次校验）；不同大小/不同内容一律 failed，绝不以目标为权威删源。copy 保源，hardlink 要求同 inode。只有目标存在时，仅 move 保留大小检查作为旧计划恢复判据（不能事后证明内容，不执行删源）；copy/hardlink 缺保种源则 failed。两者皆无 failed，keep 不触碰。
-- **文件移动与发布**：优先 `renameat2(RENAME_NOREPLACE)`，预检后新出现的目标不被覆盖。原生调用因 `ENOSYS/EINVAL/EOPNOTSUPP` 不可用时（本地 Docker ZFS 根已复现），普通文件改用 `link` 原子发布，再校验身份/大小/mtime 与双方 inode，最后删除源名称；目标竞争仍失败，绝不退回可覆盖的 rename。发布后崩溃可留下同 inode 双名称，由既有内容验证恢复；源名称删除与发布并非同一个原子操作。安全链接也不支持时明确 failed，目录不使用该文件回退。跨盘 move（EXDEV）与 copy 先写目标目录中的独占 `.rssripple-*.tmp` 描述符，完整验证且源未变化后再发布；move 发布成功后才删源。失败只清理本次仍属同 inode 的临时文件，保留其他文件；崩溃遗留临时文件不自动当成功。
+- **文件移动与发布**：优先 `renameat2(RENAME_NOREPLACE)`，预检后新出现的目标不被覆盖。原生调用因 `ENOSYS/EINVAL/EOPNOTSUPP` 不可用时（本地 Docker ZFS 根已复现），普通文件改用 `link` 原子发布，再校验身份/大小/mtime 与双方 inode，最后删除源名称；目标竞争仍失败，绝不退回可覆盖的 rename。发布后崩溃可留下同 inode 双名称，由既有内容验证恢复；源名称删除与发布并非同一个原子操作。安全链接也不支持时明确 failed，目录不使用该文件回退。跨盘 move（EXDEV）与 copy 先写目标目录中的独占 `.rssripple-*.tmp` 描述符，完整验证且源未变化后再发布；move 发布成功后才删源。失败只清理本次仍属同 inode 的临时文件，保留其他文件；崩溃遗留临时文件不自动当成功——进程借规划 tick 节流（每小时至多一次）回收库根/回收站范围内超宽限年龄（24h）的 `.rssripple-*.tmp` 孤儿文件（只删常规文件，绝不触碰正常文件）。发布（rename/link）成功后对文件本体与父目录 fsync 作持久化屏障；fsync 失败不阻断发布语义（幂等状态表仍可收敛）但记录 warning。
 - **执行前路径复查**：持久化旧计划也检查全部源仍在当前下载根内、文件目标在当前库根内、movedir 目标在当前回收站内，禁止操作这些根本身。检查在线程中完成；失败返回 OrganizeError，不执行文件/任务清理。检查可捕获规划后已发生的目录链接替换，不等于描述符级防护，不能承诺抵御与检查/操作同时发生的恶意目录替换。
 - **硬链接**：`os.link`，源保留；EXDEV/EPERM 失败且不静默改成 copy。发布后确认同 inode。普通文件符号链接在文件状态门禁被拒绝（不跟随最终文件链接）。
 - **后置校验**：全部文件 op 后复核每个 dst 存在且 size 一致；src 已消失仅对 move 校验（hardlink/copy 源文件本应保留）；任一不符 → failed（可修复后重执行，幂等）。
-- **movedir**：目录级移动，目标已存在 = 冲突违例，绝不覆盖；平铺在下载根的散文件不产生 movedir；仅 move 语义，hardlink/copy 计划不产 movedir。当前唯一产生场景：**合集（batch）+ move 计划且目标库配置了回收站目录**（`Library.recycle_subpath`，卷内相对路径，媒体库设置「其他设置」表单经文件夹选择器设置；NULL = 默认原地保留）——正片/字幕移走后，种子目录内的剩余文件（特典、附件等 keep 部分）随整个种子目录移入 ``<卷挂载点>/<recycle_subpath>/<种子目录名>``；无 keep 剩余时不产 op（空目录照常自底向上清理）。规划期冲突预检拒绝已存在的回收目标；执行期 movedir 在全部文件 op + 后置校验之后执行，源目录已空视为无需移动。
+- **movedir**：目录级移动，目标已存在 = 冲突违例，绝不覆盖；平铺在下载根的散文件不产生 movedir；仅 move 语义，hardlink/copy 计划不产 movedir。当前唯一产生场景：**合集（batch）+ move 计划且目标库配置了回收站目录**（`Library.recycle_subpath`，卷内相对路径，媒体库设置「其他设置」表单经文件夹选择器设置；NULL = 默认原地保留）——正片/字幕移走后，种子目录内的剩余文件（特典、附件等 keep 部分）随整个种子目录移入 ``<卷挂载点>/<recycle_subpath>/<种子目录名>``；无 keep 剩余时不产 op（空目录照常自底向上清理）。规划期冲突预检拒绝已存在的回收目标；执行期 movedir 在全部文件 op + 后置校验之后执行，源目录已空视为无需移动。跨盘（EXDEV）不复用 `shutil.move` 的 copytree+删源一把梭，而是复用 copy 的 tmp+校验+原子发布模式逐文件发布，**全部文件就位后才删源**；崩溃半成品经 dst 根标记文件（`.rssripple-movedir.tmp`）识别续传（缺什么补什么、已有文件逐一再校验），无标记的已存在目录按外来目录严格裁决（每个文件须有内容一致的 src 对应，否则冲突拒绝），门禁对「src 仍在且 dst 为目录」不预先拒绝、交给执行期逐文件比对。
 - **空目录清理**：`os.walk(topdown=False)` 自底向上 `os.rmdir`（只删空目录，非空自然失败跳过），preserve 边界 = 经下载器卷绑定解析的下载根；**绝不 `rm -rf`**。hardlink/copy 计划恒跳过（源文件保留保种，目录本就不会空）；torrent_name 为空（清单定位的平铺/单文件种子落在共享下载根）同样恒跳过——绝不以共享下载根为清理范围。
 - **崩溃恢复**：running 计划只有取得共享文件锁且 file_op 快照完整才可重放（幂等收敛：已移动的视为完成、跨盘 move 发布后遗留 src 仅在完整内容一致时删除、冲突仍 failed）；failed 可反复重试收敛；任一 op failed 计划即 failed，已完成 op 不回滚。
 

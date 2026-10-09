@@ -21,7 +21,7 @@ async def _upgrade_contract(db_pair, monkeypatch, record_property):
     monkeypatch.setattr(settings, "database_url", engine.url.render_as_string(hide_password=False))
     rid, marker = str(uuid.uuid4()), utcnow()
     async with factory() as db:
-        channel = Channel(name="Synthetic legacy marker", type="rss_feed", url="https://example.invalid", field_mapping={})
+        channel = Channel(name="Synthetic legacy marker", type="rss_feed", url=f"https://example.invalid/{str(uuid.uuid4())}", field_mapping={})
         db.add(channel)
         await db.flush()
         channel_id = channel.id

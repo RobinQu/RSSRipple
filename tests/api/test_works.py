@@ -125,6 +125,34 @@ class TestRemovedWorksMetadataEndpoints:
         assert res.status_code == 200
         assert res.json()["data"]["trusted_sites"] is None
 
+    async def test_batch_refresh_items_over_limit_422(self, client):
+        """One batch-refresh job is sequential; the request caps at 100 items
+        (same bound as list page_size) so a single job cannot run unbounded."""
+        res = await client.post(
+            "/api/v1/works/batch-refresh-metadata",
+            json={
+                "items": [{"id": _uuid(), "content_type": "tv"} for _ in range(101)],
+                "source": "wikipedia",
+            },
+        )
+        assert res.status_code == 422
+
+    async def test_batch_refresh_items_at_limit_ok(self, client, monkeypatch):
+        from app.services import task_queue as tq_mod
+
+        fake = MagicMock()
+        fake.enqueue = AsyncMock(return_value={"job_id": "j4"})
+        monkeypatch.setattr(tq_mod, "task_queue", fake)
+        items = [{"id": _uuid(), "content_type": "tv"} for _ in range(100)]
+        res = await client.post(
+            "/api/v1/works/batch-refresh-metadata",
+            json={"items": items, "source": "wikipedia"},
+        )
+        assert res.status_code == 200, res.text[:300]
+        assert res.json()["data"]["count"] == 100
+        payload = fake.enqueue.call_args.args[2]
+        assert len(payload["items"]) == 100
+
 
 class TestYearFromDate:
     def test_year_from_date_variants(self):

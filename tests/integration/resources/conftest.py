@@ -59,7 +59,7 @@ async def db_session_factory(reparse_database):
 @pytest.fixture
 async def sample_channel(db_session_factory):
     async with db_session_factory() as db:
-        channel = Channel(name="Synthetic reparse integration", type="rss_feed", url="https://example.invalid", field_mapping={})
+        channel = Channel(name="Synthetic reparse integration", type="rss_feed", url=f"https://example.invalid/{str(uuid.uuid4())}", field_mapping={})
         db.add(channel)
         await db.commit()
         return channel

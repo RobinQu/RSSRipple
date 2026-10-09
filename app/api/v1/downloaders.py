@@ -1,5 +1,6 @@
 """DownloaderInstance API routes."""
 
+import logging
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, Query
@@ -32,6 +33,8 @@ from app.utils.download_paths import DownloadPathError
 from app.utils.time import utcnow
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 
 def _join(base: str, extra: str) -> str:
@@ -294,10 +297,16 @@ async def list_downloader_live_torrents(
         wrapper = get_downloader_client(dl)
         torrents = await wrapper.list_torrents()
         return success_response(torrents)
-    except Exception as e:
+    except Exception:
+        logger.exception(
+            "[downloaders] live torrents query failed for %s", downloader_id,
+        )
         return JSONResponse(
             status_code=502,
-            content={"success": False, "data": None, "error": {"code": "TRANSMISSION_ERROR", "message": str(e)}},
+            content={"success": False, "data": None,
+                     "error": {"code": "TRANSMISSION_ERROR",
+                               "message": "Failed to query the downloader daemon"},
+                     "meta": {}},
         )
 
 

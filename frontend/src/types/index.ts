@@ -1,4 +1,6 @@
 // Common
+import type { FilterField } from '../constants/filterFields';
+
 export interface APIResponse<T> {
   success: boolean;
   data: T;
@@ -553,52 +555,15 @@ export interface Episode {
 }
 
 // Filter DSL
-export type FilterField =
-  | 'subtitle_groups'
-  | 'subtitle_group'
-  | 'resolution'
-  | 'source'
-  | 'video_codec'
-  | 'audio_codec'
-  | 'subtitle_type'
-  | 'container'
-  | 'file_size'
-  | 'episode'
-  | 'season'
-  | 'episode_start'
-  | 'episode_end'
-  | 'absolute_episode'
-  | 'is_batch'
-  | 'subtitle_langs'
-  | 'episode_confidence'
-  | 'content_type'
-  | 'title_cn'
-  | 'title_en'
-  | 'search_title'
-  | 'movie.rating'
-  | 'movie.year'
-  | 'movie.genre'
-  | 'movie.collection'
-  | 'movie.is_anime'
-  | 'series.rating'
-  | 'series.year'
-  | 'series.genre'
-  | 'series.collection'
-  | 'series.is_anime'
-  // Resource-level collection (franchise packs link a WorkCollection
-  // directly, with all work FKs empty).
-  | 'collection';
-
-export type StringFilterField = Exclude<
+// Field catalog types derive from the single-source metadata table in
+// constants/filterFields.ts — add a field there, not here.
+export type {
   FilterField,
-  | 'file_size' | 'episode' | 'season' | 'episode_start' | 'episode_end' | 'absolute_episode' | 'is_batch' | 'subtitle_langs'
-  | 'movie.rating' | 'movie.year' | 'movie.genre' | 'series.rating' | 'series.year' | 'series.genre'
-  | 'series.is_anime' | 'movie.is_anime'
->;
-export type NumberFilterField = 'file_size' | 'episode' | 'season' | 'episode_start' | 'episode_end' | 'absolute_episode'
-  | 'movie.rating' | 'movie.year' | 'series.rating' | 'series.year';
-export type BoolFilterField = 'is_batch' | 'series.is_anime' | 'movie.is_anime';
-export type ListFilterField = 'subtitle_groups' | 'subtitle_langs' | 'movie.genre' | 'series.genre';
+  StringFilterField,
+  NumberFilterField,
+  BoolFilterField,
+  ListFilterField,
+} from '../constants/filterFields';
 
 export type FilterOperator =
   | 'eq'
@@ -703,7 +668,27 @@ export interface AgentCreate {
   run_immediately?: boolean;
 }
 
-export type AgentUpdate = AgentCreate;
+// Mirrors the backend AgentUpdate schema (app/schemas/agent.py): every field
+// is optional so partial edits don't need to resend unchanged values. The
+// full-form save flow (AgentForm) may still send a complete AgentCreate-shaped
+// payload, which satisfies this type.
+export interface AgentUpdate {
+  name?: string;
+  channel_id?: string;
+  downloader_id?: string;
+  download_subdir?: string | null;
+  task_expire_days?: number;
+  llm_enabled?: boolean;
+  scope_channel_wide?: boolean;
+  conflict_resolution?: 'ask' | 'auto';
+  llm_prompt?: string | null;
+  pick_preferences?: FieldCondition[] | null;
+  filter_config?: BoolCondition | null;
+  status?: AgentStatus;
+  works?: AgentWorkCreate[];
+  /** See AgentCreate.dispatch_resource_ids. */
+  dispatch_resource_ids?: string[] | null;
+}
 
 export interface RulesPreviewRequest {
   agent_id?: string;
@@ -906,12 +891,13 @@ export interface AuthStatus {
   authenticated: boolean;
 }
 
-// API keys — `key` is returned only once, at creation time.
+// API keys — `key` is returned only once, at creation/rotation time.
 export interface ApiKey {
   id: string;
   name: string;
   prefix: string;
   created_at: string;
+  expires_at: string | null;
 }
 
 export interface ApiKeyCreated extends ApiKey {

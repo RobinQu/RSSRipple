@@ -159,6 +159,23 @@ class Settings(BaseSettings):
     # time) must not monopolize the worker - with the default 1, it starved
     # fetch_channel jobs. 4 lets a long refresh coexist with channel fetches.
     queue_max_concurrent: int = 4
+    # Automatic retry for idempotent queue job types (the
+    # ``task_queue._RETRYABLE_JOB_TYPES`` set — fetch/refresh/backfill/periodic
+    # sync jobs). Total attempts including the first run; the delay between
+    # attempts grows exponentially (QUEUE_JOB_RETRY_BACKOFF_SECONDS * 2^(n-1),
+    # capped at 1h). Non-idempotent job types always run exactly once and are
+    # unaffected. Env vars: QUEUE_JOB_MAX_ATTEMPTS, QUEUE_JOB_RETRY_BACKOFF_SECONDS.
+    queue_job_max_attempts: int = 3
+    queue_job_retry_backoff_seconds: float = 30.0
+
+    # Whole-job wall-clock budget (seconds) for one metadata-refresh batch job
+    # (manual batch refresh and per-channel periodic refresh). Per-work calls
+    # are individually capped at 120s, but a sequential loop over N works could
+    # otherwise occupy one of the queue's few concurrency slots for N * 120s.
+    # When the budget is spent, remaining works are reported as skipped
+    # ("job_time_budget_exceeded") instead of refreshed. 0 disables the budget.
+    # Env var: REFRESH_JOB_TIME_BUDGET_SECONDS.
+    refresh_job_time_budget_seconds: int = 1800
 
     # App
     app_name: str = "RSSRipple"

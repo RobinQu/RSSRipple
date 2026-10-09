@@ -37,7 +37,10 @@ export const metadataApi = {
     mode: 'local' | 'online';
     source?: MetadataSource;
     trusted_sites?: string[] | null;
-  }) => api.post<{ candidates: MetadataCandidate[] }>('/metadata/search', body),
+  }) => api.post<{ candidates: MetadataCandidate[] }>('/metadata/search', body, undefined, {
+    // Online mode fans out to network sources/LLM and can exceed the 30s default.
+    timeout: 60_000,
+  }),
   preview: (body: {
     id: string;
     content_type: 'tv' | 'movie';

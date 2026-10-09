@@ -52,7 +52,7 @@ Turso 的应用子进程完全退出后才由 CLI 打开文件；仅 dispose SQL
 
 2026-09-06 完成集成测试验收并将覆盖率门禁从 75% 提升到 **80%**（`docker-compose.test.yml` 的 coverage-report `--fail-under=80`，ci-strict 步骤名与 docs/design/branching.md 同步）。为此新增 28 个测试文件 / 约 890 用例（全部进程内或打测试栈 HTTP，离线可跑）：
 
-- `http/test_api_coverage2.py`（70）+ `http/test_api_coverage2_llm.py`（19，打 app-llm）：resources/organize/dashboard/queue/agents API 面的修订、associations、analyze-batch、files、magnet-resolve、计划生命周期等分支；两文件带完整 module 级 teardown（登记-删除/还原），不残留实体污染后续套件。
+- `http/test_api_coverage2.py`（70）+ `http/test_api_coverage2_llm.py`（19，打 app-llm）：resources/organize/dashboard/queue/agents API 面的修订、associations、analyze-batch、files、magnet-resolve、计划生命周期等分支；两文件带完整 module 级 teardown（登记-删除/还原），不残留实体污染后续套件。magnet 终态重试用例（`TestMagnetResolve::test_terminal_retry_flow`）改打 app-llm 实例，使用 test-server 的 `/rss/dmhy-bad-magnet` 畸形 btih feed 快进 terminal failed，离线确定必跑，不再等 300s P2P 超时后 skip（主 app 磁力 worker 池被 env fixture 的 18 条不可解析 dmhy 磁力占满 900s，是本 skip 的根因）。
 - `metadata/`：`test_batch_content_analysis_coverage.py`（37）、`test_torrent_inspect_coverage.py`（47）、`test_fts_coverage.py`（28）、`test_metadata_dedup_coverage.py`（17）、`test_filter_engine_coverage.py`（45）、`test_metadata_repository_coverage.py`（19）、`test_metadata_source_io_coverage.py`（13）、`test_episode_history_coverage.py`（26）、`test_metadata_wiki_judge_coverage.py`（21）、`test_metadata_agent_coverage.py`（49）、`test_metadata_search_agent_coverage.py`（17）、`test_feed_analyzer_providers_coverage.py`（21）、`test_metadata_bangumi_coverage.py`（34）、`test_metadata_audio_resolver_coverage.py`（11）、`test_fetch_service_coverage.py`（46）、`test_agent_service_coverage.py`（44）、`test_job_handlers_coverage.py`（17）、`test_misc_services_coverage.py`（59，required_fields/resource_confirmation/settings/volume/text_normalizer）、`test_wikidata_collection_coverage.py`（30）、`test_wikipedia_episode_parser_coverage.py`（33）、`test_download_paths_coverage.py`（24）。
 - `organize/`：`test_organize_service_coverage2.py`（45）、`test_organize_template_coverage.py`（27）、`test_organize_parser_coverage.py`（17）、`test_task_cleanup_coverage.py`（12）。
 - `magnet/test_magnet_resolve_coverage.py`（62，fake libtorrent/httpx）。
@@ -83,13 +83,15 @@ tests/integration/
     conftest.py                    # test_server / rssripple_url / http_client + setup_test_environment(session autouse)
     _http.py                       # 合并后的共享 helper：_api / _poll_fetch / _poll_run / _ensure_downloader / DEFAULT_FIELD_MAPPING / URL 常量
     test_channel_real_feeds.py     # Channel CRUD + fetch ground-truth + 字段映射 + 多格式
-    test_channel_workflow.py       # test-server feed 冒烟 + LLM analyze-stream + edit-with-mapping
+    test_channel_workflow.py       # test-server feed 冒烟 + analyze-stream/edit-with-mapping 全流程
+                                   #   （LLM 用例打 app-llm mock LLM + mikanani-1 录制 feed，离线必跑）
     test_channel_delete_and_token.py  # DELETE 级联回归 + X-Form-Token 防重放
     test_rss_subscription.py       # feed 校验（validate×3 + invalid_feed）
     test_agent_pipeline.py         # Agent CRUD + works + run + filter DSL
     test_downloader_pipeline.py    # Downloader CRUD + Transmission 连通性
     test_e2e_pipeline.py           # 完整 Channel->Agent->Task 链路
-    test_metadata_api.py           # metadata HTTP API（search / detail / link）
+    test_metadata_api.py           # metadata HTTP API（search / detail / link；TestMetadataLink 打
+                                   #   app-llm mock LLM + mock TMDB search→link，离线必跑）
     test_task_queue.py             # 后台 job 生命周期（Memory/Redis 后端）
     test_torrent_lifecycle.py      # test-server BT 协议链路
     test_fetch_with_real_feed.py   # 真实 nyaa.si + 实时 LLM（compose 默认 ignore）
@@ -101,7 +103,8 @@ tests/integration/
     test_batch_dispatch.py         # 合集（is_batch）资源派发与去重
     test_misc_api.py               # validate-url / preview-feed / fetch 失败 / downloader 409 / works PUT
     test_dedup_seed.py             # 为 coverage-report 的去重脚本播种重复 series/movie 行
-    test_llm_mock.py               # 打 app-llm（mock LLM）：analyze(-stream) + LLM 候选选择 + metadata ReAct + 解析变体
+    test_llm_mock.py               # 打 app-llm（mock LLM）：analyze(-stream) + LLM 候选选择 + metadata ReAct +
+                                   #   建频道→抓取→LLM 匹配→链接→派发端到端链（TestEndToEndMockPipeline）+ 解析变体
     test_metadata_sources_mock.py  # 打 app-llm：tmdb 单源 ReAct（假 key 快速失败）+ 废弃源 422（jina/exa/local/combined）
     test_transmission_actions.py   # 真实 Transmission RPC：磁力派发 + pause/resume/retry/delete
     test_notifications.py          # 下载通知全链路（打 app-llm，scheduler 开）：mock webhook 注册
@@ -167,8 +170,9 @@ tests/integration/
 
 **mock-LLM 第二实例（app-llm）**：docker-compose.test.yml 中的 `app-llm` 服务与主 app 同镜像，
 但 `LLM_BASE_URL=http://test-server:8080/v1`（确定性 mock）、独立 DB 文件、`SCHEDULER_ENABLED=true`。
-`test_llm_mock.py` / `test_metadata_sources_mock.py` 通过 `RSSRIPPLE_LLM_URL` 寻址该实例（未设置时自动 skip，
-如 distributed 栈）。覆盖率数据由 coverage-report 服务合并三份：主 app、app-llm、以及
+`test_llm_mock.py` / `test_metadata_sources_mock.py` / `test_channel_workflow.py`（LLM 工作流用例）/
+`test_metadata_api.py::TestMetadataLink` 通过 `RSSRIPPLE_LLM_URL` 寻址该实例（未设置时自动 skip，
+如 distributed 栈；单节点/隔离门禁栈恒有 app-llm，因此这些用例在完整门禁中必跑）。覆盖率数据由 coverage-report 服务合并三份：主 app、app-llm、以及
 `app.scripts.dedup_metadata` 脚本（去重无 HTTP 触发，由 coverage-report 在测试结束后对测试库运行，
 `test_dedup_seed.py` 负责播种可合并的重复行）。
 
@@ -509,3 +513,12 @@ V34 `agent_run_lifecycle/test_scheduler.py` 在双库、一/两个生产 APSched
 Turso CLI 夹具由独立子进程创建实际 MVCC 文件并完全退出后交给 CLI，遵守文件锁边界；不把父进程 dispose 当作文件锁已释放。审核标记同时校验原报告指纹和完成时间，防止后续时间漂移被幂等重放接受。
 
 V34 与 V30/V32/V33 兼容性：handler 保留显式 works 加载，生命周期、B9/B7、列表边界和完整迁移文件共同回归。`agent_run_lifecycle/test_time_contract.py` 对实际 handler 成功收尾与真实回收函数验证 PostgreSQL UTC/Asia/Shanghai/America/New_York 和 Turso：新历史与 Agent 摘要均为 naive UTC，租约 epoch 不随会话时区偏移；以独立 Python UTC/epoch 时钟作上下界。
+### 元数据缓存摘要键与升级
+
+`tests/integration/metadata_cache/` 共 51 项真实双库集成：完整 512/513/1024 字符 ASCII/CJK 读写（录制标题前缀加明确合成尾部）；摘要碰撞/来源隔离/长公共前缀/strip/ORM 改名/generation；PG 原始并发与陈旧读后刷新；双库实际批量 writer 的 MVCC 新会话重试；237 行旧缓存按 100/100/37 回填及完整字段保留、回滚与重跑；自定义索引/引用/触发器/额外列/JSON 类型/标题默认值及摘要碰撞的拒绝和目录回滚。
+
+实际 create_tables 测试覆盖旧库故障/重试及新空库重复启动；PG 两个启动由第三连接阻塞，实际观测二者等待 advisory 锁后释放，摘要列只添加一次。Turso 保持单进程独占文件约束，不据 PG 测试声称支持多进程同时打开同一文件。
+
+`test_caller.py` 运行真实 UnifiedMetadataAgent.process、资源持久化与缓存，覆盖 1024 字符中文标题的确定性 not_found miss→write→hit、force refresh、瞬态错误不覆盖确定结果、跨来源不串缓存。仅来源检索/LLM 返回边界为明确合成结果，未验证外部网站或模型准确性，也不将 not_found 用例外推为匹配成功作品链路验收。旧 DDL 由修复前 main 模型编译并作为 SQL fixture 保存。
+
+`test_success.py` 补成功匹配路径：录制电影标题配明确合成来源身份，真实 process 首次 miss 后创建 Movie，另一未关联资源实际缓存 hit 后关联同一 Movie；独立会话确认唯一作品、完整缓存标题及两个资源关联。海报为 None 边界替身，未外联。自定义排序规则拒绝反例验证迁移不会默默改变旧标题比较语义。

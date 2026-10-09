@@ -73,6 +73,100 @@ def _task_occupies_download_slot():
     )
 
 
+async def _find_latest_submission_error(
+    db: AsyncSession, *, resource_id: str, agent_id: str | None, downloader_id: str | None
+) -> DownloadTask | None:
+    """Latest error task of a *submission-stage* failure for the same
+    (resource, agent, downloader).
+
+    Submission-stage means the daemon never accepted the torrent
+    (``transmission_torrent_id`` is NULL): missing downloader, unresolvable
+    download path, failed add_torrent RPC. Rows that once reached the daemon
+    (torrent id set — e.g. a manual retry/pause action failed afterwards) are
+    genuine download history and are never folded into.
+    """
+    stmt = (
+        select(DownloadTask)
+        .where(
+            DownloadTask.file_resource_id == resource_id,
+            DownloadTask.agent_id == agent_id,
+            DownloadTask.downloader_id == downloader_id,
+            DownloadTask.status == "error",
+            DownloadTask.transmission_torrent_id.is_(None),
+        )
+        .order_by(DownloadTask.created_at.desc())
+        .limit(1)
+    )
+    # no_autoflush: create_and_submit_task calls this while its own pending
+    # error task sits in session.new — an autoflush would INSERT that task
+    # before the SELECT and make the query match the task itself.
+    with db.no_autoflush:
+        return (await db.execute(stmt)).scalars().first()
+
+
+def _fold_dispatch_error(
+    existing: DownloadTask, *, error_message: str, download_dir: str
+) -> DownloadTask:
+    """Refresh a surviving submission-error row in place.
+
+    ``retry_count`` doubles as the repeat-occurrence counter: nothing gates
+    retry eligibility on ``retry_count < max_retries`` (manual and batch retry
+    select by status only), so overloading it is safe. ``updated_at`` is bumped
+    by the UPDATE through its server ``onupdate``.
+    """
+    existing.error_message = error_message[:2000]
+    existing.download_dir = download_dir
+    existing.retry_count += 1
+    return existing
+
+
+async def _record_dispatch_error(
+    db: AsyncSession,
+    *,
+    agent_id: str | None,
+    resource_id: str,
+    downloader_id: str | None,
+    download_dir: str,
+    error_message: str,
+) -> DownloadTask:
+    """Persist a submission-stage dispatch failure without unbounded row growth.
+
+    Error tasks deliberately do not occupy a dedup slot
+    (``_DEDUP_ACTIVE_STATUSES``), so a resource whose dispatch always fails
+    before reaching the daemon would otherwise gain one error row per agent
+    run. Instead, the latest submission-error row for the same
+    (resource, agent, downloader) is refreshed in place — newest message,
+    occurrence count — keeping the failure visible and retryable (the retry
+    endpoints operate on that surviving row).
+
+    Transient failures (add_torrent RPC errors) are folded the same way as
+    permanent ones (missing downloader, unresolvable path): repeated attempts
+    of a submission that never reached the daemon carry no diagnostic value
+    beyond the latest message (every attempt is still logged), and a later
+    *successful* dispatch always creates a fresh row, so recovery is never
+    hidden by the folding.
+    """
+    existing = await _find_latest_submission_error(
+        db, resource_id=resource_id, agent_id=agent_id, downloader_id=downloader_id
+    )
+    if existing is not None:
+        _fold_dispatch_error(existing, error_message=error_message, download_dir=download_dir)
+        await db.flush()
+        return existing
+    task = DownloadTask(
+        agent_id=agent_id,
+        file_resource_id=resource_id,
+        downloader_id=downloader_id,
+        download_dir=download_dir,
+        status="error",
+        error_message=error_message[:2000],
+        max_retries=settings.max_retry_count,
+    )
+    db.add(task)
+    await db.flush()
+    return task
+
+
 @dataclass
 class RuleSet:
     """A snapshot of the subscription rules used to test resource matching.
@@ -299,6 +393,24 @@ async def create_and_submit_task(
     # The remote call may outlive this execution's lease. Leave the durable
     # reservation available for the replacement instead of settling stale output.
     await require_agent_execution_ownership()
+    if task.status == "error":
+        # Fold repeated submission failures into one row per
+        # (resource, agent, downloader); see _record_dispatch_error.
+        existing_error = await _find_latest_submission_error(
+            db, resource_id=resource.id, agent_id=agent_id, downloader_id=downloader.id
+        )
+        if existing_error is not None:
+            _fold_dispatch_error(
+                existing_error,
+                error_message=task.error_message or "",
+                download_dir=task.download_dir,
+            )
+            if reservation is None:
+                db.expunge(task)  # pending, never flushed
+            # else: the reservation's task_id is deliberately never persisted;
+            # the orphaned reservation is reaped by cleanup_dispatch_reservations.
+            await db.flush()
+            return existing_error
     if reservation is not None:
         from app.services.download_dispatch import persist_dispatch_result
 
@@ -319,18 +431,14 @@ async def dispatch_download(
     """Create a DownloadTask and attempt to add it to Transmission."""
     downloader = await db.get(DownloaderInstance, agent.downloader_id)
     if not downloader:
-        task = DownloadTask(
+        return await _record_dispatch_error(
+            db,
             agent_id=agent.id,
-            file_resource_id=resource.id,
+            resource_id=resource.id,
             downloader_id=agent.downloader_id,
             download_dir=agent.download_subdir or "",
-            status="error",
             error_message=f"Downloader {agent.downloader_id} not found",
-            max_retries=settings.max_retry_count,
         )
-        db.add(task)
-        await db.flush()
-        return task
 
     # Resolve the effective download directory, falling back to the downloader
     # root directory if subdir resolution fails.
@@ -338,19 +446,14 @@ async def dispatch_download(
     try:
         download_dir = resolve_download_dir(downloader.download_dir, agent.download_subdir)
     except DownloadPathError as e:
-        download_dir = downloader.download_dir
-        task = DownloadTask(
+        return await _record_dispatch_error(
+            db,
             agent_id=agent.id,
-            file_resource_id=resource.id,
+            resource_id=resource.id,
             downloader_id=agent.downloader_id,
-            download_dir=download_dir,
-            status="error",
+            download_dir=downloader.download_dir,
             error_message=str(e),
-            max_retries=settings.max_retry_count,
         )
-        db.add(task)
-        await db.flush()
-        return task
 
     if consumption_snapshot is not None:
         from app.services.agent_publication_progress import require_current_scope

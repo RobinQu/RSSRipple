@@ -18,12 +18,13 @@ import asyncio
 import json
 import logging
 import socket
+import time
 import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from contextvars import Context, ContextVar, copy_context
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from app.utils.time import utc_isoformat, utcnow
@@ -84,9 +85,17 @@ async def require_execution_ownership() -> None:
 
 MAX_CONCURRENT = 4
 JOB_TTL_SECONDS = 86_400  # 24 h — how long Redis keeps job state after completion
+# MemoryQueue has no TTL expiry; bound its terminal-state retention instead.
+# Queued/running entries are never evicted — only done/failed ones, oldest
+# finish first (mirrors the Redis backend's JOB_TTL_SECONDS expiry semantics).
+MEMORY_TERMINAL_JOB_RETENTION = 1000
 
 # Redis key prefixes
 _QUEUE_LIST = "rssripple:jobs"
+# Delayed retries: score = epoch seconds when the descriptor becomes due.
+# Shared (not per-consumer) and durable, so a crashed worker's scheduled
+# retry is promoted by whichever consumer notices it first.
+_DELAYED_ZSET = "rssripple:jobs:delayed"
 _ACTIVE_PFX = "rssripple:active:"
 _TICK_PFX = "rssripple:tick:"
 _JOB_PFX = "rssripple:job:"
@@ -96,6 +105,80 @@ _RECOVERY_LOCK = "rssripple:recovery-lock"
 
 CONSUMER_LEASE_SECONDS = 15
 CONSUMER_HEARTBEAT_SECONDS = 5
+
+# ---------------------------------------------------------------------------
+# Automatic retry policy
+# ---------------------------------------------------------------------------
+
+# Job types whose handlers are verified idempotent and therefore eligible for
+# bounded automatic retry. Every other type runs exactly once (failure is
+# terminal) — see the per-type rationale in docs/design/business-logic.md.
+_RETRYABLE_JOB_TYPES = frozenset({
+    "fetch_channel",             # re-fetching the RSS feed upserts resources
+    "refresh_works_metadata",    # per-work refresh re-applies the same metadata
+    "refresh_channel_works",     # same pipeline, channel-scoped
+    "backfill_metadata",         # global re-scan of retry-eligible resources
+    "sync_progress",             # read-only RPC + status sync
+    "daily_cleanup",             # idempotent expiry/deletion sweep
+    "daily_dedup",               # idempotent metadata merge
+    "check_downloaders",         # connectivity probe
+    "fts_drain",                 # outbox replay is idempotent
+    "fts_reconcile",             # full diff/rewrite of shadow tables
+    "magnet_resolve_sweep",      # re-claims only NULL-status rows
+    "refresh_resource_organize",  # rebuilds the notification snapshot from current state
+})
+
+# Deliberately NOT retried at the queue level (kept explicit so new job types
+# must take a position; the test suite asserts this covers every registered
+# handler):
+_NON_RETRYABLE_JOB_TYPES = frozenset({
+    # Own durable recovery: on failure the watermark is not advanced and
+    # requests are deferred with their own backoff; a queue retry would pile
+    # duplicate AgentRun history rows onto the same incident.
+    "run_agent",
+    # The durable ResourceReparseRequest is acknowledged in the handler's
+    # finally before the failure propagates, so a retry would immediately
+    # no-op as "superseded".
+    "reprocess_resource_metadata",
+    # Interactive LLM job: a failure must surface to the polling user
+    # promptly (manual re-run with force=true), not be hidden behind backoff.
+    "analyze_batch_files",
+    # Delivery retries live in the notification backoff state machine; the
+    # tick handler already self-contains its failures.
+    "download_notifications",
+    # Magnet resolution has its own attempt budget + backoff and claims the
+    # DB row; a re-launched queue job no-ops on the already-claimed row.
+    "resolve_magnet_torrent",
+})
+
+RETRY_BACKOFF_CAP_SECONDS = 3600.0
+
+
+def _retry_delay(backoff_seconds: float, failed_attempt: int) -> float:
+    """Exponential backoff after the Nth failed attempt (1-based), capped."""
+    return min(backoff_seconds * (2 ** (failed_attempt - 1)), RETRY_BACKOFF_CAP_SECONDS)
+
+
+def resolve_retry_policy(
+    job_type: str,
+    max_attempts: int | None = None,
+    backoff_seconds: float | None = None,
+) -> tuple[int, float]:
+    """Resolve (max_attempts, backoff_seconds) for an enqueue.
+
+    Explicit enqueue arguments win. Otherwise a retryable job type uses the
+    configured defaults (QUEUE_JOB_MAX_ATTEMPTS / QUEUE_JOB_RETRY_BACKOFF_SECONDS);
+    every other type runs exactly once.
+    """
+    from app.config import settings
+
+    if max_attempts is None:
+        max_attempts = (
+            settings.queue_job_max_attempts if job_type in _RETRYABLE_JOB_TYPES else 1
+        )
+    if backoff_seconds is None:
+        backoff_seconds = settings.queue_job_retry_backoff_seconds
+    return max(1, int(max_attempts)), max(0.0, float(backoff_seconds))
 
 # Operational reconciliation ticks must not sit behind a large backlog of
 # slow metadata/LLM work. They are short, idempotent jobs whose freshness is
@@ -128,6 +211,14 @@ class BaseQueue(ABC):
     def __init__(self) -> None:
         self._handlers: dict[str, Callable[[dict], Awaitable[Any]]] = {}
 
+    @property
+    def redis_client(self):
+        """Connected redis.asyncio client, or None for non-Redis backends.
+
+        Lets other cross-process services (e.g. submission_guard) reuse the
+        deployment's Redis connection instead of opening their own."""
+        return None
+
     def register(self, job_type: str, handler: Callable[[dict], Awaitable[Any]]) -> None:
         """Register an async handler for a job_type. Call before start()."""
         self._handlers[job_type] = handler
@@ -147,13 +238,27 @@ class BaseQueue(ABC):
         """Gracefully shut down the queue."""
 
     @abstractmethod
-    async def enqueue(self, job_type: str, key: str, payload: dict) -> dict | None:
+    async def enqueue(
+        self,
+        job_type: str,
+        key: str,
+        payload: dict,
+        *,
+        max_attempts: int | None = None,
+        backoff_seconds: float | None = None,
+    ) -> dict | None:
         """Enqueue a job.
 
         Returns job state dict on success.
         Returns None if a job for *key* is already active (dedup).
         If no handler is registered, the job is enqueued but will fail at
         execution time.
+
+        Retry: when the handler fails and the job has attempts remaining, it
+        is re-queued after an exponential backoff instead of going straight to
+        FAILED. ``max_attempts`` counts the first run; ``None`` resolves the
+        per-type policy (see :func:`resolve_retry_policy`). The dedup key and
+        crash-recovery semantics are held across retries.
         """
 
     async def job_is_retired(self, key: str, job_id: str) -> bool:
@@ -198,6 +303,16 @@ class BaseQueue(ABC):
         """
         return True
 
+    async def release_throttle(self, key: str) -> None:
+        """Release a tick key claimed by :meth:`throttle`.
+
+        Called when the follow-up enqueue failed after throttle() won: the
+        interval must not be burned, so the next scheduler tick (on any
+        worker) may retry instead of waiting out the throttle TTL. The
+        default implementation is a no-op — in-process backends never store
+        tick keys, so there is nothing to release.
+        """
+
 
 # ---------------------------------------------------------------------------
 # In-process asyncio implementation
@@ -208,9 +323,18 @@ class _MemJob:
         "job_id", "job_type", "key", "payload",
         "status", "result", "error",
         "queued_at", "started_at", "finished_at",
+        "attempt", "max_attempts", "backoff_seconds", "next_retry_at",
     )
 
-    def __init__(self, job_id: str, job_type: str, key: str, payload: dict) -> None:
+    def __init__(
+        self,
+        job_id: str,
+        job_type: str,
+        key: str,
+        payload: dict,
+        max_attempts: int = 1,
+        backoff_seconds: float = 0.0,
+    ) -> None:
         self.job_id = job_id
         self.job_type = job_type
         self.key = key
@@ -221,6 +345,10 @@ class _MemJob:
         self.queued_at = utcnow()
         self.started_at: datetime | None = None
         self.finished_at: datetime | None = None
+        self.attempt = 0
+        self.max_attempts = max_attempts
+        self.backoff_seconds = backoff_seconds
+        self.next_retry_at: datetime | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -233,12 +361,22 @@ class _MemJob:
             "queued_at": utc_isoformat(self.queued_at),
             "started_at": utc_isoformat(self.started_at),
             "finished_at": utc_isoformat(self.finished_at),
+            "attempt": self.attempt,
+            "max_attempts": self.max_attempts,
+            "backoff_seconds": self.backoff_seconds,
+            "next_retry_at": utc_isoformat(self.next_retry_at),
         }
 
 
 class MemoryQueue(BaseQueue):
     """asyncio-based task queue. Works in a single process; state is not shared
-    across multiple processes or instances."""
+    across multiple processes or instances.
+
+    Terminal job state is bounded: only the most recent
+    ``MEMORY_TERMINAL_JOB_RETENTION`` done/failed jobs are kept (oldest finish
+    evicted first), mirroring the Redis backend's ``JOB_TTL_SECONDS`` expiry.
+    Queued/running entries are never evicted.
+    """
 
     def __init__(self, max_concurrent: int = 1) -> None:
         super().__init__()
@@ -253,6 +391,8 @@ class MemoryQueue(BaseQueue):
         # garbage-collected mid-flight — the job would never run and its
         # dedup key would leak in _active_keys.
         self._run_tasks: set[asyncio.Task] = set()
+        # Tasks sleeping out a retry backoff before re-queueing their job.
+        self._retry_tasks: set[asyncio.Task] = set()
 
     async def start(self, consume: bool = True) -> None:
         self._sem = asyncio.Semaphore(self._max_concurrent)
@@ -270,12 +410,65 @@ class MemoryQueue(BaseQueue):
                 await self._dispatcher
             except asyncio.CancelledError:
                 pass
+            self._dispatcher = None
+        # Jobs still queued will never run: fail them instead of silently
+        # dropping them (a stopped MemoryQueue has no durable backlog to
+        # requeue to, unlike RedisQueue.stop, which requeues in-flight work).
+        while True:
+            try:
+                job = self._queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            if self._jobs_by_key.get(job.key) is job and job.status == JobStatus.QUEUED:
+                job.status = JobStatus.FAILED
+                job.error = "queue stopped before the job ran"
+                job.finished_at = utcnow()
+                self._active_keys.discard(job.key)
+            self._queue.task_done()
+        for task in self._run_tasks:
+            task.cancel()
+        if self._run_tasks:
+            await asyncio.gather(*self._run_tasks, return_exceptions=True)
+        self._run_tasks.clear()
+        # Jobs waiting out a retry backoff are not in the backlog queue, so
+        # the drain above never saw them: cancel the sleeps and fail the jobs
+        # (a stopped MemoryQueue has no durable backlog to hold the delay).
+        for task in self._retry_tasks:
+            task.cancel()
+        if self._retry_tasks:
+            await asyncio.gather(*self._retry_tasks, return_exceptions=True)
+        self._retry_tasks.clear()
+        for job in list(self._jobs_by_key.values()):
+            if job.status == JobStatus.QUEUED and job.next_retry_at is not None:
+                job.status = JobStatus.FAILED
+                job.error = (
+                    f"{job.error}; queue stopped during retry backoff"
+                    if job.error else "queue stopped during retry backoff"
+                )
+                job.next_retry_at = None
+                job.finished_at = utcnow()
+                self._active_keys.discard(job.key)
+        self._evict_terminal_jobs()
         logger.info("MemoryQueue stopped")
 
-    async def enqueue(self, job_type: str, key: str, payload: dict) -> dict | None:
+    async def enqueue(
+        self,
+        job_type: str,
+        key: str,
+        payload: dict,
+        *,
+        max_attempts: int | None = None,
+        backoff_seconds: float | None = None,
+    ) -> dict | None:
         if key in self._active_keys:
             return None
-        job = _MemJob(job_id=uuid.uuid4().hex, job_type=job_type, key=key, payload=payload)
+        max_attempts, backoff_seconds = resolve_retry_policy(
+            job_type, max_attempts, backoff_seconds
+        )
+        job = _MemJob(
+            job_id=uuid.uuid4().hex, job_type=job_type, key=key, payload=payload,
+            max_attempts=max_attempts, backoff_seconds=backoff_seconds,
+        )
         self._active_keys.add(key)
         self._jobs_by_key[key] = job
         self._queue.put_nowait(job)
@@ -290,7 +483,26 @@ class MemoryQueue(BaseQueue):
         return [job.to_dict() for job in self._jobs_by_key.values()]
 
     async def clear(self, key: str) -> None:
-        self._jobs_by_key.pop(key, None)
+        job = self._jobs_by_key.pop(key, None)
+        if job is not None and job.status != JobStatus.RUNNING:
+            # Queued/terminal jobs hold no in-flight execution, so the dedup
+            # key goes with the state entry (otherwise a cleared key stayed
+            # blocked forever). A running job's key is released by _run's
+            # finally when the execution ends.
+            self._active_keys.discard(key)
+
+    def _evict_terminal_jobs(self) -> None:
+        """Bound _jobs_by_key: drop the oldest terminal jobs past retention."""
+        terminal = [
+            job for job in self._jobs_by_key.values()
+            if job.status in (JobStatus.DONE, JobStatus.FAILED)
+        ]
+        excess = len(terminal) - MEMORY_TERMINAL_JOB_RETENTION
+        if excess <= 0:
+            return
+        terminal.sort(key=lambda job: job.finished_at or job.queued_at)
+        for job in terminal[:excess]:
+            self._jobs_by_key.pop(job.key, None)
 
     async def update_progress(self, key: str, result: dict) -> None:
         job = self._jobs_by_key.get(key)
@@ -307,26 +519,84 @@ class MemoryQueue(BaseQueue):
             except asyncio.CancelledError:
                 break
 
-    async def _run(self, job: _MemJob) -> None:
-        async with self._sem:
-            job.status = JobStatus.RUNNING
-            job.started_at = utcnow()
-            logger.info("Running %s/%s (job=%s)", job.job_type, job.key[:16], job.job_id)
+    def _schedule_retry(self, job: _MemJob, delay: float) -> None:
+        """Re-queue *job* after *delay* seconds, keeping its dedup key held."""
+
+        async def _requeue() -> None:
             try:
-                handler = self._handlers.get(job.job_type)
-                if handler is None:
-                    raise RuntimeError(f"No handler registered for job_type={job.job_type!r}")
-                job.result = await handler(job.payload)
-                job.status = JobStatus.DONE
-                logger.info("Done %s/%s", job.job_type, job.key[:16])
-            except Exception as exc:
-                job.status = JobStatus.FAILED
-                job.error = str(exc)
-                logger.error("Failed %s/%s: %s", job.job_type, job.key[:16], exc)
-            finally:
-                job.finished_at = utcnow()
+                await asyncio.sleep(delay)
+            except asyncio.CancelledError:
+                return  # stop() fails the job itself
+            # Cleared or superseded during the backoff window: never requeue.
+            if self._jobs_by_key.get(job.key) is job and job.status == JobStatus.QUEUED:
+                job.next_retry_at = None
+                self._queue.put_nowait(job)
+
+        task = asyncio.create_task(_requeue())
+        self._retry_tasks.add(task)
+        task.add_done_callback(self._retry_tasks.discard)
+
+    async def _run(self, job: _MemJob) -> None:
+        try:
+            async with self._sem:
+                if self._jobs_by_key.get(job.key) is not job:
+                    # Cleared or superseded while queued: never execute, and
+                    # never touch the dedup key — a replacement job that was
+                    # enqueued after the clear owns it now.
+                    return
+                job.status = JobStatus.RUNNING
+                job.started_at = utcnow()
+                job.attempt += 1
+                logger.info(
+                    "Running %s/%s (job=%s, attempt %d/%d)",
+                    job.job_type, job.key[:16], job.job_id, job.attempt, job.max_attempts,
+                )
+                try:
+                    handler = self._handlers.get(job.job_type)
+                    if handler is None:
+                        raise RuntimeError(f"No handler registered for job_type={job.job_type!r}")
+                    job.result = await handler(job.payload)
+                    job.status = JobStatus.DONE
+                    job.error = None  # clear the previous attempt's failure
+                    logger.info("Done %s/%s", job.job_type, job.key[:16])
+                except Exception as exc:
+                    job.error = str(exc)
+                    if job.attempt < job.max_attempts:
+                        delay = _retry_delay(job.backoff_seconds, job.attempt)
+                        job.status = JobStatus.QUEUED
+                        job.started_at = None
+                        job.next_retry_at = utcnow() + timedelta(seconds=delay)
+                        self._schedule_retry(job, delay)
+                        logger.warning(
+                            "Failed %s/%s (attempt %d/%d); retrying in %.1fs: %s",
+                            job.job_type, job.key[:16], job.attempt, job.max_attempts,
+                            delay, exc,
+                        )
+                    else:
+                        job.status = JobStatus.FAILED
+                        logger.error("Failed %s/%s: %s", job.job_type, job.key[:16], exc)
+        finally:
+            self._queue.task_done()
+            current = self._jobs_by_key.get(job.key)
+            if current is job:
+                if job.status == JobStatus.QUEUED and job.next_retry_at is not None:
+                    # A retry is scheduled: keep the state entry and the dedup
+                    # key held until the job reaches a terminal state.
+                    return
+                if job.status in (JobStatus.QUEUED, JobStatus.RUNNING):
+                    # Cancelled by stop() before completion: there is no
+                    # durable backlog to requeue to, so record a terminal
+                    # state instead of leaking a permanently active dedup key.
+                    job.status = JobStatus.FAILED
+                    job.error = job.error or "queue stopped before the job finished"
+                job.finished_at = job.finished_at or utcnow()
                 self._active_keys.discard(job.key)
-                self._queue.task_done()
+                self._evict_terminal_jobs()
+            elif current is None:
+                # Cleared mid-run: the state entry is gone, but this run
+                # still owned the dedup key and must release it.
+                self._active_keys.discard(job.key)
+            # else: superseded by a replacement job — it owns the key now.
 
 
 # ---------------------------------------------------------------------------
@@ -375,6 +645,11 @@ class RedisQueue(BaseQueue):
         # jobs must never be prefetched into unbounded local tasks while all
         # execution slots are occupied by slow handlers.
         self._run_tasks: set[asyncio.Task] = set()
+
+    @property
+    def redis_client(self):
+        """The connected redis.asyncio client, or None before start()."""
+        return self._redis
 
     async def start(self, consume: bool = True) -> None:
         if self._redis is None:
@@ -428,9 +703,28 @@ class RedisQueue(BaseQueue):
             return True  # not started yet — nothing to throttle against
         return bool(await self._redis.set(f"{_TICK_PFX}{key}", "1", nx=True, ex=ttl))
 
-    async def enqueue(self, job_type: str, key: str, payload: dict) -> dict | None:
+    async def release_throttle(self, key: str) -> None:
+        """Delete the tick key after the follow-up enqueue failed, so the
+        interval is retried by the next tick instead of being lost until the
+        throttle TTL expires (≈ a full interval — 24h for the daily jobs)."""
+        if self._redis is None:
+            return
+        await self._redis.delete(f"{_TICK_PFX}{key}")
+
+    async def enqueue(
+        self,
+        job_type: str,
+        key: str,
+        payload: dict,
+        *,
+        max_attempts: int | None = None,
+        backoff_seconds: float | None = None,
+    ) -> dict | None:
         from redis.exceptions import WatchError
 
+        max_attempts, backoff_seconds = resolve_retry_policy(
+            job_type, max_attempts, backoff_seconds
+        )
         active_key = f"{_ACTIVE_PFX}{key}"
         job_id = uuid.uuid4().hex
         now = utcnow().isoformat()
@@ -447,6 +741,10 @@ class RedisQueue(BaseQueue):
             "finished_at": "",
             "execution_token": "",
             "consumer_id": "",
+            "attempt": "0",
+            "max_attempts": str(max_attempts),
+            "backoff_seconds": str(backoff_seconds),
+            "next_retry_at": "",
         }
         redis_key = f"{_JOB_PFX}{key}"
         msg = json.dumps({"job_id": job_id, "job_type": job_type, "key": key, "payload": payload})
@@ -548,10 +846,35 @@ class RedisQueue(BaseQueue):
                 except WatchError:
                     continue
 
+    async def _promote_due_retries(self) -> None:
+        """Move due retry descriptors from the delayed zset to the backlog.
+
+        ZREM decides the winner when several consumers notice the same due
+        entry, so a descriptor is never pushed twice. Entries whose job was
+        cleared meanwhile fail the ownership check at claim time and are
+        garbage-collected by lease recovery.
+        """
+        due = await self._redis.zrangebyscore(_DELAYED_ZSET, 0, time.time())
+        for raw in due:
+            if not await self._redis.zrem(_DELAYED_ZSET, raw):
+                continue  # another consumer won the promotion
+            try:
+                job_type = json.loads(raw).get("job_type")
+            except (json.JSONDecodeError, AttributeError):
+                job_type = None
+            if job_type in _PRIORITY_JOB_TYPES:
+                await self._redis.lpush(_QUEUE_LIST, raw)
+            else:
+                await self._redis.rpush(_QUEUE_LIST, raw)
+
     async def _worker_loop(self) -> None:
         while True:
             slot_acquired = False
             try:
+                # Promote due retries before reserving capacity so a saturated
+                # semaphore never delays them past their backoff (they wait
+                # for a slot in the durable backlog like any queued job).
+                await self._promote_due_retries()
                 # Reserve execution capacity before removing a durable job
                 # from Redis. The old order BLPOP'ed the entire backlog and
                 # created local tasks waiting on the semaphore, starving
@@ -621,6 +944,7 @@ class RedisQueue(BaseQueue):
                         "status": JobStatus.QUEUED, "started_at": "",
                         "finished_at": "", "error": "",
                         "execution_token": "", "consumer_id": "",
+                        "next_retry_at": "",
                     })
                     if msg.get("job_type") in _PRIORITY_JOB_TYPES:
                         pipe.lpush(_QUEUE_LIST, raw)
@@ -737,7 +1061,7 @@ class RedisQueue(BaseQueue):
                 except WatchError:
                     continue
 
-    async def _claim_execution(self, msg: dict) -> str | None:
+    async def _claim_execution(self, msg: dict) -> tuple[str, int, int, float] | None:
         from redis.exceptions import WatchError
 
         key = f"{_JOB_PFX}{msg['key']}"
@@ -753,19 +1077,29 @@ class RedisQueue(BaseQueue):
                             await pipe.get(active) != msg["job_id"] or
                             not await pipe.exists(self._consumer_key)):
                         return None
+                    attempt = int(state.get("attempt") or 0) + 1
                     pipe.multi()
                     pipe.hset(key, mapping={
                         "status": JobStatus.RUNNING,
                         "started_at": utcnow().isoformat(),
                         "execution_token": token,
                         "consumer_id": self._consumer_id,
+                        "attempt": str(attempt),
+                        "next_retry_at": "",
                     })
                     await pipe.execute()
-                    return token
+                    return (
+                        token,
+                        attempt,
+                        int(state.get("max_attempts") or 1),
+                        float(state.get("backoff_seconds") or 0.0),
+                    )
                 except WatchError:
                     continue
 
-    async def _finish_execution(self, msg, raw, token, status, extra, *, requeue):
+    async def _finish_execution(
+        self, msg, raw, token, status, extra, *, requeue, retry_delay=None,
+    ):
         from redis.exceptions import WatchError
 
         key = f"{_JOB_PFX}{msg['key']}"
@@ -785,11 +1119,30 @@ class RedisQueue(BaseQueue):
                         # collection; never erase the current owner's work.
                         return False
                     pipe.multi()
-                    if requeue:
+                    if retry_delay is not None:
+                        # Bounded retry: back to QUEUED behind a delayed-zset
+                        # entry. The dedup lock stays held for the whole
+                        # backoff; the last failure stays visible in `error`.
+                        pipe.hset(key, mapping={
+                            "status": JobStatus.QUEUED, "started_at": "",
+                            "finished_at": "",
+                            "next_retry_at": (
+                                utcnow() + timedelta(seconds=retry_delay)
+                            ).isoformat(),
+                            "execution_token": "", "consumer_id": "",
+                            **extra,
+                        })
+                        pipe.zadd(_DELAYED_ZSET, {raw: time.time() + retry_delay})
+                        pipe.expire(active, self._ttl)
+                    elif requeue:
+                        # Cancelled by stop(): not a failure — roll the
+                        # attempt counter back so shutdowns cannot burn the
+                        # retry budget.
                         pipe.hset(key, mapping={
                             "status": JobStatus.QUEUED, "started_at": "",
                             "finished_at": "", "error": "",
                             "execution_token": "", "consumer_id": "",
+                            **extra,
                         })
                         if msg["job_type"] in _PRIORITY_JOB_TYPES:
                             pipe.lpush(_QUEUE_LIST, raw)
@@ -811,9 +1164,10 @@ class RedisQueue(BaseQueue):
     async def _run(self, msg: dict, raw: str) -> None:
         context_token = None
         try:
-            token = await self._claim_execution(msg)
-            if token is None:
+            claimed = await self._claim_execution(msg)
+            if claimed is None:
                 return
+            token, attempt, max_attempts, backoff_seconds = claimed
             context_token = _execution_ownership.set(
                 _ExecutionOwnership(self, msg["key"], msg["job_id"], token)
             )
@@ -821,19 +1175,33 @@ class RedisQueue(BaseQueue):
             finish_status = JobStatus.FAILED
             finish_extra: dict = {}
             requeue = False
+            retry_delay: float | None = None
             try:
                 if handler is None:
                     raise RuntimeError(f"No handler registered for job_type={msg['job_type']!r}")
                 result = await handler(msg["payload"])
                 finish_status = JobStatus.DONE
-                finish_extra = {"result": json.dumps(result) if result is not None else ""}
+                finish_extra = {
+                    "result": json.dumps(result) if result is not None else "",
+                    "error": "",  # clear the previous attempt's failure
+                }
             except asyncio.CancelledError:
                 requeue = True
+                finish_extra = {"attempt": str(max(0, attempt - 1))}
             except Exception as exc:
                 finish_extra = {"error": str(exc)}
-                logger.error("Failed %s/%s: %s", msg["job_type"], msg["key"][:16], exc)
+                if attempt < max_attempts:
+                    retry_delay = _retry_delay(backoff_seconds, attempt)
+                    logger.warning(
+                        "Failed %s/%s (attempt %d/%d); retrying in %.1fs: %s",
+                        msg["job_type"], msg["key"][:16], attempt, max_attempts,
+                        retry_delay, exc,
+                    )
+                else:
+                    logger.error("Failed %s/%s: %s", msg["job_type"], msg["key"][:16], exc)
             await self._finish_execution(
-                msg, raw, token, finish_status, finish_extra, requeue=requeue,
+                msg, raw, token, finish_status, finish_extra,
+                requeue=requeue, retry_delay=retry_delay,
             )
         finally:
             if context_token is not None:
@@ -860,6 +1228,17 @@ class RedisQueue(BaseQueue):
             except (TypeError, ValueError):
                 return None
 
+        def integer(field: str, default: int) -> int:
+            try:
+                return int(raw.get(field) or default)
+            except (TypeError, ValueError):
+                return default
+
+        try:
+            backoff = float(raw.get("backoff_seconds") or 0.0)
+        except (TypeError, ValueError):
+            backoff = 0.0
+
         return {
             "job_id": raw.get("job_id", ""),
             "job_type": raw.get("job_type", ""),
@@ -870,6 +1249,11 @@ class RedisQueue(BaseQueue):
             "queued_at": timestamp("queued_at"),
             "started_at": timestamp("started_at"),
             "finished_at": timestamp("finished_at"),
+            # Absent on hashes written before retries existed: one-shot jobs.
+            "attempt": integer("attempt", 0),
+            "max_attempts": integer("max_attempts", 1),
+            "backoff_seconds": backoff,
+            "next_retry_at": timestamp("next_retry_at"),
         }
 
 

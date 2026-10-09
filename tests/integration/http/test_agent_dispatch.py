@@ -17,6 +17,8 @@ Requirements: Docker test environment with app + test-server services.
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 
 from tests.integration.http._http import (
@@ -26,6 +28,7 @@ from tests.integration.http._http import (
     _poll_fetch,
     associate_metadata_request,
     ensure_series,
+    unique_feed_url,
 )
 
 MIKANANI_S1_URL = f"{TEST_SERVER}/rss/mikanani?series=1"  # 葬送的芙莉莲, 6 eps × 3 groups
@@ -67,6 +70,21 @@ class TestMockDownloader:
 
     def test_create_mock_downloader(self):
         """POST /downloaders type=mock — defaults url/download_dir, returns 201."""
+        # Another suite may already have left a mock downloader on the
+        # default mock://local URL (uq_downloader_instances_url); if so it
+        # proves the defaults were applied — verify it instead of creating a
+        # clashing row.
+        r = _api("/api/v1/downloaders", params={"page_size": 100})
+        assert r.status_code == 200
+        existing = next(
+            (d for d in r.json().get("data", []) if d.get("url") == "mock://local"),
+            None,
+        )
+        if existing is not None:
+            assert existing["type"] == "mock"
+            assert existing["download_dir"], "mock download_dir should get a default"
+            return
+
         r = _api(
             "/api/v1/downloaders",
             method="post",
@@ -117,7 +135,7 @@ def _dispatch_env():
         method="post",
         json={
             "name": "Dispatch Test Channel",
-            "url": MIKANANI_S1_URL,
+            "url": unique_feed_url(MIKANANI_S1_URL),
             "field_mapping": RICH_FIELD_MAPPING,
             "fetch_interval": 3600,
             "metadata_agent_enabled": False,
@@ -413,7 +431,9 @@ class TestDispatchErrorPath:
             json={
                 "name": "Unreachable Transmission",
                 "type": "transmission",
-                "url": "http://test-server:1/transmission/rpc",
+                # Query suffix only satisfies uq_downloader_instances_url;
+                # the daemon is unreachable either way.
+                "url": f"http://test-server:1/transmission/rpc?case={uuid.uuid4().hex[:6]}",
                 "download_dir": "/downloads/unreachable",
             },
         )
@@ -425,7 +445,7 @@ class TestDispatchErrorPath:
             method="post",
             json={
                 "name": "Dispatch Error Channel",
-                "url": MIKANANI_S1_URL,
+                "url": unique_feed_url(MIKANANI_S1_URL),
                 "field_mapping": RICH_FIELD_MAPPING,
                 "fetch_interval": 3600,
                 "metadata_agent_enabled": False,

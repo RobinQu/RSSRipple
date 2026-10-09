@@ -7,10 +7,13 @@ fields supporting combinators (and/or), negation, and per-field operators
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
 from app.services.text_normalizer import similarity_score
+
+logger = logging.getLogger(__name__)
 
 STRING_FIELDS = {
     "subtitle_group", "resolution", "source", "video_codec", "audio_codec",
@@ -61,6 +64,108 @@ SUBTITLE_GROUP_OPS = LIST_STRING_OPS | {"fuzzy", "regex"}
 # instead of ``eq ""`` — an empty-string ``eq`` never matches anything.
 NO_VALUE_OPS = {"is_empty", "is_not_empty"}
 ALL_OPS = STRING_OPS | NUMBER_OPS | BOOL_OPS | LIST_STRING_OPS | NO_VALUE_OPS
+
+# --- ReDoS guard ------------------------------------------------------------
+# User-supplied ``regex`` values are evaluated with Python ``re``, which has
+# no execution timeout and cannot be interrupted once a catastrophic
+# backtrack is running in C. Defense is therefore static: patterns are
+# rejected at save time (422) and skipped at evaluation time when they exceed
+# a length cap or contain nested quantifiers (a quantified group whose body
+# itself carries a quantifier, e.g. ``(a+)+`` / ``(\d|x?)*`` — the classic
+# exponential-backtracking shape). A thread-based timeout was considered and
+# rejected: the regex would keep burning CPU in the leaked thread.
+MAX_REGEX_LENGTH = 200
+
+_QUANTIFIED_TAIL = re.compile(r"\{\d+,?\d*\}")
+
+
+def _has_nested_quantifier(pattern: str) -> bool:
+    """Detect a quantified group whose body contains its own quantifier.
+
+    A small scanner (not a full regex parser): tracks a stack of groups and
+    whether each group body saw a quantifier (``*``, ``+``, ``?``, ``{m,n}``),
+    skipping escapes, character classes, and ``(?...`` group-syntax prefixes.
+    Overlapping alternation such as ``(a|aa)+`` is not caught — accepted
+    residual risk, bounded by the short field values (titles/tags) the DSL
+    evaluates against.
+    """
+    stack: list[list[bool]] = []  # per open group: [saw_quantifier]
+    i, n = 0, len(pattern)
+    while i < n:
+        c = pattern[i]
+        if c == "\\":
+            i += 2
+            continue
+        if c == "[":
+            i += 1
+            if i < n and pattern[i] == "^":
+                i += 1
+            if i < n and pattern[i] == "]":
+                i += 1
+            while i < n and pattern[i] != "]":
+                i += 2 if pattern[i] == "\\" else 1
+            i += 1
+            continue
+        if c == "(":
+            stack.append([False])
+            # (?...: group-syntax prefix (non-capturing/flags/lookahead/named)
+            i += 2 if i + 1 < n and pattern[i + 1] == "?" else 1
+            continue
+        if c == ")":
+            inner_had_quantifier = stack.pop()[0] if stack else False
+            j = i + 1
+            quantified = (
+                (j < n and pattern[j] in "*+?")
+                or (j < n and pattern[j] == "{" and _QUANTIFIED_TAIL.match(pattern, j))
+            )
+            if quantified:
+                if inner_had_quantifier:
+                    return True
+                if stack:
+                    stack[-1][0] = True
+            i += 1
+            continue
+        if c in "*+?":
+            if stack:
+                stack[-1][0] = True
+            i += 1
+            continue
+        if c == "{":
+            m = _QUANTIFIED_TAIL.match(pattern, i)
+            if m:
+                if stack:
+                    stack[-1][0] = True
+                i = m.end()
+                continue
+            i += 1
+            continue
+        i += 1
+    return False
+
+
+def check_regex_safety(pattern: str) -> str | None:
+    """Return an error message when a user regex is unsafe to evaluate, else None."""
+    if len(pattern) > MAX_REGEX_LENGTH:
+        return f"regex too long ({len(pattern)} chars > {MAX_REGEX_LENGTH} max)"
+    if _has_nested_quantifier(pattern):
+        return "unsafe regex: nested quantifiers risk catastrophic backtracking"
+    return None
+
+
+def _compile_user_regex(pattern: str) -> re.Pattern[str] | None:
+    """Compile a user-supplied regex, or None (with a warning) when unsafe.
+
+    Validation at save time already rejects unsafe patterns; this is the
+    runtime backstop for pre-existing configs stored before the guard.
+    """
+    safety_error = check_regex_safety(pattern)
+    if safety_error is not None:
+        logger.warning("skipping unsafe filter regex %r: %s", pattern, safety_error)
+        return None
+    try:
+        return re.compile(pattern, re.IGNORECASE)
+    except re.error:
+        return None
 
 
 def _coerce_bool(value: Any) -> bool:
@@ -194,6 +299,10 @@ def _validate_node(node: Any, errors: list[str], path: str) -> None:
                     re.compile(value)
                 except re.error as e:
                     errors.append(f"{path}.value: invalid regex: {e}")
+                else:
+                    safety_error = check_regex_safety(value)
+                    if safety_error is not None:
+                        errors.append(f"{path}.value: {safety_error}")
         elif field in NUMBER_FIELDS and op in ("eq", "ne", "gt", "gte", "lt", "lte"):
             if not isinstance(value, (int, float)):
                 try:
@@ -276,9 +385,8 @@ def evaluate_field_condition(cond: dict, resource: Any) -> bool:
             values = [str(v).strip().lower() for v in _coerce_in_list(expected) if str(v).strip()]
             return any(v in item_set for v in values)
         if field == "subtitle_groups" and op == "regex":
-            try:
-                pattern = re.compile(str(expected), re.IGNORECASE)
-            except re.error:
+            pattern = _compile_user_regex(str(expected))
+            if pattern is None:
                 return False
             return any(pattern.search(item) is not None for item in items)
         return False
@@ -364,10 +472,10 @@ def evaluate_field_condition(cond: dict, resource: Any) -> bool:
         values = _coerce_in_list(expected)
         return any(str(v).strip().lower() in val_l for v in values)
     if op == "regex":
-        try:
-            return bool(re.search(str(expected), val, re.IGNORECASE))
-        except re.error:
+        pattern = _compile_user_regex(str(expected))
+        if pattern is None:
             return False
+        return bool(pattern.search(val))
     return False
 
 

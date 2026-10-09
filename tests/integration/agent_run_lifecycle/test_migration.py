@@ -41,7 +41,7 @@ async def old_history(legacy_backend, monkeypatch):
     ids = {key: str(uuid.uuid4()) for key in ["channel", "downloader", "agent", "run", "resource"]}
     async with engine.begin() as conn:
         await conn.execute(legacy.tables["channels"].insert(), dict(
-            id=ids["channel"], name="Synthetic legacy", type="rss_feed", url="https://example.invalid", field_mapping={},
+            id=ids["channel"], name="Synthetic legacy", type="rss_feed", url=f"https://example.invalid/{str(uuid.uuid4())}", field_mapping={},
         ))
         await conn.execute(legacy.tables["downloader_instances"].insert(), dict(
             id=ids["downloader"], name="Synthetic", type="mock", url="mock://local", download_dir="/tmp/no-media",

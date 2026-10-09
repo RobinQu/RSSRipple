@@ -10,10 +10,11 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, BigInteger, Boolean, DateTime, ForeignKey, String, false
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.db_types import json_column
 from app.utils.sql_time import UTCNow
 
 
@@ -50,7 +51,7 @@ class OrganizePlan(Base):
         String(16), default="pending", nullable=False, index=True
     )
     # 创建时冻结的完整通知快照，执行的唯一依据。
-    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    payload: Mapped[dict] = mapped_column(json_column(), nullable=False)
     # NULL on legacy rows is unknown, never implicitly interpreted as move.
     file_op: Mapped[str | None] = mapped_column(String(16), nullable=True)
     needs_category: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())

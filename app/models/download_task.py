@@ -18,6 +18,9 @@ class DownloadTask(Base):
             "ix_download_tasks_downloader_torrent",
             "downloader_id", "transmission_torrent_id",
         ),
+        # Hot FK lookup (P1-D5): resource → task joins in the resources API,
+        # dispatch checks and notification rebuild.
+        Index("ix_download_tasks_file_resource_id", "file_resource_id"),
     )
 
     id: Mapped[str] = mapped_column(

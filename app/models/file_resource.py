@@ -4,7 +4,6 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    JSON,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -19,6 +18,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.db_types import json_column
 from app.utils.sql_time import UTCNow
 
 RESOURCE_WORK_FK_CONSTRAINT = "ck_file_resources_work_fk"
@@ -38,6 +38,13 @@ class FileResource(Base):
             "ix_file_resources_confirmation_created",
             "confirmation_ignored_at", "created_at", "id",
         ),
+        # Hot FK lookups (P1-D5): SQLite/Turso never auto-indexes FK columns.
+        # Verified by EXPLAIN at 16k-row scale on both backends — see
+        # docs/plans/p0-and-backlog/V28-HOT-FK-INDEXES.md.
+        Index("ix_file_resources_series_id", "series_id"),
+        Index("ix_file_resources_movie_id", "movie_id"),
+        Index("ix_file_resources_audio_work_id", "audio_work_id"),
+        Index("ix_file_resources_collection_id", "collection_id"),
     )
 
     id: Mapped[str] = mapped_column(
@@ -54,7 +61,7 @@ class FileResource(Base):
     subtitle_group: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Canonical release-group representation.  ``subtitle_group`` is retained
     # as a legacy/raw compatibility column during the migration window.
-    subtitle_groups: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    subtitle_groups: Mapped[list[str] | None] = mapped_column(json_column(), nullable=True)
     subtitle_groups_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
     episode: Mapped[int | None] = mapped_column(Integer, nullable=True)
     season: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -86,12 +93,12 @@ class FileResource(Base):
     # persisted from the torrent content analysis. Drives the strict
     # content-coverage dedup of batch resources in the agent runner.
     # NULL = coverage unknown (title-only packs) → no cross-version dedup.
-    batch_seasons: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)
+    batch_seasons: Mapped[list[int] | None] = mapped_column(json_column(), nullable=True)
     # Per-season episode ranges of a batch resource
     # ([{season, episode_start, episode_end}, ...]) from the torrent content
     # analysis / the edit wizard. Recomputed from file assignments whenever
     # those change; kept denormalized for cheap dedup/organize reads.
-    season_ranges: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    season_ranges: Mapped[list | None] = mapped_column(json_column(), nullable=True)
     # ── Cross-season episode reconciliation ──
     # RSS titles sometimes number episodes absolutely across all seasons
     # (e.g. ``S04 - 84`` where 84 = cumulative count across seasons 1-4)
@@ -118,7 +125,7 @@ class FileResource(Base):
     # ``["multi"]`` marks titles that only say "multi-language" without
     # spelling out which ones. ``None`` = never populated (legacy row);
     # ``[]`` = parsed but no explicit marking.
-    subtitle_langs: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    subtitle_langs: Mapped[list[str] | None] = mapped_column(json_column(), nullable=True)
     container: Mapped[str | None] = mapped_column(String(20), nullable=True)
     file_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     torrent_url: Mapped[str] = mapped_column(String(2048), nullable=False)
@@ -145,7 +152,7 @@ class FileResource(Base):
     # Custom tracker list for resolution attempts (set by the manual-retry
     # endpoint; NULL = defaults only). Cleared on "done", kept on failure so
     # the UI can show what was tried and prefill the next retry.
-    magnet_resolve_trackers: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    magnet_resolve_trackers: Mapped[list | None] = mapped_column(json_column(), nullable=True)
     detail_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     parsed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

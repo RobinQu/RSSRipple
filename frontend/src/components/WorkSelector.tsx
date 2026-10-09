@@ -658,6 +658,7 @@ export default function WorkSelector({
                         size="small"
                         danger
                         icon={<DeleteOutlined />}
+                        aria-label={t('common.remove')}
                         onClick={() => removeWork(work.id)}
                       />
                     </div>

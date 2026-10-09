@@ -1,5 +1,7 @@
 """Unit tests for source isolation in UnifiedMetadataAgent."""
 
+import pytest
+
 from app.services import metadata_audio_resolver as mar
 from app.services import metadata_wikipedia_client as wc
 from app.services.metadata_agent import (
@@ -2954,7 +2956,15 @@ def test_agent_for_source_builds_and_caches_one_graph_per_source(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-async def test_ensure_genre_infers_from_synopsis():
+@pytest.fixture
+def clear_genre_inference_cache():
+    """_ensure_genre memoizes by title+synopsis; keep tests isolated."""
+    ma_module._GENRE_INFERENCE_CACHE.clear()
+    yield
+    ma_module._GENRE_INFERENCE_CACHE.clear()
+
+
+async def test_ensure_genre_infers_from_synopsis(clear_genre_inference_cache):
     agent = UnifiedMetadataAgent()
     agent._model = MagicMock()
     resp = MagicMock()
@@ -2967,7 +2977,7 @@ async def test_ensure_genre_infers_from_synopsis():
     assert fd["matched_entity"]["genre"] == ["Animation", "Adventure"]
 
 
-async def test_ensure_genre_handles_non_string_content():
+async def test_ensure_genre_handles_non_string_content(clear_genre_inference_cache):
     """A list-typed model response is JSON-dumped before array extraction."""
     agent = UnifiedMetadataAgent()
     agent._model = MagicMock()
@@ -2981,7 +2991,7 @@ async def test_ensure_genre_handles_non_string_content():
     assert fd["matched_entity"]["genre"] == ["Animation"]
 
 
-async def test_ensure_genre_llm_failure_is_silent():
+async def test_ensure_genre_llm_failure_is_silent(clear_genre_inference_cache):
     """An LLM error must not block or invalidate the match."""
     agent = UnifiedMetadataAgent()
     agent._model = MagicMock()

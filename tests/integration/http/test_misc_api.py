@@ -14,12 +14,14 @@ Requirements: Docker test environment with app + test-server services.
 from __future__ import annotations
 
 import time
+import uuid
 
 from tests.integration.http._http import (
     DEFAULT_FIELD_MAPPING,
     RICH_FIELD_MAPPING,
     TEST_SERVER,
     _api,
+    unique_feed_url,
 )
 
 GOOD_FEED = f"{TEST_SERVER}/rss/mikanani?series=2"
@@ -85,7 +87,7 @@ class TestFetchFailurePath:
             method="post",
             json={
                 "name": "Fetch Failure Channel",
-                "url": GOOD_FEED,
+                "url": unique_feed_url(GOOD_FEED),
                 "field_mapping": DEFAULT_FIELD_MAPPING,
                 "fetch_interval": 3600,
                 "metadata_agent_enabled": False,
@@ -99,7 +101,7 @@ class TestFetchFailurePath:
             r = _api(
                 f"/api/v1/channels/{ch_id}",
                 method="put",
-                json={"url": BROKEN_FEED},
+                json={"url": unique_feed_url(BROKEN_FEED)},
             )
             assert r.status_code == 200, f"update url failed: {r.text}"
 
@@ -130,7 +132,13 @@ class TestDownloaderDetails:
         r = _api(
             "/api/v1/downloaders",
             method="post",
-            json={"name": "Detail Mock", "type": "mock"},
+            json={
+                "name": "Detail Mock",
+                "type": "mock",
+                # Other suites leave a mock downloader on the default
+                # mock://local URL; keep uq_downloader_instances_url clear.
+                "url": f"mock://detail-{uuid.uuid4().hex[:6]}",
+            },
         )
         assert r.status_code == 201
         dl_id = r.json()["data"]["id"]
@@ -153,7 +161,7 @@ class TestDownloaderDetails:
             method="post",
             json={
                 "name": "Downloader 409 Channel",
-                "url": GOOD_FEED,
+                "url": unique_feed_url(GOOD_FEED),
                 "field_mapping": DEFAULT_FIELD_MAPPING,
                 "fetch_interval": 3600,
                 "metadata_agent_enabled": False,
@@ -195,7 +203,9 @@ class TestDownloaderDetails:
             json={
                 "name": "Dead Transmission",
                 "type": "transmission",
-                "url": "http://test-server:1/transmission/rpc",
+                # Query suffix only satisfies uq_downloader_instances_url;
+                # the daemon is unreachable either way.
+                "url": f"http://test-server:1/transmission/rpc?case={uuid.uuid4().hex[:6]}",
                 "download_dir": "/downloads/dead",
             },
         )
@@ -234,7 +244,7 @@ class TestAgentWorksAndValidation:
             method="post",
             json={
                 "name": "Work Update Channel",
-                "url": GOOD_FEED,
+                "url": unique_feed_url(GOOD_FEED),
                 "field_mapping": DEFAULT_FIELD_MAPPING,
                 "fetch_interval": 3600,
                 "metadata_agent_enabled": False,
@@ -317,7 +327,7 @@ class TestAgentWorksAndValidation:
             method="post",
             json={
                 "name": "Agent Validation Channel",
-                "url": GOOD_FEED,
+                "url": unique_feed_url(GOOD_FEED),
                 "field_mapping": DEFAULT_FIELD_MAPPING,
                 "fetch_interval": 3600,
                 "metadata_agent_enabled": False,

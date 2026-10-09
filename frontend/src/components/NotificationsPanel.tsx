@@ -10,6 +10,7 @@ import {
   Dropdown,
   Empty,
   Form,
+  Grid,
   Input,
   Modal,
   Popconfirm,
@@ -54,6 +55,7 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
   const { t } = useTranslation();
   const { message } = App.useApp();
   const { token } = theme.useToken();
+  const screens = Grid.useBreakpoint();
 
   // Webhooks
   const [webhooks, setWebhooks] = useState<AgentWebhook[]>([]);
@@ -320,7 +322,7 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
             okButtonProps={{ danger: true }}
             onConfirm={() => handleDeleteWebhook(record)}
           >
-            <Button type="text" size="small" danger icon={<Trash2 size={14} />} />
+            <Button type="text" size="small" danger icon={<Trash2 size={14} />} aria-label={t('common.delete')} />
           </Popconfirm>
         </Space>
       ),
@@ -639,7 +641,7 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
         open={!!detail || loadingDetail}
         onClose={() => setDetail(null)}
         title={t('agents.notifDetailTitle')}
-        width={window.innerWidth < 768 ? '100%' : 680}
+        width={screens.md ? 680 : '100%'}
         destroyOnClose
         loading={loadingDetail}
       >

@@ -38,6 +38,7 @@ import {
 import { timeAgo, formatBytes, formatSpeed } from '../utils/format';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
 import { TORRENT_STATUS_TAG_COLORS } from '../utils/torrent';
+import { createRequestGuard } from '../utils/requestGuard';
 import type {
   DashboardDownloadsData,
   DashboardOverviewData,
@@ -104,14 +105,24 @@ export default function Dashboard() {
     decision: [], confirmation: [], plan: [],
   });
   const [ignoringTodos, setIgnoringTodos] = useState(false);
+  const overviewGuardRef = useRef(createRequestGuard());
+  useEffect(() => {
+    const guard = overviewGuardRef.current;
+    return () => guard.cancel();
+  }, []);
 
   const fetchOverview = useCallback(async () => {
+    // Latest-request-wins: the 30s poll and manual refreshes (page changes,
+    // confirm/skip actions) share this guard, so a slow stale response can
+    // never overwrite a newer one; cancelled on unmount.
+    const token = overviewGuardRef.current.next();
     const res = await dashboardApi.overview({
       decisionPage,
       confirmationPage,
       planPage,
       pageSize: TODO_PAGE_SIZE,
     });
+    if (!overviewGuardRef.current.isCurrent(token)) return;
     if (res.success) {
       setOverview(res.data);
       const decisionLastPage = Math.max(
@@ -608,6 +619,7 @@ export default function Dashboard() {
                                 type="text"
                                 size="small"
                                 icon={<ListTree size={14} />}
+                                aria-label={t('resource.files')}
                                 onClick={() => setFilesResourceId(r.id)}
                               />
                             </Tooltip>
@@ -651,6 +663,7 @@ export default function Dashboard() {
                                 type="text"
                                 size="small"
                                 icon={<ListTree size={14} />}
+                                aria-label={t('resource.files')}
                                 onClick={() => setFilesResourceId(r.id)}
                               />
                             </Tooltip>
@@ -922,7 +935,7 @@ export default function Dashboard() {
                       </div>
                     </div>
                     <Space size={4} style={{ flexShrink: 0 }}>
-                      <Button
+                      <Button aria-label={t('organize.detail')}
                         type="text"
                         size="small"
                         icon={<Eye size={14} />}
@@ -941,7 +954,7 @@ export default function Dashboard() {
                         </Button>
                       )}
                       {isPlanCancellable(p) && (
-                        <Button
+                        <Button aria-label={t('organize.cancelPlan')}
                           type="text"
                           size="small"
                           danger

@@ -226,8 +226,11 @@ async def test_movie_to_series_rekeys_only_candidates_with_explicit_season(
     collection = WorkCollection(title_cn="Synthetic reverse conversion")
     db_session.add(collection)
     await db_session.flush()
-    series = TVSeries(title_cn="Synthetic episode work", collection_id=collection.id, season_number=2)
-    movie = Movie(title_cn="Synthetic episode work")
+    series = TVSeries(
+        title_cn="Synthetic episode work", collection_id=collection.id, season_number=2,
+        external_source="tmdb", external_id="tmdb:9002",
+    )
+    movie = Movie(title_cn="Synthetic episode work", external_source="tmdb", external_id="tmdb:9002")
     agent = Agent(
         name="Synthetic reverse agent", channel_id=channel.id, downloader_id=downloader.id,
         scope_channel_wide=True,

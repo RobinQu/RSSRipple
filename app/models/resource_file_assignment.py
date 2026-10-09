@@ -4,9 +4,10 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from app.database import Base
+from app.models.guards import check_unique_key_bytes
 from app.utils.sql_time import UTCNow
 
 
@@ -61,3 +62,10 @@ class ResourceFileAssignment(Base):
     resource = relationship("FileResource", back_populates="file_assignments")
     series = relationship("TVSeries")
     movie = relationship("Movie")
+
+    @validates("file_path")
+    def _file_path_within_unique_key(self, _key, value):
+        # uq_assignment_resource_path 的 PG btree 单行字节护栏：resource_id
+        # 固定 36 字节（UUID），为它与索引内部开销预留后校验 file_path。
+        check_unique_key_bytes("file_path", value, reserved_bytes=36)
+        return value

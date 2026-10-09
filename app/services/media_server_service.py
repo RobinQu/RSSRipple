@@ -149,30 +149,35 @@ async def scan_server(db, server: Any) -> dict:
     for section, norm_path, resolved in locations:
         volume_id, root_subpath = resolved if resolved else (None, None)
         existing = index.get((section["key"], norm_path))
-        if existing is None:
-            db.add(Library(
-                name=section["name"],
-                media_server_id=server.id,
-                section_key=section["key"],
-                server_path=norm_path,
-                volume_id=volume_id,
-                root_subpath=root_subpath,
-                kind=section["kind"],
-            ))
-            stats["created"] += 1
-            final_volume_id = volume_id
-        else:
-            # 重扫更新：显示名/类型以服务器现状为准；server_path 归一
-            # 收敛历史尾斜杠差异；绑定命中才更新解析结果，未命中保留
-            # 既有（可能是手工补绑定的）卷引用。
-            existing.name = section["name"]
-            existing.kind = section["kind"]
-            existing.server_path = norm_path
-            if volume_id is not None:
-                existing.volume_id = volume_id
-                existing.root_subpath = root_subpath
-            stats["updated"] += 1
-            final_volume_id = existing.volume_id
+        try:
+            if existing is None:
+                db.add(Library(
+                    name=section["name"],
+                    media_server_id=server.id,
+                    section_key=section["key"],
+                    server_path=norm_path,
+                    volume_id=volume_id,
+                    root_subpath=root_subpath,
+                    kind=section["kind"],
+                ))
+                stats["created"] += 1
+                final_volume_id = volume_id
+            else:
+                # 重扫更新：显示名/类型以服务器现状为准；server_path 归一
+                # 收敛历史尾斜杠差异；绑定命中才更新解析结果，未命中保留
+                # 既有（可能是手工补绑定的）卷引用。
+                existing.name = section["name"]
+                existing.kind = section["kind"]
+                existing.server_path = norm_path
+                if volume_id is not None:
+                    existing.volume_id = volume_id
+                    existing.root_subpath = root_subpath
+                stats["updated"] += 1
+                final_volume_id = existing.volume_id
+        except ValueError as exc:
+            # ORM 字节护栏（唯一键超出 PG btree 预算）：跳过该库，不阻断整轮扫描。
+            logger.warning("[media-server] skip library %s: %s", section.get("name"), exc)
+            continue
         if final_volume_id is None:
             stats["unbound"] += 1
     await db.commit()

@@ -70,7 +70,7 @@ async def _seed_resource(db_session, *, series_id=None, movie_id=None,
 
     channel = Channel(
         id=kw.pop("channel_id", _uuid()), name="ch", type="rss_feed",
-        url="https://example.com/rss",
+        url=f"https://example.com/rss/{_uuid()}",
         field_mapping={"list_locator": {"source": "entries"},
                        "field_mappings": {"torrent_url": {"source": "link"}}},
         metadata_agent_enabled=False,

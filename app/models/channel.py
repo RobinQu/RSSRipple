@@ -3,10 +3,11 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Enum, Integer, String
+from sqlalchemy import Boolean, DateTime, Enum, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.db_types import json_column
 from app.services.required_fields import normalize_required_fields
 from app.utils.sql_time import UTCNow
 
@@ -18,6 +19,12 @@ def _default_required_fields() -> list[str]:
 
 class Channel(Base):
     __tablename__ = "channels"
+    __table_args__ = (
+        # One feed URL may be subscribed only once (legacy databases get the
+        # same guarantee via a unique index in the startup light migration,
+        # skipped with a warning if duplicate rows already exist).
+        UniqueConstraint("url", name="uq_channels_url"),
+    )
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
@@ -33,7 +40,7 @@ class Channel(Base):
         default="active",
         nullable=False,
     )
-    field_mapping: Mapped[dict] = mapped_column(JSON, nullable=False)
+    field_mapping: Mapped[dict] = mapped_column(json_column(), nullable=False)
     metadata_agent_enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, nullable=False
     )
@@ -44,15 +51,16 @@ class Channel(Base):
     # Ordered web-search fallback site whitelist (JSON list of registry source
     # names). None = default order; [] = fallback disabled. The fallback
     # supplies identity/links only - content follows the primary source.
-    metadata_fallback_sources: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    metadata_fallback_sources: Mapped[list[str] | None] = mapped_column(json_column(), nullable=True)
     # Channel-declared "required" metadata fields (JSON list of catalog
     # keys, see app/services/required_fields.py). Drives the resource-list
     # display column and the agent filter-DSL gating. Mandatory and add-only
     # after creation: defaults to the code-enforced baseline (locked six);
     # the startup light migration converges legacy NULL/partial rows to the
-    # same baseline. There is no "unrestricted" state anymore.
-    required_metadata_fields: Mapped[list[str] | None] = mapped_column(
-        JSON, nullable=True, default=lambda: _default_required_fields()
+    # same baseline. NOT NULL (Turso: 表重建；PostgreSQL: SET NOT NULL) —
+    # there is no "unrestricted" state anymore.
+    required_metadata_fields: Mapped[list[str]] = mapped_column(
+        json_column(), nullable=False, default=lambda: _default_required_fields()
     )
     # "默认标记为 Anime": works linked from this channel's successfully parsed
     # resources get is_anime=True. Immutable after creation (update API 422s

@@ -13,25 +13,38 @@ TMDB rule would rewrite ``tmdb-collection:131295`` to ``tmdb:131295`` and
 collide with the movie id space). TV franchise grouping instead uses
 ``external_source="wikidata"`` + the franchise entity QID (see
 ``scripts/tv_collection_backfill.py``). The (external_source, external_id)
-pair is unique so upserts are idempotent.
+pair is unique *for identity-bearing rows only* (partial unique index
+``WHERE external_id IS NOT NULL``) so upserts are idempotent, while shell
+collections (``external_id NULL``) legitimately coexist in multiples.
 """
 
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, Index, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.db_types import json_column
 from app.utils.sql_time import UTCNow
 
 
 class WorkCollection(Base):
     __tablename__ = "work_collections"
     __table_args__ = (
-        UniqueConstraint(
+        # Identity-keyed upserts (tmdb_collection / wikidata) are unique on
+        # (external_source, external_id), but ONLY for rows that carry an
+        # external identity: shell collections (series_group, NULL id),
+        # franchise packs and manual collections are legitimately plural, so
+        # a plain UNIQUE constraint (NULLs distinct) would give no guarantee
+        # while a COALESCE expression index would wrongly collapse them.
+        # Partial unique index — same DDL on both backends.
+        Index(
+            "uq_work_collections_source_external",
             "external_source", "external_id",
-            name="uq_work_collections_source_external",
+            unique=True,
+            sqlite_where=text("external_id IS NOT NULL"),
+            postgresql_where=text("external_id IS NOT NULL"),
         ),
     )
 
@@ -42,7 +55,7 @@ class WorkCollection(Base):
     title_en: Mapped[str | None] = mapped_column(String(512), nullable=True)
     # Alternative titles (season-qualified variants, translations) used by the
     # two-level title fallback when matching series-level sources.
-    aliases: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    aliases: Mapped[list | None] = mapped_column(json_column(), nullable=True)
     # Normalized search haystack (title_cn + title_en + aliases through
     # ``normalize_title``), maintained by the ORM before_flush hook — same
     # logic as the work tables, but collections are NOT mirrored into the
@@ -50,8 +63,8 @@ class WorkCollection(Base):
     search_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Fields the user edited manually; automatic metadata scans skip these
     # (same contract as TVSeries/Movie.manually_edited_fields).
-    manually_edited_fields: Mapped[list | None] = mapped_column(JSON, nullable=True)
-    external_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    manually_edited_fields: Mapped[list | None] = mapped_column(json_column(), nullable=True)
+    external_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     external_source: Mapped[str | None] = mapped_column(String(100), nullable=True)
     # Remote TMDB image URL (no local caching in phase 1).
     poster_url: Mapped[str | None] = mapped_column(String(512), nullable=True)

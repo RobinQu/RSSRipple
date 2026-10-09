@@ -227,7 +227,7 @@ export default function MediaServerFormModal({
                         maxLength={512}
                         placeholder={t('mediaServers.subpath')}
                         suffix={
-                          <Button
+                          <Button aria-label={t('volumes.browse')}
                             type="text"
                             size="small"
                             icon={<FolderOpen size={14} />}
@@ -238,7 +238,7 @@ export default function MediaServerFormModal({
                         }
                       />
                     </Form.Item>
-                    <Button
+                    <Button aria-label={t('common.delete')}
                       type="text"
                       size="small"
                       danger

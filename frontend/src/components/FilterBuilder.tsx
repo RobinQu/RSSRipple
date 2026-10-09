@@ -21,6 +21,10 @@ import {
 } from '@ant-design/icons';
 import { channelsApi } from '../api/channels';
 import { GENRE_NAMES, genreSlug } from '../constants/genres';
+import {
+  FILTER_FIELD_TYPES,
+  type FilterFieldType,
+} from '../constants/filterFields';
 import type {
   BoolCondition,
   FieldCondition,
@@ -37,57 +41,13 @@ import {
 import type { TFunction } from 'i18next';
 
 // ---------------------------------------------------------------------------
-// Field & operator metadata — kept in one place so future additions only
-// need to touch this section. Backed by ``filter_engine.py`` on the server.
+// Field & operator metadata — the field catalog itself (names, value types,
+// resource-level vs work-namespaced) lives in constants/filterFields.ts as
+// the single source of truth; only UI-only concerns stay here. Backed by
+// ``filter_engine.py`` on the server.
 // ---------------------------------------------------------------------------
 
-type FieldType = 'string' | 'number' | 'bool' | 'list';
-
-const FIELD_TYPES: Record<FilterField, FieldType> = {
-  subtitle_group: 'string',
-  subtitle_groups: 'list',
-  resolution: 'string',
-  source: 'string',
-  video_codec: 'string',
-  audio_codec: 'string',
-  subtitle_type: 'string',
-  container: 'string',
-  // episode_confidence / content_type are stored as plain strings on the
-  // backend but the UI treats them as enums so users pick from a fixed list.
-  episode_confidence: 'string',
-  content_type: 'string',
-  title_cn: 'string',
-  title_en: 'string',
-  search_title: 'string',
-  file_size: 'number',
-  episode: 'number',
-  season: 'number',
-  episode_start: 'number',
-  episode_end: 'number',
-  absolute_episode: 'number',
-  is_batch: 'bool',
-  subtitle_langs: 'list',
-  // Work-namespaced fields resolve through the linked Movie/TVSeries on the
-  // server (rating 0-10; year from release_date / start_date).
-  'movie.rating': 'number',
-  'movie.year': 'number',
-  'series.rating': 'number',
-  'series.year': 'number',
-  // genre is a closed canonical set on the work (see constants/genres.ts);
-  // element-wise list semantics, same as subtitle_langs.
-  'movie.genre': 'list',
-  'series.genre': 'list',
-  // Collection display name (WorkCollection.title_cn or title_en) on the work.
-  'movie.collection': 'string',
-  'series.collection': 'string',
-  // Resource-level collection display name — franchise packs link a
-  // WorkCollection directly via collection_id (work FKs all empty).
-  collection: 'string',
-  // Tri-state booleans on the work: true = anime, false = live-action,
-  // null (empty) = undetermined — use is_empty/is_not_empty to match null.
-  'series.is_anime': 'bool',
-  'movie.is_anime': 'bool',
-};
+const FIELD_TYPES: Record<FilterField, FilterFieldType> = FILTER_FIELD_TYPES;
 
 // Fields with a bounded, meaningful autocomplete set. Autocomplete is only
 // worth doing for eq/ne/contains/fuzzy on string columns; list/bool/number
@@ -564,6 +524,7 @@ export function FieldConditionNode({
         size="small"
         danger
         icon={<MinusCircleOutlined />}
+        aria-label={t('common.remove')}
         onClick={onDelete}
       />
     </div>
@@ -666,6 +627,7 @@ function BoolConditionNode({
             size="small"
             danger
             icon={<DeleteOutlined />}
+            aria-label={t('common.remove')}
             onClick={onDelete}
           />
         )}

@@ -119,6 +119,7 @@ export function WorkInfoIcon({ work, isSeries }: { work: ResourceWorkRef | null;
       }
       placement="topLeft"
     >
+      {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events -- the click handler is a propagation guard only (keeps a table-row click from firing); this span is a tooltip anchor, not an interactive control */}
       <span
         onClick={(e) => e.stopPropagation()}
         style={{ display: 'inline-flex', alignItems: 'center' }}

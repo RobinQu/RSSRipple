@@ -159,3 +159,104 @@ async def test_batch_timeout_does_not_stall_remaining_works(monkeypatch, db_sess
     )
     assert results[0]["found"] is False and results[0]["error"] == "timeout"
     assert results[1]["found"] is True
+
+
+# ---------------------------------------------------------------------------
+# Whole-job time budget
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_batch_job_time_budget_skips_remaining(monkeypatch, db_session):
+    """Once the whole-job budget is spent, remaining works are recorded as
+    skipped instead of refreshed, keeping one result entry per input item."""
+    _patch_env(monkeypatch, db_session)
+    works = [TVSeries(id=_uuid(), title_en=f"W{i}", content_type="tv") for i in range(3)]
+    db_session.add_all(works)
+    await db_session.flush()
+    refresh = AsyncMock(return_value={"found": True, "applied": [], "message": "matched"})
+    monkeypatch.setattr("app.services.metadata_search.refresh_work_by_source", refresh)
+
+    # Clock: batch start (deadline = 10), before item 1 (still in budget),
+    # before item 2 (budget exhausted).
+    clock = iter([0.0, 1.0, 100.0])
+    monkeypatch.setattr("app.job_handlers._monotonic", lambda: next(clock))
+
+    results = await _refresh_works_batch(
+        [{"id": w.id, "content_type": "tv"} for w in works],
+        "bangumi",
+        time_budget=10,
+    )
+
+    assert len(results) == 3
+    assert results[0]["found"] is True
+    assert results[1]["skipped"] is True
+    assert results[1]["error"] == "job_time_budget_exceeded"
+    assert results[1]["id"] == works[1].id
+    assert results[2]["skipped"] is True
+    assert refresh.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_batch_zero_time_budget_disables_limit(monkeypatch, db_session):
+    _patch_env(monkeypatch, db_session)
+    works = [TVSeries(id=_uuid(), title_en=f"W{i}", content_type="tv") for i in range(2)]
+    db_session.add_all(works)
+    await db_session.flush()
+    refresh = AsyncMock(return_value={"found": True, "applied": [], "message": "matched"})
+    monkeypatch.setattr("app.services.metadata_search.refresh_work_by_source", refresh)
+    # The clock must not be consulted at all when the budget is disabled.
+    monkeypatch.setattr(
+        "app.job_handlers._monotonic",
+        lambda: pytest.fail("disabled budget must not read the clock"),
+    )
+
+    results = await _refresh_works_batch(
+        [{"id": w.id, "content_type": "tv"} for w in works],
+        "bangumi",
+        time_budget=0,
+    )
+    assert [r["found"] for r in results] == [True, True]
+    assert refresh.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_handle_refresh_works_reports_truncation(monkeypatch, db_session):
+    """A partially processed batch surfaces processed/total/truncated while
+    keeping the existing status/results keys."""
+    _patch_env(monkeypatch, db_session)
+    batch = AsyncMock(return_value=[
+        {"id": "w1", "content_type": "tv", "found": True},
+        {"id": "w2", "content_type": "tv", "found": False,
+         "skipped": True, "error": "job_time_budget_exceeded"},
+    ])
+    monkeypatch.setattr("app.job_handlers._refresh_works_batch", batch)
+
+    result = await _handle_refresh_works_metadata({
+        "items": [{"id": "w1", "content_type": "tv"}, {"id": "w2", "content_type": "tv"}],
+        "source": "bangumi",
+    })
+
+    assert result["status"] == "done"
+    assert result["processed"] == 1
+    assert result["total"] == 2
+    assert result["truncated"] is True
+    assert len(result["results"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_refresh_batch_summary_ignores_field_level_skipped_lists():
+    """``refresh_work_by_source`` returns ``skipped`` as a list of field names
+    on success; only the boolean budget marker counts as unprocessed."""
+    from app.job_handlers import _refresh_batch_summary
+
+    summary = _refresh_batch_summary(
+        [
+            {"id": "w1", "found": True, "applied": ["rating"], "skipped": ["poster_url"]},
+            {"id": "w2", "found": True},
+            {"id": "w3", "found": False, "skipped": True,
+             "error": "job_time_budget_exceeded"},
+        ],
+        total=3,
+    )
+    assert summary == {"processed": 2, "total": 3, "truncated": True}

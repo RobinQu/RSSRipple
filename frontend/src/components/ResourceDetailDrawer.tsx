@@ -8,6 +8,7 @@ import {
   Divider,
   Empty,
   Button,
+  Grid,
   Space,
   App,
   Tooltip,
@@ -18,6 +19,7 @@ import { Copy, Download, Pencil } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { resourcesApi } from '../api/channels';
 import { formatBytes, formatDate } from '../utils/format';
+import { copyToClipboard } from '../utils/clipboard';
 import { batchScopeLabel } from '../utils/batch';
 import ResourceCorrectionModal from './ResourceCorrectionModal';
 import CreateTaskModal from './CreateTaskModal';
@@ -115,6 +117,7 @@ export default function ResourceDetailDrawer({
   const { t } = useTranslation();
   const { message } = App.useApp();
   const { token } = theme.useToken();
+  const screens = Grid.useBreakpoint();
   const [meta, setMeta] = useState<LinkedMeta | null>(null);
   const [metaLoading, setMetaLoading] = useState(false);
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
@@ -195,57 +198,8 @@ export default function ResourceDetailDrawer({
     loadMeta(resource.id);
   }, [resource, loadMeta]);
 
-  const writeClipboard = (value: string): Promise<boolean> => {
-    // Clipboard.writeText is restricted to secure contexts. Do not attempt it
-    // on HTTP: waiting for its rejection can consume the transient user
-    // activation required by the legacy copy command.
-    if (window.isSecureContext && navigator.clipboard?.writeText) {
-      return navigator.clipboard.writeText(value).then(
-        () => true,
-        () => false,
-      );
-    }
-
-    const textarea = document.createElement('textarea');
-    const previouslyFocused = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
-    let copyEventHandled = false;
-    const handleCopy = (event: ClipboardEvent) => {
-      if (!event.clipboardData) return;
-      event.clipboardData.setData('text/plain', value);
-      event.preventDefault();
-      copyEventHandled = true;
-    };
-
-    textarea.value = value;
-    textarea.readOnly = true;
-    textarea.style.position = 'fixed';
-    textarea.style.left = '-9999px';
-    textarea.style.top = '0';
-    document.body.appendChild(textarea);
-    textarea.addEventListener('copy', handleCopy);
-    textarea.focus();
-    textarea.select();
-
-    let commandSucceeded: boolean;
-    try {
-      commandSucceeded = document.execCommand('copy');
-    } catch {
-      commandSucceeded = false;
-    } finally {
-      textarea.removeEventListener('copy', handleCopy);
-      textarea.remove();
-      previouslyFocused?.focus();
-    }
-
-    // execCommand may return true without changing the clipboard. Requiring
-    // the copy event confirms that this page actually supplied the payload.
-    return Promise.resolve(commandSucceeded && copyEventHandled);
-  };
-
   const copyTorrent = async (url: string) => {
-    if (await writeClipboard(url)) {
+    if (await copyToClipboard(url)) {
       message.success(t('resource.magnetCopied'));
     } else {
       message.error(t('resource.copyFailed'));
@@ -253,7 +207,7 @@ export default function ResourceDetailDrawer({
   };
 
   const copyResourceId = async (id: string) => {
-    if (await writeClipboard(id)) {
+    if (await copyToClipboard(id)) {
       message.success(t('resource.idCopied'));
     } else {
       message.error(t('resource.copyFailed'));
@@ -397,6 +351,7 @@ export default function ResourceDetailDrawer({
                 type="text"
                 size="small"
                 icon={<Copy size={12} />}
+                aria-label={t('common.copy')}
                 onClick={() => void copyTorrent(r.torrent_url)}
               />
             </Space>
@@ -473,7 +428,7 @@ export default function ResourceDetailDrawer({
         }
         open={open}
         onClose={onClose}
-        width={window.innerWidth < 768 ? '100%' : 520}
+        width={screens.md ? 520 : '100%'}
         destroyOnHidden
         styles={{ body: { padding: 20 } }}
         footer={

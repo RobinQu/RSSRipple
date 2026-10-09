@@ -52,7 +52,7 @@ async def limit_database(monkeypatch):
 async def test_membership_edit_waits_then_rechecks(limit_database, monkeypatch, first_edit, record_property):
     engine, factory = limit_database
     async with factory() as db:
-        channel = Channel(name="Synthetic cap channel", type="rss_feed", url="https://example.invalid/feed", field_mapping={})
+        channel = Channel(name="Synthetic cap channel", type="rss_feed", url=f"https://example.invalid/feed/{str(uuid.uuid4())}", field_mapping={})
         downloader = DownloaderInstance(name="Synthetic unused downloader", type="transmission", url="http://unused.invalid", download_dir="/synthetic-downloads")
         movies = [Movie(title_cn=f"Synthetic movie {i}") for i in range(11)]
         db.add_all([channel, downloader, *movies])

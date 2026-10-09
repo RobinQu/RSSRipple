@@ -198,6 +198,49 @@ class TestFetchChannelResources:
         assert res["new_count"] == 0
         assert channel.last_fetch_status == "failed"
 
+
+class TestPausedChannelWriteBack:
+    """A pause committed while a fetch is in flight must survive the job's
+    status write-back: last_fetch_* still update, status stays "inactive"."""
+
+    async def test_pause_during_fetch_survives_success_writeback(
+        self, db_session, channel, fake_queue, monkeypatch
+    ):
+        from app.database import async_session_factory
+
+        async def pause_mid_flight(*args, **kwargs):
+            # Simulate the web process committing a pause mid-fetch.
+            async with async_session_factory() as s:
+                ch = await s.get(Channel, channel.id)
+                ch.status = "inactive"
+                await s.commit()
+            return 0
+
+        monkeypatch.setattr(fs, "_parse_feed_sync", lambda _: _mock_feed([]))
+        monkeypatch.setattr(fs, "_backfill_unmatched_resources", pause_mid_flight)
+        res = await fs.fetch_channel_resources(channel, db_session)
+        assert res["status"] == "unchanged"
+        # The in-session object still holds the stale pre-pause value; reload.
+        await db_session.refresh(channel)
+        assert channel.status == "inactive"
+        assert channel.last_fetch_status == "success"
+        assert channel.last_fetched_at is not None
+
+    async def test_paused_channel_feed_failure_keeps_inactive(
+        self, db_session, channel, fake_queue
+    ):
+        channel.status = "inactive"
+        await db_session.commit()
+        with patch(
+            "app.services.fetch_service._parse_feed_sync",
+            side_effect=Exception("network error"),
+        ):
+            res = await fs.fetch_channel_resources(channel, db_session)
+        assert res["status"] == "error"
+        assert channel.status == "inactive"
+        assert channel.last_fetch_status == "failed"
+        assert "network error" in (channel.last_fetch_error or "")
+
     async def test_new_entries_create_resources(self, db_session, channel, fake_queue):
         entries = [
             _entry("g1", "[Group] Show - 01 [1080p]", enclosures=[
@@ -1619,3 +1662,165 @@ async def test_reconcile_stale_history_backed_path(db_session, channel):
     assert target.id in changed
     await db_session.refresh(target)
     assert target.episode_confidence == "reconciled"
+
+
+# ---------------------------------------------------------------------------
+# _WORK_METADATA_LOCKS: bounded LRU registry
+# ---------------------------------------------------------------------------
+
+
+class TestWorkMetadataLocks:
+    def setup_method(self):
+        fs._WORK_METADATA_LOCKS.clear()
+
+    def teardown_method(self):
+        fs._WORK_METADATA_LOCKS.clear()
+
+    def test_locks_registry_is_lru_bounded(self, monkeypatch):
+        monkeypatch.setattr(fs, "_MAX_WORK_METADATA_LOCKS", 5)
+        locks = [fs._work_metadata_lock(f"k{i}") for i in range(10)]
+        assert len(fs._WORK_METADATA_LOCKS) == 5
+        # Oldest keys evicted, newest retained with stable identity.
+        assert "k0" not in fs._WORK_METADATA_LOCKS
+        assert fs._work_metadata_lock("k9") is locks[9]
+        assert fs._work_metadata_lock("k5") is locks[5]
+
+    async def test_held_lock_is_never_evicted(self, monkeypatch):
+        monkeypatch.setattr(fs, "_MAX_WORK_METADATA_LOCKS", 3)
+        held = fs._work_metadata_lock("held")
+        await held.acquire()
+        try:
+            for i in range(10):
+                fs._work_metadata_lock(f"k{i}")
+            # Evicting a held lock would split its critical section.
+            assert fs._WORK_METADATA_LOCKS.get("held") is held
+        finally:
+            held.release()
+
+    def test_same_key_returns_same_lock_while_retained(self):
+        first = fs._work_metadata_lock("same")
+        assert fs._work_metadata_lock("same") is first
+
+
+# ---------------------------------------------------------------------------
+# fetch_channel_resources: batched GUID snapshot + per-entry IntegrityError
+# ---------------------------------------------------------------------------
+
+
+class TestFetchGuidSnapshot:
+    async def test_guid_lookup_is_chunked_and_dedup_unchanged(
+        self, db_session, channel, fake_queue, monkeypatch
+    ):
+        """The dedup snapshot only loads GUIDs carried by this batch (IN query
+        chunked under the host-variable limit); dedup semantics are unchanged."""
+        monkeypatch.setattr(fs, "_GUID_LOOKUP_CHUNK", 2)
+        db_session.add(FileResource(
+            id=_uuid(), channel_id=channel.id, guid="pre-existing",
+            title_raw="old", torrent_url="magnet:?xt=urn:btih:old",
+        ))
+        await db_session.commit()
+
+        entries = [
+            _entry(f"gc{i}", f"[G] Show - {i:02d}", enclosures=[
+                {"url": f"magnet:?xt=urn:btih:gc{i}"},
+            ])
+            for i in range(5)
+        ]
+        # Duplicate of a pre-existing row is still skipped via the IN lookup.
+        entries.append(_entry("pre-existing", "[G] Show - 00", enclosures=[
+            {"url": "magnet:?xt=urn:btih:dup"},
+        ]))
+        feed = _mock_feed(entries)
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+             patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
+            res = await fs.fetch_channel_resources(channel, db_session)
+
+        assert res["new_count"] == 5
+        from sqlalchemy import func, select
+        count = (await db_session.execute(
+            select(func.count()).select_from(FileResource).where(
+                FileResource.channel_id == channel.id
+            )
+        )).scalar_one()
+        assert count == 6  # 5 new + the pre-existing row
+
+
+class TestFetchIntegrityError:
+    async def test_concurrent_guid_insert_skips_entry_and_continues(
+        self, db_session, channel, fake_queue, monkeypatch
+    ):
+        """A concurrent writer storing the same (channel, guid) between the
+        dedup snapshot and the insert must not abort the fetch job: that entry
+        is treated as already-known and the remaining entries are stored."""
+        from sqlalchemy import select
+
+        import app.services.subtitle_groups as sg_mod
+        from app.database import async_session_factory
+
+        real_resolve = sg_mod.resolve_subtitle_groups
+        raced = False
+
+        async def resolve_with_race(db, value):
+            nonlocal raced
+            if not raced:
+                raced = True
+                # Simulate a concurrent fetch process inserting the same
+                # (channel, guid) after this job's dedup snapshot.
+                async with async_session_factory() as other:
+                    other.add(FileResource(
+                        id=_uuid(), channel_id=channel.id, guid="race",
+                        title_raw="concurrent", torrent_url="magnet:?xt=urn:btih:race",
+                    ))
+                    await other.commit()
+            return await real_resolve(db, value)
+
+        monkeypatch.setattr(sg_mod, "resolve_subtitle_groups", resolve_with_race)
+        # Deterministic subtitle_group so resolve_subtitle_groups runs for
+        # every entry (the race hook lives there — after the snapshot, before
+        # the insert).
+        monkeypatch.setattr(fs, "parse_entry", lambda *a, **kw: {"subtitle_group": "G"})
+
+        entries = [
+            _entry("race", "[G] Show - 01 [1080p]", enclosures=[
+                {"url": "magnet:?xt=urn:btih:race-new"},
+            ]),
+            _entry("after", "[G] Show - 02 [1080p]", enclosures=[
+                {"url": "magnet:?xt=urn:btih:after"},
+            ]),
+        ]
+        feed = _mock_feed(entries)
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+             patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
+            res = await fs.fetch_channel_resources(channel, db_session)
+
+        assert raced
+        # The raced entry folded into the concurrent row; the later entry was
+        # still processed.
+        assert res["new_count"] == 1
+        assert channel.last_fetch_status == "success"
+        guids = set((await db_session.execute(
+            select(FileResource.guid).where(FileResource.channel_id == channel.id)
+        )).scalars().all())
+        assert guids == {"race", "after"}
+
+    async def test_non_guid_integrity_error_still_raises(
+        self, db_session, channel, fake_queue, monkeypatch
+    ):
+        """Only the (channel, guid) unique conflict is absorbed; other
+        integrity failures still abort the job."""
+        from sqlalchemy.exc import IntegrityError
+
+        monkeypatch.setattr(fs, "parse_entry", lambda *a, **kw: {})
+        entries = [_entry("g-boom", "[G] Show - 01", enclosures=[
+            {"url": "magnet:?xt=urn:btih:boom"},
+        ])]
+        feed = _mock_feed(entries)
+
+        async def flush_boom(*a, **kw):
+            raise IntegrityError("INSERT", {}, Exception("FOREIGN KEY constraint failed"))
+
+        monkeypatch.setattr(db_session, "flush", flush_boom)
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+             patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
+            with pytest.raises(IntegrityError):
+                await fs.fetch_channel_resources(channel, db_session)

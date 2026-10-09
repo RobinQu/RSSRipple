@@ -10,19 +10,37 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 _FRAME = struct.Struct("!Q?")
 
+# Methods whose replay cannot multiply side effects. GET/HEAD/OPTIONS are
+# safe by HTTP definition: handlers do not commit writes or trigger
+# out-of-band work for them, so re-running the whole request after a
+# rolled-back transaction is indistinguishable from a single attempt.
+#
+# Everything else is deliberately NOT replayed — including PUT/DELETE, which
+# are idempotent per HTTP semantics but in this app can enqueue background
+# jobs (e.g. PUT /resources/{id}/associations enqueues a targeted agent run)
+# or issue downloader RPCs (e.g. DELETE task → Transmission). For those
+# handlers a DatabaseError mid-request means the DB transaction was rolled
+# back but any out-of-band effect (enqueue, RPC, SSE event) already
+# happened and cannot be undone; replaying would duplicate it. The client
+# receives the error and can retry the operation itself.
+_REPLAYABLE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
 
 class DatabaseRetryMiddleware:
     """Preserve request chunks; never restart a response already sent.
 
     Large uploads spill to a private temporary file rather than growing memory
     without bound. Reading remains demand-driven, including streaming uploads.
+
+    Only safe HTTP methods (``_REPLAYABLE_METHODS``) are replayed; other
+    methods pass through untouched — no body spooling, no retry.
     """
 
     def __init__(self, app: ASGIApp):
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
+        if scope["type"] != "http" or scope.get("method") not in _REPLAYABLE_METHODS:
             await self.app(scope, receive, send)
             return
         from app.database import _MAX_DB_RETRIES, _backoff_delay, _is_retryable_lock_error

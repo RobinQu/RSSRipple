@@ -3,15 +3,20 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String
+from sqlalchemy import DateTime, Enum, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.db_types import json_column
 from app.utils.sql_time import UTCNow
 
 
 class DownloaderInstance(Base):
     __tablename__ = "downloader_instances"
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_downloader_instances_name"),
+        UniqueConstraint("url", name="uq_downloader_instances_url"),
+    )
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
@@ -33,7 +38,7 @@ class DownloaderInstance(Base):
     # 已废弃（P1 未发布即被 R1 取代）：daemon 视角 → 本进程视角的自由文本
     # 前缀字典，由 ``volume_id`` / ``volume_subpath`` 卷绑定取代。列保留为
     # 惰性孤儿，代码不再读取。
-    path_map: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    path_map: Mapped[dict | None] = mapped_column(json_column(), nullable=True)
     # 卷绑定（R1）：daemon 视角的 ``download_dir`` 根 ==
     # ``volume.mount_path + volume_subpath``；两者皆 null = 两视角一致
     # （恒等，现状默认）。解析走

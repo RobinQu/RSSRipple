@@ -3,6 +3,7 @@
 import hashlib
 import json
 import logging
+import re
 from collections import Counter
 from pathlib import Path
 
@@ -38,6 +39,7 @@ from app.schemas.file_resource import (
 )
 from app.services import task_queue as task_queue_module  # live queue singleton (replaced at startup)
 from app.services.agent_resource_requests import request_channel_resources, wake_agents
+from app.services.metadata_cache_store import cache_identity, store_cache
 from app.services.metadata_service import fetch_and_link_metadata
 from app.services.torrent_inspect import (
     ensure_torrent_cached,
@@ -51,6 +53,29 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 _BATCH_ANALYSIS_SOURCE = "batch_file_analysis:v4"
+
+# Hard cap on the analyze-batch-stream polling loop (seconds). A queued job
+# that never finishes must not hold the SSE connection open indefinitely.
+_BATCH_STREAM_TIMEOUT_SECONDS = 600
+
+
+def _association_error_step(message: str) -> str | None:
+    """Map an ``AssociationValidationError`` message to the edit-wizard step
+    that fixes it, exposed to the client as the machine-readable
+    ``meta.step`` of the 422 response (``collection`` → works/collection step,
+    ``assignments`` → file-mapping step).
+
+    The exception carries only its human-readable message, so the
+    classification keys off the message text — owned by
+    ``app/services/resource_association.py``; keep these markers in sync with
+    its raise sites. A service-side ``step`` attribute, if ever added, takes
+    precedence (see the endpoint below).
+    """
+    if re.search(r"合集|作品集|collection", message, re.IGNORECASE):
+        return "collection"
+    if re.search(r"文件|指派|覆盖|区间|季", message):
+        return "assignments"
+    return None
 
 
 async def _latest_task_status_by_resource(
@@ -176,24 +201,21 @@ def _batch_analysis_fingerprint(resource: FileResource, files: list[dict]) -> st
 
 
 async def _store_batch_analysis(key: str, payload: dict) -> None:
-    async with async_session_factory() as session:
-        row = (await session.execute(select(MetadataCache).where(
-            MetadataCache.title == key,
-            MetadataCache.source == _BATCH_ANALYSIS_SOURCE,
-        ))).scalar_one_or_none()
-        if row is None:
-            row = MetadataCache(
-                title=key,
-                source=_BATCH_ANALYSIS_SOURCE,
-                content_type="batch_analysis",
-                metadata_json=payload,
-                generation=METADATA_CACHE_GENERATION,
-            )
-            session.add(row)
-        else:
-            row.metadata_json = payload
-            row.generation = METADATA_CACHE_GENERATION
-        await session.commit()
+    from app.database import retry_on_lock
+
+    async def attempt():
+        async with async_session_factory() as session:
+            try:
+                await store_cache(
+                    session, title=key, source=_BATCH_ANALYSIS_SOURCE,
+                    content_type="batch_analysis", metadata_json=payload,
+                )
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
+    await retry_on_lock(attempt)
 
 
 async def _retry_torrent_cache(db: AsyncSession, resource_id: str) -> None:
@@ -543,7 +565,8 @@ async def list_channel_field_values(
             )
         )
         if prefix:
-            stmt = stmt.where(func.lower(col).like(f"{prefix}%"))
+            escaped = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            stmt = stmt.where(func.lower(col).like(f"{escaped}%", escape="\\"))
         stmt = stmt.group_by(col).order_by(func.count().desc()).limit(limit)
         rows = (await db.execute(stmt)).all()
         return success_response([r[0] for r in rows])
@@ -611,18 +634,23 @@ async def get_resource_metadata(resource_id: str, db: AsyncSession = Depends(get
     if not resource:
         return JSONResponse(
             status_code=404,
-            content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Resource not found"}},
+            content={"success": False, "data": None,
+                     "error": {"code": "NOT_FOUND", "message": "Resource not found"},
+                     "meta": {}},
         )
 
     channel = await db.get(Channel, resource.channel_id)
     try:
         await fetch_and_link_metadata(db, resource, channel)
         await db.commit()
-    except Exception as e:
+    except Exception:
         await db.rollback()
+        logger.exception("[metadata] fetch_and_link failed for %s", resource_id)
         return JSONResponse(
             status_code=500,
-            content={"success": False, "data": None, "error": {"code": "INTERNAL_SERVER_ERROR", "message": str(e)}},
+            content={"success": False, "data": None,
+                     "error": {"code": "INTERNAL_SERVER_ERROR", "message": "An unexpected error occurred"},
+                     "meta": {}},
         )
 
     await db.refresh(resource, ["series", "movie", "audio_work"])
@@ -1060,18 +1088,32 @@ async def update_resource_associations(
         result = await apply_association_update(db, resource, body)
     except AssociationValidationError as e:
         await db.rollback()
+        # ``meta.step`` tells the edit wizard which step fixes the violation
+        # (machine-readable; the message stays human-readable).
+        step = getattr(e, "step", None) or _association_error_step(e.message)
         return JSONResponse(
             status_code=422,
             content={"success": False, "data": None,
-                     "error": {"code": "VALIDATION_ERROR", "message": e.message}},
+                     "error": {"code": "VALIDATION_ERROR", "message": e.message},
+                     "meta": {"step": step} if step else {}},
         )
-    except Exception as e:  # noqa: BLE001 — unexpected failure
+    except ValueError as e:
+        # ORM-level guards (e.g. unique-key byte budget) reject invalid input.
+        await db.rollback()
+        return JSONResponse(
+            status_code=422,
+            content={"success": False, "data": None,
+                     "error": {"code": "VALIDATION_ERROR", "message": str(e)},
+                     "meta": {}},
+        )
+    except Exception:  # noqa: BLE001 — unexpected failure
         await db.rollback()
         logger.exception("[associations] apply failed for %s", resource_id)
         return JSONResponse(
             status_code=500,
             content={"success": False, "data": None,
-                     "error": {"code": "INTERNAL_SERVER_ERROR", "message": str(e)}},
+                     "error": {"code": "INTERNAL_SERVER_ERROR", "message": "An unexpected error occurred"},
+                     "meta": {}},
         )
 
     channel_id = resource.channel_id
@@ -1154,7 +1196,8 @@ async def analyze_resource_batch_stream(
         return JSONResponse(
             status_code=404,
             content={"success": False, "data": None,
-                     "error": {"code": "NOT_FOUND", "message": "Resource not found"}},
+                     "error": {"code": "NOT_FOUND", "message": "Resource not found"},
+                     "meta": {}},
         )
     files, source = await _resolve_resource_files(db, resource)
     fingerprint = _batch_analysis_fingerprint(resource, files)
@@ -1162,13 +1205,18 @@ async def analyze_resource_batch_stream(
     cached = None
     if not force:
         cached = (await db.execute(select(MetadataCache).where(
-            MetadataCache.title == fingerprint,
-            MetadataCache.source == _BATCH_ANALYSIS_SOURCE,
+            *cache_identity(fingerprint, _BATCH_ANALYSIS_SOURCE),
             MetadataCache.generation == METADATA_CACHE_GENERATION,
         ))).scalar_one_or_none()
 
     def emit(kind: str, **payload):
         return f"data: {json.dumps(api_json({'type': kind, **payload}), ensure_ascii=False)}\n\n"
+
+    def emit_error(**payload):
+        # SSE error contract: failures go out as ``event: error`` frames (see
+        # docs/design/error-handling.md), not plain data frames.
+        body = json.dumps(api_json({"type": "error", **payload}), ensure_ascii=False)
+        return f"event: error\ndata: {body}\n\n"
 
     if cached is not None:
         async def cached_events():
@@ -1193,13 +1241,27 @@ async def analyze_resource_batch_stream(
 
     async def events():
         import asyncio
+        import time
 
+        # Overall deadline so a stuck/lost job never leaves the client
+        # polling forever; expiry ends the stream with an error frame.
+        deadline = time.monotonic() + _BATCH_STREAM_TIMEOUT_SECONDS
         last_message = None
         last_output = ""
         while True:
-            state = await queue.status(job_key)
+            if time.monotonic() >= deadline:
+                yield emit_error(message="解析超时")
+                return
+            try:
+                state = await queue.status(job_key)
+            except Exception:
+                logger.exception(
+                    "[analyze-batch-stream] status poll failed for %s", job_key,
+                )
+                yield emit_error(message="解析任务状态查询失败")
+                return
             if state is None:
-                yield emit("warning", message="解析任务状态已失效")
+                yield emit_error(message="解析任务状态已失效")
                 return
             result = state.get("result") or {}
             message = result.get("message")
@@ -1217,7 +1279,7 @@ async def analyze_resource_batch_stream(
                 yield emit("result", **result)
                 return
             if status == JobStatus.FAILED:
-                yield emit("warning", message=state.get("error") or "解析失败")
+                yield emit_error(message=state.get("error") or "解析失败")
                 return
             await asyncio.sleep(0.25)
 

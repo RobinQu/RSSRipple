@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients import outbound_http
@@ -51,11 +51,13 @@ from app.services.metadata_source_registry import (
     REGISTRY_SOURCES,
     canonicalize_external_id,  # noqa: F401
     granularity_of,
+    is_wikipedia_slug_id,
     make_season_identity,
     parse_wikipedia_id,
     qualify_wikipedia_id,
     split_season_identity,
     wikipedia_match_keys,
+    wikipedia_url_lang,
 )
 from app.services.resource_parser import season_from_title, strip_season_from_title
 from app.services.text_normalizer import normalize_title, similarity_score
@@ -360,8 +362,11 @@ async def download_and_cache_poster(remote_url: str | None) -> str | None:
 async def match_series_by_title(db: AsyncSession, title: str) -> tuple[TVSeries | None, int]:
     """Find best matching TVSeries in local DB. Returns (entity, score 0-100).
 
-    Uses FTS5 trigram search for candidate retrieval (no full-table scan),
-    then computes bigram Dice similarity for precise ranking.
+    Exact title lookup first, then FTS candidate retrieval + bigram Dice
+    similarity ranking. ``search_series_fts`` itself falls back to a bounded,
+    ranked ``search_text`` LIKE pre-filter when FTS recall is empty — no
+    unbounded full-table scan here (a LIKE-empty result means no local
+    candidate and the caller proceeds to the metadata-source layer).
     """
     if not title:
         return None, 0
@@ -382,15 +387,12 @@ async def match_series_by_title(db: AsyncSession, title: str) -> tuple[TVSeries 
     if series:
         return series, 100
 
-    # 2. FTS5 candidate retrieval + similarity scoring
+    # 2. FTS/LIKE candidate retrieval + similarity scoring
     candidate_ids = await fts_service.search_series_fts(db, title, limit=30)
-    if candidate_ids:
-        result = await db.execute(select(TVSeries).where(TVSeries.id.in_(candidate_ids)))
-        candidates = result.scalars().all()
-    else:
-        # FTS index may be empty/out of sync — fall back to full-table scan
-        result = await db.execute(select(TVSeries))
-        candidates = result.scalars().all()
+    if not candidate_ids:
+        return None, 0
+    result = await db.execute(select(TVSeries).where(TVSeries.id.in_(candidate_ids)))
+    candidates = result.scalars().all()
 
     best: TVSeries | None = None
     best_score = 0
@@ -409,8 +411,9 @@ async def match_series_by_title(db: AsyncSession, title: str) -> tuple[TVSeries 
 async def match_movie_by_title(db: AsyncSession, title: str) -> tuple[Movie | None, int]:
     """Find best matching Movie in local DB. Returns (entity, score 0-100).
 
-    Uses FTS5 trigram search for candidate retrieval, then bigram Dice
-    similarity for precise ranking.
+    Same retrieval contract as :func:`match_series_by_title` (exact lookup,
+    then FTS candidates with a bounded LIKE recall fallback inside
+    ``search_movie_fts`` — no full-table scan).
     """
     if not title:
         return None, 0
@@ -431,15 +434,12 @@ async def match_movie_by_title(db: AsyncSession, title: str) -> tuple[Movie | No
     if movie:
         return movie, 100
 
-    # 2. FTS5 candidate retrieval + similarity scoring
+    # 2. FTS/LIKE candidate retrieval + similarity scoring
     candidate_ids = await fts_service.search_movie_fts(db, title, limit=30)
-    if candidate_ids:
-        result = await db.execute(select(Movie).where(Movie.id.in_(candidate_ids)))
-        candidates = result.scalars().all()
-    else:
-        # FTS index may be empty/out of sync — fall back to full-table scan
-        result = await db.execute(select(Movie))
-        candidates = result.scalars().all()
+    if not candidate_ids:
+        return None, 0
+    result = await db.execute(select(Movie).where(Movie.id.in_(candidate_ids)))
+    candidates = result.scalars().all()
 
     best: Movie | None = None
     best_score = 0
@@ -640,12 +640,10 @@ async def match_audio_work_by_title(db: AsyncSession, title: str) -> tuple[Audio
         return audio, 100
 
     candidate_ids = await fts_service.search_audio_work_fts(db, title, limit=30)
-    if candidate_ids:
-        result = await db.execute(select(AudioWork).where(AudioWork.id.in_(candidate_ids)))
-        candidates = result.scalars().all()
-    else:
-        result = await db.execute(select(AudioWork))
-        candidates = result.scalars().all()
+    if not candidate_ids:
+        return None, 0
+    result = await db.execute(select(AudioWork).where(AudioWork.id.in_(candidate_ids)))
+    candidates = result.scalars().all()
 
     best: AudioWork | None = None
     best_score = 0
@@ -818,6 +816,37 @@ def _qualify_incoming_wikipedia_id(data: dict) -> str | None:
     return raw
 
 
+async def resolve_wikipedia_slug_id(
+    external_id: str | None, wikipedia_url: str | None = None
+) -> str | None:
+    """Resolve a slug-form wikipedia id (``wikipedia:Some_Title``) to the
+    qualified numeric form via the MediaWiki API.
+
+    Slug ids are page titles extracted from URLs; offline they never converge
+    with the numeric ``wikipedia:{lang}:{pageid}`` forms of the same page.
+    When online, one ``action=query&prop=info`` call per candidate edition
+    (the URL's edition first, then zh/en/ja) pins the pageid. Returns
+    ``wikipedia:{lang}:{pageid}``, or None for non-slug ids / resolution
+    failure — best-effort, callers keep the slug row either way. The slug's
+    original case is used for the lookup (bag canonicalization lowercases,
+    but MediaWiki titles are case-sensitive beyond the first letter).
+    """
+    if not is_wikipedia_slug_id(external_id):
+        return None
+    slug = str(external_id).strip().split(":", 1)[1].strip()
+    if not slug:
+        return None
+    langs = list(dict.fromkeys([wikipedia_url_lang(wikipedia_url) or "zh", "zh", "en", "ja"]))
+    from app.services.metadata_wikipedia_client import _fetch_langlink_pageids
+
+    resolved = await _fetch_langlink_pageids({lang: slug for lang in langs})
+    for lang in langs:
+        pid = resolved.get(lang)
+        if pid:
+            return f"wikipedia:{lang}:{pid}"
+    return None
+
+
 def _external_id_match(column, lookup_ids: set[str]):
     """Column filter honoring both wikipedia id storage forms.
 
@@ -899,7 +928,11 @@ async def upsert_episodes(
     if not items:
         return 0
     if not is_unsplit_legacy_series(series):
-        season = getattr(series, "season_number", None) or 1
+        # None-aware: season 0 (specials) is a legitimate work season and must
+        # not be rewritten to 1 (Episode.season 恒等于作品的 season_number).
+        season = getattr(series, "season_number", None)
+        if season is None:
+            season = 1
         if entity_granularity == "season":
             items = [{**e, "season": season} for e in items]
         else:
@@ -972,6 +1005,14 @@ async def _bag_matched_entity_ids(
     await add_external_id(
         db, work_type, work_id, data.get("external_source"), data.get("external_id")
     )
+    # Slug-form wikipedia ids never converge with pageid forms offline —
+    # resolve the pageid via the MediaWiki API (best-effort) and bag it too.
+    if (data.get("external_source") or "").strip().lower() == "wikipedia":
+        resolved = await resolve_wikipedia_slug_id(
+            data.get("external_id"), data.get("wikipedia_url") or data.get("url")
+        )
+        if resolved:
+            await add_external_id(db, work_type, work_id, "wikipedia", resolved)
     for alt in data.get("alt_external_ids") or []:
         if not isinstance(alt, dict):
             continue
@@ -1205,16 +1246,45 @@ async def _find_collection_by_titles(
     Normalized comparison over the collection's titles and aliases (same
     Python-side scan pattern as the franchise-pack get-or-create — the
     collection table is small).
+
+    Several collections can match at once — e.g. the qualified-name shell
+    ("头文字D Final Stage", created to reserve an unmarked qualifier title)
+    and the populated main IP collection both carry the base title. An
+    unordered SELECT returns them in backend-dependent row order (Turso rowid
+    vs PostgreSQL heap), which once shipped a Fifth Stage work into the Final
+    Stage shell on PG while Turso picked the main collection. Rule: an empty
+    reservation shell never steals a title match from a populated collection
+    — prefer the match with the most member works, then the oldest row, then
+    id, so the choice is deterministic across backends.
     """
     norms = {n for t in titles if t for n in [normalize_title(t)] if n}
     if not norms:
         return None
     rows = (await db.execute(select(WorkCollection))).scalars().all()
+    matches = []
     for coll in rows:
         candidates = [coll.title_cn, coll.title_en, *(coll.aliases or [])]
         if any(normalize_title(c) in norms for c in candidates if c):
-            return coll
-    return None
+            matches.append(coll)
+    if len(matches) <= 1:
+        return matches[0] if matches else None
+    match_ids = [c.id for c in matches]
+    series_counts = dict((await db.execute(
+        select(TVSeries.collection_id, func.count())
+        .where(TVSeries.collection_id.in_(match_ids))
+        .group_by(TVSeries.collection_id)
+    )).all())
+    movie_counts = dict((await db.execute(
+        select(Movie.collection_id, func.count())
+        .where(Movie.collection_id.in_(match_ids))
+        .group_by(Movie.collection_id)
+    )).all())
+    matches.sort(key=lambda c: (
+        -(series_counts.get(c.id, 0) + movie_counts.get(c.id, 0)),
+        str(c.created_at or ""),
+        c.id,
+    ))
+    return matches[0]
 
 
 def _merge_collection_aliases(collection: WorkCollection, data: dict) -> None:
@@ -1303,6 +1373,14 @@ async def _bag_entity_ids_by_granularity(
     for alt in data.get("alt_external_ids") or []:
         if isinstance(alt, dict):
             pairs.append((alt.get("source"), alt.get("id")))
+    # Slug-form wikipedia ids never converge with pageid forms offline —
+    # resolve the pageid via the MediaWiki API (best-effort) and bag it too.
+    if (data.get("external_source") or "").strip().lower() == "wikipedia":
+        resolved = await resolve_wikipedia_slug_id(
+            data.get("external_id"), data.get("wikipedia_url") or data.get("url")
+        )
+        if resolved:
+            pairs.append(("wikipedia", resolved))
     for source, eid in pairs:
         canon = canonicalize_external_id(eid, source)
         if not canon:
@@ -2075,18 +2153,50 @@ async def find_existing_movie_for_external(db: AsyncSession, data: dict) -> Movi
                 *(data.get("alt_titles") or []),
             ) if t
         ]
-        if title_candidates:
-            title_result = await db.execute(
-                select(Movie).where(
-                    or_(
-                        Movie.title_cn.in_(title_candidates),
-                        Movie.title_en.in_(title_candidates),
-                        Movie.original_title.in_(title_candidates),
-                    )
+        # Normalized comparison (NFKC + t2s + lowercase) over a full-table
+        # Python scan — the movies table is small and an indexed pre-filter
+        # would miss rows whose stored title differs from the candidate in
+        # BOTH raw and normalized form (e.g. stored 測試電影 vs incoming
+        # 测试电影). Same pattern as ``_find_collection_by_titles``.
+        norms = {n for t in title_candidates for n in (normalize_title(t),) if n}
+        if norms:
+            rows = list((await db.execute(select(Movie))).scalars().all())
+            matches = [
+                row for row in rows
+                if {
+                    normalize_title(row.title_cn),
+                    normalize_title(row.title_en),
+                    normalize_title(row.original_title),
+                } & norms
+            ]
+            # Year guard: a same-title remake whose year conflicts with the
+            # entity's (beyond ±1) is not the same work — exclude it rather
+            # than binding blindly. Missing dates are no evidence either way.
+            entity_year = _data_year(data)
+            matches = [
+                row for row in matches
+                if not _year_mismatch(entity_year, row.release_date)
+            ]
+            if len(matches) == 1:
+                movie = matches[0]
+            elif matches:
+                # Ambiguous top-N: never auto-bind an arbitrary row.
+                logger.warning(
+                    "[metadata] movie title fallback ambiguous: %d rows share "
+                    "the normalized title of %r — not auto-binding",
+                    len(matches), title_candidates[0] if title_candidates else None,
                 )
-            )
-            movie = title_result.scalars().first()
     return movie
+
+
+def _data_year(data: dict) -> int | None:
+    """Best-effort year of an incoming matched entity (release/start date or
+    bare year), for the movie title-fallback year guard."""
+    for key in ("release_date", "start_date", "year"):
+        d = _parse_date(data.get(key))
+        if d:
+            return d.year
+    return None
 
 
 async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> Movie:

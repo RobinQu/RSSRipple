@@ -22,6 +22,24 @@ SQLite（旧） ──migrate_to_turso──▶ Turso ──migrate_to_postgres�
 - **PostgreSQL → Turso**：不支持（无反向脚本）。PostgreSQL 是能力超集；需要「降级」回单节点时，从最近的 Turso 备份重建，或接受以全新库重新抓取。
 - **作品单季化迁移**（`season_split_migration.py`）与后端矩阵正交：它是同一后端内的原地数据迁移（系列级作品行 → 季作品 + 壳合集），两个后端通用，见第 5 节。
 
+## 0. 轻量迁移版本台账（`schema_migrations`）
+
+`_apply_light_migrations` 不是版本化迁移工具，但自本版本起带一张**应用台账表** `schema_migrations`（模型 `app/models/schema_migration.py`；`name` 主键 + `applied_at` UTC 默认）：每个命名迁移块**成功跑完一次**即登记一行（`INSERT IF-MISSING`，`applied_at` 保持首次应用时间）。表由 `create_tables` 在 `create_all` 前注册模型建立；测试/脚本等直接调用方由迁移函数内 `checkfirst` 兜底建表。
+
+**语义与取舍（重要）**：
+
+- **探针为准、台账为辅**。台账是纯观测/审计手段，绝不参与跳过逻辑：每个块每次启动仍探测真实 schema/数据并自愈。因此「台账声称已应用、实际缺列」的异常库（如备份恢复）照常由探针补齐，台账错行不影响任何行为。反之也意味着台账不是快路径——这是刻意的保守取舍：用每次启动的探针成本换取对异常库的免误判。
+- **记录只代表「跑完」**：best-effort 块由 `_best_effort` 钩子在体成功时自动登记（失败/跳过的块不登记）；强制块与委托服务步骤在成功后直接登记。PG-only 块在 Turso 上以空体完成也会登记——台账语义是「该块已收敛」，不区分后端。
+- **事务一致性**：台账行与迁移事务同提交/同回滚；flush 集中在函数末尾（Turso MVCC 下 `BEGIN CONCURRENT` 见过 DML 后拒绝 DDL，台账 DML 必须排在全部 DDL 之后）；flush 失败被 savepoint 收容仅告警，绝不阻断启动。
+- **命名规范**：台账名 == 块的 `_best_effort` label（列级块为 `add column <table>.<column>`）。新增迁移块必须用稳定唯一名并经同一机制登记；加列一律进模块级不可变元组 `_LIGHT_COLUMN_ADDITIONS`（单一数据源，禁止运行时 append——历史游离 append 曾致列漂移；`tests/unit/test_schema_migration_ledger.py` 有防回归断言）。
+- **无 down path**：项目不提供 downgrade（先例：迁移单向不可逆，回滚靠备份，见第 5 节不变量）。台账的价值是让「已应用集合」可查询、可审计，并为未来工具（漂移检测、迁移报告）打底，而不是支持回退。
+
+运维查询示例：
+
+```sql
+SELECT name, applied_at FROM schema_migrations ORDER BY applied_at, name;
+```
+
 ## 1. SQLite → Turso（`scripts/migrate_to_turso.py`）
 
 ```bash
@@ -390,3 +408,8 @@ UTC 默认值与搜索列同时为旧模式时，两项升级仍处于 PostgreSQ
 V34 候选的 `agents.current_run_token` 为关键归属列，添加失败必须中止启动，不可 best-effort 跳过。模式升级不会给旧 running 行补租约或自动终结它们。完成模式迁移后，停止全部 Web/worker/调度器并备份数据库；可用 `python -m scripts.review_legacy_agent_runs --export review.json --limit 100` 分页导出，next_after_id 非空时以 `--after-id` 继续。导出文件独占创建，记录完整历史快照及指纹，仅包含 running、finished_at 为空且无租约的行；已有租约即使到期也交给正常回收协议。
 
 人工核对后在副本中添加 `approved_fingerprint`（等于原 fingerprint）和明确的 `selected_ids`，执行 `python -m scripts.review_legacy_agent_runs --apply-review approved.json --writers-stopped --backup-confirmed`。工具不调用启动迁移。单次最多 1000 条，PG 锁历史/租约表，Turso 独占写事务；验证全部选中快照和无租约条件后，再同事务将选中历史置 failed、设置 finished_at 并追加审核指纹、实际完成时间及计数可能不完整的说明。保留所有原计数、资源 IDs、错误、Agent 摘要、请求和消费状态。任一行变化/消失/取得租约则整批拒绝；相同审核重复执行仅接受精确匹配的已完成结果，不重复追加错误。该工具不证明旧进程已死，停写确认与人工选择是操作前提，不按年龄自动处理。
+### metadata_cache 摘要键升级
+
+升级前停止旧写入进程并备份；旧连接在 PostgreSQL 扩列后可能产生 prepared-statement 失效，升级后重建连接。PostgreSQL 在既有启动 advisory/DDL 事务中独占缓存表、每批最多 100 行回填 SHA-256，移除旧原文 btree 索引和唯一键，title 改 TEXT，建立摘要/source 唯一约束。Turso 在显式普通事务中重建缓存表并按相同批次复制完整历史行，不能使用 BEGIN CONCURRENT 执行 DDL。
+
+历史 id/title/source/content_type/payload/generation/时间保持原值；摘要按精确原文计算，不进行清洗。碰撞导致唯一约束失败，整体回滚，不自动删除冲突历史。未知索引/引用/trigger、受管列定义、自定义标题默认值/排序规则或生成列拒绝升级，需人工审查；不靠清空缓存绕过。已升级结构重复启动不回填。此迁移不保证在线无中断，生产锁耗时仍需维护窗口评估。

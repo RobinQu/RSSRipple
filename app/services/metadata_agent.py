@@ -15,6 +15,7 @@ selection is enforced by code rather than prompt wording alone.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -333,6 +334,20 @@ def _parse_genre_array(text: str) -> list[str]:
         return []
 
 
+# Synopsis→genre inference is content-addressed (same title + synopsis excerpt
+# always yields the same verdict), yet the same fresh work is re-finalized once
+# per resource (batch pack + episodes in one fetch cycle), so repeat calls buy
+# nothing. Memoize successful non-empty verdicts process-locally, bounded by a
+# clear-at-cap; failures and unparseable replies stay uncached so the next
+# finalization retries them (best-effort semantics unchanged).
+_GENRE_INFERENCE_CACHE: dict[str, list[str]] = {}
+_GENRE_INFERENCE_CACHE_MAX = 512
+
+
+def _genre_inference_cache_key(title: str, excerpt: str) -> str:
+    return hashlib.sha256(f"{title}\n{excerpt}".encode()).hexdigest()
+
+
 async def _attach_tmdb_episode_list(finalize_dict: dict) -> None:
     """P4: fill ``episode_list`` for a tmdb-primary TV match (wikipedia symmetry).
 
@@ -407,6 +422,16 @@ class UnifiedMetadataAgent:
             http_async_client=outbound_http.async_client(
                 timeout=60, allowed_origins=[runtime_config.llm_base_url], keepalive_connections=0,
             ),
+            # Kept at 0.1, not lowered to 0: the metadata-corpus cassettes
+            # fingerprint the full request body (tests/metadata_corpus/replay.py
+            # `request_key` — "model settings remain in the fingerprint") and
+            # pin exact call counts, so any temperature change invalidates all
+            # recorded LLM evidence and forces a live-LLM re-record plus
+            # re-review of every scenario. Test determinism comes from those
+            # recordings, not from sampling. langchain-openai does support a
+            # per-call override (`ainvoke(..., temperature=0)` / `.bind()`),
+            # but it changes the same fingerprinted body, so it is equally
+            # blocked by the recorded evidence.
             temperature=0.1,
             # The upstream relay (LLM_BASE_URL) fails two ways, tuned
             # separately because they want opposite handling:
@@ -464,8 +489,10 @@ class UnifiedMetadataAgent:
         Runs after ``_clamp_finalize_genre`` at the unified finalize-consumption
         point. Fires only when the matched entity has no genre but carries a
         description — one cheap LLM call classifies the synopsis into the
-        closed TMDB set (result clamped again). Any failure leaves genre
-        unset; it never blocks or invalidates the match.
+        closed TMDB set (result clamped again). Repeat finalizations of the same
+        title+synopsis hit the process-local ``_GENRE_INFERENCE_CACHE`` instead
+        of re-calling. Any failure leaves genre unset; it never blocks or
+        invalidates the match.
         """
         me = finalize_dict.get("matched_entity") or {}
         if not me or me.get("genre"):
@@ -477,20 +504,27 @@ class UnifiedMetadataAgent:
             me.get("title_cn") or me.get("title_en")
             or me.get("original_title") or me.get("canonical_name") or ""
         )
-        try:
-            resp = await self._model.ainvoke([
-                SystemMessage(content=genre_inference_system_prompt()),
-                HumanMessage(content=f"{title}\n\n{desc[:1000]}"),
-            ])
-            content = resp.content
-            if not isinstance(content, str):
-                content = json.dumps(content, ensure_ascii=False)
-            genres = _parse_genre_array(content)
-        except Exception as e:  # noqa: BLE001 — best-effort fallback
-            logger.debug("[metadata_agent] genre inference failed: %s", e)
-            return
+        excerpt = desc[:1000]
+        genres = _GENRE_INFERENCE_CACHE.get(_genre_inference_cache_key(title, excerpt))
+        if genres is None:
+            try:
+                resp = await self._model.ainvoke([
+                    SystemMessage(content=genre_inference_system_prompt()),
+                    HumanMessage(content=f"{title}\n\n{excerpt}"),
+                ])
+                content = resp.content
+                if not isinstance(content, str):
+                    content = json.dumps(content, ensure_ascii=False)
+                genres = _parse_genre_array(content)
+            except Exception as e:  # noqa: BLE001 — best-effort fallback
+                logger.debug("[metadata_agent] genre inference failed: %s", e)
+                return
+            if genres:
+                if len(_GENRE_INFERENCE_CACHE) >= _GENRE_INFERENCE_CACHE_MAX:
+                    _GENRE_INFERENCE_CACHE.clear()
+                _GENRE_INFERENCE_CACHE[_genre_inference_cache_key(title, excerpt)] = genres
         if genres:
-            me["genre"] = genres
+            me["genre"] = list(genres)
             finalize_dict["matched_entity"] = me
             logger.info(
                 "[metadata_agent] genre inferred from synopsis for %r: %s",

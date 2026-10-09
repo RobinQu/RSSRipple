@@ -20,6 +20,7 @@ import hashlib
 import logging
 import os
 import re
+import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -762,3 +763,141 @@ async def maybe_inspect_torrent(
     except Exception as e:
         logger.debug("[torrent] inspect failed for %s: %s", resource.id, e)
         return False
+
+
+# ---------------------------------------------------------------------------
+# Cache lifecycle: daily sweep of unreferenced .torrent files
+# ---------------------------------------------------------------------------
+
+# Cache filenames are ``<resource_id>-<suffix>.torrent``: the suffix is the
+# content sha256 (``fetch_torrent_file``) or the resolution attempt id
+# (magnet resolve). Only files matching this exact shape are sweep
+# candidates — legacy ``<resource_id>.torrent`` paths, in-flight
+# ``.<uuid>.torrent.tmp`` writes and any foreign file are never touched.
+_CACHE_NAME_RE = re.compile(
+    r"^(?P<rid>[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12})-[^/]+\.torrent$"
+)
+
+# Paging for the resource-reference IN lookup.
+_SWEEP_ID_BATCH = 500
+
+# In-flight grace: a cache file younger than this is never deleted. Writers
+# publish the file BEFORE the referencing ``torrent_file`` commit lands
+# (fetch pipeline, magnet resolution, organize manifest backfill), so age
+# alone must never condemn a file — deletion always requires age PLUS a
+# missing/stale DB reference.
+SWEEP_MIN_AGE_SECONDS = 3600
+
+
+async def _sweep_referenced_paths(
+    db: "AsyncSession", resource_ids: list[str]
+) -> dict[str, str | None]:
+    """Map each candidate resource id to its current ``torrent_file``.
+
+    Ids absent from ``file_resources`` (deleted resources) are simply missing
+    from the result. Paged IN queries keep the lookup bounded. Raises on DB
+    failure — the caller aborts the whole round rather than deleting files
+    whose reference state is unknown.
+    """
+    from sqlalchemy import select
+
+    from app.models.file_resource import FileResource
+
+    referenced: dict[str, str | None] = {}
+    for offset in range(0, len(resource_ids), _SWEEP_ID_BATCH):
+        chunk = resource_ids[offset:offset + _SWEEP_ID_BATCH]
+        rows = (await db.execute(
+            select(FileResource.id, FileResource.torrent_file)
+            .where(FileResource.id.in_(chunk))
+        )).all()
+        for rid, torrent_file in rows:
+            referenced[rid] = torrent_file
+    return referenced
+
+
+async def sweep_torrent_cache(
+    db: "AsyncSession", *, min_age_seconds: int = SWEEP_MIN_AGE_SECONDS
+) -> dict:
+    """Delete unreferenced .torrent cache files (daily cleanup sub-step).
+
+    A file directly inside ``settings.torrent_cache_dir`` is deleted only
+    when ALL hold:
+
+    - its name matches ``<resource_id>-<suffix>.torrent`` (cache shape);
+    - its mtime is older than ``min_age_seconds`` (in-flight write/commit
+      grace — never delete on age alone);
+    - its resource id is gone from ``file_resources`` (orphan), OR the
+      resource's current ``torrent_file`` points at a DIFFERENT path
+      (superseded version, e.g. an older magnet attempt or a re-fetch with
+      new content).
+
+    Files still referenced by the database are never deleted whatever their
+    age; files outside the cache dir and non-matching names (legacy paths,
+    ``.tmp``) are never touched. A DB failure aborts the whole round with
+    nothing deleted; a per-file delete failure is logged and skipped. The
+    session is used read-only — nothing is committed here. Returns a summary
+    dict (``scanned``/``deleted``/``errors``/``aborted``).
+    """
+    summary = {"scanned": 0, "deleted": 0, "errors": 0, "aborted": False}
+    if not settings.torrent_cache_dir:
+        return summary
+    cache_dir = Path(settings.torrent_cache_dir)
+
+    def _scan() -> list[tuple[Path, str]]:
+        try:
+            entries = list(cache_dir.iterdir())
+        except FileNotFoundError:
+            return []
+        except OSError as e:
+            logger.warning("[torrent] cache sweep: cannot list %s: %s", cache_dir, e)
+            return []
+        cutoff = time.time() - min_age_seconds
+        out: list[tuple[Path, str]] = []
+        for path in entries:
+            if not path.is_file():
+                continue
+            match = _CACHE_NAME_RE.match(path.name)
+            if match is None:
+                continue
+            try:
+                mtime = path.stat().st_mtime
+            except OSError:
+                continue
+            if mtime >= cutoff:
+                continue  # in-flight grace window
+            out.append((path, match.group("rid")))
+        return out
+
+    candidates = await asyncio.to_thread(_scan)
+    summary["scanned"] = len(candidates)
+    if not candidates:
+        return summary
+
+    try:
+        referenced = await _sweep_referenced_paths(
+            db, [rid for _, rid in candidates]
+        )
+    except Exception as e:
+        # Rather delete nothing than risk a referenced file.
+        logger.warning("[torrent] cache sweep aborted, reference lookup failed: %s", e)
+        summary["aborted"] = True
+        return summary
+
+    for path, rid in candidates:
+        current = referenced.get(rid)
+        if current is not None and os.path.abspath(current) == os.path.abspath(str(path)):
+            continue  # still the authoritative DB reference
+        try:
+            await asyncio.to_thread(path.unlink)
+            summary["deleted"] += 1
+        except FileNotFoundError:
+            pass  # concurrently removed — already the desired end state
+        except OSError as e:
+            summary["errors"] += 1
+            logger.warning("[torrent] cache sweep: could not delete %s: %s", path, e)
+    if summary["deleted"]:
+        logger.info(
+            "[torrent] cache sweep deleted %d unreferenced file(s) in %s",
+            summary["deleted"], cache_dir,
+        )
+    return summary

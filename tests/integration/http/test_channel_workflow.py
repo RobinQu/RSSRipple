@@ -12,22 +12,29 @@ the integration test server:
   7. Re-fetch → deduplication check (no new resources)
   8. Verify channel list includes the new channels
 
-The LLM-dependent tests are skipped automatically if LLM_API_KEY is not set.
-The basic CRUD tests (create, fetch, list) always run.
+The LLM-dependent tests run against the mock-LLM app instance
+(``RSSRIPPLE_LLM_URL`` → app-llm, wired to the test-server's deterministic
+``/v1/chat/completions`` mock), so they are offline and mandatory in the
+standard gate stack. They skip only when the stack has no mock-LLM instance
+at all (e.g. the distributed suite). The basic feed smoke tests always run.
 """
 
 import json
 import os
 import time
+import uuid
 
 import httpx
 import pytest
 
 TEST_SERVER = os.environ.get("TEST_SERVER_URL", "http://test-server:8080")
 RSSRIPPLE = os.environ.get("RSSRIPPLE_URL", "http://app:9001")
+# Second app instance wired to the deterministic mock LLM (see
+# tests/integration/server/mock_llm.py); empty when the stack has no app-llm.
+LLM_APP = os.environ.get("RSSRIPPLE_LLM_URL", "")
 MIKANANI_1_URL = f"{TEST_SERVER}/rss/mikanani-1"
 
-_HAS_LLM = bool(os.environ.get("LLM_API_KEY"))
+_HAS_MOCK_LLM = bool(LLM_APP)
 
 DEFAULT_FIELD_MAPPING = {
     "list_locator": {"source": "entries"},
@@ -38,16 +45,27 @@ DEFAULT_FIELD_MAPPING = {
 }
 
 
+def _unique_url(url: str) -> str:
+    """Per-run unique channel URL — same feed content, no uq_channels_url clash.
+
+    The test-server feed routes ignore unknown query params, and the suffix
+    makes channel creation immune to a previous test's channel deletion
+    racing the app-llm scheduler (a blocked delete leaves the URL occupied).
+    """
+    sep = "&" if "?" in url else "?"
+    return f"{url}{sep}case={uuid.uuid4().hex[:8]}"
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _poll_fetch(channel_id: str, timeout: int = 120) -> dict:
+def _poll_fetch(channel_id: str, base: str = RSSRIPPLE, timeout: int = 120) -> dict:
     """Block until the channel fetch job finishes (done/failed) or times out."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         resp = httpx.get(
-            f"{RSSRIPPLE}/api/v1/channels/{channel_id}/fetch-status",
+            f"{base}/api/v1/channels/{channel_id}/fetch-status",
             timeout=10,
         )
         data = resp.json().get("data") or {}
@@ -57,9 +75,9 @@ def _poll_fetch(channel_id: str, timeout: int = 120) -> dict:
     raise TimeoutError(f"fetch job for channel {channel_id} did not finish within {timeout}s")
 
 
-def _list_resources(channel_id: str) -> tuple[list[dict], int]:
+def _list_resources(channel_id: str, base: str = RSSRIPPLE) -> tuple[list[dict], int]:
     resp = httpx.get(
-        f"{RSSRIPPLE}/api/v1/channels/{channel_id}/resources",
+        f"{base}/api/v1/channels/{channel_id}/resources",
         params={"page_size": 100},
         timeout=15,
     )
@@ -68,18 +86,19 @@ def _list_resources(channel_id: str) -> tuple[list[dict], int]:
     return body["data"], body["meta"]["total"]
 
 
-def _stream_analyze(url: str) -> tuple[dict | None, str | None]:
+def _stream_analyze(url: str, base: str) -> tuple[dict | None, str | None]:
     """Call analyze-url-stream and return (field_mapping, confidence).
 
-    Returns (None, None) if LLM returns an error or no mapping. The LLM
-    stream can take minutes on a slow gateway (each SDK attempt has a 120s
-    budget and _stream_openai retries up to 3x), so use a generous budget.
+    Returns (None, None) if the endpoint streams an error event. Against the
+    mock-LLM app this is deterministic and fast; a real LLM gateway can take
+    minutes (each SDK attempt has a 120s budget and _stream_openai retries up
+    to 3x), so keep a generous budget for opt-in live runs.
     """
     field_mapping = None
     confidence = None
     with httpx.stream(
         "POST",
-        f"{RSSRIPPLE}/api/v1/channels/analyze-url-stream",
+        f"{base}/api/v1/channels/analyze-url-stream",
         json={"url": url},
         timeout=480,
     ) as stream:
@@ -98,12 +117,12 @@ def _stream_analyze(url: str) -> tuple[dict | None, str | None]:
     return field_mapping, confidence
 
 
-def _stream_analyze_channel(channel_id: str) -> dict | None:
+def _stream_analyze_channel(channel_id: str, base: str) -> dict | None:
     """Call the channel-ID-based analyze-stream (edit mode) and return field_mapping."""
     field_mapping = None
     with httpx.stream(
         "POST",
-        f"{RSSRIPPLE}/api/v1/channels/{channel_id}/analyze-stream",
+        f"{base}/api/v1/channels/{channel_id}/analyze-stream",
         timeout=480,
     ) as stream:
         for line in stream.iter_lines():
@@ -149,25 +168,25 @@ class TestTestServerFeeds:
 
 
 # ---------------------------------------------------------------------------
-# Analyze + Edit Channel workflow (requires LLM_API_KEY)
+# Analyze + Edit Channel workflow (mock-LLM app, RSSRIPPLE_LLM_URL)
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="module")
 def analyzed_mapping():
     """Run analyze-url-stream ONCE and share the result across all LLM tests.
 
-    Calls the 'create-mode' endpoint POST /channels/analyze-url-stream.
-    Skips the entire module if LLM_API_KEY is not set or LLM returns no mapping.
+    Calls the 'create-mode' endpoint POST /channels/analyze-url-stream on the
+    mock-LLM app. Skips the whole module only when the stack has no mock-LLM
+    instance; a missing mapping from the deterministic mock is a hard failure.
     """
-    if not _HAS_LLM:
-        pytest.skip("LLM_API_KEY not set — skipping LLM-dependent workflow tests")
+    if not _HAS_MOCK_LLM:
+        pytest.skip("RSSRIPPLE_LLM_URL not set (mock-LLM app not in stack)")
 
-    field_mapping, confidence = _stream_analyze(MIKANANI_1_URL)
-    if not field_mapping:
-        pytest.skip(
-            "analyze-url-stream returned no field_mapping (rate limit or LLM error). "
-            "Re-run when quota resets."
-        )
+    field_mapping, confidence = _stream_analyze(MIKANANI_1_URL, LLM_APP)
+    assert field_mapping, (
+        "analyze-url-stream on the mock-LLM app returned no field_mapping — "
+        "the deterministic mock LLM should always answer"
+    )
     return {"field_mapping": field_mapping, "confidence": confidence}
 
 
@@ -181,10 +200,10 @@ def channel_with_mapping(analyzed_mapping):
     # finishes quickly (title extraction is tested in http/test_fetch_with_real_feed.py).
     # metadata_agent_enabled=False avoids per-entry LLM metadata search hangs.
     resp = httpx.post(
-        f"{RSSRIPPLE}/api/v1/channels",
+        f"{LLM_APP}/api/v1/channels",
         json={
             "name": "Mikanani-1 LLM Test",
-            "url": MIKANANI_1_URL,
+            "url": _unique_url(MIKANANI_1_URL),
             "field_mapping": DEFAULT_FIELD_MAPPING,
             "fetch_interval": 3600,
             "metadata_agent_enabled": False,
@@ -196,16 +215,19 @@ def channel_with_mapping(analyzed_mapping):
 
     # Edit channel — save the LLM-generated field mapping
     resp = httpx.put(
-        f"{RSSRIPPLE}/api/v1/channels/{channel_id}",
+        f"{LLM_APP}/api/v1/channels/{channel_id}",
         json={"field_mapping": analyzed_mapping["field_mapping"]},
         timeout=15,
     )
     assert resp.status_code == 200, f"update channel failed: {resp.text}"
 
-    # Fetch resources with the mapping applied
-    resp = httpx.post(f"{RSSRIPPLE}/api/v1/channels/{channel_id}/fetch", timeout=30)
+    # Fetch resources with the mapping applied. 87 entries × best-effort
+    # external .torrent cache attempts (denied fast by the outbound guard,
+    # but slower under parallel-gate load) — budget well above the ~135s
+    # observed worst case.
+    resp = httpx.post(f"{LLM_APP}/api/v1/channels/{channel_id}/fetch", timeout=30)
     assert resp.status_code == 200
-    fetch_result = _poll_fetch(channel_id)
+    fetch_result = _poll_fetch(channel_id, base=LLM_APP, timeout=300)
 
     data = {
         "id": channel_id,
@@ -216,7 +238,7 @@ def channel_with_mapping(analyzed_mapping):
     yield data
     # Cleanup: delete the channel so tests don't leak state
     try:
-        httpx.delete(f"{RSSRIPPLE}/api/v1/channels/{channel_id}", timeout=15)
+        httpx.delete(f"{LLM_APP}/api/v1/channels/{channel_id}", timeout=15)
     except Exception:
         pass
 
@@ -267,13 +289,13 @@ class TestEditChannelWithMapping:
         )
 
     def test_resources_have_torrent_url(self, channel_with_mapping):
-        resources, total = _list_resources(channel_with_mapping["id"])
+        resources, total = _list_resources(channel_with_mapping["id"], base=LLM_APP)
         assert total > 0
         missing = [r["id"] for r in resources if not r.get("torrent_url")]
         assert not missing, f"{len(missing)}/{total} resources have no torrent_url"
 
     def test_resources_have_title_raw(self, channel_with_mapping):
-        resources, total = _list_resources(channel_with_mapping["id"])
+        resources, total = _list_resources(channel_with_mapping["id"], base=LLM_APP)
         assert total > 0
         blank = [r["id"] for r in resources if not r.get("title_raw")]
         assert not blank, f"{len(blank)}/{total} resources have blank title_raw"
@@ -281,20 +303,21 @@ class TestEditChannelWithMapping:
     def test_channel_stream_analyze_also_works(self, channel_with_mapping):
         """Edit-mode endpoint (channel_id-based) also produces a valid mapping."""
         channel_id = channel_with_mapping["id"]
-        field_mapping = _stream_analyze_channel(channel_id)
-        if field_mapping is None:
-            pytest.skip("channel analyze-stream returned error (possible rate limit)")
+        field_mapping = _stream_analyze_channel(channel_id, LLM_APP)
+        assert field_mapping is not None, (
+            "channel analyze-stream on the mock-LLM app returned an error event"
+        )
         assert "list_locator" in field_mapping
         assert "torrent_url" in field_mapping.get("field_mappings", {})
 
     def test_no_duplicates_on_refetch(self, channel_with_mapping):
         channel_id = channel_with_mapping["id"]
-        _, count_before = _list_resources(channel_id)
+        _, count_before = _list_resources(channel_id, base=LLM_APP)
         assert count_before > 0
 
-        resp = httpx.post(f"{RSSRIPPLE}/api/v1/channels/{channel_id}/fetch", timeout=30)
+        resp = httpx.post(f"{LLM_APP}/api/v1/channels/{channel_id}/fetch", timeout=30)
         assert resp.status_code == 200
-        result = _poll_fetch(channel_id)
+        result = _poll_fetch(channel_id, base=LLM_APP)
         assert result["status"] == "done"
         assert result["result"]["new_count"] == 0, (
             f"Re-fetch created {result['result']['new_count']} new resources — dedup broken"

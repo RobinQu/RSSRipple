@@ -29,3 +29,5 @@ class ApiKey(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=UTCNow(), nullable=False
     )
+    # Naive UTC expiry (project time convention); NULL = never expires.
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

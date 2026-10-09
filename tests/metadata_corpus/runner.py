@@ -45,9 +45,16 @@ async def verify_dispatch(db, resource, required_fields, temporary):
     from app.models.download_task import DownloadTask
     from app.models.downloader import DownloaderInstance
     from app.services.agent_service import process_resources
-    downloader = DownloaderInstance(name="corpus", type="mock", url="mock://corpus", download_dir=temporary)
-    db.add(downloader)
-    await db.flush()
+    # Scenarios may exercise dispatch for several entries in one run (e.g.
+    # bangumi_single lists the same case twice); downloader name/url are
+    # unique, so reuse the corpus downloader instead of inserting a duplicate.
+    downloader = (await db.execute(
+        select(DownloaderInstance).where(DownloaderInstance.url == "mock://corpus")
+    )).scalars().first()
+    if downloader is None:
+        downloader = DownloaderInstance(name="corpus", type="mock", url="mock://corpus", download_dir=temporary)
+        db.add(downloader)
+        await db.flush()
     agent = Agent(name="corpus", channel_id=resource.channel_id, downloader_id=downloader.id,
                   scope_channel_wide=True, llm_enabled=False, conflict_resolution="auto", works=[])
     db.add(agent)
@@ -135,6 +142,20 @@ def compare(expected, actual, path="") -> list[dict]:
     return []
 
 
+class _NeverHitCache(dict):
+    """Never-hitting stand-in for a process-local memoization cache.
+
+    Recorded cassettes pin exact LLM call counts (``Cassette.assert_complete``
+    fails on under-consumption), and several scenarios record the same genre
+    inference fired 2-3 times. An active memoization cache would dedupe those
+    repeats and break replay, so corpus runs install this: writes land here,
+    reads never hit, every recorded request is still consumed.
+    """
+
+    def get(self, key, default=None):
+        return default
+
+
 async def run_scenario(root: Path, scenario: dict, database_url: str, *, mode="replay") -> dict:
     from app.clients import mock_downloader
     from app.config import settings
@@ -143,7 +164,14 @@ async def run_scenario(root: Path, scenario: dict, database_url: str, *, mode="r
     from app.models.movie import Movie
     from app.models.resource_work_link import ResourceWorkLink
     from app.models.series import TVSeries
-    from app.services import fetch_service, metadata_search_agent, runtime_config
+    from app.services import (
+        fetch_service,
+        metadata_agent,
+        metadata_search,
+        metadata_search_agent,
+        metadata_service,
+        runtime_config,
+    )
     from app.services.metadata_agent import reset_metadata_agent
     from app.services.metadata_wikipedia_client import _wikipedia_client
     from app.services.resource_confirmation import inspect_resource_confirmation
@@ -175,6 +203,21 @@ async def run_scenario(root: Path, scenario: dict, database_url: str, *, mode="r
         stack.enter_context(patch.object(mock_downloader, "_STATE", {}))
         stack.enter_context(patch.object(metadata_search_agent, "_cache", {}))
         stack.enter_context(patch.object(metadata_search_agent, "_TMDB_GENRE_MAP", None))
+        # Genre memoization must not dedupe repeated recorded calls (see _NeverHitCache).
+        stack.enter_context(patch.object(metadata_agent, "_GENRE_INFERENCE_CACHE", _NeverHitCache()))
+        # Slug-form wikipedia ids resolve to pageids via a MediaWiki
+        # ``prop=info`` call at bag-write time
+        # (``metadata_service.resolve_wikipedia_slug_id``). That request is
+        # not part of the recorded cassettes, so replay stubs the resolver to
+        # "unresolved" — the slug id itself is still bagged, and production
+        # keeps the online slug→pageid convergence. Both names must be
+        # patched: ``metadata_search`` imports the function directly.
+        stack.enter_context(patch.object(
+            metadata_service, "resolve_wikipedia_slug_id", AsyncMock(return_value=None),
+        ))
+        stack.enter_context(patch.object(
+            metadata_search, "resolve_wikipedia_slug_id", AsyncMock(return_value=None),
+        ))
         # Also unwind on a missing cassette/DB error, so a failed corpus run
         # cannot leak a title index or cache into the next integration module.
         stack.callback(reset_metadata_agent)

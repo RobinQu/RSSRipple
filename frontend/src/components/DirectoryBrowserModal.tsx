@@ -116,15 +116,22 @@ export default function DirectoryBrowserModal({
             />
           ) : (
             dirs.map((d) => (
-              <div
+              <button
                 key={d}
+                type="button"
                 style={{
                   padding: '6px 12px',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: 8,
+                  width: '100%',
+                  background: 'transparent',
+                  border: 'none',
                   borderBottom: '1px solid var(--rr-surface-elevated)',
+                  font: 'inherit',
+                  color: 'inherit',
+                  textAlign: 'left',
                   fontSize: 13,
                 }}
                 onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--rr-surface-elevated)')}
@@ -133,7 +140,7 @@ export default function DirectoryBrowserModal({
               >
                 <FolderOpen size={14} style={{ color: 'var(--rr-warning)', flexShrink: 0 }} />
                 <span>{d}</span>
-              </div>
+              </button>
             ))
           )}
         </div>

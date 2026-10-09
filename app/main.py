@@ -162,11 +162,20 @@ async def lifespan(app: FastAPI):  # pragma: no cover
 # Exception handlers
 # ---------------------------------------------------------------------------
 
+def _current_request_id(request: Request) -> str:
+    """Correlation id for logs/error bodies: request.state (set by
+    RequestIdMiddleware), falling back to the contextvar, then '-'."""
+    from app.middleware.request_id import get_request_id
+
+    return getattr(request.state, "request_id", None) or get_request_id() or "-"
+
+
 async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     if exc.status_code >= 500:  # pragma: no cover
         logger.error(
-            "HTTP %s %s %s: %s",
-            exc.status_code, request.method, request.url.path, exc.detail,
+            "HTTP %s [%s] %s %s: %s",
+            exc.status_code, _current_request_id(request),
+            request.method, request.url.path, exc.detail,
         )
     code = str(exc.status_code)
     message = str(exc.detail)
@@ -211,20 +220,25 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    request_id = _current_request_id(request)
     logger.error(
-        "Unhandled exception %s %s: %r",
-        request.method, request.url.path, exc,
+        "Unhandled exception [%s] %s %s: %r",
+        request_id, request.method, request.url.path, exc,
         exc_info=True,
     )
     body: dict = {
         "success": False,
         "data": None,
         "error": {"code": "INTERNAL_SERVER_ERROR", "message": "An unexpected error occurred"},
-        "meta": {},
+        "meta": {"request_id": request_id},
     }
     if settings.dev_mode:
         body["error"]["stack"] = traceback.format_exc()  # type: ignore[typeddict-unknown-key]
-    return JSONResponse(status_code=500, content=body)
+    # This handler runs in ServerErrorMiddleware, outside the user middleware
+    # stack — the X-Request-ID response header must be set here directly.
+    return JSONResponse(
+        status_code=500, content=body, headers={"X-Request-ID": request_id}
+    )
 
 
 app = CorsFastAPI(
@@ -248,6 +262,17 @@ app.add_middleware(AuthMiddleware)
 
 # Install DB lock retry middleware (SQLite-only, no-op on PostgreSQL)
 install_db_retry_middleware(app)
+
+# Security headers + request correlation id. Added last so they run outermost:
+# request-id is visible to the auth/retry layers and the 500 handler, and
+# security headers land on every response (401 rejections included).
+# TrustedHostMiddleware is intentionally not installed — see
+# app/middleware/security_headers.py for the self-hosted LAN rationale.
+from app.middleware.request_id import RequestIdMiddleware  # noqa: E402
+from app.middleware.security_headers import SecurityHeadersMiddleware  # noqa: E402
+
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RequestIdMiddleware)
 
 # API routers
 from app.api.v1 import (  # noqa: E402

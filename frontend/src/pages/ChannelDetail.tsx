@@ -17,6 +17,8 @@ import {
   LayoutGrid,
   List,
   ListTree,
+  Pause,
+  Play,
   SlidersHorizontal,
 } from 'lucide-react';
 import {
@@ -48,6 +50,7 @@ import {
   WorkInfoIcon,
 } from '../components/resourceCells';
 import { timeAgo } from '../utils/format';
+import { copyToClipboard } from '../utils/clipboard';
 import { seasonLabel } from '../utils/season';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
 import {
@@ -86,10 +89,9 @@ function ResourceRowActions({ r }: { r: FileResource }) {
   const [filesOpen, setFilesOpen] = useState(false);
   const [correctOpen, setCorrectOpen] = useState(false);
   const copyRawTitle = async () => {
-    try {
-      await navigator.clipboard.writeText(r.title_raw);
+    if (await copyToClipboard(r.title_raw)) {
       message.success(t('channels.rawTitleCopied'));
-    } catch {
+    } else {
       message.error(t('channels.copyFailed'));
     }
   };
@@ -366,6 +368,29 @@ export default function ChannelDetail() {
     });
   };
 
+  const isPaused = channel?.status === 'inactive';
+
+  const handleTogglePause = () => {
+    if (!id || !channel) return;
+    modal.confirm({
+      title: t(isPaused ? 'channels.resumeConfirm' : 'channels.pauseConfirm'),
+      content: t(isPaused ? 'channels.resumeConfirmContent' : 'channels.pauseConfirmContent'),
+      okText: t('common.confirm'),
+      cancelText: t('common.cancel'),
+      onOk: async () => {
+        const r = isPaused ? await channelsApi.resume(id) : await channelsApi.pause(id);
+        if (r.success) {
+          message.success(t(isPaused ? 'channels.resumed' : 'channels.paused'));
+          loadChannel();
+        } else {
+          message.error(
+            r.error?.message || t(isPaused ? 'channels.resumeFailed' : 'channels.pauseFailed'),
+          );
+        }
+      },
+    });
+  };
+
   const toggleAllInList = (resources: FileResource[], checked: boolean) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -438,7 +463,7 @@ export default function ChannelDetail() {
       <Space align="start" style={{ marginBottom: 24, width: '100%', justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <Space align="start">
           <Link to="/channels">
-            <Button type="text" icon={<ArrowLeft size={18} />} />
+            <Button type="text" icon={<ArrowLeft size={18} />} aria-label={t('common.back')} />
           </Link>
           <div>
             <Space align="center">
@@ -472,10 +497,17 @@ export default function ChannelDetail() {
           <Button
             icon={<RefreshCw size={14} />}
             onClick={handleFetch}
-            disabled={isFetching}
+            disabled={isFetching || isPaused}
             loading={isFetching}
+            title={isPaused ? t('channels.fetchPausedTip') : undefined}
           >
             {isFetching ? t('channels.fetching') : t('channels.fetchNow')}
+          </Button>
+          <Button
+            icon={isPaused ? <Play size={14} /> : <Pause size={14} />}
+            onClick={handleTogglePause}
+          >
+            {t(isPaused ? 'channels.resume' : 'channels.pause')}
           </Button>
           <Button icon={<Pencil size={14} />} onClick={() => navigate(`/channels/${id}/edit`)}>
             {t('common.edit')}
@@ -850,7 +882,7 @@ export default function ChannelDetail() {
                     to={g.type === 'series' ? `/series/${g.id}` : `/movies/${g.id}`}
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <Button type="text" size="small" icon={<ExternalLink size={14} />} />
+                    <Button type="text" size="small" icon={<ExternalLink size={14} />} aria-label={t('channels.openWorkDetail')} />
                   </Link>
                 </Tooltip>
               )}

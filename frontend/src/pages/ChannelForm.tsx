@@ -584,6 +584,7 @@ export default function ChannelForm() {
                 type="text"
                 size="small"
                 icon={<X size={14} />}
+                aria-label={t('common.close')}
                 onClick={closeSidebar}
                 style={{ color: 'var(--rr-text-muted)' }}
               />
@@ -664,6 +665,7 @@ export default function ChannelForm() {
                   type="text"
                   size="small"
                   icon={<RefreshCw size={13} />}
+                  aria-label={t('common.refresh')}
                   onClick={() => {
                     const url = form.getFieldValue('url');
                     if (url) fetchPreview(url, fieldMapping);

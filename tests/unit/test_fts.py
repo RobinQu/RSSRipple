@@ -56,7 +56,13 @@ async def test_series_fts_upsert_search_delete(db_session, sample_series):
     assert await search_series_fts(db_session, "  ") == []
 
     await delete_series_fts(db_session, sample_series.id)
-    assert sample_series.id not in await search_series_fts(db_session, "测试剧集")
+    # The base row still exists: the search_text LIKE fallback (which exists
+    # precisely to heal index lag) still finds it.
+    assert sample_series.id in await search_series_fts(db_session, "测试剧集")
+    # Deleting the base row removes it from search entirely.
+    await db_session.delete(sample_series)
+    await db_session.commit()
+    assert await search_series_fts(db_session, "测试剧集") == []
 
 
 async def test_series_fts_upsert_replaces_existing_row(db_session, sample_series):
@@ -90,7 +96,12 @@ async def test_movie_fts_upsert_search_delete(db_session, sample_movie):
     assert await search_movie_fts(db_session, "") == []
 
     await delete_movie_fts(db_session, sample_movie.id)
-    assert sample_movie.id not in await search_movie_fts(db_session, "测试电影")
+    # Base row still present → the LIKE fallback still finds it (see the
+    # series counterpart); deleting the base row removes it from search.
+    assert sample_movie.id in await search_movie_fts(db_session, "测试电影")
+    await db_session.delete(sample_movie)
+    await db_session.commit()
+    assert await search_movie_fts(db_session, "测试电影") == []
 
 
 async def test_rebuild_movie_fts(db_session, sample_movie):
@@ -117,7 +128,12 @@ async def test_audio_work_fts_upsert_search_delete(db_session):
     assert await search_audio_work_fts(db_session, "") == []
 
     await delete_audio_work_fts(db_session, aw.id)
-    assert aw.id not in await search_audio_work_fts(db_session, "深夜音声作品")
+    # Base row still present → the LIKE fallback still finds it; deleting the
+    # base row removes it from search.
+    assert aw.id in await search_audio_work_fts(db_session, "深夜音声作品")
+    await db_session.delete(aw)
+    await db_session.commit()
+    assert await search_audio_work_fts(db_session, "深夜音声作品") == []
 
 
 async def test_rebuild_audio_work_fts(db_session):
@@ -139,6 +155,63 @@ async def test_backfill_fts_if_empty(db_session, sample_series, sample_movie):
     await backfill_fts_if_empty(db_session)
     assert sample_series.id in await search_series_fts(db_session, "测试剧集")
     assert sample_movie.id in await search_movie_fts(db_session, "测试电影")
+
+
+# ---------------------------------------------------------------------------
+# Retrieval ranking (Python-side; Turso's fts_score returns 0 under pyturso 0.8.2)
+# ---------------------------------------------------------------------------
+
+
+async def test_search_fts_ranks_most_similar_first(db_session, sample_series):
+    """``limit`` must cut by relevance, not by internal index order: the exact
+    title beats longer/partial matches, and limit=1 returns it."""
+    import uuid
+
+    from app.models.series import TVSeries
+
+    others = [
+        TVSeries(
+            id=str(uuid.uuid4()), title_cn="测试剧集 第二季",
+            external_source="manual", content_type="tv",
+        ),
+        TVSeries(
+            id=str(uuid.uuid4()), title_cn="测试剧集第二季加长版标题",
+            external_source="manual", content_type="tv",
+        ),
+        # Non-contiguous ngram hits do NOT match (Tantivy ngram semantics).
+        TVSeries(
+            id=str(uuid.uuid4()), title_cn="剧集参考",
+            external_source="manual", content_type="tv",
+        ),
+    ]
+    db_session.add_all(others)
+    await db_session.commit()
+
+    hits = await search_series_fts(db_session, "测试剧集", limit=10)
+    assert hits[0] == sample_series.id
+    assert set(hits) == {sample_series.id, others[0].id, others[1].id}
+
+    # limit cuts the tail by relevance, keeping the best matches.
+    top = await search_series_fts(db_session, "测试剧集", limit=1)
+    assert top == [sample_series.id]
+
+
+async def test_search_fts_ranking_tie_breaks_deterministically(db_session):
+    """Equal-similarity rows order by entity_id, so repeated searches are stable."""
+    import uuid
+
+    from app.models.series import TVSeries
+
+    ids = sorted(str(uuid.uuid4()) for _ in range(2))
+    rows = [
+        TVSeries(id=i, title_cn="并列标题", external_source="manual", content_type="tv")
+        for i in ids
+    ]
+    db_session.add_all(rows)
+    await db_session.commit()
+
+    hits = await search_series_fts(db_session, "并列标题", limit=10)
+    assert hits == ids
 
 
 # ---------------------------------------------------------------------------
@@ -207,35 +280,34 @@ def _capturing_db() -> tuple[object, dict]:
     return _Db(), captured
 
 
-async def test_search_pg_like_word_or_and_escaping():
+async def test_search_like_word_or_and_escaping():
     from app.models.series import TVSeries
-    from app.services.fts import _search_pg_like
+    from app.services.fts import _search_like
 
     db, captured = _capturing_db()
 
     # Multi-word English query → one LIKE per ≥2-char token, OR-ed together.
-    await _search_pg_like(db, TVSeries, "ghost in the shell", 30)
+    await _search_like(db, TVSeries, "ghost in the shell", 30)
     assert captured["sql"].count("LIKE") == 4
     assert "%ghost%" in captured["sql"] and "%shell%" in captured["sql"]
 
     # Single-token CJK query → single substring LIKE (contiguous match).
-    await _search_pg_like(db, TVSeries, "攻壳机动队", 30)
+    await _search_like(db, TVSeries, "攻壳机动队", 30)
     assert captured["sql"].count("LIKE") == 1
     assert "%攻壳机动队%" in captured["sql"]
 
-    # Single-character query → still matched as a substring (Turso Python-scan
-    # fallback parity).
-    await _search_pg_like(db, TVSeries, "测", 30)
+    # Single-character query → still matched as a substring.
+    await _search_like(db, TVSeries, "测", 30)
     assert captured["sql"].count("LIKE") == 1
     assert "%测%" in captured["sql"]
 
     # LIKE wildcards in the query term are escaped, so "100%" matches literally.
-    await _search_pg_like(db, TVSeries, "100%", 30)
+    await _search_like(db, TVSeries, "100%", 30)
     assert "%100\\%%" in captured["sql"]
 
     # 1-char tokens in a multi-word query are dropped (ngram min_token_size=2).
     captured.clear()
-    await _search_pg_like(db, TVSeries, "a b", 30)
+    await _search_like(db, TVSeries, "a b", 30)
     assert "sql" not in captured
 
 
@@ -446,7 +518,7 @@ async def test_ensure_fts_tables_logs_creation_failures(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-async def test_search_entities_like_swallows_db_errors():
+async def test_search_like_swallows_db_errors():
     from app.services.fts import search_series_fts
 
     db = SimpleNamespace(
@@ -456,7 +528,7 @@ async def test_search_entities_like_swallows_db_errors():
     assert await search_series_fts(db, "测") == []
 
 
-async def test_search_entities_like_honors_limit(db_session, sample_series):
+async def test_search_like_honors_limit(db_session, sample_series):
     import uuid
 
     from app.models.series import TVSeries
@@ -474,6 +546,60 @@ async def test_search_entities_like_honors_limit(db_session, sample_series):
     ids = await search_series_fts(db_session, "测", limit=2)
     assert len(ids) == 2
     assert all(i in {sample_series.id, *(e.id for e in extras)} for i in ids)
+
+
+async def test_search_like_ranks_most_similar_first(db_session, sample_series):
+    """The LIKE path (PG primary / Turso recall fallback) returns the most
+    similar candidate first and ``limit`` cuts by relevance."""
+    import uuid
+
+    from app.models.series import TVSeries
+
+    longer = TVSeries(
+        id=str(uuid.uuid4()), title_cn="测试剧集 第二季 特别长的标题后缀",
+        external_source="manual", content_type="tv",
+    )
+    db_session.add(longer)
+    await db_session.commit()
+
+    from app.services.fts import _search_like
+
+    ids = await _search_like(db_session, TVSeries, "测试剧集", 10)
+    assert ids[0] == sample_series.id
+    assert longer.id in ids
+    top = await _search_like(db_session, TVSeries, "测试剧集", 1)
+    assert top == [sample_series.id]
+
+
+async def test_empty_fts_recall_falls_back_to_search_text_like(db_session, monkeypatch):
+    """When fts_match returns nothing (separator punctuation breaks ngram
+    contiguity, or a lagging sidecar), search falls back to the bounded
+    search_text LIKE pre-filter instead of a full-table scan."""
+    import uuid
+
+    import app.services.fts as fts_mod
+    from app.models.series import TVSeries
+
+    work = TVSeries(
+        id=str(uuid.uuid4()), title_en="Initial D: Battle Stage",
+        external_source="manual", content_type="tv",
+    )
+    db_session.add(work)
+    await db_session.commit()
+
+    # Simulate an empty FTS recall; the LIKE fallback must still find the row.
+    monkeypatch.setattr(fts_mod, "_search_fts", AsyncMock(return_value=[]))
+    ids = await search_series_fts(db_session, "initial d battle stage")
+    assert work.id in ids
+
+
+async def test_empty_fts_recall_fallback_also_bounded(db_session, monkeypatch):
+    """The LIKE fallback returns empty (not a full-table rescue) when nothing
+    substring-matches either."""
+    import app.services.fts as fts_mod
+
+    monkeypatch.setattr(fts_mod, "_search_fts", AsyncMock(return_value=[]))
+    assert await search_series_fts(db_session, "不存在的作品标题") == []
 
 
 async def test_upsert_delete_swallow_sidecar_write_errors(monkeypatch):

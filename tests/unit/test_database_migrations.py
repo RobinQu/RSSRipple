@@ -131,6 +131,34 @@ async def test_migrations_are_idempotent(db_engine, db_session):
     assert row == "wikipedia"
 
 
+async def test_api_keys_expires_at_column_is_added(db_engine, db_session):
+    """API-key expiry column — migration is idempotent, values round-trip,
+    and NULL (never expires) stays the default."""
+    from datetime import timedelta
+
+    from app.models.api_key import ApiKey
+    from app.utils.time import utcnow
+
+    for _ in range(2):  # idempotent
+        async with db_engine.begin() as conn:
+            await _apply_light_migrations(conn)
+            cols = (await conn.execute(text("PRAGMA table_info(api_keys)"))).fetchall()
+            assert "expires_at" in {row[1] for row in cols}
+
+    exp = utcnow() + timedelta(days=1)
+    key = ApiKey(name="exp", prefix="rr_x", key_hash="0" * 64, expires_at=exp)
+    db_session.add(key)
+    await db_session.commit()
+    await db_session.refresh(key)
+    assert key.expires_at == exp
+
+    no_expiry = ApiKey(name="forever", prefix="rr_y", key_hash="1" * 64)
+    db_session.add(no_expiry)
+    await db_session.commit()
+    await db_session.refresh(no_expiry)
+    assert no_expiry.expires_at is None
+
+
 async def test_legacy_required_titles_are_unlocked_once(db_engine, db_session):
     """Old baseline title fields stop gating resources, but later explicit
     opt-in survives subsequent startups."""
@@ -639,6 +667,7 @@ async def test_light_migrations_required_fields_null_and_bad_json():
     baseline = normalize_required_fields([])
     async with _raw_turso_engine() as engine:
         async with engine.begin() as conn:
+            await _downgrade_channels_nullable_rf(conn)
             _CH = ("INSERT INTO channels (id, name, type, url, fetch_interval, "
                     "status, field_mapping, metadata_agent_enabled, default_is_anime, "
                     "auto_cleanup_unresolved_enabled, auto_cleanup_unresolved_days, "
@@ -891,6 +920,320 @@ async def test_light_migrations_batch_scope_movies_rewrite():
 
 
 # ---------------------------------------------------------------------------
+# 轻迁移：本轮 schema 加固（Turso 旧库形状）
+# ---------------------------------------------------------------------------
+
+
+async def test_light_migrations_episode_season_default_rebuild():
+    """旧 episodes 表 season 无 server default → 表重建补 DEFAULT 1；
+    数据保留，二次运行为 no-op。"""
+    async with _raw_turso_engine() as engine:
+        async with engine.begin() as conn:
+            await conn.execute(text("DROP TABLE episodes"))
+            await conn.execute(text("""
+                CREATE TABLE episodes (
+                  id VARCHAR(36) NOT NULL PRIMARY KEY,
+                  series_id VARCHAR(36) NOT NULL,
+                  season INTEGER NOT NULL,
+                  episode INTEGER NOT NULL,
+                  title VARCHAR(512),
+                  air_date DATE,
+                  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                  CONSTRAINT uq_episode_series_season_episode
+                      UNIQUE (series_id, season, episode),
+                  FOREIGN KEY(series_id) REFERENCES tv_series (id) ON DELETE CASCADE
+                )
+            """))
+            await conn.execute(text(
+                "INSERT INTO episodes (id, series_id, season, episode) "
+                "VALUES ('e1', 's1', 2, 5)"
+            ))
+        async with engine.begin() as conn:
+            await _apply_light_migrations(conn)
+            info = (await conn.execute(text("PRAGMA table_info(episodes)"))).fetchall()
+            row = next(r for r in info if r[1] == "season")
+            assert row[3] == 1 and row[4] == "'1'"
+            data = (await conn.execute(
+                text("SELECT id, season, episode FROM episodes")
+            )).one()
+            assert (data.id, data.season, data.episode) == ("e1", 2, 5)
+            await _apply_light_migrations(conn)  # 幂等：default 已存在 → 不再重建
+            assert (await conn.execute(
+                text("SELECT COUNT(*) FROM episodes")
+            )).scalar_one() == 1
+
+
+async def test_light_migrations_subtitle_group_index_dropped():
+    """存量冗余单列索引 ix_subtitle_group_mappings_normalized_key 被 DROP；
+    数据与唯一约束不受影响，幂等。"""
+    async with _raw_turso_engine() as engine:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "CREATE INDEX ix_subtitle_group_mappings_normalized_key "
+                "ON subtitle_group_mappings (normalized_key)"
+            ))
+            await conn.execute(text(
+                "INSERT INTO subtitle_group_mappings "
+                "(id, raw_value, normalized_key, groups, resolution) "
+                "VALUES ('m1', 'A', 'a', '[\"A\"]', 'single')"
+            ))
+        async with engine.begin() as conn:
+            await _apply_light_migrations(conn)
+            names = {r[0] for r in (await conn.execute(text(
+                "SELECT name FROM sqlite_master WHERE type='index' "
+                "AND tbl_name='subtitle_group_mappings'"
+            ))).fetchall()}
+            assert "ix_subtitle_group_mappings_normalized_key" not in names
+            assert (await conn.execute(text(
+                "SELECT COUNT(*) FROM subtitle_group_mappings"
+            ))).scalar_one() == 1
+            await _apply_light_migrations(conn)  # 幂等：DROP INDEX IF EXISTS
+
+
+async def test_light_migrations_work_external_ids_updated_at_rebuild():
+    """旧 work_external_ids 缺 updated_at → Turso 表重建补列
+    （NOT NULL DEFAULT CURRENT_TIMESTAMP），存量行回填 created_at；
+    新插入行走 DB 默认值；幂等。"""
+    async with _raw_turso_engine() as engine:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "ALTER TABLE work_external_ids DROP COLUMN updated_at"
+            ))
+            await conn.execute(text(
+                "INSERT INTO work_external_ids "
+                "(id, work_type, work_id, source, external_id, created_at) "
+                "VALUES ('w1', 'series', 's1', 'tmdb', 'tmdb:1', '2024-01-02 03:04:05')"
+            ))
+        async with engine.begin() as conn:
+            await _apply_light_migrations(conn)
+            info = (await conn.execute(
+                text("PRAGMA table_info(work_external_ids)")
+            )).fetchall()
+            cols = {row[1]: row for row in info}
+            assert cols["updated_at"][3] == 1  # NOT NULL
+            assert cols["updated_at"][4] is not None  # DEFAULT CURRENT_TIMESTAMP
+            row = (await conn.execute(text(
+                "SELECT created_at, updated_at FROM work_external_ids WHERE id='w1'"
+            ))).one()
+            assert str(row.updated_at).startswith("2024-01-02 03:04:05")
+            await _apply_light_migrations(conn)  # 幂等：列已存在 → 不再重建
+            assert (await conn.execute(text(
+                "SELECT COUNT(*) FROM work_external_ids"
+            ))).scalar_one() == 1
+            # 身份袋种子/新行省略 updated_at，由 DB 默认值填充
+            await conn.execute(text(
+                "INSERT INTO work_external_ids (id, work_type, work_id, source, external_id) "
+                "VALUES ('w2', 'series', 's2', 'tmdb', 'tmdb:2')"
+            ))
+        async with engine.begin() as conn:
+            row = (await conn.execute(text(
+                "SELECT updated_at FROM work_external_ids WHERE id='w2'"
+            ))).one()
+            assert row.updated_at is not None
+
+
+async def test_light_migrations_agent_works_fk_rebuild():
+    """旧 agent_works 目标 FK 为 SET NULL → 重建为 ON DELETE CASCADE；
+    数据保留，幂等。"""
+    async with _raw_turso_engine() as engine:
+        async with engine.begin() as conn:
+            await conn.execute(text("DROP TABLE agent_works"))
+            await conn.execute(text("""
+                CREATE TABLE agent_works (
+                  id VARCHAR(36) NOT NULL PRIMARY KEY,
+                  agent_id VARCHAR(36) NOT NULL,
+                  content_type VARCHAR(20) NOT NULL,
+                  series_id VARCHAR(36),
+                  movie_id VARCHAR(36),
+                  enable_episode_dedup BOOLEAN NOT NULL,
+                  filter_overrides JSON,
+                  display_name_override VARCHAR(512),
+                  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                  CONSTRAINT chk_work_single_target CHECK (
+                    (series_id IS NOT NULL AND movie_id IS NULL)
+                    OR (series_id IS NULL AND movie_id IS NOT NULL)),
+                  FOREIGN KEY(agent_id) REFERENCES agents (id) ON DELETE CASCADE,
+                  FOREIGN KEY(series_id) REFERENCES tv_series (id) ON DELETE SET NULL,
+                  FOREIGN KEY(movie_id) REFERENCES movies (id) ON DELETE SET NULL
+                )
+            """))
+            await conn.execute(text(
+                "INSERT INTO agent_works "
+                "(id, agent_id, content_type, series_id, enable_episode_dedup) "
+                "VALUES ('aw1', 'a1', 'tv', 's1', 1)"
+            ))
+        async with engine.begin() as conn:
+            await _apply_light_migrations(conn)
+            fks = (await conn.execute(
+                text("PRAGMA foreign_key_list(agent_works)")
+            )).fetchall()
+            actions = {row[3]: (row[2], row[6]) for row in fks}
+            assert actions["series_id"] == ("tv_series", "CASCADE")
+            assert actions["movie_id"] == ("movies", "CASCADE")
+            assert actions["agent_id"] == ("agents", "CASCADE")
+            assert (await conn.execute(
+                text("SELECT COUNT(*) FROM agent_works")
+            )).scalar_one() == 1
+            await _apply_light_migrations(conn)  # 幂等：已是 CASCADE → 不再重建
+            assert (await conn.execute(
+                text("SELECT COUNT(*) FROM agent_works")
+            )).scalar_one() == 1
+
+
+async def _strip_unique_constraints(conn, table: str) -> None:
+    """Rebuild ``table`` without its named UNIQUE clauses (pre-constraint shape)."""
+    import re
+
+    ddl = (await conn.execute(text(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name=:t"
+    ), {"t": table})).scalar_one()
+    legacy = re.sub(r",\s*CONSTRAINT uq_\w+ UNIQUE \([^)]*\)", "", ddl)
+    assert legacy != ddl
+    cols = ", ".join(
+        row[1]
+        for row in (await conn.execute(text(f"PRAGMA table_info({table})"))).fetchall()
+    )
+    await conn.execute(text(legacy.replace(
+        f"CREATE TABLE {table} (", f"CREATE TABLE __legacy_{table} (", 1
+    )))
+    await conn.execute(text(
+        f"INSERT INTO __legacy_{table} ({cols}) SELECT {cols} FROM {table}"
+    ))
+    await conn.execute(text(f"DROP TABLE {table}"))
+    await conn.execute(text(f"ALTER TABLE __legacy_{table} RENAME TO {table}"))
+
+
+async def _downgrade_channels_nullable_rf(conn) -> None:
+    """Rebuild ``channels`` with a nullable ``required_metadata_fields``
+    (the pre-hardening shape) so legacy-row fabrication stays possible."""
+    ddl = (await conn.execute(text(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='channels'"
+    ))).scalar_one()
+    legacy = ddl.replace(
+        "required_metadata_fields JSON NOT NULL", "required_metadata_fields JSON"
+    )
+    assert legacy != ddl
+    cols = ", ".join(
+        row[1]
+        for row in (await conn.execute(text("PRAGMA table_info(channels)"))).fetchall()
+    )
+    await conn.execute(text(legacy.replace(
+        "CREATE TABLE channels (", "CREATE TABLE __legacy_channels (", 1
+    )))
+    await conn.execute(text(
+        f"INSERT INTO __legacy_channels ({cols}) SELECT {cols} FROM channels"
+    ))
+    await conn.execute(text("DROP TABLE channels"))
+    await conn.execute(text("ALTER TABLE __legacy_channels RENAME TO channels"))
+
+
+_CH_INSERT = (
+    "INSERT INTO channels (id, name, type, url, fetch_interval, status, "
+    "field_mapping, metadata_agent_enabled) VALUES "
+    "('{id}', '{name}', 'rss_feed', '{url}', 1800, 'active', '{{}}', 1)"
+)
+
+
+async def test_light_migrations_unique_index_backfill_channels():
+    """旧库 channels 无 url 唯一约束且无重复 → 补唯一索引并实际生效；幂等。"""
+    async with _raw_turso_engine() as engine:
+        async with engine.begin() as conn:
+            await _strip_unique_constraints(conn, "channels")
+            await _downgrade_channels_nullable_rf(conn)
+            await conn.execute(text(_CH_INSERT.format(id="c1", name="A", url="https://x/1")))
+        async with engine.begin() as conn:
+            await _apply_light_migrations(conn)
+            row = (await conn.execute(text(
+                "SELECT name FROM sqlite_master WHERE type='index' "
+                "AND name='uq_channels_url'"
+            ))).first()
+            assert row is not None
+            await _apply_light_migrations(conn)  # 幂等：索引已覆盖 → 跳过
+        async with engine.begin() as conn:
+            with pytest.raises(DatabaseError):
+                await conn.execute(text(
+                    _CH_INSERT.format(id="c2", name="B", url="https://x/1")
+                ))
+
+
+async def test_light_migrations_unique_index_skipped_on_duplicates(caplog):
+    """既有重复行 → 不建索引、不删数据、记 warning（人工处理后重启再收敛）。"""
+    import logging
+
+    async with _raw_turso_engine() as engine:
+        async with engine.begin() as conn:
+            await _strip_unique_constraints(conn, "downloader_instances")
+            for row_id, name in (("d1", "A"), ("d2", "B")):
+                await conn.execute(text(
+                    "INSERT INTO downloader_instances "
+                    "(id, name, type, url, download_dir, status) VALUES "
+                    f"('{row_id}', '{name}', 'mock', 'mock://local', '/x', 'disconnected')"
+                ))
+        with caplog.at_level(logging.WARNING):
+            async with engine.begin() as conn:
+                await _apply_light_migrations(conn)
+        async with engine.begin() as conn:
+            assert (await conn.execute(text(
+                "SELECT name FROM sqlite_master WHERE type='index' "
+                "AND name='uq_downloader_instances_url'"
+            ))).first() is None
+            # 无重复的 name 列仍获得索引
+            assert (await conn.execute(text(
+                "SELECT name FROM sqlite_master WHERE type='index' "
+                "AND name='uq_downloader_instances_name'"
+            ))).first() is not None
+            assert (await conn.execute(text(
+                "SELECT COUNT(*) FROM downloader_instances"
+            ))).scalar_one() == 2
+    assert "uq_downloader_instances_url" in caplog.text
+
+
+async def test_light_migrations_unique_index_backfill_binding():
+    """media_server_bindings (server_id, server_path_prefix) 复合唯一索引补建。"""
+    async with _raw_turso_engine() as engine:
+        async with engine.begin() as conn:
+            await _strip_unique_constraints(conn, "media_server_bindings")
+            await conn.execute(text(
+                "INSERT INTO media_server_bindings "
+                "(id, server_id, server_path_prefix, volume_id, subpath) "
+                "VALUES ('b1', 's1', '/data', 'v1', '')"
+            ))
+        async with engine.begin() as conn:
+            await _apply_light_migrations(conn)
+            assert (await conn.execute(text(
+                "SELECT name FROM sqlite_master WHERE type='index' "
+                "AND name='uq_media_server_bindings_server_prefix'"
+            ))).first() is not None
+        async with engine.begin() as conn:
+            with pytest.raises(DatabaseError):
+                await conn.execute(text(
+                    "INSERT INTO media_server_bindings "
+                    "(id, server_id, server_path_prefix, volume_id, subpath) "
+                    "VALUES ('b2', 's1', '/data', 'v1', '')"
+                ))
+
+
+async def test_unique_backfill_skips_fresh_constraints(db_engine):
+    """新库已由 create_all 内联唯一约束覆盖 → 轻迁移不建同列冗余索引。"""
+    async with db_engine.begin() as conn:
+        await _apply_light_migrations(conn)
+        names = {r[0] for r in (await conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='index'")
+        )).fetchall()}
+    for name in (
+        "uq_channels_url",
+        "uq_downloader_instances_name",
+        "uq_downloader_instances_url",
+        "uq_media_server_instances_name",
+        "uq_media_server_instances_url",
+        "uq_media_server_bindings_server_prefix",
+    ):
+        assert name not in names
+
+
+# ---------------------------------------------------------------------------
 # PostgreSQL 分支（真实 PG 可用时执行，否则跳过）
 # ---------------------------------------------------------------------------
 
@@ -1055,6 +1398,58 @@ async def test_light_migrations_postgres_legacy_delivery_columns_nullable(pg_env
         assert row is not None and row.is_nullable == "YES"
 
 
+async def test_light_migrations_postgres_schema_hardening(pg_env):
+    """PostgreSQL 分支：external_id 放宽到 VARCHAR(128)、work_external_ids
+    补 updated_at、agent_works 目标 FK SET NULL→CASCADE、唯一约束已覆盖不重复建索引。
+    全部幂等。"""
+    from app.database import create_tables
+
+    await create_tables()
+    async with pg_env.begin() as conn:
+        # 模拟旧库形状
+        await conn.execute(text(
+            "ALTER TABLE tv_series ALTER COLUMN external_id TYPE VARCHAR(100)"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE work_external_ids DROP COLUMN updated_at"
+        ))
+        for column, target in (("series_id", "tv_series"), ("movie_id", "movies")):
+            await conn.execute(text(
+                f"ALTER TABLE agent_works DROP CONSTRAINT agent_works_{column}_fkey"
+            ))
+            await conn.execute(text(
+                f"ALTER TABLE agent_works ADD CONSTRAINT agent_works_{column}_fkey "
+                f"FOREIGN KEY ({column}) REFERENCES {target}(id) ON DELETE SET NULL"
+            ))
+        await _apply_light_migrations(conn)
+        await _apply_light_migrations(conn)  # 幂等
+
+    async with pg_env.connect() as conn:
+        length = await conn.scalar(text(
+            "SELECT character_maximum_length FROM information_schema.columns "
+            "WHERE table_name = 'tv_series' AND column_name = 'external_id'"
+        ))
+        assert length == 128
+        row = (await conn.execute(text(
+            "SELECT is_nullable FROM information_schema.columns "
+            "WHERE table_name = 'work_external_ids' AND column_name = 'updated_at'"
+        ))).first()
+        assert row is not None and row.is_nullable == "NO"
+        default = await conn.scalar(text(
+            "SELECT pg_get_expr(d.adbin, d.adrelid) FROM pg_attrdef d "
+            "JOIN pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum "
+            "JOIN pg_class c ON c.oid = d.adrelid "
+            "WHERE c.relname = 'work_external_ids' AND a.attname = 'updated_at'"
+        ))
+        assert default is not None and "utc" in default.lower()
+        fks = (await conn.execute(text(
+            "SELECT conname, confdeltype FROM pg_constraint "
+            "WHERE conrelid = 'agent_works'::regclass AND contype = 'f'"
+        ))).fetchall()
+        cascade = {r[0] for r in fks if r[1] in ("c", b"c")}  # asyncpg: "char" → bytes
+        assert {"agent_works_series_id_fkey", "agent_works_movie_id_fkey"} <= cascade
+
+
 def test_install_db_retry_middleware_turso_reraises_non_retryable():
     """非可重试错误不重试，直接抛给上层。"""
     from fastapi import FastAPI
@@ -1140,6 +1535,7 @@ async def test_light_migrations_required_fields_defensive_branches():
             await _apply_light_migrations(conn)  # 先让所有哨兵置 done
 
         async with engine.begin() as conn:
+            await _downgrade_channels_nullable_rf(conn)
             await conn.execute(text(
                 "INSERT INTO channels (id, name, type, url, fetch_interval, status, "
                 "field_mapping, metadata_agent_enabled, metadata_source, "
@@ -1262,6 +1658,9 @@ class _FakePGConn:
         self.dialect = dialect()
         self._channel_rows = channel_rows
         self.executed: list[str] = []
+        # Real connections expose a per-connection info dict; the light
+        # migration ledger stashes its in-flight block list there.
+        self.info: dict = {}
 
     async def run_sync(self, function):
         def execute(statement):
@@ -1340,8 +1739,13 @@ async def test_light_migrations_postgres_branches_fake_conn(monkeypatch):
     # PostgreSQL integration tests, not emulated by this query recorder.
     guard = AsyncMock()
     monkeypatch.setattr("app.services.resource_work_schema.ensure_resource_work_fk_guard", guard)
+    # The cache upgrader also needs a real inspectable schema. Its preservation,
+    # rejection and rollback behavior is covered by metadata_cache integration.
+    cache_upgrade = AsyncMock()
+    monkeypatch.setattr("app.services.metadata_cache_schema.upgrade_metadata_cache_keys", cache_upgrade)
     await db_mod._apply_light_migrations(conn)
     guard.assert_awaited_once_with(conn)
+    cache_upgrade.assert_awaited_once_with(conn)
     # Spot-check the queries actually ran.
     assert any("pg_advisory" not in q for q in conn.executed)
     assert any("ALTER TABLE libraries ALTER COLUMN root_path DROP NOT NULL" in q
@@ -1434,3 +1838,347 @@ def test_install_db_retry_middleware_unreachable(monkeypatch):
     db_mod.install_db_retry_middleware(app)
     client = TestClient(app, raise_server_exceptions=False)
     assert client.get("/ok").status_code == 500
+
+
+# ---------------------------------------------------------------------------
+# 本轮硬化：work_collections 部分唯一索引 / episodes 复合 FK /
+# channels.required_metadata_fields NOT NULL（Turso 重建路径）
+# ---------------------------------------------------------------------------
+
+
+async def test_light_migrations_work_collections_identity_index():
+    """存量库（无部分唯一索引）：轻迁移建立 (external_source, external_id)
+    部分唯一索引（仅 external_id 非空行）；壳合集等 NULL 身份行照旧可重复；
+    有身份重复行被拒。幂等。"""
+    from sqlalchemy.exc import IntegrityError
+
+    async with _raw_turso_engine() as engine:
+        async with engine.begin() as conn:
+            # 模拟旧库：去掉 create_all 建的部分唯一索引
+            await conn.execute(text(
+                "DROP INDEX IF EXISTS uq_work_collections_source_external"
+            ))
+            await conn.execute(text(
+                "INSERT INTO work_collections (id, title_cn, external_source) "
+                "VALUES ('c1', '壳甲', 'series_group'), ('c2', '壳乙', 'series_group')"
+            ))
+            await conn.execute(text(
+                "INSERT INTO work_collections "
+                "(id, title_cn, external_source, external_id) "
+                "VALUES ('c3', 'T', 'tmdb_collection', '131295')"
+            ))
+        async with engine.begin() as conn:
+            await _apply_light_migrations(conn)
+            await _apply_light_migrations(conn)  # 幂等：IF NOT EXISTS
+            ddl = await conn.scalar(text(
+                "SELECT sql FROM sqlite_master WHERE type='index' "
+                "AND name='uq_work_collections_source_external'"
+            ))
+            assert ddl is not None and "WHERE" in ddl.upper()
+            # NULL 身份行不受约束（壳合集保留）
+            assert (await conn.execute(text(
+                "SELECT COUNT(*) FROM work_collections WHERE external_id IS NULL"
+            ))).scalar_one() == 2
+            # 有身份的重复对被拒
+            with pytest.raises(IntegrityError):
+                await conn.execute(text(
+                    "INSERT INTO work_collections "
+                    "(id, title_cn, external_source, external_id) "
+                    "VALUES ('c4', 'T2', 'tmdb_collection', '131295')"
+                ))
+
+
+async def test_light_migrations_work_collections_identity_index_skips_dupes(caplog):
+    """存量库已有有身份重复行 → 跳过建索引并记 warning，不删数据。"""
+    async with _raw_turso_engine() as engine:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "DROP INDEX IF EXISTS uq_work_collections_source_external"
+            ))
+            await conn.execute(text(
+                "INSERT INTO work_collections "
+                "(id, title_cn, external_source, external_id) "
+                "VALUES ('c1', 'T1', 'tmdb_collection', '131295'), "
+                "('c2', 'T2', 'tmdb_collection', '131295')"
+            ))
+        async with engine.begin() as conn:
+            with caplog.at_level("WARNING"):
+                await _apply_light_migrations(conn)
+            assert "work_collections" in caplog.text
+            assert await conn.scalar(text(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='index' "
+                "AND name='uq_work_collections_source_external'"
+            )) == 0
+            # 数据保留
+            assert (await conn.execute(text(
+                "SELECT COUNT(*) FROM work_collections"
+            ))).scalar_one() == 2
+
+
+_LEGACY_EPISODES_DDL = """
+    CREATE TABLE episodes (
+      id VARCHAR(36) NOT NULL PRIMARY KEY,
+      series_id VARCHAR(36) NOT NULL,
+      season INTEGER NOT NULL,
+      episode INTEGER NOT NULL,
+      title VARCHAR(512),
+      air_date DATE,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+      CONSTRAINT uq_episode_series_season_episode
+          UNIQUE (series_id, season, episode),
+      FOREIGN KEY(series_id) REFERENCES tv_series (id) ON DELETE CASCADE
+    )
+"""
+
+
+async def test_upgrade_sqlite_table_invariants_episodes_composite_fk():
+    """旧 episodes 表（仅简单 FK、season 无 default）→ 专用阶段重建出
+    (series_id, season) → tv_series(id, season_number) 复合 FK；
+    可订正的违例行按父作品 season_number 重标；season default 一并补齐
+    （重建自 metadata）；违例插入被拒；幂等。"""
+    from sqlalchemy.exc import IntegrityError
+
+    from app.database import upgrade_sqlite_table_invariants
+
+    async with _raw_turso_engine() as engine:
+        async with engine.begin() as conn:
+            await conn.execute(text("DROP TABLE episodes"))
+            await conn.execute(text(_LEGACY_EPISODES_DDL))
+            await conn.execute(text(
+                "INSERT INTO tv_series (id, title_cn, season_number) "
+                "VALUES ('s1', '剧', 2)"
+            ))
+            # e2 违例（season 1 ≠ 父 2），目标槽位 (s1,2,5) 空闲 → 订正为 2
+            await conn.execute(text(
+                "INSERT INTO episodes (id, series_id, season, episode) "
+                "VALUES ('e1', 's1', 2, 1), ('e2', 's1', 1, 5)"
+            ))
+        # 轻迁移的 season-default 块此时因违例行存在而跳过重建（交由专用阶段）
+        async with engine.begin() as conn:
+            await _apply_light_migrations(conn)
+        await upgrade_sqlite_table_invariants(engine)
+        await upgrade_sqlite_table_invariants(engine)  # 幂等：FK 已存在 → 跳过
+        async with engine.begin() as conn:
+            fks = (await conn.execute(
+                text("PRAGMA foreign_key_list(episodes)")
+            )).fetchall()
+            targets = {(r[2], r[3], r[4]) for r in fks}
+            assert ("tv_series", "series_id", "id") in targets
+            assert ("tv_series", "season", "season_number") in targets
+            rows = (await conn.execute(
+                text("SELECT id, season FROM episodes ORDER BY id")
+            )).fetchall()
+            assert [(r[0], r[1]) for r in rows] == [("e1", 2), ("e2", 2)]
+            info = (await conn.execute(text("PRAGMA table_info(episodes)"))).fetchall()
+            assert next(r for r in info if r[1] == "season")[4] is not None
+        # 违例插入在 COMMIT 被拒（DEFERRABLE INITIALLY DEFERRED）
+        with pytest.raises(IntegrityError):
+            async with engine.begin() as conn:
+                await conn.execute(text("PRAGMA foreign_keys=ON"))
+                await conn.execute(text(
+                    "INSERT INTO episodes (id, series_id, season, episode) "
+                    "VALUES ('e3', 's1', 1, 6)"
+                ))
+
+
+async def test_upgrade_sqlite_table_invariants_episodes_fk_skipped_on_collision(caplog):
+    """未拆分 legacy 行 (s1,1,1)+(s1,2,1)：订正会撞 (series,season,episode)
+    唯一键 → 保留旧形状并记 warning，不丢数据；重复运行结果相同。"""
+    from app.database import upgrade_sqlite_table_invariants
+
+    async with _raw_turso_engine() as engine:
+        async with engine.begin() as conn:
+            await conn.execute(text("DROP TABLE episodes"))
+            await conn.execute(text(_LEGACY_EPISODES_DDL))
+            await conn.execute(text(
+                "INSERT INTO tv_series (id, title_cn, season_number) "
+                "VALUES ('s1', '未拆分剧', 1)"
+            ))
+            await conn.execute(text(
+                "INSERT INTO episodes (id, series_id, season, episode) "
+                "VALUES ('e1', 's1', 1, 1), ('e2', 's1', 2, 1)"
+            ))
+        for _ in range(2):
+            with caplog.at_level("WARNING"):
+                await upgrade_sqlite_table_invariants(engine)
+            assert "episodes composite FK" in caplog.text
+            caplog.clear()
+        async with engine.begin() as conn:
+            fks = (await conn.execute(
+                text("PRAGMA foreign_key_list(episodes)")
+            )).fetchall()
+            assert not any(r[2] == "tv_series" and r[3] == "season" for r in fks)
+            rows = (await conn.execute(
+                text("SELECT id, season FROM episodes ORDER BY id")
+            )).fetchall()
+            assert [(r[0], r[1]) for r in rows] == [("e1", 1), ("e2", 2)]
+
+
+async def test_upgrade_sqlite_table_invariants_channels_not_null():
+    """旧 channels 表（required_metadata_fields 可空 + 已退役孤儿列）→
+    重建为 NOT NULL；NULL 行先回填基线；子表行（agents/file_resources）
+    不因 DROP TABLE 隐式 DELETE 级联丢失；幂等。"""
+    import json as _json
+
+    from app.database import apply_db_pragmas, upgrade_sqlite_table_invariants
+    from app.services.required_fields import normalize_required_fields
+
+    async with _raw_turso_engine() as engine:
+        # FK 强制执行下重建 channels（父表）才考验外键挂起路径。
+        apply_db_pragmas(engine)
+        async with engine.begin() as conn:
+            await conn.execute(text("BEGIN"))
+            await conn.execute(text("PRAGMA foreign_keys=OFF"))
+            await conn.execute(text("DROP TABLE channels"))
+            await conn.execute(text("""
+                CREATE TABLE channels (
+                  id VARCHAR(36) NOT NULL PRIMARY KEY,
+                  name VARCHAR(255) NOT NULL,
+                  type VARCHAR(20) NOT NULL,
+                  url VARCHAR(2048) NOT NULL,
+                  fetch_interval INTEGER NOT NULL,
+                  status VARCHAR(20) NOT NULL,
+                  field_mapping JSON NOT NULL,
+                  metadata_agent_enabled BOOLEAN NOT NULL,
+                  metadata_source VARCHAR(32),
+                  metadata_fallback_sources JSON,
+                  required_metadata_fields JSON,
+                  default_is_anime BOOLEAN NOT NULL,
+                  auto_cleanup_unresolved_enabled BOOLEAN NOT NULL,
+                  auto_cleanup_unresolved_days INTEGER NOT NULL,
+                  metadata_refresh_enabled BOOLEAN NOT NULL,
+                  metadata_refresh_interval_minutes INTEGER,
+                  metadata_refresh_full_scope BOOLEAN NOT NULL,
+                  last_fetched_at DATETIME,
+                  last_fetch_status VARCHAR(20),
+                  last_fetch_error VARCHAR(2048),
+                  parser_type VARCHAR(20),
+                  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                  UNIQUE (url)
+                )
+            """))
+            await conn.execute(text(
+                "INSERT INTO channels (id, name, type, url, fetch_interval, status, "
+                "field_mapping, metadata_agent_enabled, default_is_anime, "
+                "auto_cleanup_unresolved_enabled, auto_cleanup_unresolved_days, "
+                "metadata_refresh_enabled, metadata_refresh_full_scope, parser_type) "
+                "VALUES ('c1', 'ch', 'rss_feed', 'https://c1.x', 1800, 'active', "
+                "'{}', 1, 0, 0, 21, 0, 0, 'llm')"
+            ))
+            await conn.execute(text(
+                "INSERT INTO agents (id, name, channel_id, downloader_id, "
+                "conflict_resolution, task_expire_days, llm_enabled, "
+                "scope_channel_wide, status) "
+                "VALUES ('a1', 'A', 'c1', 'd1', 'auto', 30, 1, 0, 'active')"
+            ))
+            await conn.execute(text(
+                "INSERT INTO file_resources (id, channel_id, guid, title_raw, "
+                "torrent_url, is_batch) VALUES ('fr1', 'c1', 'g1', 'x', 'http://x', 0)"
+            ))
+            await conn.execute(text("PRAGMA foreign_keys=ON"))
+        await upgrade_sqlite_table_invariants(engine)
+        await upgrade_sqlite_table_invariants(engine)  # 幂等：NOT NULL 已设置 → 跳过
+        async with engine.begin() as conn:
+            info = (await conn.execute(text("PRAGMA table_info(channels)"))).fetchall()
+            cols = {row[1]: row for row in info}
+            assert cols["required_metadata_fields"][3] == 1  # NOT NULL
+            assert "parser_type" not in cols  # 退役孤儿列随重建移除
+            stored = (await conn.execute(text(
+                "SELECT required_metadata_fields FROM channels WHERE id = 'c1'"
+            ))).scalar_one()
+            assert _json.loads(stored) == normalize_required_fields([])
+            # 子表行未因 DROP TABLE 级联丢失
+            assert (await conn.execute(text(
+                "SELECT COUNT(*) FROM agents"
+            ))).scalar_one() == 1
+            assert (await conn.execute(text(
+                "SELECT COUNT(*) FROM file_resources"
+            ))).scalar_one() == 1
+            assert (await conn.execute(
+                text("PRAGMA foreign_keys")
+            )).scalar_one() == 1  # 重建后外键执法已恢复
+
+
+# ---------------------------------------------------------------------------
+# PostgreSQL 分支（真实 PG 可用时执行，否则跳过）
+# ---------------------------------------------------------------------------
+
+
+async def test_light_migrations_postgres_schema_hardening_round2(pg_env):
+    """PostgreSQL 分支：work_collections 旧唯一约束 → 部分唯一索引、
+    channels.required_metadata_fields SET NOT NULL、episodes 复合 FK
+    （DEFERRABLE）、tv_series (id, season_number) 唯一约束、json → jsonb
+    收敛。全部幂等。"""
+    from app.database import create_tables
+
+    await create_tables()  # 新库已含全部终态
+    async with pg_env.begin() as conn:
+        # 回退到旧库形状（先删依赖方：复合 FK → 唯一约束）
+        await conn.execute(text(
+            "ALTER TABLE episodes DROP CONSTRAINT fk_episodes_series_season"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE episodes ADD CONSTRAINT episodes_series_id_fkey "
+            "FOREIGN KEY (series_id) REFERENCES tv_series(id) ON DELETE CASCADE"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE tv_series DROP CONSTRAINT uq_tv_series_id_season_number"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE channels "
+            "ALTER COLUMN required_metadata_fields DROP NOT NULL"
+        ))
+        await conn.execute(text(
+            "DROP INDEX IF EXISTS uq_work_collections_source_external"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE work_collections ADD CONSTRAINT "
+            "uq_work_collections_source_external UNIQUE (external_source, external_id)"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE agents ALTER COLUMN pick_preferences "
+            "TYPE json USING pick_preferences::json"
+        ))
+        await _apply_light_migrations(conn)
+        await _apply_light_migrations(conn)  # 幂等
+
+    async with pg_env.connect() as conn:
+        # episodes 复合 FK 回来且可延迟；旧简单 FK 被取代
+        fks = (await conn.execute(text(
+            "SELECT conname, condeferrable, condeferred FROM pg_constraint "
+            "WHERE conrelid = 'episodes'::regclass AND contype = 'f'"
+        ))).fetchall()
+        by_name = {r[0]: (r[1], r[2]) for r in fks}
+        assert "fk_episodes_series_season" in by_name
+        assert by_name["fk_episodes_series_season"] == (True, True)
+        assert "episodes_series_id_fkey" not in by_name
+        # tv_series 冗余唯一约束回来
+        assert (await conn.scalar(text(
+            "SELECT COUNT(*) FROM pg_constraint "
+            "WHERE conrelid = 'tv_series'::regclass AND contype = 'u' "
+            "AND conname = 'uq_tv_series_id_season_number'"
+        ))) == 1
+        # channels SET NOT NULL
+        assert (await conn.scalar(text(
+            "SELECT is_nullable FROM information_schema.columns "
+            "WHERE table_name = 'channels' "
+            "AND column_name = 'required_metadata_fields'"
+        ))) == "NO"
+        # work_collections 部分唯一索引（旧约束被替换）
+        indexdef = await conn.scalar(text(
+            "SELECT indexdef FROM pg_indexes "
+            "WHERE indexname = 'uq_work_collections_source_external'"
+        ))
+        assert "WHERE" in indexdef.upper()
+        assert (await conn.scalar(text(
+            "SELECT COUNT(*) FROM pg_constraint "
+            "WHERE conrelid = 'work_collections'::regclass AND contype = 'u' "
+            "AND conname = 'uq_work_collections_source_external'"
+        ))) == 0
+        # json → jsonb 收敛
+        assert (await conn.scalar(text(
+            "SELECT data_type FROM information_schema.columns "
+            "WHERE table_name = 'agents' AND column_name = 'pick_preferences'"
+        ))) == "jsonb"

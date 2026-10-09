@@ -216,6 +216,10 @@ class TestMediaServer:
                     json={
                         "name": f"cov-{mtype}-{_suffix()}",
                         "type": mtype,
+                        # uq_media_server_instances_url: only one live row may
+                        # hold the mock /emby URL (a query suffix would break
+                        # the adapter's base_url path join), so each server is
+                        # deleted before the next type is created.
                         "url": f"{TEST_SERVER}/emby",
                         "token": "mock-token",
                         "bindings": [
@@ -237,6 +241,9 @@ class TestMediaServer:
                 assert r.status_code == 200, f"scan {mtype} failed: {r.text}"
                 assert r.json()["data"]["created"] == 2
                 assert r.json()["data"]["unbound"] == 0
+
+                _quiet_delete(f"/api/v1/media-servers/{mid}")
+                ids.remove(mid)
         finally:
             for mid in ids:
                 _quiet_delete(f"/api/v1/media-servers/{mid}")

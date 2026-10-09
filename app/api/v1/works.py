@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -47,8 +47,15 @@ class RefreshItem(BaseModel):
     content_type: Literal["tv", "movie"]
 
 
+# Upper bound for one batch-refresh request, mirroring the page_size limit
+# used across the list APIs. The whole batch runs as a single sequential
+# background job, so an unbounded list could occupy a queue slot for
+# items × per-work timeout; larger refreshes must be split by the caller.
+BATCH_REFRESH_MAX_ITEMS = 100
+
+
 class BatchRefreshMetadataRequest(BaseModel):
-    items: list[RefreshItem]
+    items: list[RefreshItem] = Field(max_length=BATCH_REFRESH_MAX_ITEMS)
     source: str
     trusted_sites: list[str] | None = None
 
@@ -76,7 +83,10 @@ async def batch_refresh_metadata(
     """Enqueue a background job to refresh metadata for many works at once.
 
     Each work is processed sequentially against the same source. Returns the
-    job descriptor so the client can poll status.
+    job descriptor so the client can poll status. At most
+    ``BATCH_REFRESH_MAX_ITEMS`` works per request (422 above the cap); the
+    background job additionally has a whole-job time budget and reports
+    partial completion (``truncated``/``skipped`` entries) when it is spent.
     """
     if not body.items:
         return success_response({"job": None, "count": 0, "source": None})

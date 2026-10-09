@@ -126,14 +126,14 @@ export default function Agents() {
       align: 'right',
       render: (_, record) => (
         <Space size={4}>
-          <Button
+          <Button aria-label={t('agents.runNow')}
             type="text"
             size="small"
             icon={<Play size={14} />}
             onClick={() => handleRun(record.id)}
             title={t('agents.runNow')}
           />
-          <Button
+          <Button aria-label={t('common.delete')}
             type="text"
             size="small"
             danger

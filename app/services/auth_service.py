@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.api_key import ApiKey
 from app.services.settings_service import get_setting, set_setting
+from app.utils.time import utcnow
 
 AUTH_COOKIE_NAME = "rssripple_auth"
 COOKIE_MAX_AGE_DAYS = 30
@@ -117,6 +118,9 @@ async def create_api_key(db: AsyncSession, name: str) -> tuple[ApiKey, str]:
 
 
 async def check_api_key(db: AsyncSession, presented: str) -> bool:
-    """Whether *presented* matches a stored API key (constant-work lookup)."""
-    stmt = select(ApiKey.id).where(ApiKey.key_hash == hash_api_key(presented))
+    """Whether *presented* matches a stored, unexpired API key (constant-work lookup)."""
+    stmt = select(ApiKey.id).where(
+        ApiKey.key_hash == hash_api_key(presented),
+        ApiKey.expires_at.is_(None) | (ApiKey.expires_at > utcnow()),
+    )
     return (await db.execute(stmt)).first() is not None

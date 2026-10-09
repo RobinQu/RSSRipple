@@ -50,7 +50,7 @@ async def test_model_season_cannot_pollute_persisted_work(db_session, monkeypatc
     case = next(case for case in load_corpus()[1]["cases"]
                 if case["id"] == "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b")
     channel = Channel(id=str(uuid.uuid4()), name="season-boundary", type="rss_feed",
-                      url="https://unused.invalid/feed", metadata_source="tmdb",
+                      url=f"https://unused.invalid/feed/{str(uuid.uuid4())}", metadata_source="tmdb",
                       metadata_fallback_sources=[], default_is_anime=True, field_mapping={
                           "list_locator": {"source": "entries"},
                           "field_mappings": {"torrent_url": {"source": "link"}},
