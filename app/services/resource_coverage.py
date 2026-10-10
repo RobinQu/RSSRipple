@@ -42,9 +42,14 @@ def batch_coverage(resource):
     """Return sorted work/season/interval tuples, or None for unknown coverage.
 
     File assignments are authoritative when present: bad/incomplete bindings
-    cannot fall back to a broader title interval. Each linked work must be
-    represented. This does not independently certify torrent completeness;
-    that remains the upstream association/manifest validation contract.
+    cannot fall back to a broader title interval. Each linked non-special
+    work must be represented. Season-0 specials are extras, matching batch
+    scope analysis which never counts them toward the season set: rows bound
+    to a non-special work with season 0 are excluded instead of poisoning the
+    real season's coverage, and a linked specials work never fails
+    representation on its own (files assigned to it still join the key).
+    This does not independently certify torrent completeness; that remains
+    the upstream association/manifest validation contract.
     """
     if not resource.is_batch:
         return None
@@ -73,14 +78,28 @@ def batch_coverage(resource):
             targets.add(('movie', movie_id))
     if not targets:
         return None
+    # Season-0 (specials) works are extras as coverage targets too: files
+    # assigned to them still join the coverage key, but a linked specials
+    # work with no assigned files never fails representation on its own.
+    required = {
+        target for target in targets
+        if target[0] != 'series' or target_seasons[target[1]] != 0
+    }
     if assignments:
         groups = {}
         seen = set()
         for row in assignments:
             if row.series_id and not row.movie_id:
                 target = ('series', row.series_id)
+                if target not in targets:
+                    return None
+                if row.season == 0 and target_seasons[row.series_id] != 0:
+                    # Season-0 specials are extras: batch scope analysis never
+                    # counts them toward the season set, so they must not
+                    # poison the real season's episode coverage either.
+                    continue
                 interval = _interval(row.episode_start, row.episode_end)
-                if target not in targets or interval is None or type(row.season) is not int or row.season < 0:
+                if interval is None or type(row.season) is not int or row.season < 0:
                     return None
                 if row.season != target_seasons[row.series_id]:
                     return None
@@ -93,8 +112,16 @@ def batch_coverage(resource):
                 seen.add(target)
                 groups.setdefault((*target, None), [])
             else:
+                # Both-FK-empty rows are the designed "unassigned" state, but
+                # they must stay fatal here: a file whose work binding was lost
+                # (e.g. work deletion) is physical content the coverage claim
+                # would otherwise silently shrink away from.
                 return None
-        if seen != targets:
+        if not required <= seen:
+            return None
+        if not groups:
+            # Every row was an excluded extra: there is no episode evidence
+            # at all, which is unknown coverage, not an empty manifest.
             return None
         # A season-work ID may never contain multiple seasons. Even a
         # legacy unsplit row is held for migration rather than guessed.
@@ -105,9 +132,10 @@ def batch_coverage(resource):
                     return None
                 seasons[identity] = season
         return tuple((*key, merge_intervals(values)) for key, values in sorted(groups.items()))
-    if len(targets) != 1:
+    effective = required or targets
+    if len(effective) != 1:
         return None
-    kind, identity = next(iter(targets))
+    kind, identity = next(iter(effective))
     if kind == 'movie':
         return ((kind, identity, None, ()),)
     if resource.batch_scope != 'season' or type(resource.season) is not int or resource.season < 0:

@@ -97,9 +97,18 @@ def inspect_resource_confirmation(
                 ):
                     kinds.append("batch_coverage_unknown")
 
-    if getattr(resource, "is_batch", False) and (
-        getattr(resource, "series_id", None)
-        or any(getattr(link, "series_id", None) for link in (links or []))
+    # The authoritative coverage validator is dispatch-grade. Only scopes
+    # that can actually dispatch (season / multi_season / undecided) are
+    # gated on it; franchise/movies packs never reach dispatch (work FKs are
+    # cleared) and organize routes them to manual handling, so exact episode
+    # coverage there would create confirmation backlog with no dispatch value.
+    if (
+        getattr(resource, "is_batch", False)
+        and getattr(resource, "batch_scope", None) in (None, "season", "multi_season")
+        and (
+            getattr(resource, "series_id", None)
+            or any(getattr(link, "series_id", None) for link in (links or []))
+        )
     ):
         from app.services.resource_coverage import batch_coverage
 

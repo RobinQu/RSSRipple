@@ -118,3 +118,103 @@ async def test_unloaded_work_never_issues_lazy_sql(db_session, db_engine, sample
     finally:
         event.remove(db_engine.sync_engine, "before_cursor_execute", capture)
     assert statements == []
+
+
+# ---------------------------------------------------------------------------
+# Extras: season-0 specials must not poison coverage
+# ---------------------------------------------------------------------------
+
+
+def test_specials_extras_do_not_poison_season_coverage():
+    r = resource()
+    r.file_assignments = [assignment(1, 12), assignment(1, 3, season=0)]
+    assert batch_coverage(r) == (('series', 's1', 1, ((1, 12),)),)
+
+
+def test_specials_on_special_work_are_regular_coverage():
+    r = resource()
+    r.series_id = 's0'
+    r.series = TVSeries(id='s0', season_number=0)
+    r.season = 0
+    r.file_assignments = [
+        ResourceFileAssignment(series_id='s0', movie_id=None, season=0,
+                               episode_start=1, episode_end=3, file_path='sp1.mkv'),
+    ]
+    assert batch_coverage(r) == (('series', 's0', 0, ((1, 3),)),)
+
+
+def test_specials_pointing_at_unknown_work_still_fail():
+    r = resource()
+    r.file_assignments = [assignment(1, 12), assignment(1, 1, work='sX', season=0)]
+    assert batch_coverage(r) is None
+
+
+def test_specials_extras_in_links_carried_multi_season_pack():
+    r = resource()
+    r.series_id = None
+    r.batch_scope = 'multi_season'
+    r.work_links = [ResourceWorkLink(series_id=s, series=TVSeries(id=s, season_number=n))
+                    for s, n in [('s1', 1), ('s2', 2)]]
+    r.file_assignments = [
+        assignment(1, 12, work='s1', season=1),
+        assignment(1, 12, work='s2', season=2),
+        assignment(1, 3, work='s2', season=0),
+    ]
+    assert batch_coverage(r) == (
+        ('series', 's1', 1, ((1, 12),)),
+        ('series', 's2', 2, ((1, 12),)),
+    )
+
+
+def test_row_with_both_work_fks_is_invalid():
+    r = resource()
+    bad = ResourceFileAssignment(series_id='s1', movie_id='m1', season=1,
+                                 episode_start=1, episode_end=1, file_path='x.mkv')
+    r.file_assignments = [assignment(1, 12), bad]
+    assert batch_coverage(r) is None
+
+
+def test_linked_specials_work_needs_no_assignment_representation():
+    r = resource()
+    r.work_links = [ResourceWorkLink(series_id='s0', series=TVSeries(id='s0', season_number=0))]
+    r.file_assignments = [assignment(1, 12)]
+    assert batch_coverage(r) == (('series', 's1', 1, ((1, 12),)),)
+
+
+def test_linked_specials_work_with_files_joins_the_key():
+    r = resource()
+    r.work_links = [ResourceWorkLink(series_id='s0', series=TVSeries(id='s0', season_number=0))]
+    r.file_assignments = [
+        assignment(1, 12),
+        ResourceFileAssignment(series_id='s0', movie_id=None, season=0,
+                               episode_start=1, episode_end=3, file_path='sp.mkv'),
+    ]
+    assert batch_coverage(r) == (
+        ('series', 's0', 0, ((1, 3),)),
+        ('series', 's1', 1, ((1, 12),)),
+    )
+
+
+def test_unrepresented_real_season_work_still_fails():
+    r = resource()
+    r.work_links = [ResourceWorkLink(series_id='s2', series=TVSeries(id='s2', season_number=2))]
+    r.file_assignments = [assignment(1, 12)]
+    assert batch_coverage(r) is None
+
+
+def test_title_fallback_ignores_linked_specials_work():
+    r = resource()
+    r.work_links = [ResourceWorkLink(series_id='s0', series=TVSeries(id='s0', season_number=0))]
+    assert batch_coverage(r) == (('series', 's1', 1, ((1, 12),)),)
+
+
+def test_title_fallback_still_rejects_two_real_season_works():
+    r = resource()
+    r.work_links = [ResourceWorkLink(series_id='s2', series=TVSeries(id='s2', season_number=2))]
+    assert batch_coverage(r) is None
+
+
+def test_specials_only_pack_has_unknown_coverage():
+    r = resource()
+    r.file_assignments = [assignment(1, 3, season=0)]
+    assert batch_coverage(r) is None

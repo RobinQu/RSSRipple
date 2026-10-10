@@ -438,6 +438,10 @@ process_resources(agent, resources, db)
   │     │     links-only multi_season 包（作品单季化终态：作品 FK 全清、季作品
   │     │     挂在 resource_work_links）经 links 表识别——links 非空即视为
   │     │     已关联作品，覆盖度取关联季作品 id 集合。
+  │     │     权威覆盖度校验（batch_coverage）只对可派发形态生效
+  │     │     （batch_scope ∈ {NULL, season, multi_season}）；franchise/movies
+  │     │     包本不进派发（FK 全清落 unrecognized）、organize 亦落
+  │     │     unclassified 人工，故不进入覆盖度待确认。
   │     │
   │     ├─ b. work-scope + filter 评估（_resource_matches_rules）:
   │     │     matched, work = _resource_matches_rules(resource, rule_set)
@@ -456,6 +460,13 @@ process_resources(agent, resources, db)
   │     │     无指派时仅单电影或季号/起止集明确的单季包可回退；
   │     │     多作品必须逐作品有指派，未拆季 legacy 作品覆盖未知。
   │     │     半季和整季即使作品集合相同也不能合并。
+  │     │     绑定到非特典作品的 season=0（特典/SP）指派行属 extras，
+  │     │     与 scope 判定的 extras 语义一致，不计入也不否决覆盖度；
+  │     │     链接的特典作品（season_number=0）无指派文件时同样不要求
+  │     │     指派代表性（有指派文件则照常计入 key），无指派回退的
+  │     │     单目标判定也只看非特典作品；
+  │     │     但双 FK 空的未指派行仍判覆盖未知（作品删除留下的悬空文件
+  │     │     不得静默收缩已声明的覆盖范围）。
   │     │     覆盖度已知 → 先查同
   │     │     agent 同作品 active 任务中是否有覆盖度完全相同的合集
   │     │     （Python 侧比对；剧集包受 enable_episode_dedup 门控、电影包

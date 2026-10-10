@@ -42,7 +42,7 @@
 - 所有 ORM 模型使用 SQLAlchemy 2.0 风格声明；主键为 UUID v4 字符串；时间字段均为 UTC。
 - **作品单季化**：一个 `TVSeries` = 恰好一季（`season_number` NOT NULL DEFAULT 1，0=特典/SP）；每部剧集作品必属一个 `WorkCollection`；`seasons`/`number_of_seasons` 为退役孤儿列，永不写入；`Episode.season` 恒等于所属作品的 `season_number`；季号绝不猜测（不可定则 `season=None` + `ambiguous`，或挂合集待确认）。
 - `FileResource` FK 互斥：剧集资源用 `series_id`、电影资源用 `movie_id`、未识别两者皆空；合集资源（`is_batch=true`）`episode` 为空。
-- 合集去重按内容覆盖度；覆盖度未知不派发（进所属 Channel 待确认）；`batch_scope ∈ {NULL,season,multi_season,franchise,movies}`；`resource_work_links`/`resource_file_assignments` 为权威关联与文件映射。
+- 合集去重按内容覆盖度；覆盖度未知不派发（可派发形态 season/multi_season/NULL 进所属 Channel 待确认；franchise/movies 本不派发、不进覆盖度门禁）；SP 特典（season=0 指派行挂非特典作品、链接的特典作品无指派）为 extras 不否决覆盖度；`batch_scope ∈ {NULL,season,multi_season,franchise,movies}`；`resource_work_links`/`resource_file_assignments` 为权威关联与文件映射。
 - `episode_confidence ∈ {raw,reconciled,ambiguous,manual,None}`；`ambiguous` 不参与派发。
 - `Agent.last_consumed_at` 保留兼容时间展示；增量消费使用发布 baseline/cursor/generation（历史准入与确认独立，旧库须停写迁移）；`PendingDecision` 仅用于 ≥2 合格下载候选；`AgentWork` 上限 10；订阅单位是季作品（多季需逐季订阅）。
 - `genre` 统一为封闭 TMDB 27 类；`is_anime` 三态（True/False/NULL）；作品人工编辑保护 `manually_edited_fields`（自动扫描/刷新默认跳过）。

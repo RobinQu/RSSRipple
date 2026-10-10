@@ -179,3 +179,78 @@ def test_links_only_pack_unloaded_link_table_is_not_judged():
     # No work_links attribute → loaded_relation yields None → no
     # links-based verdict; still unlinked at the flat-FK level.
     assert result.kinds == ("metadata_unlinked",)
+
+
+# ---------------------------------------------------------------------------
+# Dispatch-grade coverage gate: scope restriction and extras tolerance
+# ---------------------------------------------------------------------------
+
+
+def test_franchise_pack_is_exempt_from_dispatch_coverage_gate():
+    """franchise packs never dispatch; coverage validation would be backlog."""
+    links = [
+        SimpleNamespace(series_id="s-1", movie_id=None,
+                        series=SimpleNamespace(id="s-1", season_number=1)),
+    ]
+    result = inspect_resource_confirmation(
+        _resource(
+            series_id=None,
+            series=None,
+            is_batch=True,
+            batch_scope="franchise",
+            season=None,
+            work_links=links,
+            file_assignments=[
+                SimpleNamespace(series_id=None, movie_id=None, season=None,
+                                episode_start=None, episode_end=None),
+            ],
+        ),
+        required_metadata_fields=None,
+    )
+    assert result.kinds == ()
+
+
+def test_season_scope_is_still_gated_on_authoritative_coverage():
+    links = [
+        SimpleNamespace(series_id="s-1", movie_id=None,
+                        series=SimpleNamespace(id="s-1", season_number=1)),
+    ]
+    result = inspect_resource_confirmation(
+        _resource(
+            series_id=None,
+            series=None,
+            is_batch=True,
+            batch_scope="season",
+            season=None,
+            work_links=links,
+            file_assignments=[
+                SimpleNamespace(series_id="s-1", movie_id=None, season=2,
+                                episode_start=1, episode_end=12),
+            ],
+        ),
+        required_metadata_fields=None,
+    )
+    assert result.kinds == ("batch_coverage_unknown",)
+
+
+def test_season_pack_with_specials_extras_is_covered():
+    result = inspect_resource_confirmation(
+        _resource(
+            is_batch=True,
+            batch_scope="season",
+            season=1,
+            series=SimpleNamespace(
+                id="series-1", season_number=1, start_date=None,
+                is_anime=False, rating=None, genre=None, collection=None,
+            ),
+            work_links=[],
+            file_assignments=[
+                SimpleNamespace(series_id="series-1", movie_id=None, season=1,
+                                episode_start=1, episode_end=12),
+                SimpleNamespace(series_id="series-1", movie_id=None, season=0,
+                                episode_start=1, episode_end=3),
+            ],
+        ),
+        required_metadata_fields=None,
+    )
+    assert result.kinds == ()
