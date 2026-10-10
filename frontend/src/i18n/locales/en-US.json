@@ -113,6 +113,17 @@
       "batch_coverage_unknown": "Batch coverage uncertain"
     }
   },
+  "decisions": {
+    "reasons": {
+      "series_season_episode": "Multiple resources match {title} S{season}E{episode}",
+      "series_episode": "Multiple resources match {title} episode {episode}",
+      "series": "Multiple resources match {title}",
+      "movie": "Multiple resources match movie {title}",
+      "batch_movie": "Multiple batch releases match movie {title} with identical content — pick one",
+      "batch_season": "Multiple batch releases match {title} (season pack) with identical content — pick one",
+      "batch_multi_season": "Multiple batch releases match {title} (multi-season pack) with identical content — pick one"
+    }
+  },
   "channels": {
     "title": "Channels",
     "loadFailed": "Failed to load channel",

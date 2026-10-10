@@ -20,6 +20,7 @@ import { resourcesApi } from '../../api/channels';
 import SeasonInput from '../../components/SeasonInput';
 import { resourceDisplayTitle } from '../../utils/resourceTitle';
 import { formatBytes, timeAgo } from '../../utils/format';
+import { decisionReasonText } from '../../utils/decisionReason';
 import type { AgentStatus, FileResource, PendingDecision } from '../../types';
 
 const { Text } = Typography;
@@ -237,7 +238,7 @@ export default function DecisionsTab({
                         }}
                       />
                       <div>
-                        <Text strong>{d.reason}</Text>
+                        <Text strong>{decisionReasonText(d, t)}</Text>
                         <div style={{ fontSize: 12, color: 'var(--rr-text-muted)', marginTop: 4 }}>
                           {t('agents.candidateCount', { n: d.candidates.length })} · {timeAgo(d.created_at)}
                         </div>

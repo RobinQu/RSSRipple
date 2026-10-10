@@ -361,6 +361,8 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 
 `POST /decisions/{id}/confirm` 请求体：`{ "resource_id": "uuid" }`。所有决策操作均要求至少两个合格候选；旧版单候选资源修订行返回 409 `INVALID_STATE`。Agent 非 active 时 confirm、ai-pick 和批量 `action=ai` 均返回 409 且不关闭 pending、不创建下载；skip 仍允许。AI 在推荐计算后、最终派发前强制刷新并复查 Agent 状态。
 
+决策响应（列表/confirm/skip 及 dashboard 概览的 `pending_decisions` 条目）除创建时生成的固定语言 `reason` 文本外，附带从版本化 `decision_scope` 派生的 `reason_code`（`series_season_episode`/`series_episode`/`series`/`movie`/`batch_movie`/`batch_season`/`batch_multi_season`）与 `reason_params`（`title`/`season`/`episode`），前端按界面语言经 `decisions.reasons.*` 重渲染；无版本化 scope 的旧行为 null，回退显示 `reason` 原文。
+
 确认和 AI 派发在最终提交阶段重新校验：至少两个不同候选、未过期、频道归属、当前订阅/过滤规则、频道必填字段，以及与持久决策 scope 一致的覆盖度。资源已删除、覆盖改变或资格失效返回 409 `INVALID_STATE`，不使用旧推荐继续派发。模型准备期间候选集合或 scope 改变也拒绝；模型准备阶段不持有最终确认锁。跳过操作在锁内重新检查 pending，不能覆盖已处理的历史状态。旧表的无键 pending 必须先按 [审核迁移流程](db-migration.md#待决策覆盖身份的审核迁移) 处理。
 
 `POST /decisions/{id}/ai-pick` 无请求体。决策非 `pending` 状态返回 `400 NOT_PENDING`；LLM 未能给出选择返回 `400 LLM_NO_PICK`（需手动确认）。响应 `data`：`{ "id", "status", "decided_resource_id", "decided_at" }`。

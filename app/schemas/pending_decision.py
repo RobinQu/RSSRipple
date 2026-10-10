@@ -28,6 +28,11 @@ class PendingDecisionResponse(BaseModel):
     candidate_resources: list[Any] = []
     series: Any | None = None
     movie: Any | None = None
+    # Machine-readable reason derived from the versioned decision_scope so
+    # clients can render it in the interface language; NULL for rows created
+    # before versioned scopes (frontend falls back to the stored ``reason``).
+    reason_code: str | None = None
+    reason_params: dict[str, Any] | None = None
 
 
 class ConfirmDecisionRequest(BaseModel):

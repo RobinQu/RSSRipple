@@ -26,6 +26,7 @@ from app.schemas.common import success_response
 from app.schemas.dashboard import DashboardTodoIgnoreRequest
 from app.schemas.file_resource import FileResourceResponse
 from app.services.decision_service import maybe_reset_agent_run_status
+from app.services.decision_store import decision_reason_payload
 from app.services.required_fields import ordered_work_links
 from app.services.resource_confirmation import (
     LEGACY_CONFIRMATION_REASON_PREFIXES,
@@ -167,6 +168,7 @@ async def _page_pending_decisions(
             "episode": decision.episode,
             "season": decision.season,
             "reason": decision.reason,
+            **decision_reason_payload(decision),
             "llm_suggestion": decision.llm_suggestion,
             "candidates": [candidate.id for candidate in candidates],
             "candidate_resources": [
