@@ -27,6 +27,53 @@ export interface WizardStepState {
   placements: Record<string, WizardPlacementLike>;
 }
 
+/** Admission decision for adding a work to the association set. */
+export type WorkAdmission =
+  | { action: 'ok' }
+  /** Adopt the picked work's collection (first series work, none selected). */
+  | { action: 'adopt-collection'; collectionId: string }
+  /** Picked series lives in another collection: drop the collection link and
+   * go cross-collection (the data model records spanning links and settles
+   * ``resource.collection_id`` to NULL). */
+  | { action: 'clear-collection' };
+
+/**
+ * Collection admission rule for the wizard's work picks (batch TV two-level
+ * association). Cross-collection packs are legal in the data model, so an
+ * outside-collection pick clears the collection link instead of being
+ * rejected; the server still rejects an explicit ``collection_id`` combined
+ * with works outside it.
+ *
+ * Adoption is restricted to the FIRST picked work — after a cross-collection
+ * clear, later picks must not silently re-adopt a collection.
+ */
+export function admitWork(
+  state: {
+    isBatch: boolean;
+    audioLinked: boolean;
+    collectionId: string | null;
+    /** Already-associated works — only the count matters (first-work adoption). */
+    works: readonly unknown[];
+  },
+  ref: WizardWorkLike,
+  meta?: { collectionId?: string | null },
+): WorkAdmission {
+  if (!state.isBatch || state.audioLinked || ref.workType !== 'series') {
+    return { action: 'ok' };
+  }
+  const workCollection = meta?.collectionId ?? null;
+  if (state.collectionId) {
+    if (workCollection && workCollection !== state.collectionId) {
+      return { action: 'clear-collection' };
+    }
+    return { action: 'ok' };
+  }
+  if (workCollection && state.works.length === 0) {
+    return { action: 'adopt-collection', collectionId: workCollection };
+  }
+  return { action: 'ok' };
+}
+
 export type WizardStepErrorCode = 'tv_season_required' | 'works_unassigned';
 
 export interface WizardStepError {

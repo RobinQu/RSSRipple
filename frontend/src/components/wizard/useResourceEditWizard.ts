@@ -12,6 +12,7 @@ import { collectionsApi } from '../../api/collections';
 import { channelsApi, resourcesApi } from '../../api/channels';
 import { DEFAULT_FALLBACK_SOURCES } from '../channel-form/constants';
 import {
+  admitWork,
   stepFromSaveError,
   validateStep,
   workKeyOf,
@@ -85,6 +86,9 @@ export function useResourceEditWizard({
   // file placement comes from the work itself; null = unknown (legacy rows
   // and online candidates) and falls back to a per-work/manual input.
   const [workSeasons, setWorkSeasons] = useState<Record<string, number | null>>({});
+  // Per-work collection membership (series only) — drives the cross-collection
+  // hints in step ① and the admission rule in addWork.
+  const [workCollections, setWorkCollections] = useState<Record<string, string | null>>({});
   const [placements, setPlacements] = useState<Record<string, Placement>>({});
   const [originalPlacements, setOriginalPlacements] = useState<Record<string, Placement>>({});
   const [collectionId, setCollectionId] = useState<string | null>(null);
@@ -216,6 +220,20 @@ export function useResourceEditWizard({
         }
       }
       setWorkSeasons(nextWorkSeasons);
+      // Collection membership per work (series only) — the cross-collection
+      // hint in step ① derives from this.
+      const nextWorkCollections: Record<string, string | null> = {};
+      if (d.series_id) {
+        nextWorkCollections[workKeyOf('series', d.series_id)] =
+          d.series?.collection_id ?? null;
+      }
+      for (const l of d.work_links ?? []) {
+        if (l.series_id) {
+          nextWorkCollections[workKeyOf('series', l.series_id)] =
+            l.collection_id ?? null;
+        }
+      }
+      setWorkCollections(nextWorkCollections);
       // Default-expand the first work so existing file associations (the
       // season's mapping list) are visible without an extra click.
       if (nextWorks.length > 0) {
@@ -500,27 +518,33 @@ export function useResourceEditWizard({
       return;
     }
     if (!ref.work_type) return;
-    // Two-level association (batch TV): a series work outside the selected
-    // collection is rejected server-side (422) — block it up front. Non-batch
-    // resources don't carry a collection_id, so the work pick alone binds it.
-    if (
-      isBatch &&
-      ref.work_type === 'series' &&
-      collectionId &&
-      meta?.collectionId &&
-      meta.collectionId !== collectionId
-    ) {
-      message.warning(t('resource.workNotInCollection'));
-      return;
+    // Two-level association (batch TV): the collection is a convenience
+    // grouping — an outside-collection pick is legal (cross-collection links
+    // settle resource.collection_id to NULL), so it clears the link instead
+    // of being rejected. The server still 422s an explicit collection_id
+    // combined with works outside it.
+    const admission = admitWork(
+      { isBatch, audioLinked, collectionId, works },
+      { workType: ref.work_type, workId: ref.work_id },
+      meta,
+    );
+    if (admission.action === 'clear-collection') {
+      setCollectionId(null);
+      const name = meta?.collectionId
+        ? collections.find((c) => c.id === meta.collectionId)?.name ?? meta.collectionId
+        : '';
+      message.info(t('resource.collectionClearedCross', { name }));
     }
     setWorks((ws) => [...ws, ref]);
     setWorkTitles((prev) => ({ ...prev, [key]: title }));
     setWorkSeasons((prev) => ({ ...prev, [key]: meta?.season ?? null }));
-    // Adopt the picked work's collection when none is selected yet.
-    if (isBatch && ref.work_type === 'series' && !collectionId && meta?.collectionId) {
-      setCollectionId(meta.collectionId);
-      const name = collections.find((c) => c.id === meta.collectionId)?.name;
-      message.info(t('resource.collectionAdopted', { name: name ?? meta.collectionId }));
+    setWorkCollections((prev) => ({ ...prev, [key]: meta?.collectionId ?? null }));
+    // Adopt the picked work's collection when none is selected yet (first
+    // work only — a cross-collection clear must not silently re-adopt).
+    if (admission.action === 'adopt-collection') {
+      setCollectionId(admission.collectionId);
+      const name = collections.find((c) => c.id === admission.collectionId)?.name;
+      message.info(t('resource.collectionAdopted', { name: name ?? admission.collectionId }));
     }
     if (!selectedWorkKey) setSelectedWorkKey(key);
     worksDirtyRef.current = true;
@@ -533,6 +557,11 @@ export function useResourceEditWizard({
     if (idx < 0) return;
     setWorks((ws) => ws.filter((_, i) => i !== idx));
     setWorkSeasons((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    setWorkCollections((prev) => {
       const next = { ...prev };
       delete next[key];
       return next;
@@ -649,11 +678,11 @@ export function useResourceEditWizard({
     group: ClusterGroup,
     ref: AssociationWorkRef,
     title: string,
-    season: number | null,
+    meta?: { season?: number | null; collectionId?: string | null },
   ) => {
     const targetKey = workKeyOf(ref.work_type, ref.work_id);
     if (!works.some((w) => workKeyOf(w.work_type, w.work_id) === targetKey)) {
-      addWork(ref, title, { season });
+      addWork(ref, title, meta);
     }
     const missing: string[] = [];
     let applied = 0;
@@ -667,7 +696,7 @@ export function useResourceEditWizard({
         const parsed = detParses[path];
         const s =
           ref.work_type === 'series'
-            ? seasonForJoin(targetKey, parsed?.season ?? season)
+            ? seasonForJoin(targetKey, parsed?.season ?? meta?.season ?? null)
             : null;
         if (ref.work_type === 'series' && s == null) {
           missing.push(path);
@@ -701,7 +730,7 @@ export function useResourceEditWizard({
       group,
       { work_type: wt, work_id: wid },
       workTitles[value] || wid,
-      workSeasons[value] ?? null,
+      { season: workSeasons[value] ?? null, collectionId: workCollections[value] ?? null },
     );
   };
 
@@ -1165,9 +1194,11 @@ export function useResourceEditWizard({
                 detail.collection_id ??
                 t('format.dash'),
               to:
-                collections.find((c) => c.id === collectionId)?.name ??
-                collectionId ??
-                t('format.dash'),
+                collectionId === null
+                  ? t('resource.collectionClearedLabel')
+                  : collections.find((c) => c.id === collectionId)?.name ??
+                    collectionId ??
+                    t('format.dash'),
             }
           : null,
       singleEpChanges,
@@ -1306,6 +1337,7 @@ export function useResourceEditWizard({
     works,
     workTitles,
     workSeasons,
+    workCollections,
     setWorkSeasons,
     collectionId,
     setCollectionId,

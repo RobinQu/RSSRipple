@@ -44,10 +44,23 @@ export default function StepAssociation({
     works,
     workTitles,
     workSeasons,
+    workCollections,
     removeWork,
     setPickerOpen,
     deriveScopeLabel,
   } = wiz;
+
+  // Cross-collection derivation (series works only): the data model records
+  // spanning links and settles resource.collection_id to NULL on save.
+  const seriesCollections = works
+    .filter((w) => w.work_type === 'series')
+    .map((w) => workCollections[workKeyOf(w.work_type, w.work_id)] ?? null)
+    .filter((c): c is string => !!c);
+  const distinctCollections = new Set(seriesCollections);
+  const crossCollection =
+    isBatch && !collectionId && distinctCollections.size > 1;
+  const collectionMismatch =
+    isBatch && !!collectionId && seriesCollections.some((c) => c !== collectionId);
 
   return (
     <>
@@ -139,6 +152,22 @@ export default function StepAssociation({
           showIcon
           style={{ marginBottom: 8 }}
           message={t('resource.audioLinkHint')}
+        />
+      )}
+      {crossCollection && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 8 }}
+          message={t('resource.crossCollectionHint')}
+        />
+      )}
+      {collectionMismatch && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 8 }}
+          message={t('resource.collectionMismatchWarning')}
         />
       )}
       {isBatch && (

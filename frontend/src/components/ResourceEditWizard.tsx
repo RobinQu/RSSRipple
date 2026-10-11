@@ -206,7 +206,7 @@ export default function ResourceEditWizard(props: ResourceEditWizardProps) {
             : undefined;
           if (group) {
             // Whole-cluster pick: bind every member file to the picked work.
-            wiz.applyClusterToWork(group, ref, title, meta?.season ?? null);
+            wiz.applyClusterToWork(group, ref, title, meta);
           } else {
             wiz.addWork(ref, title, meta);
           }

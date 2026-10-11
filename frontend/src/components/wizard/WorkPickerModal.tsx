@@ -41,7 +41,8 @@ export default function WorkPickerModal({
   open: boolean;
   existingKeys: Set<string>;
   /** Two-level association (per-season works): when set, the TV library tab
-   * lists this collection's season works; picks outside it are blocked. */
+   * defaults to this collection's season works; a scope toggle switches to
+   * library-wide search for cross-collection picks. */
   collectionId: string | null;
   defaultMetadataSource: MetadataSource;
   defaultFallbackSources: string[];
@@ -58,6 +59,10 @@ export default function WorkPickerModal({
   const { message } = App.useApp();
   const [mode, setMode] = useState<'library' | 'online'>('library');
   const [kind, setKind] = useState<'tv' | 'movie'>('tv');
+  // TV library scope when a collection is selected: browse the collection's
+  // season works (default) or search the whole library for cross-collection
+  // picks.
+  const [libScope, setLibScope] = useState<'collection' | 'all'>('collection');
   const [metaType, setMetaType] = useState<'tv' | 'movie'>('tv');
   const [metadataSource, setMetadataSource] = useState<MetadataSource>(defaultMetadataSource);
   const [fallbackSources, setFallbackSources] = useState<string[]>(defaultFallbackSources);
@@ -72,13 +77,14 @@ export default function WorkPickerModal({
     if (!open) return;
     setMetadataSource(defaultMetadataSource);
     setFallbackSources(defaultFallbackSources);
+    setLibScope('collection');
     setQ(initialQuery);
   }, [open, defaultMetadataSource, defaultFallbackSources, initialQuery]);
 
   const searchLibrary = async (query?: string) => {
     setSearching(true);
     try {
-      if (kind === 'tv' && collectionId) {
+      if (kind === 'tv' && collectionId && libScope === 'collection') {
         // Two-level association: browse the selected collection's season
         // works (server returns them sorted by season_number).
         const res = await collectionsApi.works(collectionId, 1, 100);
@@ -199,6 +205,17 @@ export default function WorkPickerModal({
             style={{ marginBottom: 10 }}
           />
           {kind === 'tv' && collectionId && (
+            <Segmented
+              value={libScope}
+              onChange={(v) => { setLibScope(v as 'collection' | 'all'); setLibResults([]); }}
+              options={[
+                { value: 'collection', label: t('resource.pickerScopeCollection') },
+                { value: 'all', label: t('resource.pickerScopeAll') },
+              ]}
+              style={{ marginBottom: 10 }}
+            />
+          )}
+          {kind === 'tv' && collectionId && libScope === 'collection' && (
             <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
               {t('resource.pickSeasonWorkHint')}
             </Text>
@@ -206,12 +223,15 @@ export default function WorkPickerModal({
           <div style={{ maxHeight: 320, overflowY: 'auto' }}>
             {libResults.map((row) => {
               const key = workKeyOf(kind === 'tv' ? 'series' : 'movie', row.id);
+              // Outside-collection picks are legal (cross-collection packs
+              // settle resource.collection_id to NULL) — tag them instead of
+              // disabling; addWork clears the collection link on pick.
               const outsideCollection =
                 kind === 'tv' &&
                 !!collectionId &&
                 !!row.collectionId &&
                 row.collectionId !== collectionId;
-              const disabled = existingKeys.has(key) || outsideCollection;
+              const disabled = existingKeys.has(key);
               return (
                 <div
                   key={row.id}
@@ -222,13 +242,17 @@ export default function WorkPickerModal({
                     {kind === 'tv' && row.seasonNumber != null && (
                       <Tag style={{ fontSize: 10, margin: 0 }}>{seasonLabel(t, row.seasonNumber)}</Tag>
                     )}
+                    {outsideCollection && (
+                      <Tag color="orange" style={{ fontSize: 10, margin: 0 }}>
+                        {t('resource.outsideCollectionTag')}
+                      </Tag>
+                    )}
                     {row.year && <Text type="secondary" style={{ fontSize: 12 }}>{row.year}</Text>}
                   </Space>
                   <Button
                     size="small"
                     type="primary"
                     disabled={disabled}
-                    title={outsideCollection ? t('resource.workNotInCollection') : undefined}
                     onClick={() =>
                       onPick(
                         { work_type: kind === 'tv' ? 'series' : 'movie', work_id: row.id },
@@ -246,7 +270,7 @@ export default function WorkPickerModal({
               <Empty
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
                 description={
-                  kind === 'tv' && collectionId
+                  kind === 'tv' && collectionId && libScope === 'collection'
                     ? t('resource.noSeasonWorksInCollection')
                     : t('common.noResults')
                 }

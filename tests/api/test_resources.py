@@ -1820,6 +1820,78 @@ class TestResourceAssociations:
         assert res.status_code == 200, res.text[:500]
         assert res.json()["data"]["collection_id"] == coll_a
 
+    async def test_cross_collection_save_with_null_collection(
+        self, client, sample_channel, db_session_factory,
+    ):
+        """Cross-collection packs are legal: ``collection_id=None`` plus works
+        spanning collections must save, derive ``franchise`` scope, and settle
+        the resource's collection to NULL (sync_resource_collection)."""
+        from sqlalchemy import select
+
+        from app.models.file_resource import FileResource
+        from app.models.series import TVSeries
+        from app.models.work_collection import WorkCollection
+
+        coll_a, coll_b = _uuid(), _uuid()
+        s1, s2 = _uuid(), _uuid()
+        async with db_session_factory() as s:
+            s.add(WorkCollection(id=coll_a, title_cn="合集A"))
+            s.add(WorkCollection(id=coll_b, title_cn="合集B"))
+            s.add(TVSeries(
+                id=s1, title_cn="剧A", content_type="tv",
+                season_number=1, collection_id=coll_a,
+            ))
+            s.add(TVSeries(
+                id=s2, title_cn="剧B", content_type="tv",
+                season_number=1, collection_id=coll_b,
+            ))
+            await s.commit()
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={
+                "is_batch": True,
+                "collection_id": None,
+                "works": [
+                    {"work_type": "series", "work_id": s1},
+                    {"work_type": "series", "work_id": s2},
+                ],
+                "assignments": [
+                    {
+                        "file_path": "A/E01.mkv", "work_type": "series",
+                        "work_id": s1, "season": 1,
+                        "episode_start": 1, "episode_end": 1,
+                    },
+                    {
+                        "file_path": "B/E01.mkv", "work_type": "series",
+                        "work_id": s2, "season": 1,
+                        "episode_start": 1, "episode_end": 1,
+                    },
+                ],
+            },
+        )
+        assert res.status_code == 200, res.text[:500]
+        assert res.json()["data"]["collection_id"] is None
+        from app.models.resource_work_link import ResourceWorkLink
+
+        async with db_session_factory() as s:
+            row = (
+                await s.execute(
+                    select(FileResource).where(FileResource.id == rid)
+                )
+            ).scalar_one()
+            assert row.collection_id is None
+            assert row.batch_scope == "franchise"
+            assert row.series_id is None and row.movie_id is None
+            links = (
+                await s.execute(
+                    select(ResourceWorkLink).where(
+                        ResourceWorkLink.resource_id == rid
+                    )
+                )
+            ).scalars().all()
+            assert {link.series_id for link in links} == {s1, s2}
+
     async def _make_multi_work_setup(self, db_session_factory):
         """Two per-season works (S1/S2) of one collection + a pack resource."""
         from app.models.series import TVSeries
