@@ -495,7 +495,7 @@ async def _call_openai(messages: list[dict]) -> str:
         response = await client.chat.completions.create(
             model=runtime_config.llm_model,
             messages=messages,
-            temperature=0.1,
+            temperature=runtime_config.llm_temperature,
             timeout=120,
             extra_body=runtime_config.llm_extra_body(),
         )
@@ -684,7 +684,7 @@ async def _stream_openai(messages: list[dict]) -> AsyncGenerator[dict, None]:
                 stream = await client.chat.completions.create(
                     model=runtime_config.llm_model,
                     messages=messages,
-                    temperature=0.1,
+                    temperature=runtime_config.llm_temperature,
                     stream=True,
                     timeout=120,
                     extra_body=runtime_config.llm_extra_body(),

@@ -221,6 +221,39 @@ class TestResourceList:
         assert res.status_code == 200
         assert res.json()["data"]["id"] == rid
 
+    async def test_get_resource_loads_assignment_works_without_other_links(
+        self, client, sample_channel, db_session_factory,
+    ):
+        from app.models.movie import Movie
+        from app.models.resource_file_assignment import ResourceFileAssignment
+        from app.models.series import TVSeries
+
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id, is_batch=True,
+        )
+        sid, mid = _uuid(), _uuid()
+        async with db_session_factory() as session:
+            session.add_all([
+                TVSeries(id=sid, title_cn="剧集", content_type="tv"),
+                Movie(id=mid, title_cn="电影", content_type="movie"),
+            ])
+            await session.flush()
+            session.add_all([
+                ResourceFileAssignment(
+                    resource_id=rid, series_id=sid, file_path="episode.mkv",
+                ),
+                ResourceFileAssignment(
+                    resource_id=rid, movie_id=mid, file_path="movie.mkv",
+                ),
+            ])
+            await session.commit()
+
+        res = await client.get(f"/api/v1/resources/{rid}")
+
+        assert res.status_code == 200, res.text[:500]
+        assignments = res.json()["data"]["file_assignments"]
+        assert {item["work_title"] for item in assignments} == {"剧集", "电影"}
+
     async def test_list_includes_work_collection(
         self, client, sample_channel, db_session_factory
     ):

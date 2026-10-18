@@ -761,6 +761,27 @@ async def test_call_openai_non_thinking_model(mock_settings, mock_openai_class):
 @pytest.mark.asyncio
 @patch("app.services.feed_analyzer.AsyncOpenAI")
 @patch("app.services.runtime_config.settings")
+async def test_call_openai_kimi_for_coding_uses_required_temperature(mock_settings, mock_openai_class):
+    mock_settings.llm_api_key = "test-key"
+    mock_settings.llm_base_url = "https://api.kimi.com/coding/v1"
+    mock_settings.llm_model = "kimi-for-coding"
+    mock_settings.llm_enable_thinking = False
+
+    mock_client = AsyncMock()
+    mock_client.chat.completions.create = AsyncMock(
+        return_value=_make_openai_response(content='{"ok": true}')
+    )
+    _attach_openai_client(mock_openai_class, mock_client)
+
+    await _call_openai([{"role": "user", "content": "test"}])
+
+    call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+    assert call_kwargs["temperature"] == 1.0
+
+
+@pytest.mark.asyncio
+@patch("app.services.feed_analyzer.AsyncOpenAI")
+@patch("app.services.runtime_config.settings")
 async def test_call_openai_thinking_model_content_empty(mock_settings, mock_openai_class):
     """_call_openai falls back to reasoning_content when content is empty."""
     mock_settings.llm_api_key = "test-key"

@@ -114,6 +114,13 @@ class _RuntimeConfig:
         return self._str("llm_base_url")
 
     @property
+    def llm_temperature(self) -> float:
+        """Kimi for Coding only accepts 1; other models keep the existing default."""
+        if self.llm_model.strip().lower() == "kimi-for-coding":
+            return 1.0
+        return 0.1
+
+    @property
     def llm_enable_thinking(self) -> bool:
         return self._bool("llm_enable_thinking")
 

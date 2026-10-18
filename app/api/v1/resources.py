@@ -25,6 +25,7 @@ from app.models.metadata_cache import METADATA_CACHE_GENERATION, MetadataCache
 # TVSeries/Movie``, which would shadow a same-named module-level import
 # (UnboundLocalError) inside those functions.
 from app.models.movie import Movie as _Movie
+from app.models.resource_file_assignment import ResourceFileAssignment
 from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries as _TVSeries
 from app.schemas.common import api_json, paginated_response, success_response
@@ -256,7 +257,8 @@ _DETAIL_LOAD_OPTIONS = [
     selectinload(FileResource.collection),
     selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series),
     selectinload(FileResource.work_links).selectinload(ResourceWorkLink.movie),
-    selectinload(FileResource.file_assignments),
+    selectinload(FileResource.file_assignments).selectinload(ResourceFileAssignment.series),
+    selectinload(FileResource.file_assignments).selectinload(ResourceFileAssignment.movie),
 ]
 
 

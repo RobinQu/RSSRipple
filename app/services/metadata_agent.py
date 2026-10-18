@@ -422,17 +422,14 @@ class UnifiedMetadataAgent:
             http_async_client=outbound_http.async_client(
                 timeout=60, allowed_origins=[runtime_config.llm_base_url], keepalive_connections=0,
             ),
-            # Kept at 0.1, not lowered to 0: the metadata-corpus cassettes
-            # fingerprint the full request body (tests/metadata_corpus/replay.py
-            # `request_key` — "model settings remain in the fingerprint") and
-            # pin exact call counts, so any temperature change invalidates all
-            # recorded LLM evidence and forces a live-LLM re-record plus
-            # re-review of every scenario. Test determinism comes from those
-            # recordings, not from sampling. langchain-openai does support a
-            # per-call override (`ainvoke(..., temperature=0)` / `.bind()`),
-            # but it changes the same fingerprinted body, so it is equally
-            # blocked by the recorded evidence.
-            temperature=0.1,
+            # The default stays at 0.1, not lowered to 0: the metadata-corpus
+            # cassettes fingerprint the full request body
+            # (tests/metadata_corpus/replay.py `request_key`) and pin exact call
+            # counts, so changing non-Kimi models would invalidate all recorded
+            # LLM evidence. Test determinism comes from those recordings, not
+            # from sampling. runtime_config only deviates for provider-mandated
+            # values such as Kimi for Coding's required temperature=1.
+            temperature=runtime_config.llm_temperature,
             # The upstream relay (LLM_BASE_URL) fails two ways, tuned
             # separately because they want opposite handling:
             #   - TLS drops (APIConnectionError): fast-fail, so retries are

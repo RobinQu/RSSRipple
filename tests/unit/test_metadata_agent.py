@@ -75,6 +75,14 @@ def test_judge_model_sends_both_thinking_spellings(monkeypatch):
     assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
 
 
+def test_kimi_for_coding_uses_required_temperature(monkeypatch):
+    from app.services import runtime_config as rc
+
+    monkeypatch.setitem(rc._overrides, "llm_model", "kimi-for-coding")
+    agent = UnifiedMetadataAgent()
+    assert agent._model.temperature == 1.0
+
+
 def test_resource_metadata_parses_batch_fields():
     meta = ResourceMetadata.from_dict({
         "clean_title": "Witch Hat Atelier",

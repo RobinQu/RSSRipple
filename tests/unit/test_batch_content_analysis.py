@@ -777,7 +777,7 @@ def _cfg(monkeypatch, *, api_key="k"):
         _bca, "runtime_config",
         _SimpleNamespace(
             llm_api_key=api_key, llm_base_url="http://llm",
-            llm_model="m", llm_enable_thinking=False,
+            llm_model="m", llm_enable_thinking=False, llm_temperature=0.1,
             llm_extra_body=lambda: {
                 "enable_thinking": False,
                 "chat_template_kwargs": {"enable_thinking": False},
