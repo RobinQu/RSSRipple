@@ -4,6 +4,8 @@ No lazy loading or network calls. Callers must load work_links and
 file_assignments; an unloaded relation is unknown, never an empty manifest.
 Dispatch uses this descriptor; persistent decision keys remain a separate migration.
 """
+import re
+
 from sqlalchemy import inspect
 
 from app.services.filter_engine import loaded_relation
@@ -36,6 +38,19 @@ def _interval(start, end):
     if not all(type(value) is int and value >= 0 for value in (start, end)) or start > end:
         return None
     return start, end
+
+
+_NON_EPISODE_VIDEO_RE = re.compile(
+    r"(?:^|[\s._-]+)NC(?:OP|ED)\d*(?:v\d+)?(?=$|[\s._\[();-])",
+    re.IGNORECASE,
+)
+
+
+def _is_non_episode_video(row) -> bool:
+    if row.episode_start is not None or row.episode_end is not None:
+        return False
+    filename = re.split(r"[/\\]+", row.file_path or "")[-1]
+    return _NON_EPISODE_VIDEO_RE.search(filename) is not None
 
 
 def batch_coverage(resource):
@@ -97,6 +112,8 @@ def batch_coverage(resource):
                     # Season-0 specials are extras: batch scope analysis never
                     # counts them toward the season set, so they must not
                     # poison the real season's episode coverage either.
+                    continue
+                if _is_non_episode_video(row):
                     continue
                 interval = _interval(row.episode_start, row.episode_end)
                 if interval is None or type(row.season) is not int or row.season < 0:
@@ -164,6 +181,7 @@ async def load_batch_coverage(db, resources):
     for offset in range(0, len(ids), 100):
         await db.execute(
             select(FileResource).where(FileResource.id.in_(ids[offset:offset + 100])).options(
+                selectinload(FileResource.channel),
                 selectinload(FileResource.series).selectinload(TVSeries.collection),
                 selectinload(FileResource.movie).selectinload(Movie.collection),
                 selectinload(FileResource.audio_work),

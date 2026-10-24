@@ -42,7 +42,7 @@ from app.models.movie import Movie
 from app.models.resource_file_assignment import ResourceFileAssignment
 from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
-from app.services.resource_parser import extract_subtitle_group_from_filename
+from app.services.resource_parser import extract_subtitle_group_from_filename, season_from_title
 from app.services.runtime_config import runtime_config
 from app.services.subtitle_groups import join_legacy_subtitle_group, normalize_subtitle_groups
 from app.services.torrent_inspect import TorrentReport
@@ -397,17 +397,54 @@ async def bind_single_work_assignments(db: AsyncSession, resource: FileResource)
     second pass closes that ordering gap without guessing: it only acts when
     the resource FK identifies exactly one series or movie, and never
     overwrites manual/LLM provenance.  Stale ``auto`` links pointing at
-    other works (left behind when the FK was re-pointed) are removed, and
-    the derived collection identity is settled onto the resource.
+    other works (left behind when the FK was re-pointed) are removed only for
+    single-season shapes; multi-season/franchise rows and links are never
+    flattened. The derived collection identity is settled onto the resource.
     """
     work_type = "series" if resource.series_id else "movie" if resource.movie_id else None
     work_id = resource.series_id or resource.movie_id
     if work_type is None or work_id is None:
         return 0
+    repair_existing = getattr(resource, "batch_scope", None) not in ("multi_season", "franchise")
     try:
         await db.refresh(resource, ["file_assignments"])
     except Exception:  # noqa: BLE001
         return 0
+    target_season = None
+    if work_type == "series":
+        work = await db.get(TVSeries, work_id)
+        if work is None:
+            return 0
+        from app.services.metadata_episode_reconcile import work_verified_season
+
+        target_season = work_verified_season(work)
+        if target_season is None and resource.season == work.season_number:
+            target_season = resource.season
+    parsed_seasons = {
+        row.season for row in resource.file_assignments
+        if row.source == "auto" and row.season not in (None, 0)
+    }
+    if resource.batch_scope == "season" and len(parsed_seasons) > 1:
+        return 0
+    if (
+        repair_existing
+        and work_type == "series"
+        and resource.season is not None
+        and resource.season != work.season_number
+    ):
+        return 0
+    if repair_existing and work_type == "series":
+        title_seasons = {
+            value for value in (
+                season_from_title(title)
+                for title in (
+                    resource.title_raw, resource.title_cn,
+                    resource.title_en, resource.search_title,
+                )
+            ) if value is not None
+        }
+        if title_seasons and title_seasons != {work.season_number}:
+            return 0
     special_overrides = (
         await resolve_fractional_specials(
             db, work_id, [row.file_path for row in resource.file_assignments],
@@ -421,18 +458,30 @@ async def bind_single_work_assignments(db: AsyncSession, resource: FileResource)
     for row in resource.file_assignments:
         if row.source != "auto":
             continue
-        if not row.series_id and not row.movie_id:
+        was_bound = bool(row.series_id or row.movie_id)
+        matches = (
+            (work_type == "series" and row.series_id == work_id and not row.movie_id)
+            or (work_type == "movie" and row.movie_id == work_id and not row.series_id)
+        )
+        if not matches:
+            if row.series_id or row.movie_id:
+                if not repair_existing:
+                    continue
+                if work_type == "series" and target_season is None:
+                    continue
             row.series_id = work_id if work_type == "series" else None
             row.movie_id = work_id if work_type == "movie" else None
             changed += 1
         if (
-            work_type == "series"
-            and row.season is None
-            and resource.season is not None
+            repair_existing
+            and work_type == "series"
+            and row.season != 0
+            and target_season is not None
+            and row.season != target_season
         ):
-            row.season = resource.season
+            row.season = target_season
             placement_changed = True
-        if row.file_path in special_overrides:
+        if row.file_path in special_overrides and (repair_existing or not was_bound):
             row.season = 0
             row.episode_start = special_overrides[row.file_path]
             row.episode_end = special_overrides[row.file_path]
@@ -451,7 +500,7 @@ async def bind_single_work_assignments(db: AsyncSession, resource: FileResource)
         )
         if matches:
             found = True
-        elif link.source == "auto":
+        elif repair_existing and link.source == "auto":
             # The FK was re-pointed (manual relink / absolute-episode
             # relocation): a stale auto link to the previous work is an
             # orphan. manual/llm provenance is never touched.

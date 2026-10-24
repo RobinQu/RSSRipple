@@ -131,6 +131,22 @@ def test_specials_extras_do_not_poison_season_coverage():
     assert batch_coverage(r) == (('series', 's1', 1, ((1, 12),)),)
 
 
+def test_ncop_nced_are_extras_but_other_unnumbered_videos_still_fail():
+    r = resource()
+    r.file_assignments = [
+        assignment(1, 12),
+        ResourceFileAssignment(series_id='s1', season=2, file_path='Show - NCOP.mkv'),
+        ResourceFileAssignment(series_id='s1', season=2, file_path='Show - NCED2.mkv'),
+        ResourceFileAssignment(series_id='s1', season=2, file_path='Show - NCOP; BD_1080P.mkv'),
+        ResourceFileAssignment(series_id='s1', season=2, file_path='Show - NCOP1v2.mkv'),
+    ]
+    assert batch_coverage(r) == (('series', 's1', 1, ((1, 12),)),)
+    r.file_assignments.append(
+        ResourceFileAssignment(series_id='s1', season=1, file_path='Show - interview.mkv')
+    )
+    assert batch_coverage(r) is None
+
+
 def test_specials_on_special_work_are_regular_coverage():
     r = resource()
     r.series_id = 's0'

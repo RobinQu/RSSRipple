@@ -12,6 +12,22 @@ export function workKeyOf(workType: string, workId: string): string {
 export interface WizardWorkLike {
   workType: string;
   workId: string;
+  season?: number | null;
+}
+
+export function pickWorkMatch<T>(
+  candidates: readonly T[],
+  seasonHint: number | null,
+  seasonOf: (candidate: T) => number | null,
+): T | undefined {
+  if (candidates.length === 1) {
+    return seasonHint == null || seasonOf(candidates[0]) === seasonHint
+      ? candidates[0]
+      : undefined;
+  }
+  if (seasonHint == null) return undefined;
+  const exact = candidates.filter((candidate) => seasonOf(candidate) === seasonHint);
+  return exact.length === 1 ? exact[0] : undefined;
 }
 
 export interface WizardPlacementLike {
@@ -90,8 +106,8 @@ export interface WizardStepError {
  * existence, collection membership, non-batch single-work cap) are
  * server-enforced and routed back via ``meta.step``.
  * Step 1 (file mapping) mirrors the checks that used to live only in
- * handleSave: batch TV placements need a season, and every work of a
- * multi-work pack needs at least one file assignment.
+ * handleSave: batch TV placements need a season, and every non-special work
+ * of a multi-work pack needs at least one file assignment.
  */
 export function validateStep(
   step: number,
@@ -108,6 +124,7 @@ export function validateStep(
       placements.map((p) => workKeyOf(p.workType, p.workId)),
     );
     const workKeys = state.works
+      .filter((w) => !(w.workType === 'series' && w.season === 0))
       .map((w) => workKeyOf(w.workType, w.workId))
       .filter((key) => !assigned.has(key));
     if (workKeys.length > 0) return { code: 'works_unassigned', workKeys };

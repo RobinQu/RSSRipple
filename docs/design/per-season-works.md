@@ -116,7 +116,7 @@
 
 **合集文件清单完整性（多作品资源强制）**：对 `resource_work_links` 关联 >1 作品的资源（multi_season/franchise），文件关联步骤新增服务端校验：
 
-- 每个关联作品**至少一条 assignment**（不允许作品挂着但没有任何文件指派）；
+- 每个关联作品**至少一条 assignment**（不允许作品挂着但没有任何文件指派）；明确 `season_number=0` 的特典作品属于 extras，与 `resource_coverage` 一致，可以只关联而无 assignment；正季作品、电影及季号未知作品仍必须有指派；
 - 该资源的全部文件都被指派（不允许残留双 FK 空的未指派文件——除非显式标记为「不指派」）；
 - 每个作品的指派区间完整覆盖其应有集数（对齐 organize 缺集语义：显式 episode_start/end → 作品 number_of_episodes → 文件清单推导；断档给 warning、整段缺失 422）；
 - 不满足时 PUT 422 并在响应里逐作品列出缺口，向导 UI 逐步引导补齐。

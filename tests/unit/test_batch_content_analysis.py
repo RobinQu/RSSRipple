@@ -662,6 +662,122 @@ async def test_bind_single_work_assignments_adds_auto_link(db_session, sample_ch
     assert links[0].source == "auto"
 
 
+async def test_bind_single_work_repairs_stale_auto_work_and_season(db_session, sample_channel):
+    from app.models.file_resource import FileResource
+    from app.models.resource_file_assignment import ResourceFileAssignment
+    from app.models.series import TVSeries
+
+    target = TVSeries(id=_uuid(), title_cn="作品", season_number=2)
+    stale = TVSeries(id=_uuid(), title_cn="旧作品", season_number=1)
+    db_session.add_all([target, stale])
+    await db_session.flush()
+    resource = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
+        title_raw="作品 Season 2", torrent_url="https://x/a.torrent",
+        is_batch=True, batch_scope="season", series_id=target.id, season=2,
+    )
+    db_session.add(resource)
+    await db_session.flush()
+    db_session.add(ResourceFileAssignment(
+        id=_uuid(), resource_id=resource.id, file_path="Show/S02E01.mkv",
+        source="auto", series_id=stale.id, season=1, episode_start=1, episode_end=1,
+    ))
+    await db_session.flush()
+
+    assert await _bca.bind_single_work_assignments(db_session, resource) == 1
+    row = resource.file_assignments[0]
+    assert (row.series_id, row.season) == (target.id, 2)
+
+
+@pytest.mark.parametrize("scope", ["season", "multi_season"])
+async def test_bind_single_work_does_not_flatten_conflicting_seasons(db_session, sample_channel, scope):
+    from app.models.file_resource import FileResource
+    from app.models.resource_file_assignment import ResourceFileAssignment
+    from app.models.series import TVSeries
+
+    target = TVSeries(id=_uuid(), title_cn="作品", season_number=3)
+    stale = TVSeries(id=_uuid(), title_cn="旧作品", season_number=1)
+    db_session.add_all([target, stale])
+    await db_session.flush()
+    resource = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
+        title_raw="作品 Season 3", torrent_url="https://x/a.torrent",
+        is_batch=True, batch_scope=scope, series_id=target.id, season=3,
+    )
+    db_session.add(resource)
+    await db_session.flush()
+    db_session.add_all([
+        ResourceFileAssignment(resource_id=resource.id, file_path="S1/E01.mkv", source="auto",
+                               series_id=stale.id, season=1, episode_start=1),
+        ResourceFileAssignment(resource_id=resource.id, file_path="S3/E01.mkv", source="auto",
+                               series_id=stale.id, season=3, episode_start=1),
+    ])
+    await db_session.flush()
+
+    assert await _bca.bind_single_work_assignments(db_session, resource) == 0
+    assert {row.series_id for row in resource.file_assignments} == {stale.id}
+
+
+@pytest.mark.parametrize("resource_season", [1, 2])
+async def test_bind_single_work_does_not_force_resource_work_onto_conflicting_rows(
+    db_session, sample_channel, resource_season,
+):
+    from app.models.file_resource import FileResource
+    from app.models.resource_file_assignment import ResourceFileAssignment
+    from app.models.series import TVSeries
+
+    work = TVSeries(id=_uuid(), title_cn="作品", season_number=1)
+    db_session.add(work)
+    await db_session.flush()
+    resource = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
+        title_raw="作品 Season 2", torrent_url="https://x/a.torrent",
+        is_batch=True, batch_scope="season", series_id=work.id, season=resource_season,
+    )
+    db_session.add(resource)
+    await db_session.flush()
+    row = ResourceFileAssignment(
+        resource_id=resource.id, file_path="S2/E03.mkv", source="auto",
+        series_id=work.id, season=2, episode_start=3, episode_end=3,
+    )
+    db_session.add(row)
+    await db_session.flush()
+
+    assert await _bca.bind_single_work_assignments(db_session, resource) == 0
+    assert (row.series_id, row.season, row.episode_start) == (work.id, 2, 3)
+
+
+async def test_multi_season_existing_row_skips_fractional_special_override(
+    db_session, sample_channel, monkeypatch,
+):
+    from app.models.file_resource import FileResource
+    from app.models.resource_file_assignment import ResourceFileAssignment
+    from app.models.series import TVSeries
+
+    work = TVSeries(id=_uuid(), title_cn="作品", season_number=1)
+    db_session.add(work)
+    await db_session.flush()
+    resource = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
+        title_raw="作品", torrent_url="https://x/a.torrent",
+        is_batch=True, batch_scope="multi_season", series_id=work.id,
+    )
+    db_session.add(resource)
+    await db_session.flush()
+    row = ResourceFileAssignment(
+        resource_id=resource.id, file_path="S2/11.5.mkv", source="auto",
+        series_id=work.id, season=2, episode_start=11, episode_end=11,
+    )
+    db_session.add(row)
+    await db_session.flush()
+    monkeypatch.setattr(
+        _bca, "resolve_fractional_specials", AsyncMock(return_value={row.file_path: 1})
+    )
+
+    await _bca.bind_single_work_assignments(db_session, resource)
+    assert (row.season, row.episode_start, row.episode_end) == (2, 11, 11)
+
+
 async def test_sync_resource_collection_movie_links(db_session, sample_channel):
     from app.models.file_resource import FileResource
     from app.models.movie import Movie

@@ -1089,6 +1089,49 @@ async def test_global_backfill_reprocesses_linked_resources_with_missing_fields(
     assert mock_agent.process.await_args.kwargs["force_refresh"] is True
 
 
+async def test_global_backfill_batch_candidate_keeps_channel_loaded(db_session):
+    from app.models.series import TVSeries
+
+    ch = await _agent_channel(db_session, name="batch-channel")
+    series = TVSeries(id=_uuid(), title_cn="Batch work", season_number=1)
+    db_session.add(series)
+    await db_session.flush()
+    db_session.add(FileResource(
+        id=_uuid(), channel_id=ch.id, guid="batch-channel",
+        title_raw="Batch work S01", torrent_url="magnet:?xt=urn:btih:batch-channel",
+        series_id=series.id, is_batch=True, batch_scope="season", season=1,
+    ))
+    await db_session.commit()
+
+    with patch("app.services.fetch_service._gather_metadata", new=AsyncMock()):
+        count = await fs.backfill_unmatched_resources_global(db_session, limit=10)
+
+    assert count == 1
+
+
+async def test_global_backfill_includes_links_only_when_agent_disabled(db_session):
+    from app.models.resource_work_link import ResourceWorkLink
+    from app.models.series import TVSeries
+
+    ch = await _agent_channel(db_session, name="links-only")
+    ch.metadata_agent_enabled = False
+    series = TVSeries(id=_uuid(), title_cn="Linked season", season_number=1)
+    resource = FileResource(
+        id=_uuid(), channel_id=ch.id, guid="links-only",
+        title_raw="Linked season", torrent_url="magnet:?xt=urn:btih:links-only",
+        is_batch=True, batch_scope="multi_season", batch_seasons=[1],
+    )
+    db_session.add_all([series, resource])
+    await db_session.flush()
+    db_session.add(ResourceWorkLink(resource_id=resource.id, series_id=series.id, source="auto"))
+    await db_session.commit()
+
+    with patch("app.services.fetch_service._gather_metadata", new=AsyncMock()):
+        count = await fs.backfill_unmatched_resources_global(db_session, limit=10)
+
+    assert count == 1
+
+
 async def test_global_backfill_respects_per_run_limit(db_session):
     """The per-run limit caps how many resources are re-processed in one tick."""
     from unittest.mock import MagicMock, patch
@@ -1107,6 +1150,42 @@ async def test_global_backfill_respects_per_run_limit(db_session):
         count = await fs.backfill_unmatched_resources_global(db_session, limit=4)
 
     assert count == 4
+
+
+async def test_global_backfill_prioritizes_unlinked_over_satisfied_scan_rows(db_session):
+    from datetime import timedelta
+
+    from app.models.movie import Movie
+    from app.utils.time import utcnow
+
+    ch_on = await _agent_channel(db_session, name="retry-starved")
+    ch_off = await _agent_channel(db_session, name="satisfied-linked")
+    ch_off.metadata_agent_enabled = False
+    ch_off.required_metadata_fields = []
+    movie = Movie(id=_uuid(), title_cn="Complete movie")
+    db_session.add(movie)
+    await db_session.flush()
+    for index in range(fs.MAX_GLOBAL_BACKFILL_SCAN):
+        db_session.add(FileResource(
+            id=_uuid(), channel_id=ch_off.id, guid=f"satisfied-{index}",
+            title_raw="Complete movie", torrent_url=f"magnet:?xt=urn:btih:satisfied-{index}",
+            movie_id=movie.id,
+        ))
+    db_session.add(FileResource(
+        id=_uuid(), channel_id=ch_on.id, guid="retry-starved",
+        title_raw="Retry movie", torrent_url="magnet:?xt=urn:btih:retry-starved",
+        metadata_attempts=1, metadata_failure_type="transient",
+        last_metadata_attempt_at=utcnow() - timedelta(days=2),
+    ))
+    await db_session.commit()
+
+    with (
+        patch("app.services.fetch_service._gather_metadata", new=AsyncMock()),
+        patch("app.services.fetch_service._is_linked_enrichment_eligible", return_value=False),
+    ):
+        count = await fs.backfill_unmatched_resources_global(db_session, limit=10)
+
+    assert count == 1
 
 
 async def test_global_backfill_skips_non_work_and_respects_cooldown(db_session):
@@ -1662,6 +1741,166 @@ async def test_reconcile_stale_history_backed_path(db_session, channel):
     assert target.id in changed
     await db_session.refresh(target)
     assert target.episode_confidence == "reconciled"
+
+
+async def test_reconcile_restores_manual_absolute_from_title_and_heals(db_session, channel):
+    from app.models.series import TVSeries
+    from app.models.work_collection import WorkCollection
+
+    collection = WorkCollection(id=_uuid(), title_cn="History Show")
+    db_session.add(collection)
+    await db_session.flush()
+    series = TVSeries(
+        id=_uuid(), title_cn="History Show", season_number=3,
+        number_of_episodes=12, collection_id=collection.id,
+    )
+    db_session.add_all([
+        TVSeries(title_cn="History Show", season_number=season, number_of_episodes=12,
+                 collection_id=collection.id)
+        for season in (1, 2)
+    ] + [series])
+    await db_session.flush()
+    manual = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="audit-manual",
+        title_raw="[G] History 第三季 - 27", torrent_url="magnet:?xt=urn:btih:audit1",
+        series_id=series.id, season=3, episode=3, absolute_episode=None,
+        episode_confidence="manual", subtitle_group="GROUP",
+    )
+    target = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="audit-target",
+        title_raw="[G] History 第三季 - 28", torrent_url="magnet:?xt=urn:btih:audit2",
+        series_id=series.id, season=3, episode=28, absolute_episode=None,
+        episode_confidence="ambiguous", subtitle_group="GROUP",
+    )
+    db_session.add_all([manual, target])
+    await db_session.flush()
+    from app.services.publication_migration import bootstrap_publications
+
+    await bootstrap_publications(db_session, writers_stopped=True)
+    await db_session.commit()
+
+    changed = await fs.reconcile_stale_raw_episodes(db_session, return_resource_ids=True)
+
+    assert changed == [target.id]
+    await db_session.refresh(manual)
+    await db_session.refresh(target)
+    assert manual.absolute_episode == 27
+    assert manual.episode == 3
+    assert manual.episode_confidence == "manual"
+    assert (target.episode, target.absolute_episode, target.episode_confidence) == (4, 28, "reconciled")
+
+
+async def test_reconcile_uses_consistent_manual_offsets_when_counts_are_stale(db_session, channel):
+    from app.models.series import TVSeries
+    from app.models.work_collection import WorkCollection
+    from app.services.publication_migration import bootstrap_publications
+
+    collection = WorkCollection(id=_uuid(), title_cn="History Show")
+    db_session.add(collection)
+    await db_session.flush()
+    series = TVSeries(
+        id=_uuid(), title_cn="History Show", season_number=3,
+        number_of_episodes=12, collection_id=collection.id,
+    )
+    db_session.add_all([
+        TVSeries(title_cn="History Show", season_number=1, number_of_episodes=13,
+                 collection_id=collection.id),
+        TVSeries(title_cn="History Show", season_number=2, number_of_episodes=12,
+                 collection_id=collection.id),
+        series,
+    ])
+    await db_session.flush()
+    first = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="stale-manual-26",
+        title_raw="[G] History S03 - 26", torrent_url="magnet:?xt=urn:btih:stale26",
+        series_id=series.id, season=3, episode=2, absolute_episode=None,
+        episode_confidence="manual", subtitle_group="GROUP",
+    )
+    target = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="stale-target-28",
+        title_raw="[G] History S03 - 28", torrent_url="magnet:?xt=urn:btih:stale28",
+        series_id=series.id, season=3, episode=28, absolute_episode=None,
+        episode_confidence="ambiguous", subtitle_group="GROUP",
+    )
+    db_session.add_all([first, target])
+    await db_session.flush()
+    await bootstrap_publications(db_session, writers_stopped=True)
+    await db_session.commit()
+
+    assert await fs.reconcile_stale_raw_episodes(db_session) == 0
+    await db_session.refresh(first)
+    assert first.absolute_episode is None
+
+    second = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="stale-manual-27",
+        title_raw="[G] History S03 - 27", torrent_url="magnet:?xt=urn:btih:stale27",
+        series_id=series.id, season=3, episode=3, absolute_episode=None,
+        episode_confidence="manual", subtitle_group="GROUP",
+    )
+    db_session.add(second)
+    await db_session.commit()
+    changed = await fs.reconcile_stale_raw_episodes(db_session, return_resource_ids=True)
+
+    assert changed == [target.id]
+    await db_session.refresh(first)
+    await db_session.refresh(second)
+    await db_session.refresh(target)
+    assert first.absolute_episode == 26
+    assert second.absolute_episode == 27
+    assert (target.episode, target.absolute_episode, target.episode_confidence) == (4, 28, "reconciled")
+
+
+async def test_reconcile_does_not_turn_plain_episode_fix_into_absolute(db_session, channel):
+    from app.models.series import TVSeries
+
+    series = TVSeries(id=_uuid(), title_cn="History Show", season_number=3, number_of_episodes=12)
+    db_session.add(series)
+    await db_session.flush()
+    manual = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="plain-manual",
+        title_raw="[G] History S03 - 05", torrent_url="magnet:?xt=urn:btih:plain",
+        series_id=series.id, season=3, episode=3, absolute_episode=None,
+        episode_confidence="manual", subtitle_group="GROUP",
+    )
+    db_session.add(manual)
+    await db_session.commit()
+
+    assert await fs.reconcile_stale_raw_episodes(db_session) == 0
+    await db_session.refresh(manual)
+    assert manual.absolute_episode is None
+
+
+async def test_reconcile_absolute_requires_complete_collection_counts(db_session, channel):
+    from app.models.series import TVSeries
+    from app.models.work_collection import WorkCollection
+
+    collection = WorkCollection(id=_uuid(), title_cn="History Show")
+    db_session.add(collection)
+    await db_session.flush()
+    series = TVSeries(
+        id=_uuid(), title_cn="History Show", season_number=3,
+        number_of_episodes=12, collection_id=collection.id,
+    )
+    db_session.add_all([
+        TVSeries(title_cn="History Show", season_number=1, number_of_episodes=12,
+                 collection_id=collection.id),
+        TVSeries(title_cn="History Show", season_number=2, number_of_episodes=None,
+                 collection_id=collection.id),
+        series,
+    ])
+    await db_session.flush()
+    manual = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="incomplete-manual",
+        title_raw="[G] History S03 - 27", torrent_url="magnet:?xt=urn:btih:incomplete",
+        series_id=series.id, season=3, episode=3, absolute_episode=None,
+        episode_confidence="manual", subtitle_group="GROUP",
+    )
+    db_session.add(manual)
+    await db_session.commit()
+
+    assert await fs.reconcile_stale_raw_episodes(db_session) == 0
+    await db_session.refresh(manual)
+    assert manual.absolute_episode is None
 
 
 # ---------------------------------------------------------------------------

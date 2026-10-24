@@ -13,6 +13,7 @@ import { channelsApi, resourcesApi } from '../../api/channels';
 import { DEFAULT_FALLBACK_SOURCES } from '../channel-form/constants';
 import {
   admitWork,
+  pickWorkMatch,
   stepFromSaveError,
   validateStep,
   workKeyOf,
@@ -629,10 +630,13 @@ export function useResourceEditWizard({
     });
   };
 
-  /** Season applied to files joining a work: the filename parse wins, then
-   * the work's own season_number, then the manual join-season fallback. */
-  const seasonForJoin = (workKey: string, parsedSeason: number | null | undefined): number | null =>
-    parsedSeason ?? workSeasons[workKey] ?? joinSeason;
+  /** Selected work identity wins, except explicit season-0 extras stay specials. */
+  const seasonForJoin = (
+    workKey: string,
+    parsedSeason: number | null | undefined,
+    pickedSeason?: number | null,
+  ): number | null =>
+    parsedSeason === 0 ? 0 : pickedSeason ?? workSeasons[workKey] ?? parsedSeason ?? joinSeason;
 
   const joinChecked = () => {
     if (!selectedWorkKey || checkedFiles.length === 0) return;
@@ -670,10 +674,9 @@ export function useResourceEditWizard({
   };
 
   /** Bind a whole cluster to one work: adds the work to the association list
-   * when new, then expands the cluster choice into per-file placements
-   * (parsed season wins, then the work's own season_number, then the join
-   * fallback — same precedence as joinChecked). Files already placed on the
-   * target work keep their episode edits. */
+   * when new, then expands the cluster choice into per-file placements using
+   * the picked work's season identity. Files already placed on the target work
+   * keep their episode edits. */
   const applyClusterToWork = (
     group: ClusterGroup,
     ref: AssociationWorkRef,
@@ -696,7 +699,7 @@ export function useResourceEditWizard({
         const parsed = detParses[path];
         const s =
           ref.work_type === 'series'
-            ? seasonForJoin(targetKey, parsed?.season ?? meta?.season ?? null)
+            ? seasonForJoin(targetKey, parsed?.season, meta?.season)
             : null;
         if (ref.work_type === 'series' && s == null) {
           missing.push(path);
@@ -854,26 +857,6 @@ export function useResourceEditWizard({
     return best;
   };
 
-  /** Pick among same-title works by season evidence: an exact season_number
-   * match wins (an SP cluster, hint 0, prefers the season-0 special work); a
-   * TV cluster (hint >= 1) never lands on a season-0 special; anything
-   * ambiguous keeps the first match (legacy behaviour). */
-  const pickWorkMatch = (
-    candidates: AssociationWorkRef[],
-    seasonHint: number | null,
-  ): AssociationWorkRef => {
-    if (candidates.length === 1 || seasonHint == null) return candidates[0];
-    const seasonOf = (w: AssociationWorkRef) =>
-      workSeasons[workKeyOf(w.work_type, w.work_id)] ?? null;
-    const exact = candidates.filter((w) => seasonOf(w) === seasonHint);
-    if (exact.length > 0) return exact[0];
-    if (seasonHint >= 1) {
-      const nonSpecial = candidates.filter((w) => seasonOf(w) !== 0);
-      if (nonSpecial.length > 0) return nonSpecial[0];
-    }
-    return candidates[0];
-  };
-
   const applyAnalysisSuggestion = (sug: BatchSuggestion) => {
     setSuggestion(sug);
     const detSeason = new Map<string, number | null>(
@@ -885,11 +868,15 @@ export function useResourceEditWizard({
     let applied = 0;
     const next = { ...placements };
     if (soleSeries) {
+      const workKey = workKeyOf(soleSeries.work_type, soleSeries.work_id);
       for (const f of sug.deterministic.files) {
-        if (next[f.path] || f.season == null) continue;
+        const workSeason = workSeasons[workKey];
+        if (workSeason != null && f.season != null && f.season !== 0 && f.season !== workSeason) continue;
+        const season = f.season === 0 ? 0 : workSeason ?? f.season;
+        if (next[f.path] || season == null) continue;
         next[f.path] = {
           workType: 'series', workId: soleSeries.work_id,
-          season: f.season, epStart: f.episode, epEnd: f.episode,
+          season, epStart: f.episode, epEnd: f.episode,
         };
         applied += 1;
       }
@@ -906,14 +893,23 @@ export function useResourceEditWizard({
             return known === want || (!!known && (known.includes(want) || want.includes(known)));
           });
           return titleMatches.length > 0
-            ? pickWorkMatch(titleMatches, clusterSeasonOf(w, detSeason))
+            ? pickWorkMatch(
+                titleMatches,
+                clusterSeasonOf(w, detSeason),
+                (candidate) => workSeasons[
+                  workKeyOf(candidate.work_type, candidate.work_id)
+                ] ?? null,
+              )
             : undefined;
         })();
       if (!target) continue;
+      const targetSeason = workSeasons[workKeyOf(target.work_type, target.work_id)];
       for (const f of w.files) {
+        if (targetSeason != null && f.season != null && f.season !== 0 && f.season !== targetSeason) continue;
         next[f.path] = {
           workType: target.work_type, workId: target.work_id,
-          season: f.season, epStart: f.episode_start, epEnd: f.episode_end,
+          season: f.season === 0 ? 0 : targetSeason ?? f.season,
+          epStart: f.episode_start, epEnd: f.episode_end,
         };
         applied += 1;
       }
@@ -999,7 +995,11 @@ export function useResourceEditWizard({
   const stepState = () => ({
     isBatch,
     audioLinked,
-    works: works.map((w) => ({ workType: w.work_type as string, workId: w.work_id })),
+    works: works.map((w) => ({
+      workType: w.work_type as string,
+      workId: w.work_id,
+      season: workSeasons[workKeyOf(w.work_type, w.work_id)] ?? null,
+    })),
     placements,
   });
 

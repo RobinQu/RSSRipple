@@ -2301,6 +2301,64 @@ async def test_reconcile_linked_series_resource_locates_absolute(db_session, cha
     assert res.episode_confidence == "reconciled"
 
 
+async def test_reconcile_linked_series_repoints_explicit_season_work(db_session, channel):
+    coll = WorkCollection(id=_uuid(), title_cn="系列", external_source="series_group")
+    s1 = TVSeries(id=_uuid(), title_cn="A", season_number=1, collection_id=coll.id)
+    s2 = TVSeries(id=_uuid(), title_cn="A", season_number=2, collection_id=coll.id)
+    db_session.add_all([coll, s1, s2])
+    await db_session.flush()
+    res = _resource(
+        channel.id, series_id=s1.id, season=2, episode=None,
+        title_raw="A Season 2", search_title="A Season 2",
+        is_batch=True, batch_scope="season",
+    )
+    db_session.add(res)
+    await db_session.flush()
+    from app.models.resource_work_link import ResourceWorkLink
+
+    db_session.add(ResourceWorkLink(resource_id=res.id, series_id=s1.id, source="auto"))
+    await db_session.flush()
+    await db_session.refresh(res, ["work_links", "file_assignments"])
+
+    await ms.reconcile_linked_series_resource(db_session, res, series=s1)
+
+    assert res.series_id == s2.id
+
+
+async def test_reconcile_manual_link_does_not_repair_season_identity(db_session, channel):
+    coll = WorkCollection(id=_uuid(), title_cn="系列", external_source="series_group")
+    s1 = TVSeries(id=_uuid(), title_cn="A", season_number=1, collection_id=coll.id)
+    s2 = TVSeries(id=_uuid(), title_cn="A", season_number=2, collection_id=coll.id)
+    db_session.add_all([coll, s1, s2])
+    await db_session.flush()
+    res = _resource(
+        channel.id, series_id=s1.id, season=2, episode=None,
+        title_raw="A Season 2", search_title="A Season 2",
+        is_batch=True, batch_scope="season",
+    )
+    db_session.add(res)
+    await db_session.flush()
+
+    await ms.reconcile_linked_series_resource(
+        db_session, res, series=s1, repair_season_identity=False
+    )
+
+    assert res.series_id == s1.id
+
+    from app.models.resource_file_assignment import ResourceFileAssignment
+    from app.models.resource_work_link import ResourceWorkLink
+
+    db_session.add_all([
+        ResourceWorkLink(resource_id=res.id, series_id=s1.id, source="manual"),
+        ResourceFileAssignment(resource_id=res.id, file_path="A/E01.mkv",
+                               series_id=s1.id, season=2, source="auto"),
+    ])
+    await db_session.flush()
+    await db_session.refresh(res, ["work_links", "file_assignments"])
+    await ms.reconcile_linked_series_resource(db_session, res, series=s1)
+    assert res.series_id == s1.id
+
+
 async def test_reconcile_linked_series_resource_seasons_map(db_session, channel):
     s = TVSeries(id=_uuid(), title_cn="剧", content_type="tv", season_number=1, number_of_episodes=24)
     db_session.add(s)

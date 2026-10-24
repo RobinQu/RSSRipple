@@ -2046,6 +2046,7 @@ class TestApplyEpisodeReconcile:
         ok = apply_episode_reconcile(r, {1: 24, 2: 24, 3: 24, 4: 24})
         assert ok is True
         assert r.episode == 89  # kept
+        assert r.absolute_episode == 89
         assert r.episode_confidence == "ambiguous"
 
     def test_marks_raw_when_no_basis(self):

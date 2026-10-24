@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   admitWork,
+  pickWorkMatch,
   stepFromSaveError,
   validateStep,
   workKeyOf,
@@ -61,11 +62,43 @@ assert.equal(validateStep(1, {
   },
 }), null);
 
+// Explicit season-0 works are extras, but unknown seasons are not exempt.
+const SP = { workType: 'series', workId: 'sp', season: 0 };
+assert.equal(validateStep(1, {
+  isBatch: true, audioLinked: false, works: [{ ...S1, season: 1 }, SP],
+  placements: { 'a.mkv': { workType: 'series', workId: 's1', season: 1 } },
+}), null);
+assert.deepEqual(validateStep(1, {
+  isBatch: true, audioLinked: false, works: [{ ...S1, season: 1 }, S2],
+  placements: { 'a.mkv': { workType: 'series', workId: 's1', season: 1 } },
+}), { code: 'works_unassigned', workKeys: ['series:s2'] });
+
 // The season check wins over the completeness check (save-path order).
 assert.deepEqual(validateStep(1, {
   isBatch: true, audioLinked: false, works: [S1, S2],
   placements: { 'a.mkv': { workType: 'series', workId: 's1', season: null } },
 }), { code: 'tv_season_required' });
+
+// --- pickWorkMatch ---
+const candidates = [
+  { id: 's1', season: 1 },
+  { id: 's2', season: 2 },
+  { id: 'sp', season: 0 },
+];
+const candidateSeason = (candidate) => candidate.season;
+assert.equal(pickWorkMatch([candidates[0]], null, candidateSeason), candidates[0]);
+assert.equal(pickWorkMatch([candidates[0]], 2, candidateSeason), undefined);
+assert.equal(pickWorkMatch([candidates[1]], 2, candidateSeason), candidates[1]);
+assert.equal(pickWorkMatch(candidates, null, candidateSeason), undefined);
+assert.equal(pickWorkMatch(candidates, 2, candidateSeason), candidates[1]);
+assert.equal(pickWorkMatch(candidates, 0, candidateSeason), candidates[2]);
+assert.equal(pickWorkMatch(candidates, 3, candidateSeason), undefined);
+assert.equal(pickWorkMatch(
+  [candidates[0], { id: 'other-s1', season: 1 }], 1, candidateSeason,
+), undefined);
+assert.equal(pickWorkMatch(candidates, 1, (candidate) => (
+  candidate.id === 'sp' ? null : candidate.season
+)), candidates[0]);
 
 // --- stepFromSaveError ---
 // Machine-readable meta.step wins over any message text.

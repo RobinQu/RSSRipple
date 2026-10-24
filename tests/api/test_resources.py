@@ -1330,6 +1330,34 @@ class TestTorrentRecacheOnConfirmation:
         ensure.assert_awaited_once()
         inspect.assert_awaited_once()
 
+    async def test_episode_confirmation_with_real_torrent_inspection(
+        self, client, sample_channel, db_session_factory, monkeypatch, tmp_path,
+    ):
+        cached = tmp_path / "cached.torrent"
+        cached.write_bytes(b"torrent")
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            torrent_url="https://x/episode.torrent", torrent_file=None,
+            episode=5, episode_confidence="ambiguous",
+        )
+
+        async def _ensure(resource):
+            resource.torrent_file = str(cached)
+
+        monkeypatch.setattr("app.api.v1.resources.ensure_torrent_cached", _ensure)
+        monkeypatch.setattr(
+            "app.services.torrent_inspect.parse_torrent_files",
+            lambda path: [{"name": "Show.S01E03.1080p.mkv", "size": 100 * 1024 * 1024}],
+        )
+        res = await client.patch(
+            f"/api/v1/resources/{rid}/episode", json={"episode": 3},
+        )
+        assert res.status_code == 200, res.text
+        data = res.json()["data"]
+        assert data["episode"] == 3
+        assert data["episode_confidence"] == "manual"
+        assert len(data["file_assignments"]) == 1
+
     async def test_skips_when_cache_exists(
         self, client, sample_channel, db_session_factory, monkeypatch, tmp_path,
     ):
@@ -1353,18 +1381,30 @@ class TestTorrentRecacheOnConfirmation:
     async def test_recache_failure_does_not_block_response(
         self, client, sample_channel, db_session_factory, monkeypatch,
     ):
+        from sqlalchemy.ext.asyncio import AsyncSession
+
         rid = await _make_resource(
             db_session_factory, sample_channel.id,
             torrent_url="https://x/pack.torrent", torrent_file=None,
         )
         ensure = AsyncMock(side_effect=RuntimeError("network down"))
         monkeypatch.setattr("app.api.v1.resources.ensure_torrent_cached", ensure)
+        rollback_calls = 0
+        original_rollback = AsyncSession.rollback
+
+        async def _tracked_rollback(session):
+            nonlocal rollback_calls
+            rollback_calls += 1
+            await original_rollback(session)
+
+        monkeypatch.setattr(AsyncSession, "rollback", _tracked_rollback)
         res = await client.patch(
             f"/api/v1/resources/{rid}", json={"episode": 3},
         )
         assert res.status_code == 200
         assert res.json()["data"]["episode"] == 3
         ensure.assert_awaited_once()
+        assert rollback_calls == 1
 
     async def test_skips_magnet_url(
         self, client, sample_channel, db_session_factory, monkeypatch,

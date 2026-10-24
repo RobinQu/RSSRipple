@@ -2058,25 +2058,83 @@ def pre_reconcile_with_entity(resource: Any, entity: dict | None) -> None:
         apply_episode_reconcile(resource, seasons_map)
 
 
+async def _repoint_explicit_season_work(
+    db: AsyncSession, resource: Any, series: TVSeries
+) -> TVSeries:
+    season = getattr(resource, "season", None)
+    if (
+        season is None
+        or series.season_number == season
+        or not series.collection_id
+        or getattr(resource, "batch_scope", None) not in (None, "season")
+    ):
+        return series
+    title_seasons = {
+        value for value in (
+            season_from_title(title)
+            for title in (
+                getattr(resource, "title_raw", None),
+                getattr(resource, "title_cn", None),
+                getattr(resource, "title_en", None),
+                getattr(resource, "search_title", None),
+            )
+        ) if value is not None
+    }
+    if title_seasons != {season}:
+        return series
+    from app.services.filter_engine import loaded_relation
+
+    assignments = loaded_relation(resource, "file_assignments") or []
+    links = loaded_relation(resource, "work_links") or []
+    auto_association = any(
+        link.source == "auto" and link.series_id for link in links
+    ) or any(
+        row.source == "auto" and row.series_id for row in assignments
+    )
+    if (
+        not auto_association
+        or any(link.source in ("manual", "llm") for link in links)
+        or any(row.source in ("manual", "llm") for row in assignments)
+    ):
+        return series
+    parsed_seasons = {
+        row.season for row in assignments
+        if row.source == "auto" and row.season not in (None, 0)
+    }
+    if parsed_seasons and parsed_seasons != {season}:
+        return series
+    members = [
+        member for member in await _collection_members(db, series.collection_id)
+        if member.season_number == season
+    ]
+    if len(members) != 1:
+        return series
+    resource.series_id = members[0].id
+    return members[0]
+
+
 async def reconcile_linked_series_resource(
     db: AsyncSession,
     resource: Any,
     *,
     series: TVSeries | None = None,
     entity: dict | None = None,
+    repair_season_identity: bool = True,
 ) -> None:
     """Post-link season/episode reconciliation for a TV-linked resource (P3).
 
     Shared by every link path (known-work short-circuit, mapping/fuzzy
     auto-link, manual link, repository write-back). Order:
 
-      1. history-backed sibling convention (DB evidence);
-      2. a season-less resource with an ``absolute_episode`` is located along
+      1. an explicit, file-consistent season marker re-points a stale FK to
+         the unique matching member of the same collection;
+      2. history-backed sibling convention (DB evidence);
+      3. a season-less resource with an ``absolute_episode`` is located along
          the linked work's collection members (per-season model) and
          re-pointed at the located member;
-      3. single-season arithmetic via the work's own episode counts
+      4. single-season arithmetic via the work's own episode counts
          (legacy rows: the inert ``seasons`` column);
-      4. the verified-season default (:func:`resolve_missing_work` with the
+      5. the verified-season default (:func:`resolve_missing_work` with the
          linked work's identity as evidence).
     """
     if not getattr(resource, "series_id", None):
@@ -2085,6 +2143,8 @@ async def reconcile_linked_series_resource(
         series = await db.get(TVSeries, resource.series_id)
     if series is None:
         return
+    if repair_season_identity:
+        series = await _repoint_explicit_season_work(db, resource, series)
     from app.services.episode_history import apply_episode_history_reconcile
 
     resolved = False
@@ -3007,7 +3067,8 @@ async def manual_link_metadata(
             # against the freshly-upserted work, so a season-less resource
             # doesn't keep a guessed/empty season.
             await reconcile_linked_series_resource(
-                db, resource, series=entity, entity=selected_result
+                db, resource, series=entity, entity=selected_result,
+                repair_season_identity=False,
             )
 
     resource.metadata_matched_at = utcnow()

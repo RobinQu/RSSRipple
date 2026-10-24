@@ -208,10 +208,7 @@ def test_analyze_multi_season_stage_dirs_single_root():
     assert report.episode_start is None and report.episode_end is None
 
 
-def test_analyze_stage_top_level_dirs_go_franchise():
-    # Two distinct top-level Stage directories form two credible clusters,
-    # so the franchise branch wins before the multi-season check — existing
-    # behavior, unchanged by Stage-ordinal season recognition.
+def test_analyze_stage_top_level_dirs_go_multi_season():
     files = [
         _f(f"Initial D First Stage/Initial D First Stage - {ep:02d}.mkv")
         for ep in range(1, 13)
@@ -221,9 +218,35 @@ def test_analyze_stage_top_level_dirs_go_franchise():
         for ep in range(1, 13)
     ]
     report = analyze_torrent_files(files)
+    assert report.scope == "multi_season"
+    assert report.is_batch is True
+    assert report.work_titles == []
+    assert [cluster.title for cluster in report.clusters] == ["Initial D"]
+    assert report.seasons == [1, 2]
+
+
+@pytest.mark.parametrize("first,second", [
+    ("Show 1st Season", "Show 2nd Season"),
+    ("作品 第一季", "作品 第二季"),
+    ("Show S01 1080p", "Show S02 1080p"),
+])
+def test_analyze_same_base_top_level_season_dirs_go_multi_season(first, second):
+    files = [_f(f"{first}/{first} - {ep:02d}.mkv") for ep in range(1, 3)]
+    files += [_f(f"{second}/{second} - {ep:02d}.mkv") for ep in range(1, 3)]
+    report = analyze_torrent_files(files)
+    assert report.scope == "multi_season"
+    assert report.is_batch is True
+    assert report.work_titles == []
+    assert report.seasons == [1, 2]
+
+
+def test_analyze_distinct_top_level_works_with_seasons_stay_franchise():
+    files = [_f(f"Alpha 1st Season/Alpha - {ep:02d}.mkv") for ep in range(1, 3)]
+    files += [_f(f"Beta 2nd Season/Beta - {ep:02d}.mkv") for ep in range(1, 3)]
+    report = analyze_torrent_files(files)
     assert report.scope == "franchise"
     assert report.is_batch is True
-    assert report.work_titles == ["Initial D First Stage", "Initial D Second Stage"]
+    assert report.work_titles == ["Alpha", "Beta"]
     assert report.seasons == [1, 2]
 
 

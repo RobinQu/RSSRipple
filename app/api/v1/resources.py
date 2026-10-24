@@ -243,6 +243,7 @@ async def _retry_torrent_cache(db: AsyncSession, resource_id: str) -> None:
         await maybe_inspect_torrent(db, resource)
         await db.commit()
     except Exception:  # noqa: BLE001 — best-effort, never blocks the flow
+        await db.rollback()
         logger.warning(
             "[resources] torrent re-cache failed for %s", resource_id, exc_info=True
         )
@@ -713,6 +714,12 @@ async def correct_episode(
                      "error": {"code": "NOT_FOUND", "message": "Resource not found"}},
         )
 
+    if (
+        resource.absolute_episode is None
+        and resource.episode_confidence == "ambiguous"
+        and resource.episode is not None
+    ):
+        resource.absolute_episode = resource.episode
     resource.episode = body.episode
     # Only touch season when the caller explicitly sent it. That lets a user
     # fix the episode number without wiping the parsed season, mirroring the

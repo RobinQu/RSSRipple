@@ -30,7 +30,10 @@ import bencodepy
 
 from app.clients import outbound_http
 from app.config import settings
-from app.services.resource_parser import extract_season_episode_from_path
+from app.services.resource_parser import (
+    extract_release_title,
+    extract_season_episode_from_path,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -372,12 +375,11 @@ def _is_main_video(entry: dict) -> bool:
     return True
 
 
-# Cluster-title normalization: strip bracketed release tags, season tokens and
-# episode ranges from a top-level directory name; what remains is compared
+# Cluster-title normalization: strip bracketed release tags, season suffixes
+# and episode ranges from a top-level directory name; what remains is compared
 # across clusters.
 _BRACKET_BLOCK_RE = re.compile(r"[\[【\(（][^\]】\)）]*[\]】\)）]")
 _RANGE_TOKEN_RE = re.compile(r"\b\d{1,3}\s*[~\-–～〜]\s*\d{1,3}\b")
-_SEASON_TOKEN_RE = re.compile(r"(?:\bS\d{1,2}\b|\bSeason\s*\d+\b|第\s*\d+\s*季)", re.IGNORECASE)
 _CREDIBLE_TITLE_RE = re.compile(r"[A-Za-z一-鿿]")
 # Titles that are nothing but digits / resolution-ish tokens ("1080p", "720P")
 # are tech tags, not work names — they never form a franchise cluster.
@@ -391,8 +393,8 @@ def _cluster_title(dirname: str) -> str | None:
     such directories never participate in franchise clustering.
     """
     t = _BRACKET_BLOCK_RE.sub(" ", dirname)
-    t = _SEASON_TOKEN_RE.sub(" ", t)
     t = _RANGE_TOKEN_RE.sub(" ", t)
+    t = extract_release_title(t) or t
     t = re.sub(r"\s+", " ", t).strip(" -_.·　")
     if len(t) < 2 or not _CREDIBLE_TITLE_RE.search(t) or _TECH_ONLY_RE.match(t):
         return None
@@ -703,7 +705,7 @@ async def maybe_inspect_torrent(
         # durable assignment row. Batch-only LLM refinement may subsequently
         # bind ambiguous multi-work rows.
         llm_bound_movies = False
-        if hasattr(resource, "file_assignments"):
+        if hasattr(type(resource), "file_assignments") or "file_assignments" in vars(resource):
             from app.services import batch_content_analysis as bca
 
             try:
@@ -749,7 +751,9 @@ async def maybe_inspect_torrent(
         # cluster to one work and bind the cluster's unbound auto rows.
         # Runs after franchise/collection linking so same-collection members
         # resolve first; every failure degrades to the hint-only state.
-        if resource.is_batch and hasattr(resource, "file_assignments"):
+        if resource.is_batch and (
+            hasattr(type(resource), "file_assignments") or "file_assignments" in vars(resource)
+        ):
             try:
                 from app.services.cluster_work_binding import bind_hint_clusters
 

@@ -18,10 +18,11 @@ pipelines rely on are enforced here:
   onto the resource from the linked works (season/multi_season scopes only).
 - Two-level association (per-season works): when a ``collection_id`` is
   submitted, every associated series work must belong to that collection.
-- Multi-work packs (>1 associated work) must be complete: every work has at
-  least one file placement, every media file of the torrent listing is
-  assigned (when the listing is known), and each work's episode run covers
-  its expected range (whole-range misses are hard errors, gaps are warnings).
+- Multi-work packs (>1 associated work) must be complete: every non-special
+  work has at least one file placement, every media file of the torrent
+  listing is assigned (when the listing is known), and each regular season's
+  episode run covers its expected range (whole-range misses are hard errors,
+  gaps are warnings). Season-0 works are extras and may have no placement.
 - Every file placement must reference a work of the association set; TV
   placements require a season; episode runs within one (work, season) may
   not overlap (hard error) and gaps surface as warnings.
@@ -184,10 +185,11 @@ def _validate_assignments(
 
     Multi-work packs (>1 work) additionally enforce file-manifest
     completeness (per docs/design/per-season-works.md): every associated work
-    has at least one placement; every media file of the torrent listing is
-    assigned (skipped with a warning when the listing is unavailable); each
-    series work's placements cover its ``number_of_episodes`` range — a
-    whole-range miss is a hard error, head/tail shortfalls are warnings.
+    except a season-0 special has at least one placement; every media file of
+    the torrent listing is assigned (skipped with a warning when the listing
+    is unavailable); each regular series work's placements cover its
+    ``number_of_episodes`` range — a whole-range miss is a hard error,
+    head/tail shortfalls are warnings.
     """
     result: list[str] = []
     multi_work = len(work_keys) > 1
@@ -238,9 +240,15 @@ def _validate_assignments(
             return f"{key[0]} {key[1]}"
         return work.title_cn or work.title_en or work.original_title or key[1]
 
-    # 1) Every associated work has at least one placement.
+    # 1) Every non-special associated work has at least one placement. A
+    # season-0 work is an extra and may be linked without assigned files.
     assigned_works = {(a.work_type, a.work_id) for a in body.assignments}
-    unassigned = sorted(work_keys - assigned_works)
+    unassigned = sorted(
+        key
+        for key in work_keys - assigned_works
+        if key[0] != "series"
+        or getattr((works_map or {}).get(key), "season_number", None) != 0
+    )
     if unassigned:
         listing = "、".join(_work_label(key) for key in unassigned)
         raise AssociationValidationError(
@@ -260,12 +268,14 @@ def _validate_assignments(
                 f"多作品合集存在未指派的文件：{listing}{suffix}"
             )
 
-    # 3) Each series work's placements cover its expected episode range
-    # (whole-range miss → hard error; head/tail shortfall → warning).
+    # 3) Each regular series work's placements cover its expected episode
+    # range (whole-range miss → hard error; head/tail shortfall → warning).
     for key in sorted(work_keys):
         if key[0] != "series":
             continue
         work = (works_map or {}).get(key)
+        if getattr(work, "season_number", None) == 0:
+            continue
         total = getattr(work, "number_of_episodes", None) if work else None
         if not isinstance(total, int) or total < 1:
             continue

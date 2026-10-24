@@ -4,9 +4,10 @@ Uses the new field_mapping format with list_locator + field_mappings.
 Backward compatible with the old flat dict format.
 """
 
+import html
 import logging
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from app.services.subtitle_groups import normalize_subtitle_groups
@@ -685,23 +686,70 @@ _YEAR_TOKEN_RE = re.compile(r"(?<![\dxX])(19\d{2}|20\d{2})(?![\dxX\d])")
 _YEAR_MIN, _YEAR_MAX = 1950, 2100
 
 
-def extract_title_year(title_raw: str) -> int | None:
-    """Best-effort release year parsed from a raw title.
+def _release_year_match(title_raw: str) -> re.Match[str] | None:
+    bracketed = _YEAR_BRACKET_RE.search(title_raw)
+    if bracketed is not None:
+        return bracketed
+    matches = [
+        match for match in _YEAR_TOKEN_RE.finditer(title_raw)
+        if _YEAR_MIN <= int(match.group(1)) <= datetime.now(UTC).year + 2
+    ]
+    return matches[-1] if matches else None
 
-    Prefers a bracketed year (``[2026]``), else a standalone token
-    (``Koukaku Kidoutai 2026``). ``[1080p]`` (only 1-3 digit episode brackets
-    aside, ``1080`` fails the ``19xx|20xx`` prefix) and ``1920x1080`` never
-    match. Values outside the 1950..2100 sanity range return ``None``.
-    """
+
+def extract_title_year(title_raw: str) -> int | None:
+    """Return the explicit release year, not a numeric title such as 2049."""
     if not title_raw:
         return None
-    m = _YEAR_BRACKET_RE.search(title_raw)
-    if m is None:
-        m = _YEAR_TOKEN_RE.search(title_raw)
-    if m is None:
+    match = _release_year_match(title_raw)
+    if match is None:
         return None
-    year = int(m.group(1))
+    year = int(match.group(1))
     return year if _YEAR_MIN <= year <= _YEAR_MAX else None
+
+
+_RELEASE_TECH_RE = re.compile(
+    r"\s+(?=[\[【(（]?(?:\d{3,4}p|4k|8k|uhd|web(?:-dl|rip)?|bd(?:rip|remux)|"
+    r"blu-?ray|remux|h\.?26[45]|hevc|avc|av1|x26[45]|hdr|sdr|multi|ai)\b)",
+    re.IGNORECASE,
+)
+_RELEASE_EPISODE_RE = re.compile(r"\s+(?:-\s*)?S\d{1,2}E\d{1,3}(?:~\d{1,3})?\b", re.IGNORECASE)
+_RELEASE_COMPLETE_RE = re.compile(r"\s+-?\s*S\d{1,2}\s+Complete\b.*$", re.IGNORECASE)
+_RELEASE_VOLUME_RE = re.compile(r"\s+Vol\.?\s*\d+(?:\s*[~\-–]\s*\d+)?\s*$", re.IGNORECASE)
+
+
+def extract_release_title(title_raw: str | None) -> str | None:
+    """Conservatively recover a searchable work title from a release name."""
+    if not title_raw:
+        return None
+    text = title_raw
+    for _ in range(3):
+        decoded = html.unescape(text)
+        if decoded == text:
+            break
+        text = decoded
+    text = re.sub(r"[\u200b-\u200d\ufeff]", "", text).strip()
+    text = _VIDEO_EXTENSION_RE.sub("", text)
+    text = _LEADING_BRACKETS_RE.sub("", text).strip()
+    text = re.split(r"\s*/\s*", text, maxsplit=1)[0]
+    text = text.split("|", 1)[0]
+    if not _CJK_RE.search(text):
+        text = re.sub(r"[._]+", " ", text)
+        text = text.replace("_", " ")
+    text = _RELEASE_EPISODE_RE.split(text, maxsplit=1)[0]
+    text = _EPISODE_TAIL_RE.sub("", text)
+    text = _RELEASE_COMPLETE_RE.sub("", text)
+    year_match = _release_year_match(text)
+    year_prefix = text[:year_match.start()].strip(" -_:：·([【（") if year_match else ""
+    if year_match is not None and re.search(r"[A-Za-z一-鿿]", year_prefix):
+        text = year_prefix
+    else:
+        text = _RELEASE_TECH_RE.split(text, maxsplit=1)[0]
+    text = _TRAILING_TECH_RE.sub("", text)
+    text = _RELEASE_VOLUME_RE.sub("", text)
+    text = strip_season_from_title(text) or text
+    text = re.sub(r"\s+", " ", text).strip()
+    return text.strip(" -_:：·([【（") or title_raw.strip()
 
 
 def _kanji_to_int(text: str) -> int | None:

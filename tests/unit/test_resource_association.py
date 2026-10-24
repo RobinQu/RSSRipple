@@ -294,6 +294,57 @@ async def test_multi_work_whole_range_miss_rejected(db_session):
         await apply_association_update(db_session, resource, body)
 
 
+async def test_multi_work_season_zero_extra_needs_no_assignment(db_session):
+    collection = await _seed_collection(db_session, "正季与特典")
+    regular = await _seed_series(
+        db_session, "S1", season_number=1, number_of_episodes=1,
+        collection_id=collection.id,
+    )
+    special = await _seed_series(
+        db_session, "SP", season_number=0, number_of_episodes=2,
+        collection_id=collection.id,
+    )
+    resource = await _seed_resource(db_session)
+    body = ResourceAssociationUpdateRequest(
+        is_batch=True,
+        works=[_ref(regular), _ref(special)],
+        assignments=[
+            _asg("s1.mkv", regular, season=1, episode_start=1, episode_end=1),
+        ],
+    )
+
+    result = await apply_association_update(db_session, resource, body)
+    await db_session.flush()
+
+    assert not any("完全未覆盖" in warning for warning in result.warnings)
+    assert {link.series_id for link in resource.work_links} == {
+        regular.id, special.id,
+    }
+
+
+async def test_multi_work_regular_season_without_assignment_rejected(db_session):
+    collection = await _seed_collection(db_session, "多季")
+    regular = await _seed_series(
+        db_session, "S1", season_number=1, number_of_episodes=1,
+        collection_id=collection.id,
+    )
+    missing = await _seed_series(
+        db_session, "S2", season_number=2, number_of_episodes=1,
+        collection_id=collection.id,
+    )
+    resource = await _seed_resource(db_session)
+    body = ResourceAssociationUpdateRequest(
+        is_batch=True,
+        works=[_ref(regular), _ref(missing)],
+        assignments=[
+            _asg("s1.mkv", regular, season=1, episode_start=1, episode_end=1),
+        ],
+    )
+
+    with pytest.raises(AssociationValidationError, match="缺少：S2"):
+        await apply_association_update(db_session, resource, body)
+
+
 async def test_known_media_files_completeness_check(db_session, tmp_path):
     """When the torrent listing is known, every media file must be assigned."""
     import bencodepy

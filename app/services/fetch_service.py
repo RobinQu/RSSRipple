@@ -18,10 +18,16 @@ from app.clients.rss_parser import (
 )
 from app.models.channel import Channel
 from app.models.file_resource import FileResource
+from app.models.resource_work_link import ResourceWorkLink
+from app.services.filter_engine import loaded_relation
 from app.services.metadata_concurrency import MetadataConcurrency
 from app.services.metadata_service import extract_search_title, fetch_and_link_metadata
 from app.services.resource_confirmation import inspect_resource_confirmation
-from app.services.resource_parser import normalize_parsed_fields, parse_entry, strip_season_from_title
+from app.services.resource_parser import (
+    extract_release_title,
+    normalize_parsed_fields,
+    parse_entry,
+)
 from app.services.text_normalizer import normalize_title
 from app.utils.time import utcnow
 
@@ -98,21 +104,7 @@ def _work_metadata_lock(key: str) -> asyncio.Lock:
 
 
 def _simple_title_clean(raw: str) -> str | None:
-    """Minimal title cleanup used as the search_title fallback when the
-    metadata agent fails.
-
-    Strips the leading [subtitle group], takes the segment before a `` / ``
-    alt-title separator (the primary work name), drops the episode tail, and
-    strips a trailing season suffix so the work title matches its base form.
-    """
-    if not raw:
-        return None
-    import re
-    cleaned = re.sub(r"^\[[^\]]*\]\s*", "", raw)
-    cleaned = re.split(r"\s*/\s*", cleaned, maxsplit=1)[0]
-    cleaned = re.sub(r"\s*-\s*\d+\b.*$", "", cleaned)
-    cleaned = strip_season_from_title(cleaned)
-    return cleaned.strip() or raw.strip()
+    return extract_release_title(raw)
 
 # Columns that are set explicitly in the FileResource(...) constructor.
 _EXPLICIT_RESOURCE_COLS = frozenset({
@@ -154,16 +146,21 @@ def _is_retry_eligible(resource: FileResource, now) -> bool:
     return True
 
 
+def _has_work_association(resource: FileResource) -> bool:
+    return bool(
+        resource.series_id
+        or resource.movie_id
+        or resource.audio_work_id
+        or resource.collection_id
+        or loaded_relation(resource, "work_links")
+    )
+
+
 def _is_linked_enrichment_eligible(resource: FileResource, now) -> bool:
     """Whether a linked resource still has Channel metadata to enrich."""
-    if not (
-        getattr(resource, "series_id", None)
-        or getattr(resource, "movie_id", None)
-        or getattr(resource, "audio_work_id", None)
-        or getattr(resource, "collection_id", None)
-    ):
+    if not _has_work_association(resource):
         return False
-    channel = getattr(resource, "channel", None)
+    channel = loaded_relation(resource, "channel")
     if channel is None:
         return False
     confirmation = inspect_resource_confirmation(
@@ -314,6 +311,12 @@ async def _process_resource_metadata_once(
             # continues regardless of the verdict. No commit here — the
             # metadata-phase commit below persists any changes.
             await maybe_inspect_torrent(task_db, resource, channel)
+            if not resource.search_title:
+                resource.search_title = _simple_title_clean(resource.title_raw)
+            if resource.resolution is None:
+                resource.resolution = normalize_parsed_fields(
+                    resource.title_raw, {"resolution": None}
+                ).get("resolution")
             work_key = normalize_title(resource.search_title or extract_search_title(resource))
             async with _work_metadata_lock(work_key):
                 await require_execution_ownership()
@@ -560,12 +563,7 @@ async def _backfill_unmatched_resources(
     for resource in candidates:
         if cap is not None and len(eligible_ids) >= cap:
             break
-        unlinked = not (
-            resource.series_id
-            or resource.movie_id
-            or resource.audio_work_id
-            or resource.collection_id
-        )
+        unlinked = not _has_work_association(resource)
         if force or (
             unlinked and _is_retry_eligible(resource, now)
         ) or _is_linked_enrichment_eligible(resource, now):
@@ -603,6 +601,15 @@ async def backfill_unmatched_resources_global(db: AsyncSession, limit: int = MAX
     requiring a manual re-fetch.
     """
     now = utcnow()
+    has_work = or_(
+        FileResource.series_id.isnot(None),
+        FileResource.movie_id.isnot(None),
+        FileResource.audio_work_id.isnot(None),
+        FileResource.collection_id.isnot(None),
+        select(ResourceWorkLink.id).where(
+            ResourceWorkLink.resource_id == FileResource.id
+        ).exists(),
+    )
     result = await db.execute(
         select(FileResource)
         .join(Channel, FileResource.channel_id == Channel.id)
@@ -613,16 +620,9 @@ async def backfill_unmatched_resources_global(db: AsyncSession, limit: int = MAX
             selectinload(FileResource.audio_work),
             selectinload(FileResource.collection),
         )
-        .where(
-            or_(
-                Channel.metadata_agent_enabled.is_(True),
-                FileResource.series_id.isnot(None),
-                FileResource.movie_id.isnot(None),
-                FileResource.audio_work_id.isnot(None),
-                FileResource.collection_id.isnot(None),
-            ),
-        )
+        .where(or_(Channel.metadata_agent_enabled.is_(True), has_work))
         .order_by(
+            has_work.asc(),
             FileResource.last_metadata_attempt_at.asc().nullsfirst(),
             FileResource.created_at.asc(),
         )
@@ -643,12 +643,7 @@ async def backfill_unmatched_resources_global(db: AsyncSession, limit: int = MAX
     for resource in candidates:
         if len(eligible) >= limit:
             break
-        unlinked = not (
-            resource.series_id
-            or resource.movie_id
-            or resource.audio_work_id
-            or resource.collection_id
-        )
+        unlinked = not _has_work_association(resource)
         if (
             unlinked
             and resource.channel
@@ -697,11 +692,90 @@ async def reconcile_stale_raw_episodes(
     from app.services.metadata_episode_reconcile import (
         _RECONCILE_TOLERANCE,
         apply_episode_reconcile,
+        locate_absolute_episode,
         seasons_map_for_work,
     )
     from app.services.task_queue import require_execution_ownership
 
     await require_execution_ownership()
+    from app.services.resource_parser import extract_season_episode_from_path
+
+    manual_history = (await db.execute(
+        select(FileResource).where(
+            FileResource.series_id.isnot(None),
+            FileResource.is_batch.is_(False),
+            FileResource.episode.isnot(None),
+            FileResource.absolute_episode.is_(None),
+            FileResource.episode_confidence == "manual",
+        ).limit(limit)
+    )).scalars().all()
+    manual_series = {
+        series.id: series for series in (await db.execute(
+            select(TVSeries).where(TVSeries.id.in_({row.series_id for row in manual_history}))
+        )).scalars().all()
+    } if manual_history else {}
+    collection_ids = {
+        series.collection_id for series in manual_series.values() if series.collection_id
+    }
+    collection_maps: dict[str, dict[int, int]] = {}
+    if collection_ids:
+        members = (await db.execute(
+            select(TVSeries).where(TVSeries.collection_id.in_(collection_ids))
+        )).scalars().all()
+        incomplete_collections = set()
+        for member in members:
+            if member.season_number < 1:
+                continue
+            if not member.number_of_episodes:
+                incomplete_collections.add(member.collection_id)
+                continue
+            collection_maps.setdefault(member.collection_id, {})[
+                member.season_number
+            ] = member.number_of_episodes
+        for collection_id in incomplete_collections:
+            collection_maps.pop(collection_id, None)
+    arithmetic_evidence: dict[str, int] = {}
+    fallback_evidence: dict[tuple[str, str, int, int], set[int]] = {}
+    fallback_keys: dict[str, tuple[str, str, int, int]] = {}
+    for row in manual_history:
+        raw_season, raw_episode = extract_season_episode_from_path(row.title_raw)
+        if (
+            raw_episode is None
+            or raw_episode == row.episode
+            or raw_season not in (None, row.season)
+        ):
+            continue
+        series = manual_series.get(row.series_id)
+        if series is None:
+            continue
+        seasons_map = (
+            collection_maps.get(series.collection_id, {})
+            if series.collection_id else seasons_map_for_work(series)
+        )
+        found = locate_absolute_episode(raw_episode, seasons_map)
+        if found == (row.season, row.episode):
+            arithmetic_evidence[row.id] = raw_episode
+            continue
+        own_count = seasons_map_for_work(series).get(row.season)
+        if (
+            own_count is None
+            or raw_episode <= own_count + _RECONCILE_TOLERANCE
+            or (series.collection_id and series.collection_id not in collection_maps)
+        ):
+            continue
+        key = (row.series_id, row.channel_id, row.season, raw_episode - row.episode)
+        fallback_evidence.setdefault(key, set()).add(raw_episode)
+        fallback_keys[row.id] = key
+    audit_repaired = False
+    for row in manual_history:
+        raw_episode = arithmetic_evidence.get(row.id)
+        fallback_key = fallback_keys.get(row.id)
+        if raw_episode is None and fallback_key is not None:
+            if len(fallback_evidence[fallback_key]) >= 2:
+                _, raw_episode = extract_season_episode_from_path(row.title_raw)
+        if raw_episode is not None:
+            row.absolute_episode = raw_episode
+            audit_repaired = True
     resources = (
         await db.execute(
             select(FileResource)
@@ -716,6 +790,8 @@ async def reconcile_stale_raw_episodes(
         )
     ).scalars().all()
     if not resources:
+        if audit_repaired:
+            await db.commit()
         return [] if return_resource_ids else 0
     series_rows = (
         await db.execute(
@@ -779,6 +855,8 @@ async def reconcile_stale_raw_episodes(
                 await require_execution_ownership()
                 await publish_resource(db, row.id, kind="metadata")
         await require_execution_ownership()
+        await db.commit()
+    elif audit_repaired:
         await db.commit()
     return changed_ids if return_resource_ids else len(changed_ids)
 

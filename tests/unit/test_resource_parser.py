@@ -878,6 +878,26 @@ class TestExtractTitleYear:
         from app.services.resource_parser import extract_title_year
         assert extract_title_year("") is None
 
+    def test_numeric_title_does_not_hide_release_year(self):
+        from app.services.resource_parser import extract_title_year
+        assert extract_title_year("Blade.Runner.2049.2017.2160p.BluRay") == 2017
+
+
+@pytest.mark.parametrize(("raw", "expected"), [
+    ("Blade.Runner.2049.2017.2160p.Open.Matte.BluRay.REMUX.HEVC", "Blade Runner 2049"),
+    ("Blade.Runner.2049.2160p.BluRay", "Blade Runner 2049"),
+    ("1984.2160p.BluRay", "1984"),
+    ("[Group][Station] Show - 01 [1080p]", "Show"),
+    ("Deadpool &amp;amp; Wolverine 2160p AI Enhanced WebDL", "Deadpool & Wolverine"),
+    ("2 Guns&amp;nbsp; 2013 Ai Upscaled BluRay", "2 Guns"),
+    ("The Last of Us - S01E06 - 4320p HDR Ai Upscale", "The Last of Us"),
+    ("Futurama - S14 Complete - 2160p HDR", "Futurama"),
+    ("Otonari no Tenshi-sama 2 Vol.2~3 [BDRip 1080p]", "Otonari no Tenshi-sama 2"),
+])
+def test_extract_release_title(raw, expected):
+    from app.services.resource_parser import extract_release_title
+    assert extract_release_title(raw) == expected
+
 
 def test_normalize_fills_title_year():
     from app.services.resource_parser import normalize_parsed_fields

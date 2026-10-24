@@ -397,8 +397,8 @@ def apply_episode_reconcile(resource, seasons_map: dict[int, int]) -> bool:
         return False
     episode, abs_ep, confidence = result
     resource.episode = episode
-    if abs_ep is not None:
-        resource.absolute_episode = abs_ep
+    if abs_ep is not None or confidence == "ambiguous":
+        resource.absolute_episode = abs_ep if abs_ep is not None else episode
     resource.episode_confidence = confidence
     return True
 
