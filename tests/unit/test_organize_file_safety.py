@@ -32,7 +32,11 @@ def test_same_size_different_contents_never_succeeds_or_deletes(tmp_path, mode):
     assert dst.read_bytes() == b"BBBB"
 
 
-@pytest.mark.parametrize("data", [b"", b"same", b"a" * (1024 * 1024 + 9)])
+@pytest.mark.parametrize(
+    "data",
+    [b"", b"same", b"a" * (1024 * 1024 + 9)],
+    ids=["empty", "same", "over-chunk"],
+)
 @pytest.mark.parametrize("mode", ["move", "copy"])
 def test_full_equality_and_empty_files_allow_recovery(tmp_path, data, mode):
     src, dst, op = files(tmp_path, data, data)

@@ -2144,7 +2144,7 @@ async def test_plan_for_notifications_sweeps_stale_staging_files(
     normal = _mkfile(lib_root / "keep.mkv", 5)
     old = _time.time() - 90000
     os.utime(orphan, (old, old))
-    monkeypatch.setattr(organize_service, "_last_staging_sweep", 0.0)
+    monkeypatch.setattr(organize_service, "_last_staging_sweep", None)
 
     stats = await plan_for_notifications(db_session, [notification])
     assert stats["planned"] == 1

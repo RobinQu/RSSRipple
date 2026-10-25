@@ -112,7 +112,9 @@ _replan_task: asyncio.Task | None = None
 _replan_dirty = False
 _replan_reason = ""
 # staging 孤儿文件回收的节流（每次规划 tick 至多检查一次间隔）。
-_last_staging_sweep = 0.0
+# None 表示本进程尚未扫描；不能用 0.0，因为 monotonic 在刚启动的机器上
+# 可能小于节流间隔，会把首次扫描错误地推迟一小时。
+_last_staging_sweep: float | None = None
 _STAGING_SWEEP_INTERVAL_SECONDS = 3600.0
 
 
@@ -379,7 +381,10 @@ async def _maybe_sweep_staging_files(libraries: dict[str, Any]) -> None:
     """
     global _last_staging_sweep
     now = time.monotonic()
-    if now - _last_staging_sweep < _STAGING_SWEEP_INTERVAL_SECONDS:
+    if (
+        _last_staging_sweep is not None
+        and now - _last_staging_sweep < _STAGING_SWEEP_INTERVAL_SECONDS
+    ):
         return
     _last_staging_sweep = now
     roots = sorted(
