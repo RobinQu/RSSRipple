@@ -38,6 +38,7 @@ class FileResourceResponse(BaseModel):
     absolute_episode: int | None = None
     episode_confidence: str | None = None
     resolution: str | None = None
+    channel_default_fields: list[str] | None = None
     source: str | None = None
     video_codec: str | None = None
     audio_codec: str | None = None

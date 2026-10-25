@@ -85,6 +85,7 @@ class Cassette:
         self.errors: list[str] = []
         self.calls = Counter()
         self.consumed = Counter()
+        self.live_requests: Counter = Counter()
         self.database_addresses = set(database_addresses)
         if database_address is not None:
             self.database_addresses.add(database_address)
@@ -140,6 +141,7 @@ class Cassette:
             previous = self.data["requests"].get(key)
             if previous and {k: v for k, v in previous.items() if k != "count"} != row:
                 self._fail(f"non-repeatable response for request {key}; split this scenario into phases")
+            self.live_requests[key] += 1
             row["count"] = previous.get("count", 1) + 1 if previous else 1
             self.data["requests"][key] = row
 
@@ -218,9 +220,26 @@ class Cassette:
     def __exit__(self, *exc):
         self.stack.close()
         if self.mode in {"record", "record-llm"} and exc[0] is None and not self.errors:
+            if self.mode == "record-llm":
+                self.data["requests"] = {
+                    key: {
+                        **row,
+                        "count": (
+                            self.live_requests[key]
+                            if key in self.live_requests
+                            else self.consumed[key]
+                        ),
+                    }
+                    for key, row in self.data["requests"].items()
+                    if key in self.live_requests or self.consumed[key]
+                }
             write_json(self.path, self.data)
 
     def assert_complete(self):
+        if self.mode == "record-llm":
+            if self.errors:
+                raise ReplayError("\n".join(sorted(set(self.errors))))
+            return
         if self.mode != "record":
             for key, row in self.data["requests"].items():
                 if self.mode in {"llm", "record-llm"} and urlsplit(row["request"]["url"]).hostname == self.llm_host:

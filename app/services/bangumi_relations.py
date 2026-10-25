@@ -1,9 +1,10 @@
 """Bangumi related-subject expansion — the series graph pass (B1).
 
-A Bangumi subject is ONE season of a series, so a franchise/multi_season
-batch pack linked to a base entry (e.g. "頭文字D First Stage") only covers
-the first season. This pass unfolds the rest of the graph through the
-related-subjects endpoint (``GET /v0/subjects/{id}/subjects``):
+A regular Bangumi subject is ONE season of a series, so a
+franchise/multi_season batch pack linked to a base entry (e.g. "頭文字D
+First Stage") only covers the first season. This pass unfolds the rest of
+the graph through the related-subjects endpoint
+(``GET /v0/subjects/{id}/subjects``):
 
   * 续集 / 前传 / 主线故事 → sibling per-season works — gated by a same-IP
     check first: the relation candidate's season-stripped normalized base
@@ -18,7 +19,11 @@ related-subjects endpoint (``GET /v0/subjects/{id}/subjects``):
     ordering are computed over the GATED node set only — a rejected node's
     date can no longer push the threshold past a legitimate unmarked sequel
     (Final Stage 2014 vs MFゴースト 3rd Season 2026). Anything still
-    indeterminate is SKIPPED with a warning — never guessed.
+    indeterminate is SKIPPED with a warning — never guessed. Explicit later
+    cours (第Nクール, N>=2) without a season marker instead merge into the
+    unique immediately preceding regular season: their Bangumi id joins that
+    work's identity bag and global-sort episodes append without replacing
+    existing rows.
   * 剧场版 → Movie works.
   * 番外篇 (OVA/spinoff) → the collection's season-0 specials work. Only ONE
     work can occupy the ``(collection, season 0)`` slot: the earliest-aired
@@ -31,7 +36,7 @@ related-subjects endpoint (``GET /v0/subjects/{id}/subjects``):
     the subject is movie-form; TV-form adaptations are skipped (their season
     is unknowable from the relation alone).
 
-Every member is upserted through the existing per-season entry points
+Every independent member is upserted through the existing per-season entry points
 (``create_or_update_series_from_external`` with a season hint /
 ``create_or_update_movie_from_external``), so identity-bag, creator-wins
 primary ids and manual-edit protection all apply unchanged. Works that land
@@ -51,6 +56,7 @@ Bangumi identity, so single-episode resources never pay the extra API calls.
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -66,6 +72,7 @@ from app.services.bangumi_client import (
     SUBJECT_TYPE_ANIME,
     bangumi_configured,
     get_subject,
+    get_subject_episodes,
     get_subject_relations,
 )
 from app.services.resource_parser import season_from_title, strip_season_from_title
@@ -278,6 +285,64 @@ def _season_is_default_guess(work: TVSeries) -> bool:
 def _node_date(node: dict[str, Any]) -> str | None:
     date = str(node.get("detail", {}).get("date") or node["summary"].get("date") or "")
     return date if date[:4].isdigit() else None
+
+
+_COUR_MARKER_RE = re.compile(r"第\s*(\d+)\s*クール")
+
+
+def _is_split_cour_node(node: dict[str, Any]) -> bool:
+    """An explicit later cour, not a separately numbered season."""
+    from app.services.metadata_bangumi import _subject_season
+
+    subject = {**node["summary"], **node.get("detail", {})}
+    markers = {
+        int(match.group(1))
+        for title in (subject.get("name"), subject.get("name_cn"))
+        if title
+        for match in _COUR_MARKER_RE.finditer(title)
+    }
+    return (
+        len(markers) == 1
+        and next(iter(markers)) >= 2
+        and _subject_season(subject) is None
+    )
+
+
+def _split_cour_targets(
+    cour_nodes: list[dict[str, Any]],
+    season_nodes: list[dict[str, Any]],
+    seeds: list[dict[str, Any]],
+    assignments: dict[int, int],
+) -> dict[int, int]:
+    """Map later cours to the unique immediately preceding regular season."""
+    regular: dict[int, tuple[int, str]] = {}
+    for seed in seeds:
+        season = seed.get("season")
+        date = seed.get("date")
+        if seed["work_type"] == "series" and season and date:
+            regular[seed["sid"]] = (season, date)
+    for node in season_nodes:
+        season = assignments.get(node["sid"])
+        date = _node_date(node)
+        if season and date:
+            regular[node["sid"]] = (season, date)
+
+    targets: dict[int, int] = {}
+    for node in cour_nodes:
+        date = _node_date(node)
+        preceding = [entry for entry in regular.values() if date and entry[1] < date]
+        latest = max((entry[1] for entry in preceding), default=None)
+        nearest = [entry for entry in preceding if entry[1] == latest]
+        seasons = {entry[0] for entry in nearest}
+        if latest is None or len(nearest) != 1 or len(seasons) != 1:
+            logger.warning(
+                "[bangumi-graph] subject %s (%r) has no unique preceding "
+                "season for split-cour merge; skipped",
+                node["sid"], node["summary"].get("name"),
+            )
+            continue
+        targets[node["sid"]] = seasons.pop()
+    return targets
 
 
 def _assign_seasons(
@@ -552,6 +617,124 @@ async def _season_zero_holder(db: AsyncSession, collection_id: str) -> TVSeries 
     ).scalars().first()
 
 
+def _episode_matches(row: Episode | None, entity: dict[str, Any]) -> bool:
+    if row is None:
+        return False
+    title = entity.get("title")
+    air_date = entity.get("air_date")
+    return bool(
+        (title and row.title and title == row.title)
+        or (air_date and row.air_date and air_date == row.air_date.isoformat())
+    )
+
+
+async def _merge_split_cour(
+    db: AsyncSession,
+    client: httpx.AsyncClient,
+    work: TVSeries,
+    node: dict[str, Any],
+) -> bool:
+    """Bag a later cour on its proven season and append missing global episodes."""
+    from app.services.external_ids import add_external_id, find_work_by_external_id
+    from app.services.metadata_bangumi import _episode_list_from
+    from app.services.metadata_service import _parse_date, field_manually_edited
+
+    external_id = f"bangumi:{node['sid']}"
+    owner = await find_work_by_external_id(db, "series", "bangumi", external_id)
+    if owner is None:
+        owner = await db.scalar(
+            select(TVSeries).where(
+                TVSeries.external_source == "bangumi",
+                TVSeries.external_id == external_id,
+            )
+        )
+    if owner is not None and owner.id != work.id:
+        logger.warning(
+            "[bangumi-graph] split-cour subject %s already belongs to work %s; "
+            "not merged into %s",
+            node["sid"], owner.id, work.id,
+        )
+        return False
+
+    try:
+        raw_episodes = await get_subject_episodes(client, node["sid"])
+    except Exception as e:
+        logger.warning(
+            "[bangumi-graph] split-cour subject %s episodes failed: %s", node["sid"], e
+        )
+        return False
+    candidates = _episode_list_from(
+        raw_episodes, work.season_number, preserve_global_sort=True
+    )
+    rows = (
+        await db.execute(select(Episode).where(Episode.series_id == work.id))
+    ).scalars().all()
+    by_number = {row.episode: row for row in rows}
+    base = max([work.number_of_episodes or 0, *by_number])
+    if base < 1 or not candidates:
+        return False
+    if min(item["episode"] for item in candidates) == 1:
+        offset = base if owner is None else max(0, base - len(candidates))
+        candidates = [
+            {**item, "episode": item["episode"] + offset} for item in candidates
+        ]
+    numbers = sorted(item["episode"] for item in candidates)
+    if owner is not None:
+        combined = set(by_number) | set(numbers)
+        if combined != set(range(1, max(combined) + 1)):
+            logger.warning(
+                "[bangumi-graph] split-cour subject %s leaves gaps on work %s; "
+                "merge skipped",
+                node["sid"], work.id,
+            )
+            return False
+        candidates = [item for item in candidates if item["episode"] not in by_number]
+        if not candidates:
+            return True
+    elif numbers != list(range(base + 1, base + len(numbers) + 1)):
+        logger.warning(
+            "[bangumi-graph] split-cour subject %s episodes are not continuous "
+            "after %s on work %s; merge skipped",
+            node["sid"], base, work.id,
+        )
+        return False
+    if any(item["episode"] in by_number for item in candidates):
+        logger.warning(
+            "[bangumi-graph] split-cour subject %s episodes overlap work %s; "
+            "merge skipped",
+            node["sid"], work.id,
+        )
+        return False
+    if (
+        max(numbers) > (work.number_of_episodes or 0)
+        and field_manually_edited(work, "number_of_episodes")
+    ):
+        logger.warning(
+            "[bangumi-graph] split-cour subject %s conflicts with manual episode "
+            "count on work %s; merge skipped",
+            node["sid"], work.id,
+        )
+        return False
+
+    for item in candidates:
+        number = item["episode"]
+        row = Episode(
+            series_id=work.id,
+            season=work.season_number,
+            episode=number,
+            title=item.get("title"),
+            air_date=_parse_date(item.get("air_date")),
+        )
+        db.add(row)
+        by_number[number] = row
+
+    combined_count = max(work.number_of_episodes or 0, max(numbers))
+    if combined_count > (work.number_of_episodes or 0):
+        work.number_of_episodes = combined_count
+    await add_external_id(db, "series", work.id, "bangumi", external_id)
+    return True
+
+
 async def expand_bangumi_series_graph(db: AsyncSession, resource: FileResource) -> int:
     """Expand the Bangumi series graph for a batch pack resource.
 
@@ -657,6 +840,7 @@ async def expand_bangumi_series_graph(db: AsyncSession, resource: FileResource) 
 
         # 2. Fetch details (platform drives the movie/TV split) + classify.
         season_nodes: list[dict[str, Any]] = []
+        cour_nodes: list[dict[str, Any]] = []
         specials_nodes: list[dict[str, Any]] = []
         movie_nodes: list[dict[str, Any]] = []
         for node in nodes.values():
@@ -669,7 +853,9 @@ async def expand_bangumi_series_graph(db: AsyncSession, resource: FileResource) 
                 continue
             platform = str(node["detail"].get("platform") or "")
             shape = classify_work_shape(node["relation"], platform)
-            if shape == "season":
+            if shape == "season" and _is_split_cour_node(node):
+                cour_nodes.append(node)
+            elif shape == "season":
                 season_nodes.append(node)
             elif shape == "specials":
                 specials_nodes.append(node)
@@ -685,6 +871,9 @@ async def expand_bangumi_series_graph(db: AsyncSession, resource: FileResource) 
 
         # 3. Upsert season works (marker-first, then air-date inference).
         assignments = _assign_seasons(season_nodes, evidence_seeds)
+        cour_targets = _split_cour_targets(
+            cour_nodes, season_nodes, evidence_seeds, assignments
+        )
 
         # Phase A (C1): correct stale default/hint-derived seasons on
         # EXISTING works before admitting any new season work. A misplaced
@@ -710,6 +899,20 @@ async def expand_bangumi_series_graph(db: AsyncSession, resource: FileResource) 
             if not corrected_any:
                 break
 
+        for seed in evidence_seeds:
+            work_type = seed["work_type"]
+            work = seed["work"]
+            if await _attach_and_link(db, resource, work_type, work, target_collection):
+                linked_ids.add((work_type, work.id))
+                created_links += 1
+
+        season_works = {
+            seed["season"]: seed["work"]
+            for seed in evidence_seeds
+            if seed["work_type"] == "series"
+            and seed["season"]
+            and seed["work"].collection_id == target_collection.id
+        }
         # Phase B: admit season works (member reuse → upsert → attach/link).
         for node in season_nodes:
             season = assignments.get(node["sid"])
@@ -749,6 +952,24 @@ async def expand_bangumi_series_graph(db: AsyncSession, resource: FileResource) 
             if await _attach_and_link(db, resource, "series", work, target_collection):
                 linked_ids.add(("series", work.id))
                 created_links += 1
+            if work.collection_id == target_collection.id:
+                season_works[season] = work
+
+        for node in cour_nodes:
+            season = cour_targets.get(node["sid"])
+            work = season_works.get(season)
+            if work is None:
+                logger.warning(
+                    "[bangumi-graph] split-cour subject %s target season %s has "
+                    "no unique admitted work; skipped",
+                    node["sid"], season,
+                )
+                continue
+            if not await _merge_split_cour(db, client, work, node):
+                continue
+            if await _ensure_link(db, resource, "series", work.id):
+                created_links += 1
+            linked_ids.add(("series", work.id))
 
         # 4. Upsert specials works. The earliest-aired subject takes the
         # collection's season-0 slot; every further DISTINCT specials subject

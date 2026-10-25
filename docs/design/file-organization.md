@@ -21,7 +21,7 @@ vault-organizer 的独立部署形态在功能对等后归档（见"分期路线
 
 - **两阶段不合并**：规划（只读磁盘 + 计划落库，不动文件）与执行（前置门禁 → 幂等执行 → 后置校验）是两个持久化阶段。`auto_execute=true` 只是省掉人工点击——计划照常落库，随后经同一代码路径执行，规划与执行的持久化边界不消失。
 - **规划只依据快照**：`OrganizePlan.payload` 是创建时冻结的完整通知快照，是执行的唯一依据；规划/执行均不读活库 metadata。新版快照的 `file_associations.status=complete` 是逐文件作品/季集的权威输入，planner 不再解析或覆盖；`partial/unavailable` 明确拒绝并引导在计划详情补全；只有完全没有该字段的历史快照才调用频道扫描共用的确定性解析器。单文件多集使用 Plex 兼容 `{episode_code}`（如 `s01e01-e02`）。
-- **多作品短期支持**：按 `work_id` 将权威 assignments 分组，每组使用快照 `works` 中自己的作品元数据完整调用普通单作品 planner；仅当所有分组命中同一个 rule、Library、`file_op` 与 category 时，把 ops 合并进现有单一 OrganizePlan。字幕只在季集号能唯一归属某一作品时随该组整理，否则 keep；未关联文件同样 keep。任一目标不一致必须落明确 failed 计划，禁止选择其中一个目标吞并其余文件。
+- **多作品短期支持**：按 `work_id` 将权威 assignments 分组，每组使用快照 `works` 中自己的作品元数据完整调用普通单作品 planner；仅当所有分组命中同一个 rule、Library、`file_op` 与 category 时，把 ops 合并进现有单一 OrganizePlan。字幕归属依次采用字幕自身的权威 association、与唯一已关联正片相同的完整相对路径 stem（大小写不敏感）、可唯一匹配的季集号；无集号的同名电影外挂字幕因此可随电影整理，仍不能唯一归属的字幕及未关联文件保持 keep。子计划的单集/合集形态只按主视频 assignment 判定，字幕不增加视频计数。任一目标不一致必须落明确 failed 计划，禁止选择其中一个目标吞并其余文件。
 
 ### TODO：跨目标多作品分组子计划（长期方案）
 

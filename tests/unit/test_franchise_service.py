@@ -1011,3 +1011,36 @@ async def test_dedupe_same_year_different_ip_keeps_both(db_session):
 
     assert await dedupe_resource_movies(db_session, resource, channel=ch) == 0
     assert len((await db_session.execute(select(Movie))).scalars().all()) == 2
+
+
+async def test_associated_collection_reuses_unique_work_collection(db_session):
+    from app.services.franchise_service import _associated_collection
+
+    collection = WorkCollection(
+        id=_uuid(), title_cn="间谍过家家", external_source="series_group",
+        external_id=_uuid(),
+    )
+    duplicate = WorkCollection(
+        id=_uuid(), title_cn="Spy x Family", external_source="franchise_pack",
+    )
+    work = TVSeries(
+        id=_uuid(), title_cn="间谍过家家", collection_id=collection.id, season_number=1,
+    )
+    channel = await _channel(db_session)
+    resource = _resource(channel.id)
+    resource.series_id = work.id
+    resource.collection_id = duplicate.id
+    db_session.add_all([collection, duplicate, work, resource])
+    await db_session.flush()
+
+    assert await _associated_collection(db_session, resource) == collection
+
+    movie = Movie(id=_uuid(), title_cn="Code White", collection_id=duplicate.id)
+    db_session.add_all([
+        movie,
+        ResourceWorkLink(
+            id=_uuid(), resource_id=resource.id, movie_id=movie.id, source="auto",
+        ),
+    ])
+    await db_session.flush()
+    assert await _associated_collection(db_session, resource) == collection

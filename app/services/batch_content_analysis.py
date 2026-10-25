@@ -10,21 +10,20 @@ module covers what paths cannot express:
 - Mapping each cluster's files onto concrete works: movie clusters go
   through the channel metadata source (``process_title_only`` →
   ``create_or_update_movie_from_external``) and bind rows; TV clusters
-  inside mixed packs stay hint-only for manual binding in the wizard.
+  retain hints for collection/graph and cluster reconciliation.
 
-Gating (confirmed design): LLM fires only when the deterministic layer
-cannot finish the job —
+Gating: LLM fires only when the deterministic layer cannot finish the job —
 
 1. ``batch_scope == "franchise"`` (multi-work packs), or
 2. ``is_batch`` and a large share of main video files have no parseable
    episode numbers, or
 3. the title layer already judged the resource a batch
    (``resource.is_batch``) but the deterministic report stayed
-   ``scope="unknown"`` with at least two main video files.
+   ``scope="unknown"`` with at least two main video files, or
+4. a season pack has non-NCOP/NCED videos whose episode role is unknown.
 
-Season/multi-season packs never burn an LLM call. All failures degrade
-silently to the deterministic result; rows marked ``source="manual"``
-are never touched.
+All failures degrade silently to the deterministic result; rows marked
+``source="manual"`` are never touched.
 """
 
 from __future__ import annotations
@@ -63,6 +62,15 @@ _UNPARSED_RATIO_THRESHOLD = 0.5
 # this the prompt would be useless anyway; the deterministic layer result
 # stands alone.
 _MAX_LISTING_ENTRIES = 400
+_ABSOLUTE_FILE_EPISODE_RE = re.compile(
+    r"(?:^|[\s._-]+)(\d{1,3})(?:v\d+)?(?=\s*(?:\[|\())",
+    re.IGNORECASE,
+)
+_STAGE_QUALIFIER_RE = re.compile(
+    r"\b((?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|final|"
+    r"\d+(?:st|nd|rd|th))\s+stage)\b",
+    re.IGNORECASE,
+)
 
 
 def llm_refinement_needed(
@@ -87,11 +95,21 @@ def llm_refinement_needed(
         and report.video_file_count >= 2
     ):
         return True
-    return (
+    if (
         report.is_batch
         and report.video_file_count >= 2
         and report.unparsed_ratio >= _UNPARSED_RATIO_THRESHOLD
-    )
+    ):
+        return True
+    if report.scope == "season" and report.is_batch:
+        from app.services.resource_coverage import is_non_episode_video_path
+
+        return any(
+            fp.get("episode") is None
+            and not is_non_episode_video_path(fp.get("path"))
+            for fp in report.file_parses
+        )
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +155,12 @@ def apply_auto_assignments(resource: FileResource, report: TorrentReport) -> Non
     hint_by_path: dict[str, str] = {}
     for cluster in report.clusters:
         for p in cluster.files:
-            hint_by_path[p] = cluster.title
+            hint = cluster.title
+            top = re.split(r"[/\\]+", p, maxsplit=1)[0]
+            stage = _STAGE_QUALIFIER_RE.search(top)
+            if stage and stage.group(1).casefold() not in hint.casefold():
+                hint = f"{hint} {stage.group(1)}"
+            hint_by_path[p] = hint
 
     existing = {a.file_path: a for a in resource.file_assignments}
     seen_paths: set[str] = set()
@@ -259,6 +282,7 @@ def _parse_llm_json(text: str) -> dict[str, Any]:
 async def analyze_listing(
     resource_title: str, files: list[dict], anchor_titles: list[str],
     candidate_works: list[dict] | None = None,
+    include_extra_rules: bool = False,
 ) -> dict[str, Any] | None:
     """One LLM call classifying the listing. Returns None on any failure.
 
@@ -288,6 +312,13 @@ async def analyze_listing(
         f"File listing ({min(len(files), _MAX_LISTING_ENTRIES)} entries):\n"
         f"{_build_listing_text(files)}{anchors}{candidates}"
     )
+    if include_extra_rules:
+        user += (
+            "\nFor a video that is clearly an extra (NCOP/NCED, music video, "
+            "interview, menu or other non-episode bonus), set season=0 and "
+            "leave all episode fields null. When its role is uncertain, leave "
+            "season null; never invent an episode."
+        )
     messages = [
         {"role": "system", "content": _SYSTEM_PROMPT},
         {"role": "user", "content": user},
@@ -401,6 +432,8 @@ async def bind_single_work_assignments(db: AsyncSession, resource: FileResource)
     single-season shapes; multi-season/franchise rows and links are never
     flattened. The derived collection identity is settled onto the resource.
     """
+    if getattr(resource, "batch_scope", None) == "franchise":
+        return 0
     work_type = "series" if resource.series_id else "movie" if resource.movie_id else None
     work_id = resource.series_id or resource.movie_id
     if work_type is None or work_id is None:
@@ -464,6 +497,10 @@ async def bind_single_work_assignments(db: AsyncSession, resource: FileResource)
             or (work_type == "movie" and row.movie_id == work_id and not row.series_id)
         )
         if not matches:
+            if (work_type == "series" and row.movie_id) or (
+                work_type == "movie" and row.series_id
+            ):
+                continue
             if row.series_id or row.movie_id:
                 if not repair_existing:
                     continue
@@ -489,9 +526,23 @@ async def bind_single_work_assignments(db: AsyncSession, resource: FileResource)
             placement_changed = True
     if special_changed or placement_changed:
         resource.season_ranges = compute_season_ranges(resource)
+    if resource.is_batch and resource.batch_scope == "season" and target_season is not None:
+        episodes = [
+            (row.episode_start, row.episode_end or row.episode_start)
+            for row in resource.file_assignments
+            if row.season == target_season and row.episode_start is not None
+        ]
+        if episodes:
+            resource.episode_start = min(start for start, _ in episodes)
+            resource.episode_end = max(end for _, end in episodes)
     links = (await db.execute(
         select(ResourceWorkLink).where(ResourceWorkLink.resource_id == resource.id)
     )).scalars().all()
+    referenced = {
+        (row.series_id, row.movie_id)
+        for row in resource.file_assignments
+        if row.series_id or row.movie_id
+    }
     found = False
     for link in links:
         matches = (
@@ -500,10 +551,11 @@ async def bind_single_work_assignments(db: AsyncSession, resource: FileResource)
         )
         if matches:
             found = True
-        elif repair_existing and link.source == "auto":
-            # The FK was re-pointed (manual relink / absolute-episode
-            # relocation): a stale auto link to the previous work is an
-            # orphan. manual/llm provenance is never touched.
+        elif (
+            repair_existing
+            and link.source == "auto"
+            and (link.series_id, link.movie_id) not in referenced
+        ):
             await db.delete(link)
     if changed and not found:
         db.add(ResourceWorkLink(
@@ -514,6 +566,148 @@ async def bind_single_work_assignments(db: AsyncSession, resource: FileResource)
         ))
     await sync_resource_collection(db, resource)
     return changed
+
+
+async def rebind_absolute_season_assignments(
+    db: AsyncSession, resource: FileResource,
+) -> int:
+    """Map absolute episode runs onto graph-verified consecutive season works."""
+    if resource.batch_scope not in ("franchise", "multi_season") or not resource.collection_id:
+        return 0
+    await db.refresh(resource, ["file_assignments"])
+    works = (await db.execute(
+        select(TVSeries).where(TVSeries.collection_id == resource.collection_id)
+    )).scalars().all()
+    by_season = {
+        work.season_number: work
+        for work in works
+        if type(work.season_number) is int and work.season_number >= 1
+    }
+    if sorted(by_season) != list(range(1, len(by_season) + 1)):
+        return 0
+    if any(
+        type(by_season[season].number_of_episodes) is not int
+        or by_season[season].number_of_episodes < 1
+        for season in by_season
+    ):
+        return 0
+    seasons_map = {
+        season: by_season[season].number_of_episodes for season in by_season
+    }
+    if not seasons_map:
+        return 0
+
+    from app.services.metadata_episode_reconcile import locate_absolute_episode
+    from app.services.resource_coverage import is_non_episode_video_path
+
+    groups: dict[str, list[ResourceFileAssignment]] = {}
+    for row in resource.file_assignments:
+        if (
+            row.source != "auto"
+            or row.movie_id
+            or row.season == 0
+            or is_non_episode_video_path(row.file_path)
+        ):
+            continue
+        if row.episode_start is None or row.episode_start != row.episode_end:
+            return 0
+        hint = (row.work_title_hint or row.series_id or "").strip().casefold()
+        if not hint:
+            return 0
+        groups.setdefault(hint, []).append(row)
+
+    from app.services.resource_parser import extract_season_episode_from_path
+
+    def path_episode(row):
+        season, episode = extract_season_episode_from_path(row.file_path)
+        if episode is None:
+            filename = re.split(r"[/\\]+", row.file_path)[-1]
+            match = _ABSOLUTE_FILE_EPISODE_RE.search(filename)
+            if match:
+                episode = int(match.group(1))
+        return season, episode
+
+    changes: list[tuple[ResourceFileAssignment, TVSeries, int, int]] = []
+    covered_work_ids: set[str] = set()
+    for rows in groups.values():
+        path_evidence = sorted(
+            ((row, *path_episode(row)) for row in rows),
+            key=lambda item: item[0].file_path,
+        )
+        absolute_numbers = None
+        if all(
+            parsed_season is None and type(episode) is int and episode > 0
+            for _, parsed_season, episode in path_evidence
+        ):
+            values = [episode for _, _, episode in path_evidence]
+            if (
+                len(values) > 1
+                and all(right > left for left, right in zip(values, values[1:]))
+                and values[-1] > seasons_map[1]
+            ):
+                absolute_numbers = {id(row): episode for row, _, episode in path_evidence}
+        if absolute_numbers is None:
+            continue
+        current_work_ids = {row.series_id for row in rows if row.series_id}
+        needs_repair = any(not row.series_id for row in rows)
+        if len(current_work_ids) == 1:
+            current_work = next(iter(current_work_ids))
+            current_count = next(
+                work.number_of_episodes for work in by_season.values()
+                if work.id == current_work
+            )
+            needs_repair = needs_repair or max(absolute_numbers.values()) > current_count
+        if not needs_repair:
+            continue
+        located = []
+        for row in rows:
+            target = locate_absolute_episode(absolute_numbers[id(row)], seasons_map)
+            if target is None:
+                located = []
+                break
+            located.append((row, *target))
+        if not located or len({season for _, season, _ in located}) < 2:
+            continue
+        covered_work_ids.update(by_season[season].id for _, season, _ in located)
+        for row, season, episode in located:
+            work = by_season[season]
+            if (
+                row.series_id != work.id
+                or row.season != season
+                or row.episode_start != episode
+                or row.episode_end != episode
+            ):
+                changes.append((row, work, season, episode))
+
+    if not changes:
+        return 0
+    for row, work, season, episode in changes:
+        row.series_id = work.id
+        row.movie_id = None
+        row.season = season
+        row.episode_start = episode
+        row.episode_end = episode
+
+    links = (await db.execute(
+        select(ResourceWorkLink).where(ResourceWorkLink.resource_id == resource.id)
+    )).scalars().all()
+    linked_series = {link.series_id for link in links if link.series_id}
+    for work in by_season.values():
+        if work.id not in covered_work_ids or work.id in linked_series:
+            continue
+        db.add(ResourceWorkLink(
+            resource_id=resource.id, series_id=work.id, source="auto",
+        ))
+        linked_series.add(work.id)
+    resource.batch_seasons = sorted({
+        row.season for row in resource.file_assignments if row.season is not None
+    })
+    resource.season_ranges = compute_season_ranges(resource)
+    logger.info(
+        "[batch] resource %s: rebound %d absolute episode assignments across %d seasons",
+        resource.id, len(changes), len(by_season),
+    )
+    return len(changes)
 
 
 async def sync_resource_collection(db: AsyncSession, resource: FileResource) -> None:
@@ -707,8 +901,8 @@ async def refine_batch_content(
 ) -> bool:
     """LLM refinement during fetch. Returns True when movies were bound.
 
-    Writes ``llm``-sourced assignments / work links and upgrades a pure-movie
-    pack's ``batch_scope`` to ``movies``. Failures degrade silently.
+    Writes ``llm``-sourced assignments / work links and upgrades pure-movie
+    and validated mixed packs. Failures degrade silently.
     """
     listing = [
         {"name": fp["path"], "size": fp.get("size")} for fp in report.file_parses
@@ -716,7 +910,15 @@ async def refine_batch_content(
     if not listing:
         return False
     title = resource.search_title or resource.title_cn or resource.title_raw
-    data = await analyze_listing(title, listing, [c.title for c in report.clusters])
+    extra_options = (
+        {"include_extra_rules": True} if report.scope == "season" else {}
+    )
+    data = await analyze_listing(
+        title,
+        listing,
+        [c.title for c in report.clusters],
+        **extra_options,
+    )
     if not data:
         return False
 
@@ -725,17 +927,25 @@ async def refine_batch_content(
     if not works:
         return False
 
-    # Scope upgrade: pure-movie packs become 'movies'; everything else stays
-    # under 'franchise' (mixed tv+movie AND multi-series packs alike).
     ctypes = {w["content_type"] for w in works}
     multi_work = len(works) >= 2 or len({w["title"] for w in works}) >= 2
-    is_movie_pack = ctypes == {"movie"} and multi_work
+    has_tv_evidence = "tv" in ctypes or any(
+        row.series_id for row in resource.file_assignments
+    )
+    is_movie_pack = ctypes == {"movie"} and multi_work and not has_tv_evidence
     if is_movie_pack and resource.batch_scope == "franchise":
         resource.batch_scope = "movies"
 
-    # Movie resolution/binding only applies to genuine multi-work packs;
-    # season/multi-season packs (high-unparsed gate) get hint fills only.
-    allow_movie_binding = resource.batch_scope in ("franchise", "movies")
+    mixed_evidence = (
+        data.get("scope") == "mixed" and ctypes == {"tv", "movie"}
+    ) or (
+        has_tv_evidence
+        and resource.batch_scope in ("franchise", "movies")
+        and any(row.movie_id for row in resource.file_assignments)
+    )
+    allow_movie_binding = (
+        resource.batch_scope in ("franchise", "movies") or mixed_evidence
+    )
 
     bound_any = False
     for w in works:
@@ -752,6 +962,11 @@ async def refine_batch_content(
         await _bind_work(db, resource, "movie", movie.id, w["files"])
 
     if bound_any:
+        if mixed_evidence:
+            resource.batch_scope = "franchise"
+            resource.season = None
+            resource.episode_start = None
+            resource.episode_end = None
         logger.info(
             "[batch] LLM refinement bound movie works for resource %s (%d clusters)",
             resource.id, len(works),
@@ -766,9 +981,31 @@ def _apply_hint(resource: FileResource, work: dict) -> None:
         row = by_path.get(f["path"])
         if row is None or row.source == "manual":
             continue
+        if (
+            row.source == "auto"
+            and f.get("season") == 0
+            and f.get("episode_start") is None
+            and f.get("episode_end") is None
+        ):
+            row.season = 0
+            row.episode_start = None
+            row.episode_end = None
+            row.work_title_hint = row.work_title_hint or work["title"]
+            continue
+        if (row.series_id or row.movie_id) and row.source == "auto" and any(
+            f.get(key) is not None
+            for key in ("season", "episode_start", "episode_end")
+        ):
+            if f.get("season") is not None:
+                row.season = f["season"]
+            if f.get("episode_start") is not None:
+                row.episode_start = f["episode_start"]
+            if f.get("episode_end") is not None:
+                row.episode_end = f["episode_end"]
+            continue
         if row.series_id or row.movie_id:
             continue
-        row.work_title_hint = work["title"]
+        row.work_title_hint = row.work_title_hint or work["title"]
         if f.get("season") is not None:
             row.season = f["season"]
         if f.get("episode_start") is not None:
@@ -820,6 +1057,16 @@ async def _bind_work(
     for f in files:
         row = by_path.get(f["path"])
         if row is None or row.source == "manual":
+            continue
+        if (
+            work_type == "movie"
+            and row.series_id
+            and any(other.movie_id for other in by_path.values())
+        ) or (
+            work_type == "series"
+            and row.movie_id
+            and any(other.series_id for other in by_path.values())
+        ):
             continue
         if work_type == "movie":
             row.movie_id = work_id

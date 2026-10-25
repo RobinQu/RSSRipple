@@ -46,11 +46,15 @@ _NON_EPISODE_VIDEO_RE = re.compile(
 )
 
 
+def is_non_episode_video_path(file_path: str | None) -> bool:
+    filename = re.split(r"[/\\]+", file_path or "")[-1]
+    return _NON_EPISODE_VIDEO_RE.search(filename) is not None
+
+
 def _is_non_episode_video(row) -> bool:
     if row.episode_start is not None or row.episode_end is not None:
         return False
-    filename = re.split(r"[/\\]+", row.file_path or "")[-1]
-    return _NON_EPISODE_VIDEO_RE.search(filename) is not None
+    return is_non_episode_video_path(row.file_path)
 
 
 def batch_coverage(resource):

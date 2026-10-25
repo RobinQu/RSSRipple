@@ -2323,6 +2323,145 @@ async def test_reconcile_linked_series_repoints_explicit_season_work(db_session,
     await ms.reconcile_linked_series_resource(db_session, res, series=s1)
 
     assert res.series_id == s2.id
+    assert res.season == 2
+
+
+async def test_reconcile_corrects_verified_bilingual_default_season(db_session, channel):
+    from app.models.resource_file_assignment import ResourceFileAssignment
+    from app.services.batch_content_analysis import bind_single_work_assignments
+
+    coll = WorkCollection(id=_uuid(), title_cn="邻家天使", external_source="series_group")
+    s1 = TVSeries(id=_uuid(), title_cn="邻家天使", season_number=1, collection_id=coll.id)
+    s2 = TVSeries(id=_uuid(), title_cn="邻家天使 2", season_number=2, collection_id=coll.id)
+    res = _resource(
+        channel.id,
+        series_id=s1.id,
+        season=1,
+        episode=None,
+        title_raw=(
+            "[LoliHouse] 关于邻家的天使大人不知不觉把我惯成了废人这档子事2 / "
+            "Otonari no Tenshi-sama ni Itsunomanika Dame Ningen ni Sareteita Ken 2 "
+            "[04-09][WebRip 1080p]"
+        ),
+        title_cn="关于邻家的天使大人不知不觉把我惯成了废人这档子事2",
+        title_en="Otonari no Tenshi-sama ni Itsunomanika Dame Ningen ni Sareteita Ken 2",
+        search_title="Otonari no Tenshi-sama ni Itsunomanika Dame Ningen ni Sareteita Ken 2",
+        is_batch=True,
+        batch_scope="season",
+        episode_start=2,
+        episode_end=3,
+    )
+    db_session.add_all([coll, s1, s2, res])
+    await db_session.flush()
+    db_session.add_all([
+        *[
+            ResourceFileAssignment(
+                resource_id=res.id,
+                file_path=f"Otonari no Tenshi-sama 2/{episode:02d}.mkv",
+                source="auto",
+                episode_start=episode,
+                episode_end=episode,
+            )
+            for episode in range(4, 10)
+        ],
+    ])
+    await db_session.flush()
+    await db_session.refresh(res, ["work_links", "file_assignments"])
+
+    await ms.reconcile_linked_series_resource(db_session, res, series=s2)
+
+    assert res.series_id == s2.id
+    assert res.season == 2
+    assert await bind_single_work_assignments(db_session, res) == 6
+    assert {row.series_id for row in res.file_assignments} == {s2.id}
+    assert {row.season for row in res.file_assignments} == {2}
+    assert (res.episode_start, res.episode_end) == (4, 9)
+
+
+@pytest.mark.parametrize("title_en", [None, "Otonari no Tenshi-sama 3"])
+async def test_reconcile_default_season_requires_agreeing_bilingual_titles(
+    db_session, channel, title_en,
+):
+    from app.models.resource_work_link import ResourceWorkLink
+
+    coll = WorkCollection(id=_uuid(), title_cn="邻家天使", external_source="series_group")
+    s2 = TVSeries(id=_uuid(), title_cn="邻家天使 2", season_number=2, collection_id=coll.id)
+    res = _resource(
+        channel.id, series_id=s2.id, season=1, episode=None,
+        title_cn="关于邻家的天使大人不知不觉把我惯成了废人这档子事2",
+        title_en=title_en, search_title=title_en,
+        is_batch=True, batch_scope="season",
+    )
+    db_session.add_all([coll, s2, res])
+    await db_session.flush()
+    db_session.add(ResourceWorkLink(resource_id=res.id, series_id=s2.id, source="auto"))
+    await db_session.flush()
+    await db_session.refresh(res, ["work_links", "file_assignments"])
+
+    await ms.reconcile_linked_series_resource(db_session, res, series=s2)
+
+    assert res.season == 1
+
+
+async def test_reconcile_default_season_preserves_explicit_path_conflict(db_session, channel):
+    from app.models.resource_file_assignment import ResourceFileAssignment
+    from app.models.resource_work_link import ResourceWorkLink
+
+    coll = WorkCollection(id=_uuid(), title_cn="邻家天使", external_source="series_group")
+    s2 = TVSeries(id=_uuid(), title_cn="邻家天使 2", season_number=2, collection_id=coll.id)
+    res = _resource(
+        channel.id, series_id=s2.id, season=1, episode=None,
+        title_cn="关于邻家的天使大人不知不觉把我惯成了废人这档子事2",
+        title_en="Otonari no Tenshi-sama 2", search_title="Otonari no Tenshi-sama 2",
+        is_batch=True, batch_scope="season",
+    )
+    db_session.add_all([coll, s2, res])
+    await db_session.flush()
+    db_session.add_all([
+        ResourceWorkLink(resource_id=res.id, series_id=s2.id, source="auto"),
+        ResourceFileAssignment(
+            resource_id=res.id, file_path="Otonari S01/E04.mkv",
+            source="auto", season=1, episode_start=4,
+        ),
+    ])
+    await db_session.flush()
+    await db_session.refresh(res, ["work_links", "file_assignments"])
+
+    await ms.reconcile_linked_series_resource(db_session, res, series=s2)
+
+    assert res.season == 1
+
+
+@pytest.mark.parametrize("protected_source", ["manual", "llm"])
+async def test_reconcile_default_season_preserves_protected_associations(
+    db_session, channel, protected_source,
+):
+    from app.models.resource_file_assignment import ResourceFileAssignment
+    from app.models.resource_work_link import ResourceWorkLink
+
+    coll = WorkCollection(id=_uuid(), title_cn="邻家天使", external_source="series_group")
+    s2 = TVSeries(id=_uuid(), title_cn="邻家天使 2", season_number=2, collection_id=coll.id)
+    res = _resource(
+        channel.id, series_id=s2.id, season=1, episode=None,
+        title_cn="关于邻家的天使大人不知不觉把我惯成了废人这档子事2",
+        title_en="Otonari no Tenshi-sama 2", search_title="Otonari no Tenshi-sama 2",
+        is_batch=True, batch_scope="season",
+    )
+    db_session.add_all([coll, s2, res])
+    await db_session.flush()
+    db_session.add_all([
+        ResourceWorkLink(resource_id=res.id, series_id=s2.id, source="auto"),
+        ResourceFileAssignment(
+            resource_id=res.id, file_path="Otonari/04.mkv",
+            source=protected_source, season=1, episode_start=4,
+        ),
+    ])
+    await db_session.flush()
+    await db_session.refresh(res, ["work_links", "file_assignments"])
+
+    await ms.reconcile_linked_series_resource(db_session, res, series=s2)
+
+    assert res.season == 1
 
 
 async def test_reconcile_manual_link_does_not_repair_season_identity(db_session, channel):

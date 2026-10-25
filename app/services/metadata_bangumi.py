@@ -137,7 +137,9 @@ def _int_or_none(value: Any) -> int | None:
     return num
 
 
-def _episode_list_from(episodes: list[dict], season: int) -> list[dict]:
+def _episode_list_from(
+    episodes: list[dict], season: int, *, preserve_global_sort: bool = False
+) -> list[dict]:
     """Map Bangumi main-story episodes to our episode_list shape.
 
     ``ep`` is the season-local episode number and is preferred; ``sort`` is
@@ -147,17 +149,19 @@ def _episode_list_from(episodes: list[dict], season: int) -> list[dict]:
     work's Episode rows must stay season-local. When every entry only has
     ``sort`` and the list does not start at 1, it is rebased so the first
     entry becomes episode 1. Fractional numbers (in-between specials) and
-    non-positive numbers are skipped.
+    non-positive numbers are skipped. Split-cour merging instead requests
+    ``preserve_global_sort`` so continuation episodes keep their absolute
+    position within the combined season.
     """
     entries: list[tuple[int, dict]] = []
     for ep in episodes:
-        num = _int_or_none(ep.get("ep"))
+        num = _int_or_none(ep.get("sort" if preserve_global_sort else "ep"))
         if num is None:
-            num = _int_or_none(ep.get("sort"))
+            num = _int_or_none(ep.get("ep" if preserve_global_sort else "sort"))
         if num is None:
             continue
         entries.append((num, ep))
-    if entries and min(num for num, _ in entries) > 1:
+    if not preserve_global_sort and entries and min(num for num, _ in entries) > 1:
         shift = min(num for num, _ in entries) - 1
         entries = [(num - shift, ep) for num, ep in entries]
     out: list[dict] = []
@@ -226,6 +230,9 @@ async def _build_matched_entity(
     }
     if content_type == "tv":
         entity["single_season_entry"] = True
+        subject_season = _subject_season(subj)
+        if subject_season is not None:
+            entity["subject_season"] = subject_season
     return entity
 
 

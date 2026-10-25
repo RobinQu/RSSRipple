@@ -14,7 +14,7 @@ from datetime import date
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 import app.services.bangumi_relations as br
 import app.services.metadata_bangumi as mb
@@ -22,6 +22,7 @@ from app.models.channel import Channel
 from app.models.episode import Episode
 from app.models.file_resource import FileResource
 from app.models.movie import Movie
+from app.models.resource_file_assignment import ResourceFileAssignment
 from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
 from app.models.work_collection import WorkCollection
@@ -789,7 +790,9 @@ async def _episodes_stub(client, sid):
     return [{"sort": 1, "ep": 1, "name": "ep1", "airdate": "2000-01-01"}]
 
 
-def _install_bangumi_mock(monkeypatch, *, relations=None, relations_exc=None, details=None):
+def _install_bangumi_mock(
+    monkeypatch, *, relations=None, relations_exc=None, details=None, episodes=None
+):
     relations = _RELATIONS if relations is None else relations
     details = _DETAILS if details is None else details
 
@@ -802,11 +805,14 @@ def _install_bangumi_mock(monkeypatch, *, relations=None, relations_exc=None, de
         return details.get(int(sid), {})
 
     async def _episodes(client, sid):
+        if episodes is not None:
+            return episodes.get(int(sid), [])
         return await _episodes_stub(client, sid)
 
     monkeypatch.setattr(br, "bangumi_configured", lambda: True)
     monkeypatch.setattr(br, "get_subject_relations", _relations)
     monkeypatch.setattr(br, "get_subject", _detail)
+    monkeypatch.setattr(br, "get_subject_episodes", _episodes)
     monkeypatch.setattr(mb, "get_subject", _detail)
     monkeypatch.setattr(mb, "get_subject_episodes", _episodes)
     monkeypatch.setattr(br.httpx, "AsyncClient", _FakeAsyncClient)
@@ -1509,3 +1515,273 @@ async def test_expand_second_specials_upsert_none_skipped(db_session, monkeypatc
     series, _ = await _works_by_bangumi_id(db_session)
     assert "bangumi:4" in series
     assert "bangumi:10" not in series
+
+
+# ---------------------------------------------------------------------------
+# Split-cour merging
+# ---------------------------------------------------------------------------
+
+
+_SPY_DETAILS = {
+    373267: {
+        "id": 373267, "name": "SPY×FAMILY 第2クール",
+        "name_cn": "SPY×FAMILY 第2クール", "date": "2022-10-01",
+        "platform": "TV", "eps": 13,
+    },
+    411427: {
+        "id": 411427, "name": "SPY×FAMILY Season 2",
+        "name_cn": "SPY×FAMILY Season 2", "date": "2023-10-07",
+        "platform": "TV", "eps": 13,
+    },
+    498378: {
+        "id": 498378, "name": "SPY×FAMILY Season 3",
+        "name_cn": "SPY×FAMILY Season 3", "date": "2025-10-04",
+        "platform": "TV", "eps": 13,
+    },
+}
+_SPY_RELATIONS = {
+    329906: [
+        {"id": 373267, "type": 2, "relation": "续集",
+         "name": "SPY×FAMILY 第2クール", "date": "2022-10-01"},
+        {"id": 411427, "type": 2, "relation": "续集",
+         "name": "SPY×FAMILY Season 2", "date": "2023-10-07"},
+    ],
+    411427: [
+        {"id": 498378, "type": 2, "relation": "续集",
+         "name": "SPY×FAMILY Season 3", "date": "2025-10-04"},
+    ],
+}
+
+
+def _spy_episodes(first_sort: int, count: int = 13) -> list[dict]:
+    return [
+        {
+            "sort": first_sort + index,
+            "ep": index + 1,
+            "name": f"global-{first_sort + index}",
+            "airdate": "2022-10-01",
+        }
+        for index in range(count)
+    ]
+
+
+async def _make_spy_seed(db_session, **over):
+    collection = _collection("SPY×FAMILY")
+    work = _series(
+        "SPY×FAMILY", season=1, subj=329906, collection_id=collection.id,
+        start_date=date(2022, 4, 9), number_of_episodes=12, **over,
+    )
+    db_session.add_all([collection, work])
+    await db_session.flush()
+    db_session.add_all([
+        Episode(
+            series_id=work.id, season=1, episode=number,
+            title=f"first-cour-{number}",
+        )
+        for number in range(1, 13)
+    ])
+    await db_session.flush()
+    resource = await _make_resource(
+        db_session, is_batch=True, batch_scope="multi_season",
+        series_id=work.id, collection_id=collection.id,
+    )
+    return collection, work, resource
+
+
+def _install_spy_mock(monkeypatch):
+    _install_bangumi_mock(
+        monkeypatch,
+        relations=_SPY_RELATIONS,
+        details=_SPY_DETAILS,
+        episodes={
+            373267: _spy_episodes(13),
+            411427: _spy_episodes(26),
+            498378: _spy_episodes(38),
+        },
+    )
+
+
+def test_split_cour_marker_requires_no_independent_season_marker():
+    cour = {"summary": {"name": "SPY×FAMILY 第2クール"}, "detail": {}}
+    season = {"summary": {"name": "SPY×FAMILY Season 2"}, "detail": {}}
+    both = {"summary": {"name": "SPY×FAMILY Season 2 第2クール"}, "detail": {}}
+    first = {"summary": {"name": "SPY×FAMILY 第1クール"}, "detail": {}}
+    assert br._is_split_cour_node(cour) is True
+    assert br._is_split_cour_node(season) is False
+    assert br._is_split_cour_node(both) is False
+    assert br._is_split_cour_node(first) is False
+
+
+async def test_expand_merges_split_cour_identity_episodes_and_is_idempotent(
+    db_session, monkeypatch
+):
+    _install_spy_mock(monkeypatch)
+    collection, seed, resource = await _make_spy_seed(db_session)
+
+    assert await br.expand_bangumi_series_graph(db_session, resource) == 3
+    await db_session.commit()
+    assert await br.expand_bangumi_series_graph(db_session, resource) == 0
+    await db_session.commit()
+    await db_session.refresh(seed)
+
+    series, _ = await _works_by_bangumi_id(db_session)
+    assert set(series) == {"bangumi:329906", "bangumi:411427", "bangumi:498378"}
+    assert seed.external_id == "bangumi:329906"
+    assert seed.number_of_episodes == 25
+    assert series["bangumi:411427"].season_number == 2
+    assert series["bangumi:411427"].number_of_episodes == 13
+    assert series["bangumi:498378"].season_number == 3
+    assert series["bangumi:498378"].number_of_episodes == 13
+    bag = (
+        await db_session.execute(
+            select(WorkExternalId).where(
+                WorkExternalId.work_id == seed.id,
+                WorkExternalId.source == "bangumi",
+            )
+        )
+    ).scalars().all()
+    assert {row.external_id for row in bag} == {"bangumi:373267"}
+    episodes = (
+        await db_session.execute(select(Episode).where(Episode.series_id == seed.id))
+    ).scalars().all()
+    assert len(episodes) == 25
+    assert {row.episode for row in episodes} == set(range(1, 26))
+    assert all(row.season == 1 for row in episodes)
+    by_number = {row.episode: row for row in episodes}
+    assert by_number[1].title == "first-cour-1"
+    assert by_number[12].title == "first-cour-12"
+    assert by_number[13].title == "global-13"
+    assert by_number[25].title == "global-25"
+    links = await _links(db_session, resource.id)
+    assert len(links) == 3
+    assert {link.series_id for link in links} == {
+        seed.id, series["bangumi:411427"].id, series["bangumi:498378"].id,
+    }
+    assert all(work.collection_id == collection.id for work in series.values())
+
+    assignments = [
+        ResourceFileAssignment(
+            resource_id=resource.id,
+            file_path=f"SPY×FAMILY/{absolute:02d}.mkv",
+            work_title_hint="SPY×FAMILY",
+            series_id=seed.id if absolute <= 12 else None,
+            season=1 if absolute <= 12 else None,
+            episode_start=absolute,
+            episode_end=absolute,
+            source="auto",
+        )
+        for absolute in range(1, 51)
+    ]
+    db_session.add_all(assignments)
+    await db_session.flush()
+    from app.services.batch_content_analysis import rebind_absolute_season_assignments
+
+    assert await rebind_absolute_season_assignments(db_session, resource) == 38
+    await db_session.flush()
+    assert [
+        (assignments[index].season, assignments[index].episode_start)
+        for index in (0, 12, 24, 25, 37, 38, 49)
+    ] == [(1, 1), (1, 13), (1, 25), (2, 1), (2, 13), (3, 1), (3, 12)]
+    season_works = {1: seed, 2: series["bangumi:411427"], 3: series["bangumi:498378"]}
+    assert all(row.series_id == season_works[row.season].id for row in assignments)
+
+
+async def test_expand_split_cour_repairs_identity_without_episodes(db_session, monkeypatch):
+    _install_spy_mock(monkeypatch)
+    _, seed, resource = await _make_spy_seed(db_session)
+    await br.expand_bangumi_series_graph(db_session, resource)
+    await db_session.commit()
+    await db_session.execute(
+        delete(Episode).where(Episode.series_id == seed.id, Episode.episode > 12)
+    )
+    await db_session.commit()
+
+    await br.expand_bangumi_series_graph(db_session, resource)
+    await db_session.commit()
+    episodes = (
+        await db_session.execute(select(Episode).where(Episode.series_id == seed.id))
+    ).scalars().all()
+    assert {row.episode for row in episodes} == set(range(1, 26))
+    assert seed.number_of_episodes == 25
+
+
+async def test_expand_split_cour_respects_manual_episode_count(db_session, monkeypatch):
+    _install_spy_mock(monkeypatch)
+    _, seed, resource = await _make_spy_seed(
+        db_session, manually_edited_fields=["number_of_episodes"]
+    )
+    await br.expand_bangumi_series_graph(db_session, resource)
+    await db_session.commit()
+    await db_session.refresh(seed)
+    assert seed.number_of_episodes == 12
+    episodes = (
+        await db_session.execute(select(Episode).where(Episode.series_id == seed.id))
+    ).scalars().all()
+    assert {row.episode for row in episodes} == set(range(1, 13))
+    bag = (
+        await db_session.execute(
+            select(WorkExternalId).where(WorkExternalId.work_id == seed.id)
+        )
+    ).scalars().all()
+    assert bag == []
+
+
+async def test_merge_split_cour_rejects_discontinuous_episodes(db_session, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    _, seed, _ = await _make_spy_seed(db_session)
+    monkeypatch.setattr(
+        br, "get_subject_episodes", AsyncMock(return_value=_spy_episodes(14)),
+    )
+
+    assert await br._merge_split_cour(
+        db_session, AsyncMock(), seed, {"sid": 373267},
+    ) is False
+    episodes = (
+        await db_session.execute(select(Episode).where(Episode.series_id == seed.id))
+    ).scalars().all()
+    assert {row.episode for row in episodes} == set(range(1, 13))
+    assert seed.number_of_episodes == 12
+
+
+async def test_expand_split_cour_without_unique_preceding_season_is_skipped(
+    db_session, monkeypatch
+):
+    relations = {
+        329906: [
+            {"id": 411427, "type": 2, "relation": "续集",
+             "name": "SPY×FAMILY Season 2", "date": "2023-10-07"},
+            {"id": 498378, "type": 2, "relation": "续集",
+             "name": "SPY×FAMILY Season 3", "date": "2023-10-07"},
+            {"id": 373267, "type": 2, "relation": "续集",
+             "name": "SPY×FAMILY 第2クール", "date": "2024-01-01"},
+        ],
+    }
+    details = {
+        **_SPY_DETAILS,
+        498378: {**_SPY_DETAILS[498378], "date": "2023-10-07"},
+        373267: {**_SPY_DETAILS[373267], "date": "2024-01-01"},
+    }
+    _install_bangumi_mock(
+        monkeypatch, relations=relations, details=details, episodes={}
+    )
+    _, seed, resource = await _make_spy_seed(db_session)
+    await br.expand_bangumi_series_graph(db_session, resource)
+    await db_session.commit()
+    await db_session.refresh(seed)
+
+    assert seed.number_of_episodes == 12
+    assert seed.external_id == "bangumi:329906"
+    bag = (
+        await db_session.execute(
+            select(WorkExternalId).where(
+                WorkExternalId.work_id == seed.id,
+                WorkExternalId.external_id == "bangumi:373267",
+            )
+        )
+    ).scalars().all()
+    assert bag == []
+    episodes = (
+        await db_session.execute(select(Episode).where(Episode.series_id == seed.id))
+    ).scalars().all()
+    assert len(episodes) == 12

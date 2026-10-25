@@ -296,6 +296,12 @@ _BATCH_PATTERNS: list[tuple[re.Pattern[str], int, int]] = [
         rf"[\[【][^\]】]*?(\d{{1,3}})\s*{_RANGE_DASH}\s*(\d{{1,3}}){_SP_SUFFIX}\s*[\]】]",
         re.IGNORECASE,
     ), 1, 2),
+    # Episode range immediately after a season's dash separator. The explicit
+    # shape keeps "Season 2 - 03" single while preserving "Season 2 - 03-12".
+    (re.compile(
+        rf"(?:S\d++|Season\s*\d++|第\s*\d++\s*季)\s*-\s*(\d{{1,3}})\s*{_RANGE_DASH}\s*(\d{{1,3}}){_SP_SUFFIX}",
+        re.IGNORECASE,
+    ), 1, 2),
     # Bare range in the context of an explicit season marker:
     # "... S01 | 01-24 ..." / "... Season 2 01-12 ..." / "第2季 01-12".
     # Possessive ``\d++`` keeps "S04 - 05" (single episode) from matching:
@@ -313,6 +319,11 @@ _BATCH_PATTERNS: list[tuple[re.Pattern[str], int, int]] = [
     # 第01-第12话 / 第01~12話
     (re.compile(rf"第\s*(\d{{1,3}})\s*{_RANGE_DASH}\s*第?\s*(\d{{1,3}})\s*[话話集]"), 1, 2),
 ]
+
+_EXPLICIT_SEASON_DASH_EPISODE_RE = re.compile(
+    r"(?:S\d++|Season\s*\d++|第\s*\d++\s*季)\s*-\s*\d{1,3}(?:v\d+)?\b",
+    re.IGNORECASE,
+)
 
 _BATCH_KEYWORD_RE = re.compile(
     r"(?:Season\s*Pack|Full\s*Season|Batch|BD-?BOX|BDBOX|BD\s*Rip\s*Box|"
@@ -455,9 +466,18 @@ def detect_batch(title: str | None) -> tuple[bool, int | None, int | None]:
     if not title:
         return False, None, None
 
+    single_episode_spans = [
+        match.span()
+        for match in _EXPLICIT_SEASON_DASH_EPISODE_RE.finditer(title)
+    ]
     for pattern, gstart, gend in _BATCH_PATTERNS:
         m = pattern.search(title)
         if not m:
+            continue
+        if any(
+            left <= m.start(gstart) and m.end(gend) <= right
+            for left, right in single_episode_spans
+        ):
             continue
         try:
             start = int(m.group(gstart))

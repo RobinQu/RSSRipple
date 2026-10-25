@@ -330,6 +330,49 @@ class TestBatch:
         result = build_plan(payload, files, [rule], [lib])
         assert len([op for op in result.ops if op.op_type == "move"]) == 3
 
+    def test_bdmv_only_manually_associated_m2ts_videos_are_organized(self):
+        payload = _batch_payload()
+        payload["resource"] = {**payload["resource"], "episode_end": 2}
+        payload["file_associations"] = {
+            "version": 1,
+            "status": "complete",
+            "items": [
+                {
+                    "file_path": f"BDMV/STREAM/0000{episode}.m2ts",
+                    "file_size": 300,
+                    "work_type": "series",
+                    "work_id": payload["work"]["series_id"],
+                    "season": 1,
+                    "episode_start": episode,
+                    "episode_end": episode,
+                    "source": "manual",
+                }
+                for episode in (1, 2)
+            ],
+        }
+        files = [
+            DiskFile(
+                f"/d/BDMV/STREAM/0000{index}.m2ts",
+                300,
+                f"BDMV/STREAM/0000{index}.m2ts",
+            )
+            for index in (1, 2, 3, 4)
+        ]
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+
+        result = build_plan(payload, files, [rule], [lib])
+
+        by_src = {op.src: op for op in result.ops}
+        assert by_src["/d/BDMV/STREAM/00001.m2ts"].dst == (
+            "/data/tv/攻壳机动队/Season 01/攻壳机动队 - s01e01 - 第一集.m2ts"
+        )
+        assert by_src["/d/BDMV/STREAM/00002.m2ts"].dst == (
+            "/data/tv/攻壳机动队/Season 01/攻壳机动队 - s01e02 - 第二集.m2ts"
+        )
+        assert by_src["/d/BDMV/STREAM/00003.m2ts"].op_type == "keep"
+        assert by_src["/d/BDMV/STREAM/00004.m2ts"].op_type == "keep"
+
     def test_non_complete_associations_never_fall_back_to_filename(self):
         payload = _batch_payload()
         payload["file_associations"] = {
@@ -1384,6 +1427,160 @@ class TestMultiWorkEdgeCases:
         result = build_plan(payload, files, [rule], [lib])
         keeps = {op.src for op in result.ops if op.op_type == "keep"}
         assert "/d/shared.ep01.zh.ass" in keeps
+
+    def test_mixed_series_movie_same_stem_subtitle_follows_movie(self):
+        payload = self._multi_work_payload()
+        payload["works"] = {
+            "series:s-1": payload["works"]["series:s-1"],
+            "movie:m-1": {
+                **HAMNET_PAYLOAD["work"],
+                "movie_id": "m-1",
+                "title_cn": "Code White",
+                "title_en": "Code White",
+            },
+        }
+        payload["file_associations"]["items"][1] = {
+            "file_path": "Movies/Code White.mkv", "file_size": 300,
+            "work_type": "movie", "work_id": "m-1", "source": "manual",
+        }
+        files = [
+            DiskFile("/d/A/ep.mkv", 300, "A/ep.mkv"),
+            DiskFile("/d/Movies/Code White.mkv", 300, "Movies/Code White.mkv"),
+            DiskFile("/d/Movies/Code White.ass", 5, "Movies\\CODE WHITE.ass"),
+        ]
+        lib = _library(root="/data/media")
+        rule = _rule("all", 10, lib.id, "{title}/{title}{ext}")
+
+        result = build_plan(payload, files, [rule], [lib])
+
+        by_src = {op.src: op for op in result.ops}
+        subtitle = by_src["/d/Movies/Code White.ass"]
+        assert subtitle.op_type == "move"
+        assert subtitle.dst == "/data/media/Code White/Code White.und.ass"
+
+    def test_subtitle_explicit_association_routes_to_work(self):
+        payload = self._multi_work_payload()
+        payload["file_associations"]["items"].append({
+            "file_path": "C/manual.ass", "file_size": 5,
+            "work_type": "series", "work_id": "s-2", "season": 1,
+            "episode_start": 2, "episode_end": 2, "source": "manual",
+        })
+        files = [
+            DiskFile("/d/A/ep.mkv", 300, "A/ep.mkv"),
+            DiskFile("/d/B/ep.mkv", 300, "B/ep.mkv"),
+            DiskFile("/d/C/manual.ass", 5, "C/manual.ass"),
+        ]
+        lib = _library()
+        rule = _rule("all-tv", 10, lib.id, PRESET_TV)
+
+        result = build_plan(payload, files, [rule], [lib])
+
+        by_src = {op.src: op for op in result.ops}
+        subtitle = by_src["/d/C/manual.ass"]
+        assert subtitle.op_type == "move"
+        assert "作品乙" in subtitle.dst
+        assert "s01e02" in subtitle.dst
+
+    def test_same_stem_subtitle_with_multiple_works_kept(self):
+        payload = self._multi_work_payload()
+        payload["file_associations"]["items"][0]["file_path"] = "A/Code White.mkv"
+        payload["file_associations"]["items"][1]["file_path"] = "a/code white.MKV"
+        files = [
+            DiskFile("/d/A/Code White.mkv", 300, "A/Code White.mkv"),
+            DiskFile("/d/a/code white.MKV", 300, "a/code white.MKV"),
+            DiskFile("/d/A/Code White.ass", 5, "A/CODE WHITE.ass"),
+        ]
+        lib = _library()
+        rule = _rule("all-tv", 10, lib.id, PRESET_TV)
+
+        result = build_plan(payload, files, [rule], [lib])
+
+        by_src = {op.src: op for op in result.ops}
+        assert by_src["/d/A/Code White.ass"].op_type == "keep"
+
+    def test_single_episode_with_subtitle_assignment_is_not_batch(self):
+        payload = self._multi_work_payload()
+        payload["file_associations"]["items"].append({
+            "file_path": "A/extras.ass", "file_size": 5,
+            "work_type": "series", "work_id": "s-1", "source": "manual",
+        })
+        files = [
+            DiskFile("/d/A/ep.mkv", 300, "A/ep.mkv"),
+            DiskFile("/d/B/ep.mkv", 300, "B/ep.mkv"),
+            DiskFile("/d/A/extras.ass", 5, "A/extras.ass"),
+        ]
+        lib = _library()
+        rule = _rule("all-tv", 10, lib.id, PRESET_TV)
+
+        result = build_plan(payload, files, [rule], [lib])
+
+        by_src = {op.src: op for op in result.ops}
+        subtitle = by_src["/d/A/extras.ass"]
+        assert subtitle.op_type == "move"
+        assert "作品甲" in subtitle.dst
+        assert "s01e01" in subtitle.dst
+
+    def test_batch_subtitle_explicit_association_targets_episode(self):
+        payload = _batch_payload()
+        payload["file_associations"] = {
+            "version": 1,
+            "status": "complete",
+            "items": [
+                {
+                    "file_path": f"opaque-{episode}.mkv", "file_size": 300,
+                    "work_type": "series", "work_id": "s-1", "season": 1,
+                    "episode_start": episode, "episode_end": episode,
+                    "source": "manual",
+                }
+                for episode in (1, 2, 3)
+            ] + [{
+                "file_path": "opaque.ass", "file_size": 5,
+                "work_type": "series", "work_id": "s-1", "season": 1,
+                "episode_start": 2, "episode_end": 2, "source": "manual",
+            }],
+        }
+        files = [
+            DiskFile(f"/d/opaque-{episode}.mkv", 300, f"opaque-{episode}.mkv")
+            for episode in (1, 2, 3)
+        ] + [DiskFile("/d/opaque.ass", 5, "opaque.ass")]
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+
+        result = build_plan(payload, files, [rule], [lib])
+
+        by_src = {op.src: op for op in result.ops}
+        subtitle = by_src["/d/opaque.ass"]
+        assert subtitle.op_type == "move"
+        assert "s01e02" in subtitle.dst
+
+    def test_batch_subtitle_explicit_extras_never_falls_back_to_episode(self):
+        payload = _batch_payload()
+        payload["file_associations"] = {
+            "version": 1,
+            "status": "complete",
+            "items": [
+                {
+                    "file_path": f"opaque-{episode}.mkv", "file_size": 300,
+                    "work_type": "series", "work_id": "s-1", "season": 1,
+                    "episode_start": episode, "episode_end": episode,
+                    "source": "manual",
+                }
+                for episode in (1, 2, 3)
+            ] + [{
+                "file_path": "S01E01.ass", "file_size": 5,
+                "work_type": "series", "work_id": "s-1", "season": 0,
+                "episode_start": None, "episode_end": None, "source": "manual",
+            }],
+        }
+        files = [
+            DiskFile(f"/d/opaque-{episode}.mkv", 300, f"opaque-{episode}.mkv")
+            for episode in (1, 2, 3)
+        ] + [DiskFile("/d/S01E01.ass", 5, "S01E01.ass")]
+
+        result = build_plan(payload, files, [_rule("tv", 10, "lib-tv", PRESET_TV)], [_library()])
+
+        subtitle = next(op for op in result.ops if op.src == "/d/S01E01.ass")
+        assert subtitle.op_type == "keep"
 
     def test_missing_work_metadata_fails(self):
         payload = self._multi_work_payload()

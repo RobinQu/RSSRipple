@@ -607,7 +607,22 @@ async def maybe_inspect_torrent(
             except Exception:  # noqa: BLE001 — pending row or load hiccup
                 return False
             if resource.file_assignments:
-                return False
+                from app.services.resource_coverage import is_non_episode_video_path
+
+                unresolved_extras = resource.batch_scope == "season" and any(
+                    getattr(row, "source", "auto") == "auto"
+                    and getattr(row, "season", None) != 0
+                    and getattr(row, "episode_start", None) is None
+                    and getattr(row, "episode_end", None) is None
+                    and not is_non_episode_video_path(getattr(row, "file_path", None))
+                    for row in resource.file_assignments
+                )
+                mixed_shape_needs_repair = resource.batch_scope == "movies" and (
+                    any(getattr(row, "series_id", None) for row in resource.file_assignments)
+                    and any(getattr(row, "movie_id", None) for row in resource.file_assignments)
+                )
+                if not unresolved_extras and not mixed_shape_needs_repair:
+                    return False
     url = resource.torrent_url or ""
     cached_path = resource.torrent_file
     if (cached_path and await asyncio.to_thread(Path(cached_path).exists)

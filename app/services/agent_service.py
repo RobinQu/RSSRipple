@@ -931,6 +931,7 @@ async def process_resources(
     *,
     autocommit: bool = False,
     required_metadata_fields: list[str] | None = None,
+    required_metadata_defaults: dict | None = None,
     consumption_snapshot=None,
 ) -> RunResult:
     """Process a list of resources through filtering, dedup, and dispatch.
@@ -944,6 +945,7 @@ async def process_resources(
     already-committed units in place.
     """
     result = RunResult()
+    from app.services.channel_metadata_defaults import reconcile_channel_metadata_defaults
     from app.services.resource_coverage import load_batch_coverage
     from app.services.task_queue import ExecutionOwnershipLostError
 
@@ -976,6 +978,7 @@ async def process_resources(
                 result.unrecognized += 1
                 continue
 
+        reconcile_channel_metadata_defaults(resource, required_metadata_defaults)
         confirmation = inspect_resource_confirmation(
             resource, required_metadata_fields
         )

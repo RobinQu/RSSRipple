@@ -36,6 +36,7 @@ export const FIELD_TAB_KEYS: Record<string, 'basic' | 'metadata' | 'schedule'> =
   metadata_source: 'metadata',
   metadata_fallback_sources: 'metadata',
   required_metadata_fields: 'metadata',
+  required_metadata_defaults: 'metadata',
   default_is_anime: 'metadata',
   fetch_interval: 'schedule',
   auto_cleanup_unresolved_enabled: 'schedule',

@@ -1427,7 +1427,10 @@ class TestParseCorrectionGenericFields:
     (wizard step 3); they never touch episode_confidence."""
 
     async def test_generic_fields_applied(self, client, sample_channel, db_session_factory):
-        rid = await _make_resource(db_session_factory, sample_channel.id)
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            resolution="2160p", channel_default_fields=["resolution"],
+        )
         res = await client.patch(
             f"/api/v1/resources/{rid}",
             json={"resolution": "720p", "subtitle_langs": ["zh-CN"], "source": "WEB-DL"},
@@ -1437,6 +1440,7 @@ class TestParseCorrectionGenericFields:
         assert body["resolution"] == "720p"
         assert body["subtitle_langs"] == ["zh-CN"]
         assert body["source"] == "WEB-DL"
+        assert body["channel_default_fields"] == []
 
     async def test_generic_fields_do_not_mark_manual(
         self, client, sample_channel, db_session_factory,

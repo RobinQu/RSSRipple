@@ -53,8 +53,8 @@ async def test_ledger_populated_and_idempotent(db_engine):
     # PK uniqueness + INSERT-IF-MISSING: no duplicates after two runs.
     assert len(names) == len(rows)
     assert all(row[1] is not None for row in rows)
-    # 74 column additions + the named blocks.
-    assert len(names) >= 100
+    # 76 column additions + the named blocks.
+    assert len(names) >= 102
     expected = {
         # delegated mandatory step
         "resource parent guards",
@@ -172,7 +172,7 @@ def test_additions_single_source_of_truth():
     assert len(keys) == len(set(keys)), "duplicate (table, column) entry"
     # The historically stray entry lives in the main list now.
     assert ("webhook_deliveries", "attempt_token") in keys
-    assert len(_LIGHT_COLUMN_ADDITIONS) == 74
+    assert len(_LIGHT_COLUMN_ADDITIONS) == 76
     # The migration body consumes the constant; no runtime mutation anywhere.
     body = inspect.getsource(db_mod._apply_light_migrations)
     assert "_LIGHT_COLUMN_ADDITIONS" in body

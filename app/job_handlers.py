@@ -112,6 +112,7 @@ def _merge_run_result(total, part) -> None:
 
 async def _process_selected_resources(
     session, agent, selected_ids, *, consumption_snapshot, required_metadata_fields,
+    required_metadata_defaults=None,
 ):
     """Materialise and process the run's selected resources in bounded batches.
 
@@ -150,6 +151,7 @@ async def _process_selected_resources(
             autocommit=True,
             consumption_snapshot=consumption_snapshot,
             required_metadata_fields=required_metadata_fields,
+            required_metadata_defaults=required_metadata_defaults,
         )
 
     if not selected_ids:
@@ -338,6 +340,9 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
                     consumption_snapshot=publication_snapshot or window_snapshot,
                     required_metadata_fields=(
                         agent.channel.required_metadata_fields if agent.channel else None
+                    ),
+                    required_metadata_defaults=(
+                        agent.channel.required_metadata_defaults if agent.channel else None
                     ),
                 )
 

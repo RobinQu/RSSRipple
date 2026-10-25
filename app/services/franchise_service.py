@@ -19,7 +19,8 @@ When ``maybe_inspect_torrent`` classifies a torrent as ``batch_scope ==
    members carrying an OVA/番外 platform are upserted with
    ``season_hint=0`` (the season-0 specials work — the same shape mapping
    the Bangumi series graph applies by relation label).
-2. A ``WorkCollection`` is fetched or created immediately from the clean pack
+2. A unique collection already shared by the associated works is reused;
+   otherwise a ``WorkCollection`` is fetched or created from the clean pack
    title (get-or-create key: ``external_source="franchise_pack"`` +
    normalized title equality — these collections carry no external id, so
    ``external_id`` stays NULL and the title is the identity). The pack title
@@ -229,6 +230,39 @@ async def _ensure_auto_link(
     return True
 
 
+async def _associated_collection(
+    db: AsyncSession, resource: FileResource,
+) -> WorkCollection | None:
+    from app.models.movie import Movie
+    from app.models.resource_work_link import ResourceWorkLink
+
+    work_ids = {
+        (work_type, work_id)
+        for work_type, work_id in (
+            ("series", resource.series_id),
+            ("movie", resource.movie_id),
+        )
+        if work_id
+    }
+    links = (await db.execute(
+        select(ResourceWorkLink).where(ResourceWorkLink.resource_id == resource.id)
+    )).scalars().all()
+    work_ids.update(
+        ("series" if link.series_id else "movie", link.series_id or link.movie_id)
+        for link in links
+    )
+    collection_ids = {"series": set(), "movie": set()}
+    for work_type, work_id in work_ids:
+        model = TVSeries if work_type == "series" else Movie
+        work = await db.get(model, work_id)
+        if work is not None and work.collection_id:
+            collection_ids[work_type].add(work.collection_id)
+    for work_type in ("series", "movie"):
+        if len(collection_ids[work_type]) == 1:
+            return await db.get(WorkCollection, collection_ids[work_type].pop())
+    return None
+
+
 async def _get_or_create_franchise_collection(
     db: AsyncSession, pack_title: str
 ) -> WorkCollection:
@@ -429,12 +463,13 @@ async def link_franchise_pack(
 ) -> None:
     """Link a franchise-pack resource to a WorkCollection of member works.
 
-    See the module docstring for the full contract.  The parent collection is
-    deterministic from the release title and is linked before any network
-    member lookup, so a timeout or an unhelpful ``TV/OVA/Film`` directory name
-    cannot create a spurious metadata confirmation.
+    See the module docstring for the full contract.  A unique collection from
+    the associated works wins over the release-title fallback, preventing
+    duplicate language-specific collections and preserving graph membership.
     """
-    collection = await _get_or_create_franchise_collection(db, _pack_title(resource))
+    collection = await _associated_collection(db, resource)
+    if collection is None:
+        collection = await _get_or_create_franchise_collection(db, _pack_title(resource))
     resource.collection_id = collection.id
     # FK-exclusivity invariant: a collection-linked franchise resource carries
     # no flat per-work FK, even if an earlier partial pass left one behind.

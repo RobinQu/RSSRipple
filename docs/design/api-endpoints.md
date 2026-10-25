@@ -117,7 +117,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 | POST | `/channels` | 创建频道（服务端校验 RSS URL 可达与格式合法性） |
 | GET | `/channels/form-token` | 获取表单防重复提交 Token（存服务端 Cache，TTL 1h；窗口防重：仅 10s 内的重复提交被拒，校验失败后可用同 token 重试）。**浏览器会话（带 `rssripple_auth` Cookie）调用 POST `/channels` / PUT `/channels/{id}` 必须携带 `X-Form-Token`**，缺失 → 422 `VALIDATION_ERROR`；纯 API key 程序端（无该 Cookie）豁免，token 保持可选 |
 | GET | `/channels/metadata-sources` | 频道表单数据源目录（三数据源架构：仅 wikipedia/tmdb/bangumi + 可用性标志 + 默认值） |
-| GET | `/channels/required-field-catalog` | 必填元数据字段目录（覆盖全部 Filter DSL 字段；两级分组 `sections`（作品形态先行：base/tv/pack → release/work）+ 每项 `{key, section, group, dsl_fields, lock, locked, applies_to}`，`lock`=代码强制作用域（`always` 或行形态如 `tv_single`），`applies_to`=适用行形态（null=全形态）） |
+| GET | `/channels/required-field-catalog` | 必填元数据字段目录（覆盖全部 Filter DSL 字段；两级分组 `sections`（作品形态先行：base/tv/pack → release/work）+ 每项 `{key, section, group, dsl_fields, lock, locked, applies_to, defaultable, value_type}`，`lock`=代码强制作用域（`always` 或行形态如 `tv_single`），`applies_to`=适用行形态（null=全形态）；`defaultable` 标识是否支持频道默认值，`value_type` 为 `string`/`string_list`（不可默认时为 null）） |
 | GET | `/channels/{id}` | 频道详情（含最近 20 条 FileResource 预览） |
 | PUT | `/channels/{id}` | 更新频道（含 field_mapping/metadata_agent_enabled 等所有字段，一次性保存；`required_metadata_fields` 只增不删，见下）。`status` 仅接受 `active`/`inactive`（暂停/恢复；`error` 为系统写回状态，提交 → 422），推荐改用专用 pause/resume 端点 |
 | DELETE | `/channels/{id}` | 删除频道（级联删除其 file_resources、agents、tasks、mappings） |
@@ -140,6 +140,8 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 频道资源列表响应额外返回派发结果三字段：`has_download_task`（该资源曾创建过任意 `DownloadTask` 即为 true，任意当前状态）；`download_status`（该资源**最新**一条 DownloadTask 的**有效**派发结果，从未派发为 null，多任务按 `created_at` 取最新）——原始 status 不可直接信：organize 清理（`task_cleanup.delete_task_after_organize`）会把已完成任务置 cancelled，`completed_at` 才是真实完成标记（与 agent_service `_task_occupies_download_slot` 同口径），故 `completed_at` 非空时按计划状态归并为 `organized`（OrganizePlan done）/ `completed`，`cancelled` 仅当 `completed_at` 为 NULL（真实取消），其余状态透传；`pending_decision`（该资源是本频道任一 Agent 当前 pending 的 PendingDecision 候选时为 true），供打「待决策」标。
 
 `required_metadata_fields`（必填元数据字段清单，权威目录 `app/services/required_fields.py`）：**强制且创建后只增不删**。Create 省略时默认为代码强制基线（永不可清除，不存在"不限制"状态）＝**基础必选五件套**（`search_title/content_type/is_batch/year/is_anime`）∪ **形态必填**（TV 单集→`episode`；TV 单季合集→`episode_start`+`episode_end`；跨季合集不要求单值 season/range，仅校验 `batch_seasons`（links-only 形态校验关联季作品 links 与派生缓存一致）；多作品合集→`resource_collection`）；`title_cn`/`title_en` 均为可选目录字段；显式 `null` 一律 422；未知目录键 422；重复键去重、结果按目录规范序重排并强制并入基线。PUT 提交的数组若缺失任何已保存键 → 422 VALIDATION_ERROR。**作品单季化目录变更**：`season` 键从形态必填退役为**可选**（季号由季作品身份承载，DSL 字段保留），`absolute_episode`/`episode_confidence` 两键退役出目录（字段仍在资源模型与 DSL）；存量频道声明里的这三键由启动轻迁移一次性移除（哨兵 `required_fields_per_season_v1`），此后用户可在只增不删策略下重新加入 `season`。Agent 运行前按资源形态检查这些字段的实际值，缺失资源进入 Channel 文件资源待确认并阻止派发；AudioWork 不进入 TV 合集范围检查；`pick_preferences` 可引用目录外字段，空值只是不命中偏好。
+
+`required_metadata_defaults`（Create/Update/Response 的 JSON object，Create 默认 `{}`，显式 `null` 422）为必填字段配置默认值；**缺 key = 保持人工修正，有 key = 自动填值并继续**。仅允许 `subtitle_group`、`resolution`、`source`、`video_codec`、`audio_codec`、`subtitle_type`、`subtitle_langs`、`container`，且键必须已在本次生效的 `required_metadata_fields` 中；`subtitle_langs` 为非空字符串数组，其余为非空字符串，未知/不可默认键、非必填字段默认值及空白值均 422。默认值可修改或删除（`{}` 清空），不受必填清单 add-only 限制。PUT 更新默认值时对频道既有资源对账：只补缺失值、只改仍由旧默认值填充的字段、只清被移除默认值对应的默认填充值，观测/人工值不动。
 
 `POST /channels/{id}/summarize-filters` 请求体：`{ "resource_ids": ["...", "..."] }`；响应 `data`：
 
@@ -416,6 +418,8 @@ Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更
 | GET | `/organize/audit` | 审计条目分页（`plan_id` 过滤；最新在前） |
 
 ### File Resources
+
+资源基础响应与 Detail schema 均透出 `channel_default_fields: string[] | null`，列出当前值来自频道默认值的字段；真实 parser/metadata 写回及 `PATCH /resources/{id}`、`PUT /resources/{id}/associations` 的人工媒体字段修订会清除对应标记。
 
 | Method | Path | 说明 |
 |--------|------|------|

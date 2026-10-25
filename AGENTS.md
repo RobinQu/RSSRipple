@@ -52,7 +52,7 @@
 
 - `filter_config`/`filter_overrides` 均为 BoolCondition 根节点的 JSON DSL 树，按 AND 合并；字符串比较忽略大小写。
 - 空值语义：`eq/contains/fuzzy/regex/gt/...` 不通过、`ne` 通过；空值匹配必须用 `is_empty`/`is_not_empty`；取值操作符 `value` 禁止为空（保存 422）。
-- 频道 `required_metadata_fields` 强制且创建后只增不减（基础五件套 + 形态必填）；`season`/`absolute_episode`/`episode_confidence` 已退役为可选/移出目录。
+- 频道 `required_metadata_fields` 强制且创建后只增不减（基础五件套 + 形态必填）；`season`/`absolute_episode`/`episode_confidence` 已退役为可选/移出目录。`required_metadata_defaults` 仅允许八个发布字段且必须已必填：缺 key=人工修正，有 key=真实解析/匹配后填默认值；默认值参与必填门禁与 DSL 但不绕过其他确认门禁，`FileResource.channel_default_fields` 记录来源，真实/人工值优先。
 
 ### API（详见 api-endpoints.md）
 

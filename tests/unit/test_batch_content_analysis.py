@@ -715,6 +715,7 @@ async def test_bind_single_work_does_not_flatten_conflicting_seasons(db_session,
     await db_session.flush()
 
     assert await _bca.bind_single_work_assignments(db_session, resource) == 0
+    await db_session.refresh(resource, ["file_assignments"])
     assert {row.series_id for row in resource.file_assignments} == {stale.id}
 
 
@@ -1405,3 +1406,321 @@ async def test_suggest_batch_content_parse_failure(monkeypatch):
     result = await _bca.suggest_batch_content(None, resource)
 
     assert result["deterministic"]["scope_hint"] == "unknown"
+
+
+def test_llm_refinement_detects_unnumbered_extras(monkeypatch):
+    monkeypatch.setattr(
+        _bca, "runtime_config",
+        _SimpleNamespace(llm_api_key="k", llm_base_url="", llm_model="",
+                         llm_enable_thinking=False),
+    )
+    report = TorrentReport(
+        scope="season", is_batch=True, video_file_count=3, unparsed_ratio=0.34,
+        file_parses=[
+            {"path": "Show - 01.mkv", "episode": 1},
+            {"path": "Show - HIDE AND SEEK.mkv", "episode": None},
+            {"path": "Show - NCOP.mkv", "episode": None},
+        ],
+    )
+    assert _bca.llm_refinement_needed(report, "season") is True
+    report.file_parses = report.file_parses[:1] + report.file_parses[2:]
+    assert _bca.llm_refinement_needed(report, "season") is False
+
+
+async def test_refine_mixed_pack_upgrades_after_movie_binding(
+    db_session, sample_channel, monkeypatch,
+):
+    from app.models.file_resource import FileResource
+    from app.models.movie import Movie
+    from app.models.resource_file_assignment import ResourceFileAssignment
+    from app.models.resource_work_link import ResourceWorkLink
+
+    resource = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
+        title_raw="Show pack", torrent_url="https://x/a.torrent",
+        is_batch=True, batch_scope="season", season=3, search_title="Show",
+    )
+    movie = Movie(id=_uuid(), title_cn="Movie")
+    db_session.add_all([resource, movie])
+    await db_session.flush()
+    db_session.add_all([
+        ResourceFileAssignment(
+            resource_id=resource.id, file_path="Show/01.mkv", source="auto",
+        ),
+        ResourceFileAssignment(
+            resource_id=resource.id, file_path="Movie/movie.mkv", source="auto",
+        ),
+    ])
+    await db_session.refresh(resource, ["file_assignments"])
+    report = TorrentReport(
+        scope="unknown", is_batch=False,
+        file_parses=[{"path": "Show/01.mkv"}, {"path": "Movie/movie.mkv"}],
+    )
+    monkeypatch.setattr(_bca, "analyze_listing", AsyncMock(return_value={
+        "scope": "mixed",
+        "works": [
+            {"title": "Show", "content_type": "tv", "files": [
+                {"path": "Show/01.mkv", "episode": 1},
+            ]},
+            {"title": "Movie", "content_type": "movie", "files": [
+                {"path": "Movie/movie.mkv"},
+            ]},
+        ],
+    }))
+    monkeypatch.setattr(_bca, "_resolve_movie", AsyncMock(return_value=movie))
+
+    assert await _bca.refine_batch_content(db_session, resource, report, sample_channel)
+    await db_session.flush()
+    assert resource.batch_scope == "franchise"
+    assert resource.season is None
+    assert {a.movie_id for a in resource.file_assignments} == {None, movie.id}
+    assert (await db_session.execute(select(ResourceWorkLink))).scalar_one().movie_id == movie.id
+
+
+async def test_all_movie_llm_result_cannot_erase_existing_tv_evidence(
+    db_session, sample_channel, monkeypatch,
+):
+    from app.models.file_resource import FileResource
+    from app.models.movie import Movie
+    from app.models.resource_file_assignment import ResourceFileAssignment
+    from app.models.series import TVSeries
+
+    series = TVSeries(id=_uuid(), title_cn="Show", season_number=1)
+    movie = Movie(id=_uuid(), title_cn="Movie")
+    resource = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
+        title_raw="Show pack", torrent_url="https://x/a.torrent",
+        is_batch=True, batch_scope="franchise", series_id=series.id,
+    )
+    db_session.add_all([series, movie, resource])
+    await db_session.flush()
+    db_session.add_all([
+        ResourceFileAssignment(
+            resource_id=resource.id, file_path="Show/01.mkv",
+            series_id=series.id, season=1, episode_start=1, episode_end=1,
+            source="auto",
+        ),
+        ResourceFileAssignment(
+            resource_id=resource.id, file_path="Movie/movie.mkv",
+            movie_id=movie.id, source="auto",
+        ),
+    ])
+    await db_session.refresh(resource, ["file_assignments"])
+    report = TorrentReport(
+        scope="unknown", is_batch=False,
+        file_parses=[{"path": "Show/01.mkv"}, {"path": "Movie/movie.mkv"}],
+    )
+    monkeypatch.setattr(_bca, "analyze_listing", AsyncMock(return_value={
+        "scope": "movies",
+        "works": [
+            {"title": "Movie", "content_type": "movie", "files": [
+                {"path": "Movie/movie.mkv"},
+            ]},
+            {"title": "Other", "content_type": "movie", "files": [
+                {"path": "Show/01.mkv"},
+            ]},
+        ],
+    }))
+    monkeypatch.setattr(_bca, "_resolve_movie", AsyncMock(return_value=movie))
+
+    await _bca.refine_batch_content(db_session, resource, report, sample_channel)
+    assert resource.batch_scope == "franchise"
+    by_path = {row.file_path: row for row in resource.file_assignments}
+    assert by_path["Show/01.mkv"].series_id == series.id
+
+
+async def test_rebind_absolute_assignments_across_seasons(db_session, sample_channel):
+    from app.models.file_resource import FileResource
+    from app.models.resource_file_assignment import ResourceFileAssignment
+    from app.models.series import TVSeries
+    from app.models.work_collection import WorkCollection
+
+    collection = WorkCollection(
+        id=_uuid(), title_cn="Show", external_source="series_group", external_id=_uuid(),
+    )
+    works = [
+        TVSeries(
+            id=_uuid(), title_cn="Show", collection_id=collection.id,
+            season_number=season, number_of_episodes=count,
+        )
+        for season, count in ((1, 12), (2, 25), (3, 13))
+    ]
+    resource = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
+        title_raw="Show 01-50", torrent_url="https://x/a.torrent",
+        is_batch=True, batch_scope="franchise", collection_id=collection.id,
+    )
+    db_session.add_all([collection, *works, resource])
+    await db_session.flush()
+    rows = []
+    for episode in range(1, 51):
+        row = ResourceFileAssignment(
+            resource_id=resource.id, file_path=f"Show/{episode:02d}.mkv",
+            work_title_hint="Show", series_id=works[0].id if episode <= 12 else None,
+            season=1 if episode <= 12 else None,
+            episode_start=episode, episode_end=episode, source="auto",
+        )
+        if 26 <= episode <= 32:
+            row.series_id = works[1].id
+            row.season = 2
+            row.episode_start = row.episode_end = episode - 25
+        elif episode >= 33:
+            row.series_id = works[0].id
+            row.season = 1
+            row.episode_start = row.episode_end = episode - 32
+        rows.append(row)
+    db_session.add_all(rows)
+    await db_session.flush()
+
+    assert await _bca.rebind_absolute_season_assignments(db_session, resource) == 38
+    await db_session.flush()
+    assert [(rows[0].season, rows[0].episode_start),
+            (rows[12].season, rows[12].episode_start),
+            (rows[37].season, rows[37].episode_start),
+            (rows[49].season, rows[49].episode_start)] == [
+        (1, 1), (2, 1), (3, 1), (3, 13),
+    ]
+    assert all(row.series_id == works[row.season - 1].id for row in rows)
+    assert resource.batch_seasons == [1, 2, 3]
+    assert await _bca.rebind_absolute_season_assignments(db_session, resource) == 0
+
+
+async def test_absolute_rebind_preserves_explicit_per_season_assignments(
+    db_session, sample_channel,
+):
+    from app.models.file_resource import FileResource
+    from app.models.resource_file_assignment import ResourceFileAssignment
+    from app.models.series import TVSeries
+    from app.models.work_collection import WorkCollection
+
+    collection = WorkCollection(
+        id=_uuid(), title_cn="Show", external_source="series_group", external_id=_uuid(),
+    )
+    works = [
+        TVSeries(
+            id=_uuid(), title_cn="Show", collection_id=collection.id,
+            season_number=season, number_of_episodes=count,
+        )
+        for season, count in ((1, 12), (2, 25))
+    ]
+    resource = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
+        title_raw="Show S02", torrent_url="https://x/a.torrent",
+        is_batch=True, batch_scope="franchise", collection_id=collection.id,
+    )
+    db_session.add_all([collection, *works, resource])
+    await db_session.flush()
+    rows = [
+        ResourceFileAssignment(
+            resource_id=resource.id, file_path=f"Show/{episode:02d}.mkv",
+            work_title_hint="Show", series_id=works[1].id, season=2,
+            episode_start=episode, episode_end=episode, source="auto",
+        )
+        for episode in range(1, 26)
+    ]
+    db_session.add_all(rows)
+    await db_session.flush()
+
+    assert await _bca.rebind_absolute_season_assignments(db_session, resource) == 0
+    assert all(row.series_id == works[1].id and row.season == 2 for row in rows)
+    assert [row.episode_start for row in rows] == list(range(1, 26))
+
+
+async def test_absolute_rebind_links_only_covered_seasons(db_session, sample_channel):
+    from app.models.file_resource import FileResource
+    from app.models.resource_file_assignment import ResourceFileAssignment
+    from app.models.resource_work_link import ResourceWorkLink
+    from app.models.series import TVSeries
+    from app.models.work_collection import WorkCollection
+
+    collection = WorkCollection(
+        id=_uuid(), title_cn="Show", external_source="series_group", external_id=_uuid(),
+    )
+    works = [
+        TVSeries(
+            id=_uuid(), title_cn="Show", collection_id=collection.id,
+            season_number=season, number_of_episodes=count,
+        )
+        for season, count in ((1, 25), (2, 12), (3, 13))
+    ]
+    resource = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
+        title_raw="Show", torrent_url="https://x/a.torrent",
+        is_batch=True, batch_scope="franchise", collection_id=collection.id,
+    )
+    db_session.add_all([collection, *works, resource])
+    await db_session.flush()
+    rows = [
+        ResourceFileAssignment(
+            resource_id=resource.id, file_path=f"Show/{episode:02d}.mkv",
+            work_title_hint="Show", episode_start=episode, episode_end=episode,
+            source="auto",
+        )
+        for episode in range(1, 38)
+    ]
+    for row in rows[:12]:
+        row.series_id = works[0].id
+        row.season = 1
+    db_session.add_all(rows)
+    await db_session.flush()
+
+    assert await _bca.rebind_absolute_season_assignments(db_session, resource) == 25
+    await db_session.flush()
+    links = (await db_session.execute(
+        select(ResourceWorkLink).where(ResourceWorkLink.resource_id == resource.id)
+    )).scalars().all()
+    assert {link.series_id for link in links} == {works[0].id, works[1].id}
+    assert works[2].id not in {link.series_id for link in links}
+    assert resource.batch_seasons == [1, 2]
+
+
+async def test_bind_single_preserves_referenced_movie_link(db_session, sample_channel):
+    from app.models.file_resource import FileResource
+    from app.models.movie import Movie
+    from app.models.resource_file_assignment import ResourceFileAssignment
+    from app.models.resource_work_link import ResourceWorkLink
+    from app.models.series import TVSeries
+
+    series = TVSeries(id=_uuid(), title_cn="Show", season_number=1)
+    movie = Movie(id=_uuid(), title_cn="Movie")
+    resource = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
+        title_raw="Show", torrent_url="https://x/a.torrent",
+        is_batch=True, batch_scope="season", series_id=series.id,
+    )
+    db_session.add_all([series, movie, resource])
+    await db_session.flush()
+    db_session.add_all([
+        ResourceFileAssignment(
+            resource_id=resource.id, file_path="movie.mkv", movie_id=movie.id,
+            source="auto",
+        ),
+        ResourceWorkLink(resource_id=resource.id, movie_id=movie.id, source="auto"),
+    ])
+    await db_session.flush()
+
+    await _bca.bind_single_work_assignments(db_session, resource)
+    await db_session.flush()
+    assert (await db_session.execute(select(ResourceWorkLink))).scalar_one().movie_id == movie.id
+    assert resource.file_assignments[0].movie_id == movie.id
+
+
+def test_apply_hint_marks_bound_auto_extras_without_touching_manual():
+    auto = _SimpleNamespace(
+        file_path="bonus.mkv", source="auto", series_id="s1", movie_id=None,
+        work_title_hint="Show", season=1, episode_start=None, episode_end=None,
+    )
+    manual = _SimpleNamespace(
+        file_path="manual.mkv", source="manual", series_id="s1", movie_id=None,
+        work_title_hint="Show", season=1, episode_start=None, episode_end=None,
+    )
+    resource = _SimpleNamespace(file_assignments=[auto, manual])
+    _bca._apply_hint(resource, {
+        "title": "Show",
+        "files": [
+            {"path": "bonus.mkv", "season": 0},
+            {"path": "manual.mkv", "season": 0},
+        ],
+    })
+    assert auto.season == 0 and auto.series_id == "s1"
+    assert manual.season == 1

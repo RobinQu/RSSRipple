@@ -85,11 +85,14 @@ def _fill_subtitle_group(meta: ResourceMetadata, resource: Any) -> None:
         candidate = normalize_subtitle_groups(meta.subtitle_group)
     if candidate and (
         not current
-        or getattr(resource, "subtitle_groups_source", None) == "unresolved"
+        or getattr(resource, "subtitle_groups_source", None) in {"unresolved", "channel_default"}
     ):
+        from app.services.channel_metadata_defaults import clear_channel_default
+
         resource.subtitle_groups = list(candidate)
         resource.subtitle_groups_source = "llm"
         resource.subtitle_group = join_legacy_subtitle_group(candidate)
+        clear_channel_default(resource, "subtitle_group")
 
 
 async def _register_subtitle_group_mapping(
@@ -180,6 +183,8 @@ async def _apply_to_resource(
     # the title/LLM had already resolved them.  Non-empty parser values remain
     # authoritative for subtitle_group; every other non-null result is safe to
     # write back (including an explicit empty subtitle-language list).
+    from app.services.channel_metadata_defaults import clear_channel_default
+
     for field_name in (
         "resolution",
         "source",
@@ -191,8 +196,10 @@ async def _apply_to_resource(
         value = getattr(meta, field_name, None)
         if value is not None and (not isinstance(value, str) or value.strip()):
             setattr(resource, field_name, value)
+            clear_channel_default(resource, field_name)
     if meta.subtitle_langs is not None:
         resource.subtitle_langs = list(meta.subtitle_langs)
+        clear_channel_default(resource, "subtitle_langs")
 
     # Cross-season episode reconciliation. Runs on single-episode TV
     # resources only — batches are aggregated ranges and movies don't

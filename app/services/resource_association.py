@@ -311,9 +311,21 @@ def _apply_media_fields(resource: FileResource, fields: dict | None) -> None:
     """Generic media-descriptor corrections (explicit keys only)."""
     if not fields:
         return
+    from app.services.channel_metadata_defaults import (
+        DEFAULTABLE_REQUIRED_FIELD_TYPES,
+        clear_channel_default,
+    )
+
+    explicit_keys = (
+        fields.model_fields_set if hasattr(fields, "model_fields_set") else set(fields)
+    )
     for key in MEDIA_FIELDS:
         if key in fields:
             setattr(resource, key, fields[key])
+    for key in explicit_keys & set(DEFAULTABLE_REQUIRED_FIELD_TYPES) | (
+        {"subtitle_group"} if "subtitle_groups" in fields else set()
+    ):
+        clear_channel_default(resource, key)
 
 
 def _apply_assignments(

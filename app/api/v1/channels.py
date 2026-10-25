@@ -238,6 +238,7 @@ async def list_required_field_catalog():
     dialog: work-type grouping first (base/tv/pack), then cross-cutting
     release/work categories.
     """
+    from app.services.channel_metadata_defaults import DEFAULTABLE_REQUIRED_FIELD_TYPES
     from app.services.required_fields import (
         LOCKED_REQUIRED_FIELDS,
         REQUIRED_FIELD_CATALOG,
@@ -255,6 +256,8 @@ async def list_required_field_catalog():
                 "lock": entry["lock"],
                 "locked": key in LOCKED_REQUIRED_FIELDS,
                 "applies_to": list(entry["applies_to"]) if entry.get("applies_to") else None,
+                "defaultable": key in DEFAULTABLE_REQUIRED_FIELD_TYPES,
+                "value_type": DEFAULTABLE_REQUIRED_FIELD_TYPES.get(key),
             }
             for key, entry in REQUIRED_FIELD_CATALOG.items()
         ],
@@ -344,8 +347,34 @@ async def update_channel(
                           )},
                 "meta": {},
             })
+    if "required_metadata_defaults" in update_data:
+        from app.services.channel_metadata_defaults import (
+            normalize_required_metadata_defaults,
+            reconcile_channel_metadata_defaults,
+        )
+
+        effective_fields = update_data.get(
+            "required_metadata_fields", channel.required_metadata_fields
+        )
+        try:
+            update_data["required_metadata_defaults"] = normalize_required_metadata_defaults(
+                update_data["required_metadata_defaults"], effective_fields
+            )
+        except ValueError as exc:
+            return JSONResponse(status_code=422, content={
+                "success": False, "data": None,
+                "error": {"code": "VALIDATION_ERROR", "message": str(exc)}, "meta": {},
+            })
     for key, value in update_data.items():
         setattr(channel, key, value)
+    if "required_metadata_defaults" in update_data:
+        from app.models.file_resource import FileResource
+
+        resources = (await db.execute(
+            select(FileResource).where(FileResource.channel_id == channel_id)
+        )).scalars().all()
+        for resource in resources:
+            reconcile_channel_metadata_defaults(resource, channel.required_metadata_defaults)
     await db.flush()
 
     # If the metadata source changed, clear the old source's not_found/transient

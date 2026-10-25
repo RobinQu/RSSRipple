@@ -1,0 +1,171 @@
+{
+  "candidate_file": "candidates.json.gz",
+  "candidate_sha256": "7f4bd0413b52c711caa617c977b4b80af7583da3f82efe512d1849e7473cfed6",
+  "captured_at": "2026-10-25T03:27:29.648083+00:00",
+  "case_count": 2958,
+  "counts": {
+    "audio_works": 5,
+    "channels": 3,
+    "episodes": 6020,
+    "file_resources": 2958,
+    "movies": 898,
+    "resource_file_assignments": 24395,
+    "resource_work_links": 1701,
+    "tv_series": 354,
+    "work_collections": 510,
+    "work_external_ids": 1728
+  },
+  "file_list_file": "file_lists.json.gz",
+  "file_list_sha256": "79f52590132111b7762b9568ef492dcc3b294e4b32178ed22eaf6ace7e3210a9",
+  "input_limitation": "Historical RSS bodies were not persisted; title/torrent inputs do not claim RSS mapping coverage.",
+  "review_file": "reviews.json",
+  "scenarios": [
+    {
+      "case_ids": [
+        "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b",
+        "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b"
+      ],
+      "cassette": "http/bangumi_complete_f6.json.gz",
+      "id": "bangumi_single",
+      "llm_base_url": "http://127.0.0.1:18000/v1",
+      "llm_host": "127.0.0.1",
+      "model": "Qwen/Qwen3.8-27B-FP8",
+      "seed": "http/bangumi_single.json.gz",
+      "source_hosts": [
+        "api.bgm.tv",
+        "api.themoviedb.org",
+        "image.tmdb.org",
+        "lain.bgm.tv",
+        "en.wikipedia.org",
+        "zh.wikipedia.org",
+        "ja.wikipedia.org",
+        "flash-aio"
+      ]
+    },
+    {
+      "case_ids": [
+        "fc2081a3-f66d-4d47-9e8a-5395d3bd0f21"
+      ],
+      "cassette": "http/spy_family_tv_movie_pack.json.gz",
+      "id": "spy_family_tv_movie_pack",
+      "llm_base_url": "http://127.0.0.1:18000/v1",
+      "llm_host": "127.0.0.1",
+      "model": "Qwen/Qwen3.8-27B-FP8",
+      "source_hosts": [
+        "api.bgm.tv",
+        "api.themoviedb.org",
+        "image.tmdb.org",
+        "lain.bgm.tv",
+        "en.wikipedia.org",
+        "zh.wikipedia.org",
+        "ja.wikipedia.org",
+        "flash-aio"
+      ]
+    },
+    {
+      "case_ids": [
+        "adab13b4-fd5d-4cc6-b11a-e6ffc11e4179",
+        "f47da15d-b21c-4200-ba8a-8a9fd7600184",
+        "c6db5503-4c80-4195-b95d-eefc6ff28e36",
+        "9caa67f0-7d99-45da-869c-12ccdd35545a"
+      ],
+      "cassette": "http/detective_s2e03_versions.json.gz",
+      "id": "detective_s2e03_versions",
+      "llm_base_url": "http://127.0.0.1:18000/v1",
+      "llm_host": "127.0.0.1",
+      "model": "Qwen/Qwen3.8-27B-FP8",
+      "source_hosts": [
+        "api.bgm.tv",
+        "api.themoviedb.org",
+        "image.tmdb.org",
+        "lain.bgm.tv",
+        "en.wikipedia.org",
+        "zh.wikipedia.org",
+        "ja.wikipedia.org",
+        "flash-aio"
+      ]
+    },
+    {
+      "case_ids": [
+        "dd1e78fa-e5bf-43c3-a7ef-c63c75b7d901"
+      ],
+      "cassette": "http/otonari_s2_vol2_3.json.gz",
+      "id": "otonari_s2_vol2_3",
+      "llm_base_url": "http://127.0.0.1:18000/v1",
+      "llm_host": "127.0.0.1",
+      "model": "Qwen/Qwen3.8-27B-FP8",
+      "source_hosts": [
+        "api.bgm.tv",
+        "api.themoviedb.org",
+        "image.tmdb.org",
+        "lain.bgm.tv",
+        "en.wikipedia.org",
+        "zh.wikipedia.org",
+        "ja.wikipedia.org",
+        "flash-aio"
+      ]
+    },
+    {
+      "case_ids": [
+        "925b29ca-9712-4aa2-9960-fce4715f245d"
+      ],
+      "cassette": "http/gyaru_otaku_extras.json.gz",
+      "id": "gyaru_otaku_extras",
+      "llm_base_url": "http://127.0.0.1:18000/v1",
+      "llm_host": "127.0.0.1",
+      "model": "Qwen/Qwen3.8-27B-FP8",
+      "source_hosts": [
+        "api.bgm.tv",
+        "api.themoviedb.org",
+        "image.tmdb.org",
+        "lain.bgm.tv",
+        "en.wikipedia.org",
+        "zh.wikipedia.org",
+        "ja.wikipedia.org",
+        "flash-aio"
+      ]
+    },
+    {
+      "case_ids": [
+        "ec2770ff-cb57-40d8-bd86-7248626bf484"
+      ],
+      "cassette": "http/to_bdmv_twin_pack.json.gz",
+      "id": "to_bdmv_twin_pack",
+      "llm_base_url": "http://127.0.0.1:18000/v1",
+      "llm_host": "127.0.0.1",
+      "model": "Qwen/Qwen3.8-27B-FP8",
+      "source_hosts": [
+        "api.bgm.tv",
+        "api.themoviedb.org",
+        "image.tmdb.org",
+        "lain.bgm.tv",
+        "en.wikipedia.org",
+        "zh.wikipedia.org",
+        "ja.wikipedia.org",
+        "flash-aio"
+      ]
+    },
+    {
+      "case_ids": [
+        "995c8c1d-5c69-400d-99f3-f197c7ee953b"
+      ],
+      "cassette": "http/initial_d_franchise_season_evidence.json.gz",
+      "id": "initial_d_franchise",
+      "llm_base_url": "http://127.0.0.1:18000/v1",
+      "llm_host": "127.0.0.1",
+      "model": "Qwen/Qwen3.8-27B-FP8",
+      "seed": "http/initial_d_franchise_source_seed.json.gz",
+      "source_hosts": [
+        "api.bgm.tv",
+        "api.themoviedb.org",
+        "image.tmdb.org",
+        "lain.bgm.tv",
+        "en.wikipedia.org",
+        "zh.wikipedia.org",
+        "ja.wikipedia.org",
+        "flash-aio"
+      ]
+    }
+  ],
+  "version": 1
+}

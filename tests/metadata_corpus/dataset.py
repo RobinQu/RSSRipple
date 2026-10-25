@@ -13,7 +13,7 @@ from pathlib import Path
 
 import bencodepy
 
-ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "metadata_corpus_v2"
+ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "metadata_corpus_v3"
 WORK_FIELDS = "id title_cn title_en original_title canonical_name aliases external_source external_id collection_id season_number number_of_episodes start_date end_date release_date is_anime genre manually_edited_fields"
 FIELDS = {
     "channels": "id name field_mapping metadata_agent_enabled metadata_source metadata_fallback_sources required_metadata_fields default_is_anime",
@@ -212,7 +212,7 @@ def hydrate_torrents(root: Path) -> dict:
         for member in archive:
             if not member.isfile() or member.size > 50 * 1024 * 1024:
                 continue
-            case = by_id.get(Path(member.name).stem)
+            case = by_id.get(Path(member.name).stem[:36])
             if case is None or case["evidence"]["torrent"]:
                 continue
             try:

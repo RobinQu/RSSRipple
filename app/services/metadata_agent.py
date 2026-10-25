@@ -244,6 +244,8 @@ def _validate_inferred_season(meta: ResourceMetadata) -> None:
     if meta.season == 0:
         return
     entity = meta.matched_entity or {}
+    if meta.season == entity.get("subject_season"):
+        return
     seasons_map = _seasons_map_from(entity)
     if meta.season in seasons_map:
         return
@@ -266,7 +268,8 @@ def _apply_verified_season_default(meta: ResourceMetadata) -> None:
     """Verified season default: the season number is never guessed.
 
     A TV result whose title carries no season marker (``meta.season is None``)
-    is defaulted to season 1 ONLY when the matched entity's seasons evidence
+    uses a season-granular subject's own verified title marker first, then
+    defaults to season 1 ONLY when the matched entity's seasons evidence
     (``number_of_seasons`` / ``seasons``) proves the work has exactly one
     season. Multi-season works — or works with no usable seasons data — stay
     season-less and are marked ``season_ambiguous`` so the apply layer routes
@@ -274,7 +277,12 @@ def _apply_verified_season_default(meta: ResourceMetadata) -> None:
     """
     if meta.content_type != "tv" or meta.season is not None or not meta.found:
         return
-    if verified_season_count(meta.matched_entity) == 1:
+    entity = meta.matched_entity or {}
+    subject_season = entity.get("subject_season")
+    if type(subject_season) is int and subject_season >= 1:
+        meta.season = subject_season
+        meta.season_ambiguous = False
+    elif verified_season_count(entity) == 1:
         meta.season = 1
         # A season pinned by evidence is no longer ambiguous, even if the
         # validation step had flagged an unsupported inferred season earlier.
@@ -719,12 +727,21 @@ class UnifiedMetadataAgent:
             # title index: a sibling linked since the miss was cached is newer,
             # stronger evidence and must be allowed to repair the resource.
             if cached is not None and cached_failure in (None, "non_work"):
-                if not await self._lookup_scope_is_current(resource, channel, db, resource_scope, mapping_scope):
-                    return None
-                _repo._fill_subtitle_group(cached, resource)
-                await self._apply_to_resource(cached, resource, channel, db)
-                _record_metadata_attempt(resource, cached)
-                return cached
+                resource_season = getattr(resource, "season", None)
+                cached_season_conflict = (
+                    cached.found
+                    and cached.content_type == "tv"
+                    and resource_season is not None
+                    and cached.season is not None
+                    and cached.season != resource_season
+                )
+                if not cached_season_conflict:
+                    if not await self._lookup_scope_is_current(resource, channel, db, resource_scope, mapping_scope):
+                        return None
+                    _repo._fill_subtitle_group(cached, resource)
+                    await self._apply_to_resource(cached, resource, channel, db)
+                    _record_metadata_attempt(resource, cached)
+                    return cached
 
         # 0b. Work-level short-circuit (S1): if the pre-parser's title already
         # matches a known TVSeries/Movie (exact after normalization), link
@@ -739,6 +756,16 @@ class UnifiedMetadataAgent:
         # example start_date/release_date, which supplies the required year)
         # would be relinked locally without ever querying the metadata source.
         known = None if force_refresh else await self._find_known_work(resource, db)
+        resource_season = getattr(resource, "season", None)
+        if known is not None and known[0] == "tv" and resource_season is not None:
+            from app.models.series import TVSeries
+
+            known_series = await db.get(TVSeries, known[1])
+            if (
+                known_series is not None
+                and known_series.season_number != resource_season
+            ):
+                known = None
         if known is not None:
             if not await self._lookup_scope_is_current(resource, channel, db, resource_scope, mapping_scope):
                 return None

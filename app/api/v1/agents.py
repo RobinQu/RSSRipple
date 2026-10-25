@@ -158,16 +158,17 @@ async def _apply_backfill(
             )
         )).scalars().all()
         if rows:
-            required_fields = (await db.execute(
-                select(Channel.required_metadata_fields).where(
+            policy = (await db.execute(
+                select(Channel.required_metadata_fields, Channel.required_metadata_defaults).where(
                     Channel.id == agent.channel_id
                 )
-            )).scalar_one_or_none()
+            )).one_or_none()
             result = await process_resources(
                 agent,
                 list(rows),
                 db,
-                required_metadata_fields=required_fields,
+                required_metadata_fields=policy.required_metadata_fields if policy else None,
+                required_metadata_defaults=policy.required_metadata_defaults if policy else None,
             )
             if result.errors:
                 # Fail the outer save transaction. Advancing the watermark

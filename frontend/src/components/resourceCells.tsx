@@ -22,7 +22,21 @@ export function RequiredFieldCell({ r, fieldKey }: { r: FileResource; fieldKey: 
   if (v == null) {
     return <span style={{ color: 'var(--rr-text-muted)' }}>—</span>;
   }
-  return <span>{v}</span>;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      <span>{v}</span>
+      {r.channel_default_fields?.includes(fieldKey) && (
+        <Tooltip title={t('channels.channelDefaultTooltip')}>
+          <Tag
+            color="blue"
+            style={{ marginInlineEnd: 0, paddingInline: 4, fontSize: 10, lineHeight: '16px' }}
+          >
+            {t('channels.channelDefaultBadge')}
+          </Tag>
+        </Tooltip>
+      )}
+    </span>
+  );
 }
 
 /** Content-type / batch / pending-decision tags carried by the work column

@@ -41,6 +41,7 @@ from app.services.genre_registry import normalize_genres
 from app.services.metadata_episode_reconcile import (
     _RECONCILE_TOLERANCE,
     apply_episode_reconcile,
+    infer_verified_title_season,
     is_unsplit_legacy_series,
     resolve_missing_work,
     season_evidence_from_series,
@@ -2059,14 +2060,17 @@ def pre_reconcile_with_entity(resource: Any, entity: dict | None) -> None:
 
 
 async def _repoint_explicit_season_work(
-    db: AsyncSession, resource: Any, series: TVSeries
+    db: AsyncSession,
+    resource: Any,
+    series: TVSeries,
+    entity: dict | None = None,
 ) -> TVSeries:
     season = getattr(resource, "season", None)
     if (
         season is None
-        or series.season_number == season
         or not series.collection_id
         or getattr(resource, "batch_scope", None) not in (None, "season")
+        or getattr(resource, "episode_confidence", None) == "manual"
     ):
         return series
     title_seasons = {
@@ -2080,16 +2084,25 @@ async def _repoint_explicit_season_work(
             )
         ) if value is not None
     }
-    if title_seasons != {season}:
+    if len(title_seasons) > 1:
+        return series
+    if (
+        series.season_number == season
+        and title_seasons in (set(), {season})
+        and infer_verified_title_season(resource, entity) in (None, season)
+    ):
         return series
     from app.services.filter_engine import loaded_relation
 
     assignments = loaded_relation(resource, "file_assignments") or []
     links = loaded_relation(resource, "work_links") or []
-    auto_association = any(
-        link.source == "auto" and link.series_id for link in links
-    ) or any(
-        row.source == "auto" and row.series_id for row in assignments
+    auto_association = (
+        any(link.source == "auto" and link.series_id for link in links)
+        or any(row.source == "auto" and row.series_id for row in assignments)
+        or (
+            not any(link.series_id for link in links)
+            and not any(row.series_id for row in assignments)
+        )
     )
     if (
         not auto_association
@@ -2097,19 +2110,49 @@ async def _repoint_explicit_season_work(
         or any(row.source in ("manual", "llm") for row in assignments)
     ):
         return series
+
+    explicit_season = bool(title_seasons)
+    target_season = next(iter(title_seasons)) if explicit_season else season
+    collection_members = await _collection_members(db, series.collection_id)
+    if not explicit_season:
+        if season != 1:
+            return series
+        target_season = infer_verified_title_season(resource, entity)
+        if target_season is None:
+            target_season = infer_verified_title_season(resource, {
+                "seasons": [
+                    {"season_number": member.season_number}
+                    for member in collection_members
+                    if isinstance(member.season_number, int)
+                    and member.season_number >= 1
+                ],
+            })
+        if target_season is None:
+            return series
+
     parsed_seasons = {
         row.season for row in assignments
         if row.source == "auto" and row.season not in (None, 0)
     }
-    if parsed_seasons and parsed_seasons != {season}:
+    if parsed_seasons and parsed_seasons != {target_season}:
         return series
     members = [
-        member for member in await _collection_members(db, series.collection_id)
-        if member.season_number == season
+        member for member in collection_members
+        if member.season_number == target_season
     ]
     if len(members) != 1:
         return series
+    if explicit_season:
+        resource.series_id = members[0].id
+        resource.season = members[0].season_number
+        return members[0]
     resource.series_id = members[0].id
+    resource.season = target_season
+    if (
+        not getattr(resource, "is_batch", False)
+        and getattr(resource, "episode_confidence", None) in (None, "ambiguous")
+    ):
+        resource.episode_confidence = "raw"
     return members[0]
 
 
@@ -2127,7 +2170,8 @@ async def reconcile_linked_series_resource(
     auto-link, manual link, repository write-back). Order:
 
       1. an explicit, file-consistent season marker re-points a stale FK to
-         the unique matching member of the same collection;
+         the unique matching member of the same collection, or verified
+         bilingual sequel titles correct a default season 1 on the linked work;
       2. history-backed sibling convention (DB evidence);
       3. a season-less resource with an ``absolute_episode`` is located along
          the linked work's collection members (per-season model) and
@@ -2144,7 +2188,9 @@ async def reconcile_linked_series_resource(
     if series is None:
         return
     if repair_season_identity:
-        series = await _repoint_explicit_season_work(db, resource, series)
+        series = await _repoint_explicit_season_work(
+            db, resource, series, entity=entity
+        )
     from app.services.episode_history import apply_episode_history_reconcile
 
     resolved = False

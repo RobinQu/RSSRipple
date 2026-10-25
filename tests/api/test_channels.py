@@ -144,6 +144,85 @@ class TestChannelsCRUD:
         )
         assert res.status_code == 422
 
+    async def test_required_metadata_defaults_reconcile_existing_resources(
+        self, client, sample_channel, db_session_factory,
+    ):
+        from app.models.file_resource import FileResource
+
+        missing_id = str(uuid.uuid4())
+        manual_id = str(uuid.uuid4())
+        defaulted_id = str(uuid.uuid4())
+        async with db_session_factory() as session:
+            session.add_all([
+                FileResource(
+                    id=missing_id, channel_id=sample_channel.id, guid=missing_id,
+                    title_raw="Missing", torrent_url="magnet:?xt=urn:btih:a",
+                ),
+                FileResource(
+                    id=manual_id, channel_id=sample_channel.id, guid=manual_id,
+                    title_raw="Manual", torrent_url="magnet:?xt=urn:btih:b",
+                    resolution="1080p",
+                ),
+                FileResource(
+                    id=defaulted_id, channel_id=sample_channel.id, guid=defaulted_id,
+                    title_raw="Defaulted", torrent_url="magnet:?xt=urn:btih:c",
+                    resolution="2160p", channel_default_fields=["resolution"],
+                ),
+            ])
+            await session.commit()
+
+        required = [*sample_channel.required_metadata_fields, "resolution", "subtitle_langs"]
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={
+                "required_metadata_fields": required,
+                "required_metadata_defaults": {
+                    "resolution": "4K", "subtitle_langs": ["zh-CN"],
+                },
+            },
+        )
+        assert res.status_code == 200, res.text
+        assert res.json()["data"]["required_metadata_defaults"]["resolution"] == "4K"
+
+        async with db_session_factory() as session:
+            missing = await session.get(FileResource, missing_id)
+            manual = await session.get(FileResource, manual_id)
+            defaulted = await session.get(FileResource, defaulted_id)
+            assert missing.resolution == "4K"
+            assert missing.subtitle_langs == ["zh-CN"]
+            assert missing.channel_default_fields == ["resolution", "subtitle_langs"]
+            assert manual.resolution == "1080p"
+            assert manual.channel_default_fields == ["subtitle_langs"]
+            assert defaulted.resolution == "4K"
+
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={"required_metadata_defaults": {}},
+        )
+        assert res.status_code == 200
+        async with db_session_factory() as session:
+            missing = await session.get(FileResource, missing_id)
+            manual = await session.get(FileResource, manual_id)
+            assert missing.resolution is None
+            assert missing.subtitle_langs is None
+            assert missing.channel_default_fields == []
+            assert manual.resolution == "1080p"
+
+    async def test_required_metadata_defaults_reject_invalid_fields(
+        self, client, sample_channel,
+    ):
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={"required_metadata_defaults": {"episode": 1}},
+        )
+        assert res.status_code == 422
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={"required_metadata_defaults": {"resolution": "2160p"}},
+        )
+        assert res.status_code == 422
+        assert "non-required" in res.json()["error"]["message"]
+
     async def test_required_field_catalog_endpoint(self, client):
         from app.services.required_fields import REQUIRED_FIELD_CATALOG
 
@@ -160,6 +239,10 @@ class TestChannelsCRUD:
         assert rating["dsl_fields"] == ["series.rating", "movie.rating"]
         assert rating["locked"] is False
         assert rating["section"] == "work"
+        assert rating["defaultable"] is False
+        resolution = next(f for f in data["fields"] if f["key"] == "resolution")
+        assert resolution["defaultable"] is True
+        assert resolution["value_type"] == "string"
         resource_collection = next(
             f for f in data["fields"] if f["key"] == "resource_collection"
         )

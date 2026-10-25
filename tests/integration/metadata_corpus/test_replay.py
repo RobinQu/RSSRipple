@@ -138,3 +138,32 @@ def test_live_llm_http_failure_is_not_quality_success(tmp_path):
     cassette._record(request, httpx.Response(500, request=request))
     with pytest.raises(ReplayError, match="HTTP failure"):
         cassette.assert_complete()
+
+
+def test_record_llm_keeps_only_consumed_seed_and_live_requests(tmp_path):
+    from tests.metadata_corpus.dataset import read_json
+
+    seed = tmp_path / "seed.json.gz"
+    source_requests = [
+        httpx.Request("GET", "https://source.test/used"),
+        httpx.Request("GET", "https://source.test/unused"),
+    ]
+    llm_request = httpx.Request("POST", "https://llm.test/chat", json={})
+    recording(seed, [(request, b"{}") for request in [*source_requests, llm_request]])
+    used_key = request_key(source_requests[0])[0]
+    target = tmp_path / "derived.json.gz"
+    with Cassette(target, mode="record-llm", seed=seed, llm_host="llm.test") as cassette:
+        cassette.consumed[used_key] = 1
+        cassette._record(
+            llm_request,
+            httpx.Response(200, json={}, request=llm_request),
+        )
+        cassette.assert_complete()
+
+    data = read_json(target)
+    assert set(data["requests"]) == {
+        used_key,
+        request_key(llm_request)[0],
+    }
+    assert data["requests"][used_key]["count"] == 1
+    assert data["requests"][request_key(llm_request)[0]]["count"] == 1

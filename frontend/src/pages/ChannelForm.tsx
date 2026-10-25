@@ -150,6 +150,7 @@ export default function ChannelForm() {
             metadata_source: ch.metadata_source ?? null,
             metadata_fallback_sources: ch.metadata_fallback_sources ?? DEFAULT_FALLBACK_SOURCES,
             required_metadata_fields: ch.required_metadata_fields ?? null,
+            required_metadata_defaults: ch.required_metadata_defaults ?? {},
             auto_cleanup_unresolved_enabled: ch.auto_cleanup_unresolved_enabled ?? false,
             auto_cleanup_unresolved_days: ch.auto_cleanup_unresolved_days ?? 21,
             metadata_refresh_enabled: ch.metadata_refresh_enabled ?? false,
@@ -329,6 +330,7 @@ export default function ChannelForm() {
     metadata_source?: MetadataSource | null;
     metadata_fallback_sources?: string[];
     required_metadata_fields?: string[] | null;
+    required_metadata_defaults?: Record<string, string | string[]>;
     auto_cleanup_unresolved_enabled?: boolean;
     auto_cleanup_unresolved_days?: number;
     metadata_refresh_enabled?: boolean;
@@ -384,6 +386,7 @@ export default function ChannelForm() {
             // Omitted when never configured → backend applies the locked
             // baseline default.
             required_metadata_fields: values.required_metadata_fields ?? undefined,
+            required_metadata_defaults: values.required_metadata_defaults ?? {},
             auto_cleanup_unresolved_enabled: values.auto_cleanup_unresolved_enabled ?? false,
             auto_cleanup_unresolved_days: values.auto_cleanup_unresolved_days ?? 21,
             metadata_refresh_enabled: values.metadata_refresh_enabled ?? false,
@@ -416,6 +419,7 @@ export default function ChannelForm() {
             // Add-only policy: the form value always starts from the saved
             // selection, so this can only add keys (or be omitted untouched).
             required_metadata_fields: values.required_metadata_fields ?? undefined,
+            required_metadata_defaults: values.required_metadata_defaults ?? {},
             auto_cleanup_unresolved_enabled: values.auto_cleanup_unresolved_enabled ?? false,
             auto_cleanup_unresolved_days: values.auto_cleanup_unresolved_days ?? 21,
             metadata_refresh_enabled: values.metadata_refresh_enabled ?? false,
@@ -488,6 +492,7 @@ export default function ChannelForm() {
                     metadata_agent_enabled: true,
                     metadata_source: null,
                     metadata_fallback_sources: DEFAULT_FALLBACK_SOURCES,
+                    required_metadata_defaults: {},
                     auto_cleanup_unresolved_enabled: false,
                     auto_cleanup_unresolved_days: 21,
                     metadata_refresh_enabled: false,

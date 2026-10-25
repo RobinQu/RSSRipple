@@ -62,6 +62,9 @@ class Channel(Base):
     required_metadata_fields: Mapped[list[str]] = mapped_column(
         json_column(), nullable=False, default=lambda: _default_required_fields()
     )
+    required_metadata_defaults: Mapped[dict | None] = mapped_column(
+        json_column(), nullable=True, default=dict
+    )
     # "默认标记为 Anime": works linked from this channel's successfully parsed
     # resources get is_anime=True. Immutable after creation (update API 422s
     # on change attempts).

@@ -48,6 +48,11 @@ class Channel(Base):
                                           # NOT NULL（PostgreSQL SET NOT NULL，先校验无 NULL 行；
                                           # Turso 走 upgrade_sqlite_table_invariants 表重建——channels
                                           # 是父表，重建时挂起外键执法防止 DROP TABLE 级联子表）
+    required_metadata_defaults: dict | None  # 必填字段默认值（JSON object，nullable；新频道默认 {}）。
+                                         # 仅 subtitle_group/resolution/source/video_codec/audio_codec/
+                                         # subtitle_type/subtitle_langs/container 可配置，且必须已在必填清单；
+                                         # key 缺失 = 保持人工修正，存在 = 自动填值并继续。空值、未知键、
+                                         # 非必填字段的默认值均 422；{} 清空全部默认值。
     default_is_anime: bool               # 「默认标记为 Anime」：NOT NULL DEFAULT FALSE（轻迁移加列）；
                                          # 创建后不可改（PUT 提交不同值 422）；开启后该频道资源链接到的
                                          # 作品 is_anime 先置 True（详见 business-logic.md「is_anime 分层判定」）
@@ -95,13 +100,16 @@ class FileResource(Base):
     search_title: str | None             # 清洗后用于搜索的标题
     subtitle_group: str | None           # 兼容旧字段；规范化后与 subtitle_groups 同步
     subtitle_groups: list[str] | None    # 字幕组列表，联合发布按成员保存
-    subtitle_groups_source: str | None   # legacy|heuristic|llm|manual|unresolved
+    subtitle_groups_source: str | None   # legacy|heuristic|llm|manual|unresolved|channel_default
     episode: int | None                  # 集数
     season: int | None                   # 季数（解析证据 + DSL 字段；作品单季化后季号由季作品
                                          # 身份承载，本字段不再是派发/去重的判定分量）
     title_year: int | None               # 从原始标题解析的作品年份（"[2026]" 或独立年份 token，
                                          # 1950..2100 合理区间外丢弃）；驱动 Layer-3 本地匹配的年份守卫
     resolution: str | None               # 分辨率 (1080p, 2160p, 720p...)
+    channel_default_fields: list[str] | None  # 当前值由频道 required_metadata_defaults 填充的字段名
+                                         # （JSON 列表，nullable）；真实解析/metadata 或人工修订清除
+                                         # 对应标记，资源 API 透出供展示来源。
     source: str | None                   # 来源 (WebRip, WEB-DL, BDRip...)
     video_codec: str | None              # 视频编码 (HEVC, HEVC-10bit, AVC, H264...)
     audio_codec: str | None              # 音频编码 (AAC, FLAC, DTS, AC3...)
@@ -247,7 +255,8 @@ class TVSeries(Base):
                                          # uq_tv_series_id_season_number：本身被主键蕴含，存在
                                          # 仅为支撑 episodes 的复合 FK（见 Episode），
                                          # 使「Episode.season 恒等于 season_number」成为 DB 级不变量
-    number_of_episodes: int | None       # 本季集数
+    number_of_episodes: int | None       # 本季集数；同一季分多个 cour 发布时为各 cour 合集，
+                                         # 续 cour 只追加不覆盖，且须有人工字段保护
     number_of_seasons: int | None        # 惰性孤儿列（作品单季化退役，永不写入；仅 legacy 未拆分行
                                          # 上可能残留系列级数据，season_split_migration 后不再被读取）
     seasons: list[dict] | None           # 惰性孤儿列（同上；每季集数 [{season_number, episode_count}, ...] 的
@@ -382,6 +391,7 @@ class WorkExternalId(Base):
 **语义与规则**：
 
 - **身份粒度与放置（作品单季化）**：注册表 `SourceSpec.granularity` 声明每个源的 TV 身份粒度（`"series"`：wikipedia/tmdb/imdb 一个 id 覆盖全季；`"season"`：bangumi/mal/anilist/douban 逐季条目；tmdb/douban 的电影形态为 `"movie"`，`granularity_of(source, content_type)` 判定）。逐季源 id 袋在季作品上（`work_type="series"`）；系列级源 id 袋在**合集**上（`work_type="collection"`）；季作品另袋**合成季身份** `{系列级id}#s{N}`（如 `tmdb:82684#s3`，`make_season_identity`/`split_season_identity`），使「同系列同季」的重复匹配直接袋命中。`canonicalize_external_id` 对 `#s{N}` 后缀先剥离、归一化后重附（透传），展示链接渲染时按系列级 id 出链。
+- **split-cours 身份袋**：同一季拆成多个 cour 的 Bangumi 条目可共同指向一个季作品；首 cour 主 id 不变，续 cour id 只进身份袋。只有同 IP、明确续 cour 及唯一前季证据才允许这种多对一，不能据此合并普通续季。
 - **主 id 规则（creator-wins）**：`TVSeries.external_id/external_source`（及 Movie）仍是创建时确定的展示/主 id；后续发现的 id 只进袋，绝不抢占主 id 列。wikipedia 主 id 特例外（见下）：不同 pageid 是同作品的不同语言版本页面，upsert 重匹配时主 id 不随来源语言翻转而保持稳定（`_merge_primary_external_id`）。
 - **存储约定**：`source` 存 registry 源名，`external_id` 存完整 canonical `source:id`；裸 id（如纯 pageid）写入/查询时一律补 `source:` 前缀归一；非 registry 源（如 `llm_search`）跳过。
 - **wikipedia id 带语言版本**：pageid 是每个语言版本各自编号的，canonical 形式为 `wikipedia:{lang}:{pageid}`（如 `wikipedia:zh:7301786`）；早期存量为无语言的 `wikipedia:{pageid}`。写入点（auto-link/judge/audio resolver/upsert 入口 `_qualify_incoming_wikipedia_id` 经 `wikipedia_url` 宿主推导）一律产出带语言形式；袋查询与作品列查询双形式兼容（`wikipedia_match_keys`：带语言精确匹配两种形式，裸 id 额外 LIKE 匹配任意语言）；同作品加带语言 id 命中裸行时原地升级为带语言形式；不同作品的同数字 pageid（跨语言撞号）不互抢（记 warning）。展示链接按语言渲染 `https://{lang}.wikipedia.org/?curid={pid}`，label 为 `Wikipedia (zh/en/ja)`；存量迁移走 `scripts/wikipedia_lang_backfill.py`（dry-run 默认 + `--apply`，标题锚定主页面语言 → langlinks 重解析各语言 pageid → 重写主 id/袋行并回填 `wikipedia_url`/`wikipedia_page_id`）。

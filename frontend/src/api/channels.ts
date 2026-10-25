@@ -14,6 +14,7 @@ import type {
   MetadataSource,
   Movie,
   PreviewEntry,
+  RequiredMetadataDefaults,
   ResourceCorrectionBody,
   ResourceFilesResponse,
   TVSeries,
@@ -48,6 +49,7 @@ export interface ChannelCreate {
   metadata_source?: MetadataSource | null;
   metadata_fallback_sources?: string[] | null;
   required_metadata_fields?: string[] | null;
+  required_metadata_defaults?: RequiredMetadataDefaults;
   auto_cleanup_unresolved_enabled?: boolean;
   auto_cleanup_unresolved_days?: number;
   // Periodic work-metadata refresh (per-channel; off by default).
@@ -71,6 +73,7 @@ export interface ChannelUpdate {
   metadata_source?: MetadataSource | null;
   metadata_fallback_sources?: string[] | null;
   required_metadata_fields?: string[] | null;
+  required_metadata_defaults?: RequiredMetadataDefaults;
   auto_cleanup_unresolved_enabled?: boolean;
   auto_cleanup_unresolved_days?: number;
   // Periodic work-metadata refresh (per-channel).
@@ -96,6 +99,8 @@ export interface RequiredFieldCatalogEntry {
   lock: string | null;
   locked: boolean;
   applies_to: string[] | null;
+  defaultable: boolean;
+  value_type: 'string' | 'string_list';
 }
 
 export interface RequiredFieldCatalogResponse {

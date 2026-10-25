@@ -10,6 +10,7 @@ export interface APIResponse<T> {
 
 // Channel
 export type ChannelStatus = 'active' | 'inactive' | 'error';
+export type RequiredMetadataDefaults = Record<string, string | string[]>;
 // Channel primary metadata source (two-source architecture). The wider
 // MetadataSource union remains for legacy manual-search paths.
 export type ChannelMetadataSource = 'wikipedia' | 'tmdb';
@@ -30,6 +31,7 @@ export interface Channel {
   // resource-list display column and agent filter-DSL gating; null =
   // unrestricted (legacy), [] = agent filters locked to resource-level fields.
   required_metadata_fields?: string[] | null;
+  required_metadata_defaults?: RequiredMetadataDefaults;
   auto_cleanup_unresolved_enabled: boolean;
   auto_cleanup_unresolved_days: number;
   // Periodic work-metadata refresh (per-channel; off by default). Refreshes
@@ -131,6 +133,7 @@ export interface FileResource {
   subtitle_type: string | null;
   subtitle_langs: string[] | null;
   container: string | null;
+  channel_default_fields?: string[] | null;
   file_size: number | null;
   torrent_url: string;
   detail_url: string | null;

@@ -4,9 +4,11 @@
 
 ## 已有覆盖与边界
 
-当前语料为 **v2**（`tests/fixtures/metadata_corpus_v2`，2026-09-09 导出；v1 目录保留为只读存档，`tests/metadata_corpus/dataset.py` 的 `ROOT` 已指向 v2）。v2 收录 1,512 条真实资源的脱敏快照，1,487 个去重 torrent 证据（19 条缺 torrent），冻结清单共 16,134 个文件；图快照含 167 部剧集、470 部电影、265 个合集、2,629 行 Episode。v1 唯一已确认 review（猫与龙 `f79ef2eb…`）及其 bangumi_single 场景 cassette 已迁入 v2。所有 torrent 都有清单解析回归；这仅验证文件名/大小提取，不代表每个文件的作品与季集语义已核验。
+当前语料为 **v3**（`tests/fixtures/metadata_corpus_v3`，2026-10-25 导出；v1/v2 目录保留为只读存档，`tests/metadata_corpus/dataset.py` 的 `ROOT` 已指向 v3）。v3 收录 2,958 条真实/历史资源的脱敏快照，2,867 个去重 torrent 证据（62 条缺 torrent），冻结清单共 45,686 个文件。v2 的 bangumi_single、initial_d_franchise 与 DeepSearch 所需历史资源及其必要图、torrent、源证据和审核答案均已迁入。所有可用 torrent 都有清单解析回归；这仅验证文件名/大小提取，不代表每个文件的作品与季集语义已核验。
 
-当前完整语义场景两个：Bangumi 单集（冷库重建、同标题再次入库、Episode 清单、单季合集归属、文件指派、Channel 必填门禁、mock 下载派发与重复派发抑制）与头文字D 跨季 franchise 包（见下）。只有 2 个独立核验的资源，其他 1,510 条仍为 pending，19 条缺 torrent。**CI 通过不等于全库作品/合集解析通过**。电影包、单季合集缺集、人工修订回流与批量 backfill 尚须补充独立答案和录制场景。2026-09-11 因 F6（LLM 请求新增 `chat_template_kwargs`，指纹变化）对 bangumi_single 场景执行 record-llm 重录：源证据 seed 不变、expected 不变，新完整回放为 `http/bangumi_complete_f6.json.gz`（场景 `llm_base_url` 记录为录制期代理地址 `http://127.0.0.1:18000/v1`；重录后 runner actual 与已确认 expected 零差异）。
+当前共有 7 个完整语义场景、10 条独立审核资源：既有 Bangumi 单集与头文字D，以及本次新增的 8 条文件资源（4 个《侦探已经死了。》S2E03 版本、《邻家的天使大人》S2 Vol.2~3、《间谍过家家》01–50＋Code White、《没有辣妹会对阿宅温柔》正片＋extras、《TO》BDMV）。其余 2,948 条仍为 pending，**CI 通过不等于全库作品/合集解析通过**。新增场景覆盖：显式季号不得被基础剧名短路到旧季、`Season N - NN`（含 vN）不得误判合集、Vol 包装范围不得覆盖真实集数、split-cours 合并与绝对编号重映射、电影字幕关联、season-0 extras，以及 BDMV 无证据时必须保持 coverage unknown 的安全负例。
+
+既有 bangumi_single 仍使用 `http/bangumi_complete_f6.json.gz`；initial_d_franchise 保留原独立作品与文件答案，并按当前 franchise 不派发、不进入 Channel 覆盖度待确认的规则将 confirmation kinds 审核为 `[]`。其源证据经 record-llm 派生，仅保留本次实际消费的旧响应与本次实时 LLM 响应，逐请求计数分开记录，原响应正文不变。
 
 ### initial_d_franchise 场景（第二个语义金标）
 
@@ -54,16 +56,16 @@ HTTP 在 httpx 同步/异步传输层回放，未录制请求、录制次数变�
 
 `tests/integration/metadata_corpus/test_deepsearch_corpus.py` 新增 51 项默认离线用例：完整性/真实资源 UUID 关联、48 次真实回答的字段/引用契约，以及实际 AniList 命中与越界候选的生产 fallback 边界。6 个已知引文契约失败保留为**负向回归**，不是把错误回答标成语义金标。测试封锁外连；不调用真实 LLM，不将旧模型回答当作新 prompt 的质量验证。`deepsearch-audit.json` 随原有报告上传，仅报告库存和已知失败数，执行成败看 JUnit。
 
-当前整个 corpus 子目录为 **1,584 项**（v2：1,488 项 torrent 清单回归＋51 项冻结 DeepSearch 数据回归＋17 项通用 DeepSearch 护栏＋15 项回放机制＋10 项数据集完整性＋3 项场景门禁）。完整作品/集合语义金标为 2 个独立资源（猫与龙单集、头文字D 跨季 franchise 包）；其余 1,510 条 pending 的审核状态不变。
+当前整个 corpus 子目录为 **2,967 项**（以 pytest 实时收集为准，含 torrent 清单、DeepSearch、回放机制、数据集完整性与 7 个语义场景）。完整作品/合集语义金标为 10 个独立资源；其余 2,948 条 pending 的审核状态不变。
 
 ## 扩充与审核
 
 ```bash
 # 只读导出生产库；已审核数据集不可覆盖，使用新的版本目录。
-.venv/bin/python scripts/metadata_corpus.py export --corpus tests/fixtures/metadata_corpus_v2
-.venv/bin/python scripts/metadata_corpus.py hydrate --corpus tests/fixtures/metadata_corpus_v2
-.venv/bin/python scripts/metadata_corpus.py index-files --corpus tests/fixtures/metadata_corpus_v2
-.venv/bin/python scripts/metadata_corpus.py audit --corpus tests/fixtures/metadata_corpus_v2
+.venv/bin/python scripts/metadata_corpus.py export --corpus tests/fixtures/metadata_corpus_v3
+.venv/bin/python scripts/metadata_corpus.py hydrate --corpus tests/fixtures/metadata_corpus_v3
+.venv/bin/python scripts/metadata_corpus.py index-files --corpus tests/fixtures/metadata_corpus_v3
+.venv/bin/python scripts/metadata_corpus.py audit --corpus tests/fixtures/metadata_corpus_v3
 ```
 
 `candidates.json.gz` 把原始标题输入与生产库候选答案分开；重建时不向冷库注入候选作品。导出使用字段白名单，不保留频道 URL/凭证。torrent 去掉 tracker/webseed 等外层字段，校验 info 字节不变，以 SHA-256 命名。清单基线由 bencode 直接读取，与被测应用解析函数独立。快照与清单有 manifest 校验和。
@@ -82,7 +84,7 @@ HTTP 在 httpx 同步/异步传输层回放，未录制请求、录制次数变�
 
 该命令不属于离线 CI：源响应仍冻结，只允许配置的 LLM host 联网，每个场景在新数据库执行三轮。每轮必须实际调用模型；HTTP 错误/传输失败不能算模型质量通过。报告包含模型、语义差异、请求次数及耗时；它不是全模型能力或全数据集正确率。当前 Bangumi 场景的身份命中为确定性 auto-link，真实 LLM 只参与 genre 分类，而现有期望答案未断言 genre；因此三轮通过仅说明已断言的结果不受该调用影响，不代表 LLM 身份判别或分类准确率已验证。
 
-`record-llm` 用于在已有源证据上另录模型响应，需要场景 manifest 的 `seed` 指向原始 cassette、`cassette` 指向不存在的新文件。v1 的 `bangumi_single.json.gz` 是源证据种子，`bangumi_complete.json.gz` 是完整回放；无需重新请求外部源。
+`record-llm` 用于在已有源证据上另录模型响应，需要场景 manifest 的 `seed` 指向原始 cassette、`cassette` 指向不存在的新文件。派生文件只保留本次实际消费的旧源响应和本次实时 LLM 响应；两类请求的调用次数分别计算，seed 中的历史次数不累加到本次实时调用。生成后仍以完整消费门禁离线 replay。v1 的 `bangumi_single.json.gz` 是源证据种子，`bangumi_complete.json.gz` 是完整回放；无需重新请求外部源。
 
 M1 合集保护回放使用 `initial_d_franchise_collection_guard.json.gz`：由原真实录制派生，保留原文件和逐请求审计，仅删除针对整包标题、BD、AV1 的 7 个已不再执行的单作品查询。所有保留响应及审核图不变，仍要求请求完整消费，不能用诊断模式作为验收。来源哈希与移除键见同目录 `.audit.json`。
 

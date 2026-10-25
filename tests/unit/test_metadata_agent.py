@@ -395,6 +395,7 @@ def _patched_agent():
     agent._set_cache = AsyncMock()
     agent._apply_to_resource = AsyncMock()
     agent._run_react = AsyncMock()
+    agent._run_search_then_judge = agent._run_react
     agent._find_known_work = AsyncMock(return_value=None)  # S1 short-circuit off in cache/agent tests
     agent._build_production_message = MagicMock(return_value="msg")
     return agent
@@ -424,6 +425,29 @@ async def test_process_uses_definitive_cache_without_refresh():
     assert res is cached
     assert resource.metadata_attempts == 1         # attempt recorded from cache
     assert resource.metadata_failure_type == "not_found"
+
+
+async def test_process_cache_season_conflict_falls_through_to_live_lookup():
+    agent = _patched_agent()
+    resource = _ns_resource()
+    resource.season = 1
+    cached = _meta(
+        found=True,
+        matched_entity={"external_id": "tmdb:1#s2"},
+    )
+    cached.season = 2
+    agent._get_cache.return_value = cached
+    agent._run_react.return_value = _react_return(found=True)
+
+    await agent.process(
+        resource,
+        SimpleNamespace(id="ch", metadata_source="tmdb"),
+        MagicMock(),
+    )
+
+    agent._apply_to_resource.assert_called_once()
+    assert agent._apply_to_resource.call_args.args[0] is not cached
+    agent._run_react.assert_called_once()
 
 
 async def test_process_force_refresh_bypasses_definitive_cache():
@@ -675,6 +699,46 @@ async def test_process_short_circuits_known_series(db_session, sample_channel):
     assert resource.movie_id is None
     assert resource.metadata_matched_at is not None
     assert resource.metadata_failure_type is None  # success
+
+
+async def test_process_known_work_season_conflict_falls_through_to_external(
+    db_session, sample_channel,
+):
+    import uuid
+
+    from app.models.file_resource import FileResource
+    from app.models.series import TVSeries
+
+    series = TVSeries(
+        id=str(uuid.uuid4()), title_cn="黄泉使者", season_number=2,
+    )
+    resource = FileResource(
+        id=str(uuid.uuid4()), channel_id=sample_channel.id,
+        guid="known-work-season-conflict",
+        title_raw="[G] 黄泉使者 Season 1 - 03 [1080p]",
+        title_cn="黄泉使者", season=1, episode=3,
+        torrent_url="magnet:?xt=urn:btih:known-season-conflict",
+    )
+    db_session.add_all([series, resource])
+    await db_session.commit()
+
+    agent = UnifiedMetadataAgent()
+    agent._get_cache = AsyncMock(return_value=None)
+    agent._set_cache = AsyncMock()
+    agent._run_search_then_judge = AsyncMock(return_value=(
+        {
+            "found": False,
+            "clean_title": "黄泉使者",
+            "content_type": "tv",
+            "reason": "not found",
+        },
+        {"method": None, "data_sources_used": [], "source_errors": {}, "error": None},
+    ))
+
+    await agent.process(resource, sample_channel, db_session)
+
+    agent._run_search_then_judge.assert_called_once()
+    assert resource.series_id is None
 
 
 async def test_process_reuses_successful_sibling_resource_title(db_session, sample_channel):
@@ -2090,7 +2154,7 @@ async def test_process_short_circuit_reconciles_absolute_episode(db_session, sam
 
     series = TVSeries(
         id=str(uuid.uuid4()), title_cn="關於我轉生變成史萊姆這檔事",
-        title_en="That Time I Got Reincarnated as a Slime",
+        title_en="That Time I Got Reincarnated as a Slime", season_number=4,
         seasons=[{"season_number": n, "episode_count": 24} for n in (1, 2, 3, 4)],
     )
     db_session.add(series)
@@ -2323,6 +2387,22 @@ class TestVerifiedSeasonDefault:
         _apply_verified_season_default(meta)
         assert meta.season == 1
         assert meta.season_ambiguous is False
+
+    def test_subject_title_marker_pins_season_without_series_count(self):
+        meta = _meta(matched_entity={
+            "single_season_entry": True, "subject_season": 2,
+        })
+        _apply_verified_season_default(meta)
+        assert meta.season == 2
+        assert meta.season_ambiguous is False
+
+        inferred = ResourceMetadata(
+            clean_title="X", content_type="tv", found=True, season=2,
+            matched_entity={"single_season_entry": True, "subject_season": 2},
+        )
+        _validate_inferred_season(inferred)
+        assert inferred.season == 2
+        assert inferred.season_ambiguous is False
 
     def test_multi_season_entity_marks_ambiguous(self):
         meta = ResourceMetadata(

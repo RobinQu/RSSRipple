@@ -313,10 +313,15 @@ async def _process_resource_metadata_once(
             await maybe_inspect_torrent(task_db, resource, channel)
             if not resource.search_title:
                 resource.search_title = _simple_title_clean(resource.title_raw)
-            if resource.resolution is None:
-                resource.resolution = normalize_parsed_fields(
+            if resource.resolution is None or "resolution" in (resource.channel_default_fields or []):
+                parsed_resolution = normalize_parsed_fields(
                     resource.title_raw, {"resolution": None}
                 ).get("resolution")
+                if parsed_resolution:
+                    from app.services.channel_metadata_defaults import clear_channel_default
+
+                    resource.resolution = parsed_resolution
+                    clear_channel_default(resource, "resolution")
             work_key = normalize_title(resource.search_title or extract_search_title(resource))
             async with _work_metadata_lock(work_key):
                 await require_execution_ownership()
@@ -423,6 +428,23 @@ async def _process_resource_metadata_once(
                             "[bangumi-graph] expansion failed for %s: %s",
                             resource_id, e, exc_info=True,
                         )
+                    try:
+                        from app.services.batch_content_analysis import (
+                            rebind_absolute_season_assignments,
+                        )
+                        from app.services.franchise_service import (
+                            enforce_franchise_resource_invariant,
+                        )
+
+                        await rebind_absolute_season_assignments(task_db, resource)
+                        enforce_franchise_resource_invariant(resource)
+                    except ExecutionOwnershipLostError:
+                        raise
+                    except Exception as e:  # noqa: BLE001 — enrichment only
+                        logger.warning(
+                            "[batch] absolute season reconciliation failed for %s: %s",
+                            resource_id, e,
+                        )
                     # Cluster binding second pass: torrent inspection runs
                     # BEFORE metadata linking, so works created or
                     # season-relocated by the series graph above were not
@@ -468,8 +490,14 @@ async def _process_resource_metadata_once(
                             "[franchise] movie dedup failed for %s: %s",
                             resource_id, e,
                         )
+                from app.services.channel_metadata_defaults import (
+                    reconcile_channel_metadata_defaults,
+                )
                 from app.services.resource_publication import publish_resource
 
+                reconcile_channel_metadata_defaults(
+                    resource, channel.required_metadata_defaults
+                )
                 await require_execution_ownership()
                 await publish_resource(task_db, resource.id, kind="metadata")
                 # Commit inside the lock: the next same-work task's lookup

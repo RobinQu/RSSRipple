@@ -1,8 +1,9 @@
 import { Alert, Form, Select, Switch } from 'antd';
 import { useTranslation } from 'react-i18next';
 import type { MetadataSourceOption } from '../../api/channels';
-import type { MetadataSource } from '../../types';
+import type { MetadataSource, RequiredMetadataDefaults } from '../../types';
 import RequiredFieldsInput from '../RequiredFieldsInput';
+import RequiredMetadataDefaultsInput from '../RequiredMetadataDefaultsInput';
 import { DEFAULT_FALLBACK_SOURCES } from './constants';
 
 interface Props {
@@ -24,6 +25,10 @@ export default function MetadataSearchTab({
 }: Props) {
   const { t } = useTranslation();
   const agentEnabled = Form.useWatch('metadata_agent_enabled', form);
+  const requiredFields = Form.useWatch('required_metadata_fields', form) as string[] | undefined;
+  const requiredDefaults = Form.useWatch('required_metadata_defaults', form) as
+    | RequiredMetadataDefaults
+    | undefined;
 
   /** Build Select options from the source catalog. Available sources are
    * selectable; a currently-selected source that is no longer available is
@@ -97,13 +102,40 @@ export default function MetadataSearchTab({
       )}
 
       {agentEnabled && (
-        <Form.Item
-          name="required_metadata_fields"
-          label={t('channels.requiredFieldsLabel')}
-          tooltip={t('channels.requiredFieldsDesc')}
-        >
-          <RequiredFieldsInput saved={savedRequiredFields} />
-        </Form.Item>
+        <>
+          <Form.Item
+            name="required_metadata_fields"
+            label={t('channels.requiredFieldsLabel')}
+            tooltip={t('channels.requiredFieldsDesc')}
+          >
+            <RequiredFieldsInput
+              saved={savedRequiredFields}
+              defaults={requiredDefaults}
+              onDefaultsChange={(defaults) => form.setFieldValue('required_metadata_defaults', defaults)}
+            />
+          </Form.Item>
+          <Form.Item
+            name="required_metadata_defaults"
+            label={t('channels.requiredMetadataDefaultsLabel')}
+            extra={t('channels.requiredMetadataDefaultsDesc')}
+            rules={[
+              {
+                validator: (_, defaults: Record<string, string | string[]> | undefined) => {
+                  const incomplete = Object.values(defaults ?? {}).some((defaultValue) =>
+                    Array.isArray(defaultValue)
+                      ? !defaultValue.some((item) => item.trim())
+                      : !defaultValue?.trim(),
+                  );
+                  return incomplete
+                    ? Promise.reject(new Error(t('channels.requiredFieldDefaultRequired')))
+                    : Promise.resolve();
+                },
+              },
+            ]}
+          >
+            <RequiredMetadataDefaultsInput requiredFields={requiredFields} />
+          </Form.Item>
+        </>
       )}
 
       {agentEnabled && metadataSources.length > 0 && metadataSources.every((s) => !s.available) && (

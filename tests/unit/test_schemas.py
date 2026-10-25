@@ -88,6 +88,28 @@ def test_channel_create_validators_normalize():
     assert c.metadata_refresh_interval_minutes == 30
 
 
+def test_channel_required_metadata_defaults_validation():
+    from app.schemas.channel import ChannelCreate, ChannelUpdate
+
+    channel = ChannelCreate(
+        name="x", url="https://x", field_mapping={},
+        required_metadata_fields=["resolution", "subtitle_langs"],
+        required_metadata_defaults={
+            "resolution": " 2160p ", "subtitle_langs": ["zh-CN", "en"],
+        },
+    )
+    assert channel.required_metadata_defaults == {
+        "resolution": "2160p", "subtitle_langs": ["zh-CN", "en"],
+    }
+    with pytest.raises(ValueError, match="non-required"):
+        ChannelCreate(
+            name="x", url="https://x", field_mapping={},
+            required_metadata_defaults={"resolution": "2160p"},
+        )
+    with pytest.raises(ValueError, match="does not support"):
+        ChannelUpdate(required_metadata_defaults={"episode": 1})
+
+
 def test_channel_update_validators_normalize():
     from app.schemas.channel import ChannelUpdate
 

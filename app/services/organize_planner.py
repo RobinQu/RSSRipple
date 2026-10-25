@@ -474,6 +474,16 @@ def _plan_same_target_multi_work(
         groups.setdefault(f"{item.work_type}:{item.work_id}", []).append(item)
 
     group_files: dict[str, list[DiskFile]] = {key: [] for key in groups}
+    video_stem_groups: dict[str, set[str]] = {}
+    for disk_file in disk_files:
+        if classify(os.path.basename(disk_file.path)) != FileKind.VIDEO:
+            continue
+        item = _association_for(payload, disk_file.rel)
+        key = f"{item.work_type}:{item.work_id}" if item is not None else None
+        if key in group_files:
+            stem = os.path.splitext(_normalized_rel(disk_file.rel))[0].casefold()
+            video_stem_groups.setdefault(stem, set()).add(key)
+
     leftovers: list[DiskFile] = []
     for disk_file in disk_files:
         if classify(os.path.basename(disk_file.path)) == FileKind.VIDEO:
@@ -485,6 +495,19 @@ def _plan_same_target_multi_work(
                 leftovers.append(disk_file)
             continue
         if classify(os.path.basename(disk_file.path)) == FileKind.SUBTITLE:
+            item = _association_for(payload, disk_file.rel)
+            if item is not None:
+                key = f"{item.work_type}:{item.work_id}"
+                if key in group_files:
+                    group_files[key].append(disk_file)
+                else:
+                    leftovers.append(disk_file)
+                continue
+            stem = os.path.splitext(_normalized_rel(disk_file.rel))[0].casefold()
+            stem_candidates = video_stem_groups.get(stem, set())
+            if len(stem_candidates) == 1:
+                group_files[next(iter(stem_candidates))].append(disk_file)
+                continue
             season, episode = extract_season_episode_from_path(disk_file.rel)
             candidates = [
                 key for key, items in groups.items()
@@ -516,7 +539,11 @@ def _plan_same_target_multi_work(
             for item in items if item.episode_start is not None
         ]
         is_series = work.type == "series"
-        is_batch = is_series and len(items) > 1
+        video_assignments = sum(
+            classify(os.path.basename(item.file_path)) == FileKind.VIDEO
+            for item in items
+        )
+        is_batch = is_series and video_assignments > 1
         child_resource = payload.resource.model_copy(update={
             "is_batch": is_batch,
             "batch_scope": (
@@ -875,6 +902,20 @@ def _plan_batch(
         ops.append(PlanOp(op_type="move", src=f.path, dst=dst, size=f.size))
 
     def subtitle_target(f: DiskFile) -> tuple[int, int, str] | None:
+        association = _association_for(payload, f.rel)
+        if association is not None and (
+            association.season is None or association.episode_start is None
+        ):
+            return None
+        if (
+            association is not None
+            and association.season is not None
+            and association.episode_start is not None
+        ):
+            key = (association.season, association.episode_start)
+            if key not in episodes:
+                return None
+            return *key, stems[key]
         parsed_season, episode = extract_season_episode_from_path(f.rel)
         season = resolve_season(f, parsed_season)
         if season is None or episode is None or (season, episode) not in episodes:

@@ -40,6 +40,12 @@ SQLite（旧） ──migrate_to_turso──▶ Turso ──migrate_to_postgres�
 SELECT name, applied_at FROM schema_migrations ORDER BY applied_at, name;
 ```
 
+### 频道必填默认值列
+
+轻迁移为 `channels` 增加 nullable JSON `required_metadata_defaults`，为 `file_resources` 增加 nullable JSON `channel_default_fields`（PostgreSQL 为 JSONB）；历史行保持 NULL，运行时等价于无默认值/无默认来源，不批量改写媒体字段。两列均纳入 `_LIGHT_COLUMN_ADDITIONS`，按真实 schema 幂等补齐。
+
+旧 Turso 库为硬化 `required_metadata_fields NOT NULL` 而重建 `channels` 父表时，若 `required_metadata_defaults` 尚未由前置加列步骤写入，重建必须显式补入该 nullable 列，不能因复制旧表列集而丢失；既有必填字段回填、外键执法挂起及失败回滚语义不变。本变更无 down path，回退依靠备份。
+
 ## 1. SQLite → Turso（`scripts/migrate_to_turso.py`）
 
 ```bash

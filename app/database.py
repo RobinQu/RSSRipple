@@ -612,6 +612,8 @@ _LIGHT_COLUMN_ADDITIONS: tuple[tuple[str, str, str | tuple[str, str]], ...] = (
     # keys). NULL → unrestricted (legacy); [] → agent filters locked to
     # resource-level fields only.
     ("channels", "required_metadata_fields", ("TEXT", "JSONB")),
+    ("channels", "required_metadata_defaults", ("TEXT", "JSONB")),
+    ("file_resources", "channel_default_fields", ("TEXT", "JSONB")),
     # Metadata retry state on FileResource: ``metadata_matched_at`` only
     # records successes, so failed attempts looked like "never tried".
     # These let the fetch-time backfill re-run transient failures (with
@@ -2346,7 +2348,10 @@ async def upgrade_sqlite_table_invariants(engine) -> None:
                         raise RuntimeError(
                             "Cannot suspend foreign keys for channels rebuild"
                         )
-                    await _rebuild_sqlite_table(conn, "channels")
+                    column_sql = {} if "required_metadata_defaults" in {
+                        row[1] for row in info
+                    } else {"required_metadata_defaults": "NULL"}
+                    await _rebuild_sqlite_table(conn, "channels", column_sql=column_sql)
                 finally:
                     await conn.execute(text("PRAGMA foreign_keys=ON"))
                 logger.info(

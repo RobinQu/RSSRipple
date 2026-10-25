@@ -117,6 +117,9 @@ class FileResource(Base):
     absolute_episode: Mapped[int | None] = mapped_column(Integer, nullable=True)
     episode_confidence: Mapped[str | None] = mapped_column(String(16), nullable=True)
     resolution: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    channel_default_fields: Mapped[list[str] | None] = mapped_column(
+        json_column(), nullable=True, default=list
+    )
     source: Mapped[str | None] = mapped_column(String(100), nullable=True)
     video_codec: Mapped[str | None] = mapped_column(String(100), nullable=True)
     audio_codec: Mapped[str | None] = mapped_column(String(100), nullable=True)

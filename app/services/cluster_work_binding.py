@@ -762,7 +762,26 @@ async def bind_hint_clusters(
         bound_work = False
         for row in targets:
             if work_type == "series" and work_season is not None:
-                if row.season is not None and row.season != work_season:
+                episode_count = getattr(work, "number_of_episodes", None)
+                if (
+                    row.season != 0
+                    and type(episode_count) is int
+                    and episode_count > 0
+                    and type(row.episode_start) is int
+                    and row.episode_start > episode_count
+                    and row.season in (None, work_season)
+                ):
+                    logger.warning(
+                        "[cluster-bind] %s: episode %s exceeds S%s count %s; "
+                        "row left for multi-season reconciliation",
+                        row.file_path, row.episode_start, work_season, episode_count,
+                    )
+                    continue
+                if (
+                    row.season != 0
+                    and row.season is not None
+                    and row.season != work_season
+                ):
                     if not title_evidence:
                         logger.warning(
                             "[cluster-bind] %s: parsed season %s disagrees with "

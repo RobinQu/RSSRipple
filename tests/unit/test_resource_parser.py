@@ -229,6 +229,20 @@ from app.services.resource_parser import detect_batch
         ("番剧 第01-第12话 1080p 全", (True, 1, 12)),
         # Not a batch — single episode
         ("[LoliHouse] Show S04 - 05 [WebRip 1080p]", (False, None, None)),
+        (
+            "[LoliHouse] 侦探已经死了 Season 2 / Tantei wa Mou, Shindeiru. Season 2 - 03 "
+            "[WebRip 1080p HEVC-10bit AAC][简繁内封字幕]",
+            (False, None, None),
+        ),
+        (
+            "[NEST] The Detective Is Already Dead S02 - 03v2 [CR WEB-DL 1080p AVC AAC]",
+            (False, None, None),
+        ),
+        (
+            "[LoliHouse] 侦探已经死了 Season 2 / Tantei wa Mou, Shindeiru. Season 2 - 03-12 "
+            "[WebRip 1080p]",
+            (True, 3, 12),
+        ),
         # Not a batch — random text
         ("random_bytes_xyz123 1080p", (False, None, None)),
         # Empty

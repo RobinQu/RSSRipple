@@ -1371,6 +1371,15 @@ async def correct_parse_fields(
         resource.subtitle_group = body.subtitle_group
         resource.subtitle_groups_source = "manual"
 
+    from app.services.channel_metadata_defaults import (
+        DEFAULTABLE_REQUIRED_FIELD_TYPES,
+        clear_channel_default,
+    )
+    for key in sent & set(DEFAULTABLE_REQUIRED_FIELD_TYPES) | (
+        {"subtitle_group"} if "subtitle_groups" in sent else set()
+    ):
+        clear_channel_default(resource, key)
+
     # Batch invariants (aligned with the fetch-service pre-parser).
     if resource.is_batch:
         resource.episode = None

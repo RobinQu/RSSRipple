@@ -29,6 +29,7 @@ class ChannelCreate(BaseModel):
     # Mandatory and add-only after creation (see channels API): defaults to
     # the code-enforced baseline; explicit null is rejected by the type.
     required_metadata_fields: list[str] = Field(default_factory=_default_required_fields)
+    required_metadata_defaults: dict[str, Any] = Field(default_factory=dict)
     auto_cleanup_unresolved_enabled: bool = False
     auto_cleanup_unresolved_days: int = 21
     # Periodic work-metadata refresh (per-channel; off by default).
@@ -53,6 +54,13 @@ class ChannelCreate(BaseModel):
     def _validate_required_fields(cls, v: list[str] | None) -> list[str] | None:
         return _normalize_required_fields(v)
 
+    @field_validator("required_metadata_defaults")
+    @classmethod
+    def _validate_required_defaults(cls, v: dict[str, Any] | None) -> dict[str, Any]:
+        if v is None:
+            raise ValueError("required_metadata_defaults cannot be null; use {} to clear it")
+        return _normalize_required_metadata_defaults(v)
+
     @field_validator("auto_cleanup_unresolved_days")
     @classmethod
     def _clamp_days(cls, v: int) -> int:
@@ -62,6 +70,13 @@ class ChannelCreate(BaseModel):
     @classmethod
     def _clamp_refresh_interval(cls, v: int | None) -> int | None:
         return None if v is None else _clamp_refresh_interval_minutes(v)
+
+    @model_validator(mode="after")
+    def _validate_default_membership(self) -> "ChannelCreate":
+        self.required_metadata_defaults = _normalize_required_metadata_defaults(
+            self.required_metadata_defaults, self.required_metadata_fields
+        )
+        return self
 
 
 class ChannelUpdate(BaseModel):
@@ -77,6 +92,7 @@ class ChannelUpdate(BaseModel):
     metadata_source: str | None = None
     metadata_fallback_sources: list[str] | None = None
     required_metadata_fields: list[str] | None = None
+    required_metadata_defaults: dict[str, Any] | None = None
     auto_cleanup_unresolved_enabled: bool | None = None
     auto_cleanup_unresolved_days: int | None = None
     # Periodic work-metadata refresh (per-channel; off by default).
@@ -102,6 +118,13 @@ class ChannelUpdate(BaseModel):
     def _validate_required_fields(cls, v: list[str] | None) -> list[str] | None:
         return _normalize_required_fields(v)
 
+    @field_validator("required_metadata_defaults")
+    @classmethod
+    def _validate_required_defaults(cls, v: dict[str, Any] | None) -> dict[str, Any]:
+        if v is None:
+            raise ValueError("required_metadata_defaults cannot be null; use {} to clear it")
+        return _normalize_required_metadata_defaults(v)
+
     @field_validator("auto_cleanup_unresolved_days")
     @classmethod
     def _clamp_days(cls, v: int | None) -> int | None:
@@ -125,6 +148,7 @@ class ChannelResponse(ORMModel):
     metadata_source: str | None = None
     metadata_fallback_sources: list[str] | None = None
     required_metadata_fields: list[str] | None = None
+    required_metadata_defaults: dict[str, Any] | None = None
     auto_cleanup_unresolved_enabled: bool = False
     auto_cleanup_unresolved_days: int = 21
     metadata_refresh_enabled: bool = False
@@ -195,6 +219,14 @@ def _normalize_fallback_sources(value: list[str] | None) -> list[str] | None:
         if v not in out:
             out.append(v)
     return out
+
+
+def _normalize_required_metadata_defaults(
+    value: dict[str, Any], required_fields: list[str] | None = None
+) -> dict[str, Any]:
+    from app.services.channel_metadata_defaults import normalize_required_metadata_defaults
+
+    return normalize_required_metadata_defaults(value, required_fields)
 
 
 def _normalize_required_fields(value: list[str] | None) -> list[str] | None:
