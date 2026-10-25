@@ -75,7 +75,7 @@ def _poll_fetch(channel_id: str, timeout: int = 120, accept_failed: bool = False
         data = r.json().get("data") or {}
         if data.get("status") in terminal:
             return data
-        time.sleep(2)
+        time.sleep(0.25)
     raise TimeoutError(f"Fetch did not complete for channel {channel_id}")
 
 
@@ -87,7 +87,7 @@ def _poll_run(agent_id: str, timeout: int = 120) -> dict:
         data = r.json().get("data") or {}
         if data.get("status") in ("done", "failed"):
             return data
-        time.sleep(2)
+        time.sleep(0.25)
     raise TimeoutError(f"Agent run did not complete for agent {agent_id}")
 
 

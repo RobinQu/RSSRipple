@@ -368,11 +368,12 @@ class TestAnalyzeBatchFiles:
 async def test_magnet_sweep_reclaims_stale_and_enqueues(db_session, monkeypatch):
     from app.config import settings
 
+    monkeypatch.setattr(settings, "magnet_resolve_retry_seconds", 0.5)
     channel = await _make_channel(db_session)
     stale_age = (
         (1 + settings.magnet_resolve_max_attempts)
         * settings.magnet_resolve_timeout_seconds
-        + settings.magnet_resolve_max_attempts * 60
+        + settings.magnet_resolve_max_attempts * settings.magnet_resolve_retry_seconds
         + 600 + 60
     )
     stuck = _make_resource(

@@ -101,7 +101,7 @@ class Settings(BaseSettings):
     # (upload_mode, no payload) and rebuilds a standard .torrent into the
     # cache dir above. Env vars: MAGNET_RESOLVE_ENABLED,
     # MAGNET_RESOLVE_TIMEOUT_SECONDS, MAGNET_RESOLVE_CONCURRENCY,
-    # MAGNET_RESOLVE_MAX_ATTEMPTS.
+    # MAGNET_RESOLVE_MAX_ATTEMPTS, MAGNET_RESOLVE_RETRY_SECONDS.
     magnet_resolve_enabled: bool = True
     # Overall budget for one resolution attempt (metadata fetch over the
     # swarm can take a long time on quiet magnets).
@@ -110,6 +110,7 @@ class Settings(BaseSettings):
     magnet_resolve_concurrency: int = 4
     # Automatic retries after the first failure (manual retry is unlimited).
     magnet_resolve_max_attempts: int = 1
+    magnet_resolve_retry_seconds: float = 60
     # Default public trackers injected into every resolution attempt, on top of
     # whatever trackers the magnet itself carries — harvested magnets (e.g.
     # ThePirateBay) carry no ``tr=`` params, leaving DHT as the only peer

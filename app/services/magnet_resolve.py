@@ -557,7 +557,7 @@ async def _attempt_loop(resource_id: str, attempt_id: str) -> None:
             )
             if exhausted:
                 return
-            await asyncio.sleep(60)
+            await asyncio.sleep(settings.magnet_resolve_retry_seconds)
             continue
         except Exception as e:  # noqa: BLE001 — never leak a raw crash
             logger.warning(

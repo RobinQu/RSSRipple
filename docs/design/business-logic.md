@@ -83,11 +83,11 @@ fetch_channel_resources(channel, db)
   │     │     #   （信号量并发 MAGNET_RESOLVE_CONCURRENCY，不占队列槽位）
   │     │     #   重建标准 .torrent 进同一缓存目录并写回 torrent_file，
   │     │     #   成功后经同一 maybe_inspect_torrent 跑通道 A；失败按
-  │     │     #   MAGNET_RESOLVE_MAX_ATTEMPTS 自动重试（60s 间隔），状态/
+  │     │     #   MAGNET_RESOLVE_MAX_ATTEMPTS 自动重试（MAGNET_RESOLVE_RETRY_SECONDS，默认 60s），状态/
   │     │     #   错误/次数落 FileResource.magnet_resolve_* 四列；
   │     │     #   每小时 sweep（magnet_resolve_sweep，双后端均注册）先回收
   │     │     #   卡死行（pending/running 且 updated_at 超过
-  │     │     #   (1+max_attempts)*timeout + max_attempts*60s + 600s 安全
+  │     │     #   (1+max_attempts)*timeout + max_attempts*retry_seconds + 600s 安全
   │     │     #   余量——worker 崩溃/重启后分离任务随之消亡，认领 UPDATE 与
   │     │     #   手动重试又都排除 pending/running，不回收将永久卡死；
   │     │     #   回收置 NULL/清计数/记中断错误），再补扫 status IS NULL

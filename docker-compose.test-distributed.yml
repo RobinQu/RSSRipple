@@ -92,6 +92,9 @@ services:
       # tests drive fetches explicitly — an auto fetch racing the explicit
       # one makes fetch-status/resource assertions flaky.
       - SCHEDULER_ENABLED=false
+      - MAGNET_RESOLVE_CACHE_MIRRORS=[]
+      - MAGNET_RESOLVE_TIMEOUT_SECONDS=5
+      - MAGNET_RESOLVE_MAX_ATTEMPTS=0
       # Static bootstrap key for the auth gate (AUTH_ENABLED defaults to
       # true); integration tests send it as X-API-Key.
       - API_KEY=test-integration-key
@@ -124,6 +127,9 @@ services:
       - APP_ROLE=worker
       # See app-1: scheduler stays off so tests control every fetch.
       - SCHEDULER_ENABLED=false
+      - MAGNET_RESOLVE_CACHE_MIRRORS=[]
+      - MAGNET_RESOLVE_TIMEOUT_SECONDS=5
+      - MAGNET_RESOLVE_MAX_ATTEMPTS=0
       # Static bootstrap key for the auth gate (AUTH_ENABLED defaults to
       # true); integration tests send it as X-API-Key.
       - API_KEY=test-integration-key
@@ -176,7 +182,7 @@ services:
     command:
       - "sh"
       - "-c"
-      - "uv sync --frozen && uv run pytest tests/integration/ --ignore=tests/integration/eval --ignore=tests/integration/external --ignore=tests/integration/http/test_fetch_with_real_feed.py --junitxml=/app/data/metadata-corpus/integration.xml -v --tb=short"
+      - "uv sync --frozen && uv run pytest tests/integration/ --ignore=tests/integration/eval --ignore=tests/integration/external --ignore=tests/integration/http/test_fetch_with_real_feed.py --junitxml=/app/data/metadata-corpus/integration.xml -n ${INTEGRATION_TEST_WORKERS:-4} --dist loadgroup -v --tb=short"
 
   # ── Transmission (torrent lifecycle tests only) ────────────────────────────
   transmission:

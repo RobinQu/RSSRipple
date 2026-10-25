@@ -34,6 +34,9 @@ services:
       - LOG_LEVEL=DEBUG
       - POSTER_CACHE_DIR=/app/data/posters
       - SCHEDULER_ENABLED=false
+      - MAGNET_RESOLVE_CACHE_MIRRORS=[]
+      - MAGNET_RESOLVE_TIMEOUT_SECONDS=5
+      - MAGNET_RESOLVE_MAX_ATTEMPTS=0
       # Static bootstrap key for the auth gate (AUTH_ENABLED defaults to
       # true); integration tests send it as X-API-Key.
       - API_KEY=test-integration-key
@@ -72,13 +75,15 @@ services:
       - DEBUG=true
       - LOG_LEVEL=DEBUG
       - POSTER_CACHE_DIR=/app/data/posters-llm
-      # Scheduler ON here (off on the primary app): the minutely global jobs
-      # (download sync) and channel job scheduling get coverage without
-      # destabilizing the primary app's deterministic no-scheduler behavior.
+      # Scheduler ON here (off on the primary app). The test entrypoint shortens
+      # only download sync/notification ticks; production defaults stay unchanged.
       - SCHEDULER_ENABLED=true
       - LLM_BASE_URL=http://test-server:8080/v1
       - LLM_API_KEY=mock-key
       - LLM_MODEL=mock-model
+      - MAGNET_RESOLVE_CACHE_MIRRORS=[]
+      - MAGNET_RESOLVE_TIMEOUT_SECONDS=5
+      - MAGNET_RESOLVE_RETRY_SECONDS=1
       - API_KEY=test-integration-key
       # Bangumi source points at the test-server's mock (test_bangumi_source.py).
       - BANGUMI_API_KEY=mock-bangumi-key
@@ -152,7 +157,7 @@ services:
     command:
       - "sh"
       - "-c"
-      - "uv sync --frozen && uv run coverage run --rcfile=/app/.coveragerc --data-file=/app/data/.coverage.test-runner -m pytest tests/integration/ --ignore=tests/integration/eval --ignore=tests/integration/external --ignore=tests/integration/http/test_fetch_with_real_feed.py --junitxml=/app/data/metadata-corpus/integration.xml -v --tb=short"
+      - "uv sync --frozen && COVERAGE_FILE=/app/data/.coverage.test-runner uv run pytest --cov=app --cov-config=/app/.coveragerc --cov-report= tests/integration/ --ignore=tests/integration/eval --ignore=tests/integration/external --ignore=tests/integration/http/test_fetch_with_real_feed.py --junitxml=/app/data/metadata-corpus/integration.xml -n ${INTEGRATION_TEST_WORKERS:-4} --dist loadgroup -v --tb=short"
 
   # ── Integration coverage report ──────────────────────────────────────────
   # Combines up to four data files (identical /app/app source paths):
@@ -177,7 +182,7 @@ services:
     command:
       - "sh"
       - "-c"
-      - "export DATABASE_URL=sqlite+aioturso:///data/rss_ripple_test_turso.db POSTER_CACHE_DIR=/app/data/posters; uv run --no-project --with coverage coverage run --rcfile=/app/.coveragerc --data-file=/app/data/.coverage.scripts -m app.scripts.dedup_metadata || true; FILES=/app/data/.coverage.integration; [ -f /app/data/.coverage.integration-llm ] && FILES=\"$$FILES /app/data/.coverage.integration-llm\"; [ -f /app/data/.coverage.test-runner ] && FILES=\"$$FILES /app/data/.coverage.test-runner\"; [ -f /app/data/.coverage.scripts ] && FILES=\"$$FILES /app/data/.coverage.scripts\"; uv run --no-project --with coverage coverage combine --rcfile=/app/.coveragerc $$FILES && uv run --no-project --with coverage coverage report --rcfile=/app/.coveragerc --show-missing --fail-under=85"
+      - "export DATABASE_URL=sqlite+aioturso:///data/rss_ripple_test_turso.db POSTER_CACHE_DIR=/app/data/posters; uv run --no-project --with coverage coverage run --rcfile=/app/.coveragerc --data-file=/app/data/.coverage.scripts -m app.scripts.dedup_metadata || true; FILES=/app/data/.coverage.integration; [ -f /app/data/.coverage.integration-llm ] && FILES=\"$$FILES /app/data/.coverage.integration-llm\"; for f in /app/data/.coverage.test-runner*; do [ -f \"$$f\" ] && FILES=\"$$FILES $$f\"; done; [ -f /app/data/.coverage.scripts ] && FILES=\"$$FILES /app/data/.coverage.scripts\"; uv run --no-project --with coverage coverage combine --rcfile=/app/.coveragerc $$FILES && uv run --no-project --with coverage coverage report --rcfile=/app/.coveragerc --show-missing --fail-under=85"
 
   # ── Transmission (torrent lifecycle tests only) ────────────────────────────
   transmission:

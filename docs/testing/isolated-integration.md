@@ -40,7 +40,13 @@ docker compose -p "$gate_project" -f docker-compose.integration-isolated.yml cp 
 docker compose -p "$gate_project" -f docker-compose.integration-isolated.yml down --volumes --remove-orphans
 ```
 
-默认收集 `tests/integration/`，排除 `eval/`、`external/` 和实时 feed 用例，范围与原完整离线集成套件一致。汇总 app、app-llm、test-runner 和 dedup 脚本四份覆盖率，严格要求 ≥85%；单元/API ≥95% 是另一道门禁。报告包含 `metadata-corpus/integration.xml`、`coverage.xml` 及 coverage 原始数据。服务退出非零、测试失败、报告缺失或覆盖率不达标均不得记为通过。
+默认收集 `tests/integration/`，排除 `eval/`、`external/` 和实时 feed 用例，范围与原完整离线集成套件一致。pytest-xdist 默认使用 4 个 worker，可通过 `INTEGRATION_TEST_WORKERS` 调整；普通用例按文件分配，保留文件内顺序与模块状态；`http/`、真实 Redis 恢复/重解析和 `metadata_corpus/` 分别按共享资源绑定固定 worker，不能用无序的全并行替代这些隔离约束。test-runner 通过 pytest-cov 的 xdist 集成收集 worker 覆盖率。汇总 app、app-llm、test-runner 和 dedup 脚本四份覆盖率，严格要求 ≥85%；单元/API ≥95% 是另一道门禁。报告包含 `metadata-corpus/integration.xml`、`coverage.xml` 及 coverage 原始数据。服务退出非零、测试失败、报告缺失或覆盖率不达标均不得记为通过。
+
+测试 app 禁用公网 magnet 缓存镜像并缩短解析超时，避免离线套件被后台 P2P 任务占满；app-llm 入口仅将下载同步和通知 tick 缩短到 15 秒，自动重试间隔配置为 1 秒。生产 app 的调度默认值不变，真实 Redis 租约/心跳恢复用例也不快进。
+
+2026-10-25 最终执行：5585 passed / 38 skipped / 20 failed，pytest 1201.81 秒、wall 1223.37 秒，覆盖率 88%。相较 2026-10-07 的 2747.4 秒完整基线约提速 2.25 倍。20 项失败和 31 项重复 URL skip 的具体归因见 integration-inventory.md；失败与 skip 均不计为通过，不能将本轮记为全绿门禁。
+
+分布式入口同日回归为 5062 passed / 568 skipped / 13 failed，pytest 663.53 秒、wall 691.73 秒；失败类型未新增，但独立 PostgreSQL 管理库、queue-recovery 和 app-llm 相关用例大量跳过，且该入口不生成四份合并覆盖率，不能视为与 isolated 等价的完整验收。
 
 分布式 Redis 和多 worker 故障恢复需另跑 [频道调度专项](scheduler-integration.md)，本套件使用 memory 队列不能替代该证据。P0 与后续批次的必要性、来源和验收记录见 [VALIDATION.md](../plans/p0-and-backlog/VALIDATION.md)。
 

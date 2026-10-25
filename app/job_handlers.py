@@ -861,7 +861,7 @@ async def _handle_magnet_resolve_sweep(payload: dict) -> dict:
     "pending"/"running" forever (the claim UPDATE and the manual-retry
     endpoint both exclude those states). The staleness bound is the
     configured attempt budget — (1 + max_attempts) * timeout +
-    max_attempts * 60s backoff + a 600s margin. This is a recovery policy,
+    max_attempts * retry_seconds backoff + a 600s margin. This is a recovery policy,
     not proof of process death: semaphore waits may exceed the budget.
     Clearing the attempt identity fences subsequent old database writes.
     Reclaimed rows land on NULL and are scanned again in the same sweep.
@@ -883,7 +883,7 @@ async def _handle_magnet_resolve_sweep(payload: dict) -> dict:
         seconds=(
             (1 + settings.magnet_resolve_max_attempts)
             * settings.magnet_resolve_timeout_seconds
-            + settings.magnet_resolve_max_attempts * 60
+            + settings.magnet_resolve_max_attempts * settings.magnet_resolve_retry_seconds
             + 600
         )
     )

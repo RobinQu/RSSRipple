@@ -13,6 +13,9 @@ services:
       APP_ROLE: all
       OUTBOUND_PRIVATE_ORIGINS: '["http://test-server:8080"]'
       MAGNET_RESOLVE_ENABLED: 'true'
+      MAGNET_RESOLVE_CACHE_MIRRORS: '[]'
+      MAGNET_RESOLVE_TIMEOUT_SECONDS: '5'
+      MAGNET_RESOLVE_MAX_ATTEMPTS: '0'
       PYTHONPATH: /app
       DATABASE_URL: sqlite+aioturso:///data/rss_ripple_test_turso.db
       QUEUE_BACKEND: memory
@@ -68,6 +71,8 @@ services:
       APP_ROLE: all
       OUTBOUND_PRIVATE_ORIGINS: '["http://test-server:8080"]'
       MAGNET_RESOLVE_ENABLED: 'true'
+      MAGNET_RESOLVE_CACHE_MIRRORS: '[]'
+      MAGNET_RESOLVE_TIMEOUT_SECONDS: '5'
       PYTHONPATH: /app
       DATABASE_URL: sqlite+aioturso:///data/rss_ripple_test_llm_turso.db
       QUEUE_BACKEND: memory
@@ -77,6 +82,7 @@ services:
       SCHEDULER_ENABLED: 'true'
       LLM_BASE_URL: http://test-server:8080/v1
       LLM_MODEL: mock-model
+      MAGNET_RESOLVE_RETRY_SECONDS: '1'
       BANGUMI_API_BASE: http://test-server:8080/bangumi/v0
     volumes:
     - gate-data:/app/data
@@ -176,6 +182,7 @@ services:
       RSSRIPPLE_LLM_URL: http://app-llm:9001
       CORPUS_TEST_DATABASE_URL: ''
       CORPUS_REPORT_DIR: /app/data/metadata-corpus
+      COVERAGE_FILE: /app/data/.coverage.test-runner
     volumes:
     - gate-data:/app/data
     - ./app:/app/app:ro
@@ -198,12 +205,14 @@ services:
     command:
     - /app/.venv/bin/python
     - -m
-    - coverage
-    - run
-    - --rcfile=/app/.coveragerc
-    - --data-file=/app/data/.coverage.test-runner
-    - -m
     - pytest
+    - --cov=app
+    - --cov-config=/app/.coveragerc
+    - --cov-report=
+    - -n
+    - ${INTEGRATION_TEST_WORKERS:-4}
+    - --dist
+    - loadgroup
     - tests/integration/
     - --ignore=tests/integration/eval
     - --ignore=tests/integration/external
@@ -227,7 +236,7 @@ services:
     - /app/.venv/bin/python -m coverage run --rcfile=/app/.coveragerc --data-file=/app/data/.coverage.scripts
       -m app.scripts.dedup_metadata && /app/.venv/bin/python -m coverage combine --keep
       --rcfile=/app/.coveragerc /app/data/.coverage.integration /app/data/.coverage.integration-llm
-      /app/data/.coverage.test-runner /app/data/.coverage.scripts && /app/.venv/bin/python
+      /app/data/.coverage.test-runner* /app/data/.coverage.scripts && /app/.venv/bin/python
       -m coverage xml --rcfile=/app/.coveragerc -o /app/data/coverage.xml && /app/.venv/bin/python
       -m coverage report --rcfile=/app/.coveragerc --fail-under=85
     networks:

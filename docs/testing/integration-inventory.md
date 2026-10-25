@@ -1,5 +1,15 @@
 # 集成测试清单（重组后）
 
+## 2026-10-25 执行提速
+
+当前默认范围为 180 个测试文件、5643 项。三个 Compose 入口使用 pytest-xdist `--dist loadgroup`，默认 4 worker（`INTEGRATION_TEST_WORKERS` 可调），普通用例按文件分配以保留文件内顺序和模块状态。共享 app/app-llm 的 `http/` 全组串行；固定 Redis DB 的 queue recovery、agent lifecycle Redis 断连和 reparse 分组串行；`metadata_corpus/` 同组以保护报告。分组 hook 必须在 worker 的 nodeid 编码前执行，避免共享环境被错误分发。
+
+test-runner 使用 pytest-cov 的 xdist 集成收集 worker 覆盖率。测试 app 禁用公网 magnet 镜像、缩短后台解析超时；app-llm 保留下载同步→通知→organize 的真实 scheduler/queue/handler 链路，但 tick 改为 15 秒，magnet 自动重试间隔改为 1 秒。生产调度默认值及真实租约恢复测试的计时不快进。coverage-report 合并所有 xdist 数据文件，不只合并 controller 文件。
+
+最终 isolated 全量为 **5585 passed / 38 skipped / 20 failed**，pytest 1201.81 秒、wall 1223.37 秒；较 2026-10-07 的 3998 项 / 2747.4 秒基线，在 5643 项规模下约提速 2.25 倍，覆盖率为 **88%**（≥85%）。本轮 JUnit 中 `http/` 累计 1163.93 秒且单组串行，已成为关键路径；继续大幅提速需要隔离 HTTP 栈后分片，单纯增加 worker 收益有限。失败包括既有 `llm_temperature` fixture 缺字段 12 项、dedup 候选重验证 3 项、时间升级重复频道 URL 3 项，以及两项 HTTP 用例：decisions/batch 在全量运行出现数据库锁 500，干净栈单测复跑通过；associations 全量为 500，干净栈复跑仍因 `series creation prerequisite failed` / 空 `series_id` 失败，后者根因尚未定性。skip 中 2 项 live magnet、2 项无独立 Redis app、31 项重复频道 URL fixture、3 项任务 fixture 不满足前置条件，均不计为通过。
+
+分布式入口同日回归为 **5062 passed / 568 skipped / 13 failed**，pytest 663.53 秒、wall 691.73 秒。13 项失败为同一 `llm_temperature` fixture 问题 12 项及 associations 500 一项，未新增失败类型；decisions/batch 本轮通过。568 项 skip 主要来自分布式入口未配置的独立 PostgreSQL 管理库、queue-recovery 服务与 app-llm，另有 31 项重复频道 URL；这些环境未覆盖的用例不计为通过。该入口不生成四份合并覆盖率，不能用 isolated 的 88% 代替其覆盖证据。
+
 ## V34 AgentRun 租约候选
 
 `tests/integration/agent_run_lifecycle/`：真实 PG/Turso 共 38 项，覆盖有效/错误 token、过期拒绝复活、终态与租约同事务回滚、限量回收、无租约历史保留、级联删除，以及实际持锁后的双完成、双回收和续租/过期回收竞争。资源标题、GUID、URL 来自固定 SHA 的 prod_works_v1，身份和租约时序合成，不访问下载地址。新增实际 handler 的普通异常、取消、执行权撤销、健康慢任务续租和旧失败不覆盖新成功；尚未覆盖真实进程退出/Redis worker 恢复或旧库升级，专项通过不代表 V34 完成或完整门禁通过。 新增正常停止/一次取消/再次取消 × 两库六项，控制真实已写未提交的续租事务，确认外层等待提交、续租不被取消、无事件循环后台异常；与直接相关 B9/B7 合计 60 项通过。 已补既有 B9/B7、MemoryQueue 定时调度和 handler/scheduler 调用方组合回归，修正测试全局 sleep 隔离及请求错误说明契约后，同一组合 131 项通过。独立探针另验证四个普通异常/真实进程强退场景及数据库时钟自然过期回收；不把探针视为 Redis worker 接管验收。

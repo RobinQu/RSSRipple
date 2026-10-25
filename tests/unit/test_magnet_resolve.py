@@ -429,6 +429,7 @@ async def test_attempt_loop_failure_exhausts_attempts(
     monkeypatch.setattr(mr, "lt", _fake_lt(parse_error=True))
     monkeypatch.setattr(mr.settings, "torrent_cache_dir", str(tmp_path))
     monkeypatch.setattr(mr.settings, "magnet_resolve_max_attempts", 1)
+    monkeypatch.setattr(mr.settings, "magnet_resolve_retry_seconds", 0.01)
 
     r = await _make_magnet_resource(db_session, sample_channel.id)
     assert await mr.launch_resolution(r.id) is True
