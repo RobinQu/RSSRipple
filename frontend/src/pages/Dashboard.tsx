@@ -257,27 +257,29 @@ export default function Dashboard() {
         >
           {t('common.selectAll')}
         </Checkbox>
-        {kind === 'plan' && (
+        <div className="dashboard-todo-actions">
+          {kind === 'plan' && (
+            <Button
+              type="primary"
+              size="small"
+              icon={<Play size={14} />}
+              disabled={selectedExecutable.length === 0}
+              loading={batchExecutingPlans}
+              onClick={() => handleBatchExecutePlans(selectedExecutable)}
+            >
+              {t('organize.executeBatch', { count: selectedExecutable.length })}
+            </Button>
+          )}
           <Button
-            type="primary"
             size="small"
-            icon={<Play size={14} />}
-            disabled={selectedExecutable.length === 0}
-            loading={batchExecutingPlans}
-            onClick={() => handleBatchExecutePlans(selectedExecutable)}
+            danger
+            disabled={selected.length === 0}
+            loading={ignoringTodos}
+            onClick={() => handleIgnoreTodos(kind, selected)}
           >
-            {t('organize.executeBatch', { count: selectedExecutable.length })}
+            {t('dashboard.ignoreSelected', { n: selected.length })}
           </Button>
-        )}
-        <Button
-          size="small"
-          danger
-          disabled={selected.length === 0}
-          loading={ignoringTodos}
-          onClick={() => handleIgnoreTodos(kind, selected)}
-        >
-          {t('dashboard.ignoreSelected', { n: selected.length })}
-        </Button>
+        </div>
       </div>
     );
   };

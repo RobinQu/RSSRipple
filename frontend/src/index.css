@@ -611,6 +611,13 @@ a:hover {
   border-bottom: 1px solid var(--rr-border-soft);
 }
 
+.dashboard-todo-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
 .dashboard-todo-item {
   padding: 10px 0 !important;
 }
