@@ -704,20 +704,21 @@ def test_movedir_crash_resume_converges_partial_dst(tmp_path, monkeypatch):
     monkeypatch.setattr(os, "rename", _exdev_rename)
 
     real_publish = executor._copy_and_publish
-    published = 0
+    published: list[Path] = []
 
     def crashy_publish(s, d, size):
-        nonlocal published
-        if published >= 1:
+        if published:
             raise RuntimeError("simulated SIGKILL mid-move")
-        published += 1
-        return real_publish(s, d, size)
+        real_publish(s, d, size)
+        published.append(Path(d))
 
     monkeypatch.setattr(executor, "_copy_and_publish", crashy_publish)
     # RuntimeError 不是 OSError/FileSafetyError：模仿崩溃直接逃出，半成品留盘
     with pytest.raises(RuntimeError):
         executor._converge_movedir(src, dst)
-    assert src.exists() and (dst / "a.nfo").exists()  # 半成品 + 源残留
+    # os.walk 顺序不保证稳定：只断言本次实际发布的那一个文件已就位。
+    assert src.exists() and len(published) == 1
+    assert all(path.exists() for path in published)  # 半成品 + 源残留
 
     monkeypatch.setattr(executor, "_copy_and_publish", real_publish)
     assert execute_movedir(ExecOp(op_type="movedir", src=str(src), dst=str(dst), size=0)) is None
