@@ -2,8 +2,8 @@
 
 Applies the full desired state from ``PUT /resources/{id}/associations``:
 the works set, the batch verdict/scope, the collection link, per-file
-placements and generic media-descriptor fields. All invariants downstream
-pipelines rely on are enforced here:
+placements, generic media-descriptor fields and work metadata corrections. All
+invariants downstream pipelines rely on are enforced here:
 
 - Non-batch resources keep the legacy single-work FK model: at most one
   work; links / assignments / collection cleared.
@@ -69,9 +69,10 @@ MEDIA_FIELDS = (
 class AssociationValidationError(Exception):
     """User-facing validation failure; the API maps it to 422 VALIDATION_ERROR."""
 
-    def __init__(self, message: str):
+    def __init__(self, message: str, *, step: str | None = None):
         super().__init__(message)
         self.message = message
+        self.step = step
 
 
 @dataclass
@@ -129,6 +130,9 @@ async def _resolve_works(
     for assignment in body.assignments:
         if assignment.work_id in candidate_ids:
             assignment.work_id = candidate_ids[assignment.work_id]
+    for update in body.work_fields:
+        if update.work_id in candidate_ids:
+            update.work_id = candidate_ids[update.work_id]
     return resolved
 
 
@@ -457,6 +461,42 @@ def _validate_collection_consistency(
         )
 
 
+def _validate_work_fields(
+    body: ResourceAssociationUpdateRequest,
+    works_map: dict[tuple[str, str], TVSeries | Movie],
+) -> list[tuple[TVSeries | Movie, dict]]:
+    updates: list[tuple[TVSeries | Movie, dict]] = []
+    seen: set[tuple[str, str]] = set()
+    for update in body.work_fields:
+        key = (update.work_type, update.work_id)
+        if key not in works_map:
+            raise AssociationValidationError(
+                "作品字段修订目标不在作品关联列表中", step="media"
+            )
+        if key in seen:
+            raise AssociationValidationError(
+                "同一作品的字段修订不能重复", step="media"
+            )
+        seen.add(key)
+        data = update.fields.model_dump(exclude_unset=True)
+        incompatible = "release_date" if update.work_type == "series" else "start_date"
+        if incompatible in data:
+            raise AssociationValidationError(
+                f"{update.work_type} 作品不支持字段 {incompatible}", step="media"
+            )
+        updates.append((works_map[key], data))
+    return updates
+
+
+def _apply_work_fields(updates: list[tuple[TVSeries | Movie, dict]]) -> None:
+    from app.services.metadata_service import mark_manually_edited
+
+    for work, data in updates:
+        for key, value in data.items():
+            setattr(work, key, value)
+        mark_manually_edited(work, data)
+
+
 async def apply_association_update(
     db: AsyncSession,
     resource: FileResource,
@@ -488,10 +528,12 @@ async def apply_association_update(
             body, work_keys, works_map=works_map, media_files=media_files
         )
     )
-
-    sent = body.model_fields_set
+    work_field_updates = _validate_work_fields(body, works_map)
 
     # 2) Resource-level flags + association tables.
+    _apply_work_fields(work_field_updates)
+    sent = body.model_fields_set
+
     resource.is_batch = body.is_batch
     resource.batch_scope = _derive_batch_scope(
         resource, work_keys, body.assignments, works_map

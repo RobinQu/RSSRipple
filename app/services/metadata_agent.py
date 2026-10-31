@@ -43,6 +43,7 @@ from app.services.metadata_prompts import _SYSTEM_PROMPT
 from app.services.metadata_repository import _cache_source_key
 from app.services.metadata_resource_meta import ResourceMetadata
 from app.services.metadata_source_io import (
+    _execute_find_tmdb_movie_by_imdb,
     _execute_get_tmdb_details,
     _execute_search_tmdb,
     fetch_tmdb_episode_list,
@@ -329,6 +330,75 @@ def _normalize_finalize_dates(finalize_dict: dict) -> None:
         if me.get(key):
             me[target] = me[key]
             break
+
+
+async def _hydrate_tmdb_movie_fallback(finalize_dict: dict) -> None:
+    """Backfill a grounded IMDb movie fallback from its exact TMDB identity."""
+    if not finalize_dict.get("found") or finalize_dict.get("content_type") != "movie":
+        return
+    entity = finalize_dict.get("matched_entity")
+    if not isinstance(entity, dict) or entity.get("external_source") != "imdb":
+        return
+    external_id = entity.get("external_id")
+    if not isinstance(external_id, str) or re.fullmatch(r"imdb:tt[0-9]+", external_id) is None:
+        return
+
+    found = await _execute_find_tmdb_movie_by_imdb(external_id)
+    results = found.get("data") or []
+    if not found.get("success") or len(results) != 1 or not isinstance(results[0], dict):
+        return
+    tmdb_id = results[0].get("id")
+    if isinstance(tmdb_id, bool) or not isinstance(tmdb_id, int) or tmdb_id < 1:
+        return
+    detail_result = await _execute_get_tmdb_details(str(tmdb_id), "movie")
+    details = detail_result.get("data") or {}
+    if not detail_result.get("success") or details.get("tmdb_id") != tmdb_id:
+        return
+
+    alt_titles = []
+    for value in [
+        *(entity.get("alt_titles") or []),
+        entity.get("title_cn"), entity.get("title_en"), entity.get("original_title"),
+    ]:
+        if isinstance(value, str) and value and value not in alt_titles:
+            alt_titles.append(value)
+    alt_external_ids = []
+    seen_ids = set()
+    for value in [
+        *(entity.get("alt_external_ids") or []),
+        {"source": "imdb", "id": external_id},
+    ]:
+        if not isinstance(value, dict):
+            continue
+        key = (value.get("source"), value.get("id"))
+        if all(key) and key not in seen_ids:
+            seen_ids.add(key)
+            alt_external_ids.append(value)
+
+    hydrated = {
+        **entity,
+        "external_source": "tmdb",
+        "external_id": f"tmdb:{tmdb_id}",
+        "alt_external_ids": alt_external_ids,
+        "alt_titles": alt_titles,
+    }
+    for source, target in (
+        ("title_cn", "title_cn"),
+        ("title_en", "title_en"),
+        ("original_title", "original_title"),
+        ("overview", "description"),
+        ("poster_url", "poster_url"),
+        ("vote_average", "rating"),
+        ("genre", "genre"),
+        ("status", "status"),
+        ("release_date", "release_date"),
+        ("runtime", "runtime"),
+        ("is_anime", "is_anime"),
+    ):
+        value = details.get(source)
+        if value is not None:
+            hydrated[target] = value
+    finalize_dict["matched_entity"] = hydrated
 
 
 def _parse_genre_array(text: str) -> list[str]:
@@ -912,6 +982,7 @@ class UnifiedMetadataAgent:
                     finalize_dict, search_info, raw_title, resource=resource,
                     fallback_sources=getattr(channel, "metadata_fallback_sources", None),
                 )
+                await _hydrate_tmdb_movie_fallback(finalize_dict)
                 await _attach_tmdb_episode_list(finalize_dict)
         finalize_dict["search_method"] = search_info.get("method")
         finalize_dict["data_sources_used"] = search_info.get("data_sources_used") or []
@@ -1078,6 +1149,7 @@ class UnifiedMetadataAgent:
                     finalize_dict, search_info, raw_title,
                     fallback_sources=fallback_sources,
                 )
+                await _hydrate_tmdb_movie_fallback(finalize_dict)
                 await _attach_tmdb_episode_list(finalize_dict)
         finalize_dict["search_method"] = search_info.get("method")
         finalize_dict["data_sources_used"] = search_info.get("data_sources_used") or []

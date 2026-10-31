@@ -6,6 +6,7 @@ All external boundaries (metadata_search_agent functions, httpx) are mocked.
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services.metadata_source_io import (
+    _execute_find_tmdb_movie_by_imdb,
     _execute_get_tmdb_details,
     _execute_search_tmdb,
 )
@@ -134,3 +135,58 @@ async def test_get_tmdb_details_http_error():
         out = await _execute_get_tmdb_details("42", "tv")
     assert out["success"] is False
     assert "connection refused" in out["error"]
+
+
+async def test_find_tmdb_movie_by_imdb_uses_exact_identity_lookup():
+    payload = {"movie_results": [{"id": 1370424, "title": "He's Watching You"}]}
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    resp.json.return_value = payload
+    client = MagicMock()
+    client.get = AsyncMock(return_value=resp)
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=False)
+    with (
+        patch.dict("app.services.runtime_config._overrides", {"tmdb_api_key": "k"}),
+        patch("httpx.AsyncClient", MagicMock(return_value=client)),
+    ):
+        out = await _execute_find_tmdb_movie_by_imdb("imdb:tt26315134")
+
+    assert out == {"success": True, "data": payload["movie_results"]}
+    client.get.assert_awaited_once_with(
+        "https://api.themoviedb.org/3/find/tt26315134",
+        params={"api_key": "k", "external_source": "imdb_id"},
+    )
+
+
+async def test_find_tmdb_movie_by_imdb_returns_empty_results():
+    with (
+        patch.dict("app.services.runtime_config._overrides", {"tmdb_api_key": "k"}),
+        patch("httpx.AsyncClient", _httpx_client_mock({"movie_results": []})),
+    ):
+        out = await _execute_find_tmdb_movie_by_imdb("tt0000000")
+    assert out == {"success": True, "data": []}
+
+
+async def test_find_tmdb_movie_by_imdb_rejects_invalid_id_and_missing_key():
+    with patch.dict("app.services.runtime_config._overrides", {"tmdb_api_key": "k"}):
+        invalid = await _execute_find_tmdb_movie_by_imdb("Black Spines")
+    with patch.dict("app.services.runtime_config._overrides", {"tmdb_api_key": ""}):
+        missing_key = await _execute_find_tmdb_movie_by_imdb("tt26315134")
+    assert invalid["success"] is False
+    assert "Invalid" in invalid["error"]
+    assert missing_key["success"] is False
+    assert "not configured" in missing_key["error"]
+
+
+async def test_find_tmdb_movie_by_imdb_sanitizes_http_errors():
+    client = MagicMock()
+    client.get = AsyncMock(side_effect=RuntimeError("connection refused"))
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=False)
+    with (
+        patch.dict("app.services.runtime_config._overrides", {"tmdb_api_key": "k"}),
+        patch("httpx.AsyncClient", MagicMock(return_value=client)),
+    ):
+        out = await _execute_find_tmdb_movie_by_imdb("tt26315134")
+    assert out == {"success": False, "data": [], "error": "RuntimeError"}

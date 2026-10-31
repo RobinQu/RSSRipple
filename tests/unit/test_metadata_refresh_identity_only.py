@@ -288,3 +288,95 @@ async def test_series_upsert_bags_resolved_pageid_for_slug_id(db_session):
     }
     assert ("wikipedia", "wikipedia:某作品") in coll_bag
     assert ("wikipedia", "wikipedia:zh:888") in coll_bag
+
+
+@pytest.mark.parametrize("rating", [5.8, 0])
+async def test_refresh_hydrated_tmdb_movie_applies_content_and_bags_imdb(db_session, rating):
+    work = Movie(
+        id=_uuid(), title_en="Black Spines", original_title="Black Spines",
+        external_source="imdb", external_id="imdb:tt26315134", content_type="movie",
+    )
+    db_session.add(work)
+    await db_session.flush()
+    candidate = {
+        "content_type": "movie",
+        "title_en": "He's Watching You",
+        "original_title": "He's Watching You",
+        "external_source": "tmdb",
+        "external_id": "tmdb:1370424",
+        "alt_external_ids": [{"source": "imdb", "id": "imdb:tt26315134"}],
+        "alt_titles": ["Black Spines"],
+        "release_date": "2026-01-23",
+        "rating": rating,
+    }
+    patches = _patch_search([candidate])
+    with patches[0], patches[1], patches[2]:
+        result = await refresh_work_by_source(db_session, work, "movie", "tmdb")
+
+    assert "identity_only" not in result
+    assert work.release_date == date(2026, 1, 23)
+    assert work.rating == rating
+    bag = {(row.source, row.external_id) for row in await list_external_ids(db_session, "movie", work.id)}
+    assert ("tmdb", "tmdb:1370424") in bag
+    assert ("imdb", "imdb:tt26315134") in bag
+
+
+@pytest.mark.parametrize("bagged", [False, True])
+@pytest.mark.parametrize("alt_id", ["imdb:tt26315134", "tt26315134"])
+async def test_refresh_hydrated_movie_rejects_imdb_alt_identity_conflict(db_session, bagged, alt_id):
+    owner = Movie(
+        id=_uuid(), title_en="Other Work", content_type="movie",
+        external_source=None if bagged else "imdb",
+        external_id=None if bagged else "imdb:tt26315134",
+    )
+    work = Movie(id=_uuid(), title_en="Black Spines", content_type="movie")
+    db_session.add_all([owner, work])
+    await db_session.flush()
+    if bagged:
+        from app.services.external_ids import add_external_id
+
+        await add_external_id(db_session, "movie", owner.id, "imdb", "imdb:tt26315134")
+    candidate = {
+        "content_type": "movie",
+        "title_en": "He's Watching You",
+        "external_source": "tmdb",
+        "external_id": "tmdb:1370424",
+        "alt_external_ids": [{"source": "imdb", "id": alt_id}],
+        "release_date": "2026-01-23",
+        "rating": 5.8,
+    }
+    patches = _patch_search([candidate])
+    with patches[0], patches[1], patches[2]:
+        result = await refresh_work_by_source(db_session, work, "movie", "tmdb")
+
+    assert result["identity_conflict"] is True
+    assert result["applied"] == []
+    assert work.release_date is None
+    assert work.rating is None
+
+
+async def test_refresh_hydrated_movie_rejects_bare_imdb_cross_type_primary_conflict(db_session):
+    owner = TVSeries(
+        id=_uuid(), title_en="Other Series", content_type="tv", season_number=1,
+        external_source="imdb", external_id="imdb:tt26315134",
+    )
+    work = Movie(id=_uuid(), title_en="Black Spines", content_type="movie")
+    db_session.add_all([owner, work])
+    await db_session.flush()
+    candidate = {
+        "content_type": "movie",
+        "title_en": "He's Watching You",
+        "external_source": "tmdb",
+        "external_id": "tmdb:1370424",
+        "alt_external_ids": [{"source": "imdb", "id": "tt26315134"}],
+        "release_date": "2026-01-23",
+        "rating": 5.8,
+    }
+    patches = _patch_search([candidate])
+    with patches[0], patches[1], patches[2]:
+        result = await refresh_work_by_source(db_session, work, "movie", "tmdb")
+
+    assert result["identity_conflict"] is True
+    assert result["applied"] == []
+    assert work.release_date is None
+    assert work.rating is None

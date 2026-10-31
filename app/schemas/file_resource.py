@@ -1,10 +1,11 @@
 """FileResource Pydantic schemas."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.schemas.genre import GenreName
 from app.schemas.metadata_search import MetadataCandidate
 
 
@@ -123,6 +124,11 @@ class ResourceWorkLinkItem(BaseModel):
     # wizard's collection preselection and same-title season disambiguation.
     collection_id: str | None = None
     season_number: int | None = None
+    rating: float | None = None
+    start_date: date | None = None
+    release_date: date | None = None
+    is_anime: bool | None = None
+    genre: list[GenreName] | None = None
 
     @model_validator(mode="after")
     def _fill_work_display(self) -> "ResourceWorkLinkItem":
@@ -138,6 +144,11 @@ class ResourceWorkLinkItem(BaseModel):
             self.poster_url = entity.poster_url
             self.collection_id = getattr(entity, "collection_id", None)
             self.season_number = getattr(entity, "season_number", None)
+            self.rating = getattr(entity, "rating", None)
+            self.start_date = getattr(entity, "start_date", None)
+            self.release_date = getattr(entity, "release_date", None)
+            self.is_anime = getattr(entity, "is_anime", None)
+            self.genre = getattr(entity, "genre", None)
         return self
 
 
@@ -327,6 +338,31 @@ class ResourceMediaFields(BaseModel):
         return getattr(self, key)
 
 
+class ResourceWorkFields(BaseModel):
+    """Work-level metadata corrections accepted under ``work_fields.fields``."""
+
+    rating: float | None = Field(default=None, ge=0, le=10)
+    start_date: date | None = None
+    release_date: date | None = None
+    is_anime: bool | None = None
+    genre: list[GenreName] | None = None
+
+    @field_validator("start_date", "release_date", mode="before")
+    @classmethod
+    def normalize_year(cls, value: Any) -> Any:
+        if isinstance(value, str) and len(value) == 4 and value.isdigit():
+            return date(int(value), 1, 1)
+        return value
+
+
+class AssociationWorkFields(BaseModel):
+    """Metadata corrections for one existing or newly materialized work."""
+
+    work_type: Literal["series", "movie"]
+    work_id: str
+    fields: ResourceWorkFields
+
+
 class ResourceAssociationUpdateRequest(BaseModel):
     """Payload for PUT /resources/{id}/associations — the edit wizard's full
     desired state, replacing the resource's association set atomically.
@@ -343,6 +379,8 @@ class ResourceAssociationUpdateRequest(BaseModel):
       all-movie → "movies"; mixed tv+movie or multi-tv → "franchise";
       single tv → "season" when a season is known else "multi_season".
     - Every assignment's (work_type, work_id) must appear in ``works``.
+    - Every ``work_fields`` target must also appear in ``works``; series use
+      ``start_date`` and movies use ``release_date``.
     - Two-level association (per-season works): when ``collection_id`` is
       sent, every series work in ``works`` must belong to that collection.
     - Multi-work packs (>1 work) must be complete: every work has at least
@@ -362,6 +400,8 @@ class ResourceAssociationUpdateRequest(BaseModel):
     absolute_episode: int | None = None
     # Generic media-descriptor corrections applied in the same transaction.
     fields: ResourceMediaFields | None = None
+    # Work-level metadata corrections; every target must occur in ``works``.
+    work_fields: list[AssociationWorkFields] = []
 
 
 class ResourceFileEntry(BaseModel):

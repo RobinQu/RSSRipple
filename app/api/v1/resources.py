@@ -66,11 +66,11 @@ def _association_error_step(message: str) -> str | None:
     ``meta.step`` of the 422 response (``collection`` → works/collection step,
     ``assignments`` → file-mapping step).
 
-    The exception carries only its human-readable message, so the
-    classification keys off the message text — owned by
+    Without an explicit service-side ``step``, classification keys off the
+    human-readable message text — owned by
     ``app/services/resource_association.py``; keep these markers in sync with
-    its raise sites. A service-side ``step`` attribute, if ever added, takes
-    precedence (see the endpoint below).
+    its raise sites. An explicit ``step`` takes precedence (see the endpoint
+    below).
     """
     if re.search(r"合集|作品集|collection", message, re.IGNORECASE):
         return "collection"
@@ -1075,8 +1075,8 @@ async def update_resource_associations(
 
     Validates every invariant (works existence, non-batch single-work cap,
     batch-scope derivation, placement membership / season / episode-run
-    overlap), applies works + collection + assignments + generic fields in
-    one transaction, then re-runs the channel's active agents as a targeted
+    overlap), applies works + collection + assignments + generic/work fields
+    in one transaction, then re-runs the channel's active agents as a targeted
     run (commit-first, watermark untouched — same convention as PATCH).
     Overlap violations return 422; continuity gaps are returned as warnings.
     """

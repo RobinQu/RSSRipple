@@ -268,7 +268,7 @@ class TVSeries(Base):
     is_anime: bool | None                # 三态动漫标记：True=日本动画 / False=确认实拍 / None=未判定；
                                          # 与 content_type（媒介）正交（剧场版动画两者独立），
                                          # 判定与赋值规则见下文「is_anime 判定约定」
-    manually_edited_fields: list[str] | None  # 人工编辑保护：用户经作品详情页「编辑」表单改过的字段名列表
+    manually_edited_fields: list[str] | None  # 人工编辑保护：用户经作品编辑页或资源修订向导改过的字段名列表
                                          # （JSON 数组，取值 ⊂ MANUAL_EDITABLE_FIELDS，见 metadata_service）；
                                          # 自动扫描（upsert / apply_is_anime / 频道默认标记 / bangumi 验证）
                                          # 跳过其中的字段；刷新管线（apply_work_metadata）默认同样跳过，
@@ -337,7 +337,7 @@ class Movie(Base):
 
 - **存储**：英文 canonical 名（如 `"Animation"`、`"Sci-Fi & Fantasy"`），按注册表顺序去重；中文显示归前端 i18n。
 - **来源**：TMDB 直连 id 直译；wikipedia/Exa 路径由 LLM（judge/ReAct prompt 注入完整枚举）根据外部作品详情输出，prompt 要求**尽力推测**——源未显式列出标签时必须依据简介/categories 推断，有简介就至少给一个；judge/ReAct 仍为空时由 `_ensure_genre` 兜底（一次低成本 LLM 调用按简介分类，结果再次钳制）；所有产出统一经 `normalize_genres` 钳制——表外值一律丢弃（记录 debug 日志），空结果视为"未提供"。
-- **写回规则**：新值非空才覆盖既有值；归一化后为空不清空旧值。手动 PATCH 的 genre 可能被下一次 metadata 更新覆盖（本期不做 manual 保护标记）。
+- **写回规则**：自动 metadata 写入时，新值非空才覆盖既有值；归一化后为空不清空旧值。人工编辑的 genre 由 `manually_edited_fields` 保护，详见下文。
 - **API 校验**：作品 Create/Update 的 genre 为 `GenreName` 枚举，表外值 422；通知 payload 的 `work.genre` 快照同样落封闭集。
 - **存量**：`scripts/genre_backfill.py` 模式 A 就地规范化既有值，模式 B `--refresh-empty` 对空值作品重跑 metadata 补齐；缓存代际 `METADATA_CACHE_GENERATION=3` 使旧缓存惰性失效。
 
@@ -356,10 +356,10 @@ class Movie(Base):
 
 ### 人工编辑保护（manually_edited_fields）
 
-`TVSeries` / `Movie` 新增 JSON 列 `manually_edited_fields`（字段名列表），记录用户经作品编辑页表单显式改过的字段。权威取值集合一处定义：`app/services/metadata_service.py` 的 `MANUAL_EDITABLE_FIELDS`（标题三字段、aliases、description、poster_url、rating、genre、status、is_anime、series 的季集/日期、movie 的 release_date/runtime、`content_type`、`external_id`、`external_source`）。
+`TVSeries` / `Movie` 新增 JSON 列 `manually_edited_fields`（字段名列表），记录用户经作品编辑页或资源修订向导显式改过的字段。权威取值集合一处定义：`app/services/metadata_service.py` 的 `MANUAL_EDITABLE_FIELDS`（标题三字段、aliases、description、poster_url、rating、genre、status、is_anime、series 的季集/日期、movie 的 release_date/runtime、`content_type`、`external_id`、`external_source`）。
 
 - **可编辑 vs 系统托管**：仅 `MANUAL_EDITABLE_FIELDS` 中的字段可在编辑页修改（`content_type` 限 `tv`/`movie`）；`canonical_name`/`wikipedia_url`/`wikipedia_page_id`/`seasons`/`collection_id`/`search_text`/时间戳为系统托管，不可编辑。
-- **记录时机**：`PUT /series/{id}` / `PUT /movies/{id}` 按 `exclude_unset` 后的显式发送字段（含显式 null）与 `MANUAL_EDITABLE_FIELDS` 求交，并入 `manually_edited_fields`（`mark_manually_edited`，去重排序）。
+- **记录时机**：`PUT /series/{id}` / `PUT /movies/{id}`，以及 `PUT /resources/{id}/associations` 的 `work_fields`，均按 `exclude_unset` 后的显式发送字段（含显式 null）与 `MANUAL_EDITABLE_FIELDS` 求交，并入 `manually_edited_fields`（`mark_manually_edited`，去重排序）。
 - **身份变更入袋**：PUT 显式发送 `external_id`/`external_source` 且 `(external_source, external_id)` 实际变化时，先把旧身份对幂等写入 `WorkExternalId` 身份袋（`add_external_id`；id 已被其他作品占用则冲突不抢、仅记 warning），再覆盖主列——作品在旧身份下仍可反查。
 - **自动扫描跳过**：`create_or_update_*_from_external` 更新分支、`apply_is_anime`、`apply_channel_default_is_anime`、`maybe_verify_is_anime_via_bangumi` 在写任一字段前检查 `field_manually_edited`，命中即不改写该字段（新建作品无该列表，不受影响）；`content_type`/`external_id`/`external_source` 三字段在 upsert 与刷新管线（`apply_work_metadata`）中同样受此守卫（`override_manual_edits=true` 时可覆盖）。
 - **刷新元数据**：刷新管线（`refresh_work_by_source` → `preview/apply_work_metadata`）默认跳过 `manually_edited_fields` 中的字段；仅当请求带 `override_manual_edits=true`（作品模块刷新对话框「覆盖所有人工编辑字段」，`POST /works/metadata/apply`）时才覆盖。批量/周期刷新不传该 flag，恒为默认（不覆盖）。
@@ -862,7 +862,7 @@ class MetadataCache(Base):
     updated_at: datetime
 ```
 
-**逻辑版本化**：`METADATA_CACHE_GENERATION`（当前 7；gen 7 = Wikipedia/TMDB 主来源身份与可信别名接地；gen 6 = web fallback 白名单前置、输出身份绑定可见候选及季集/身份袋字段出口保护）标记产生缓存 verdict 的分类/判定逻辑版本。读取时 `generation != 当前版本` 的行视为未命中并懒删除——任何分类器、judge 提示词、匹配规则的变更只需 bump 该常量，旧逻辑产生的 verdict 即全部作废，不会短路修复后的代码。缓存失效不等于修复已有作品身份，不触发存量作品批量重绑。
+**逻辑版本化**：`METADATA_CACHE_GENERATION`（当前 8；gen 8 = TMDB 电影回退候选经 IMDb 精确身份回查补全；gen 7 = Wikipedia/TMDB 主来源身份与可信别名接地；gen 6 = web fallback 白名单前置、输出身份绑定可见候选及季集/身份袋字段出口保护）标记产生缓存 verdict 的分类/判定逻辑版本。读取时 `generation != 当前版本` 的行视为未命中并懒删除——任何分类器、judge 提示词、匹配规则的变更只需 bump 该常量，旧逻辑产生的 verdict 即全部作废，不会短路修复后的代码。缓存失效不等于修复已有作品身份，不触发存量作品批量重绑。
 
 ### FtsOutbox（全文检索变更日志 - 仅 Turso 使用）
 

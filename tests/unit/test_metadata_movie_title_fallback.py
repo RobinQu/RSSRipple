@@ -7,8 +7,14 @@ from __future__ import annotations
 import uuid
 from datetime import date
 
+import pytest
+
 from app.models.movie import Movie
-from app.services.metadata_service import find_existing_movie_for_external
+from app.services.metadata_service import (
+    MetadataIdentityConflictError,
+    create_or_update_movie_from_external,
+    find_existing_movie_for_external,
+)
 
 
 def _uuid() -> str:
@@ -116,3 +122,50 @@ async def test_title_fallback_year_guard_disambiguates(db_session):
         "external_source": "tmdb",
     })
     assert found is not None and found.id == new.id
+
+
+async def test_movie_upsert_converges_through_alternate_imdb_identity(db_session):
+    stored = _movie(
+        title_en="Manually Renamed",
+        original_title="Manually Renamed",
+        external_source="imdb",
+        external_id="imdb:tt26315134",
+    )
+    db_session.add(stored)
+    await db_session.flush()
+
+    movie = await create_or_update_movie_from_external(db_session, {
+        "content_type": "movie",
+        "title_en": "He's Watching You",
+        "original_title": "He's Watching You",
+        "external_source": "tmdb",
+        "external_id": "tmdb:1370424",
+        "alt_external_ids": [{"source": "imdb", "id": "imdb:tt26315134"}],
+        "release_date": "2026-01-23",
+        "rating": 5.8,
+    })
+
+    assert movie.id == stored.id
+    assert stored.release_date == date(2026, 1, 23)
+    assert stored.rating == 5.8
+
+
+async def test_movie_upsert_rejects_identities_owned_by_different_works(db_session):
+    tmdb_owner = _movie(title_en="TMDB Owner", external_id="tmdb:1370424")
+    imdb_owner = _movie(
+        title_en="IMDb Owner", external_source="imdb", external_id="imdb:tt26315134",
+    )
+    db_session.add_all([tmdb_owner, imdb_owner])
+    await db_session.flush()
+
+    with pytest.raises(MetadataIdentityConflictError):
+        await create_or_update_movie_from_external(db_session, {
+            "content_type": "movie",
+            "title_en": "He's Watching You",
+            "external_source": "tmdb",
+            "external_id": "tmdb:1370424",
+            "alt_external_ids": [{"source": "imdb", "id": "imdb:tt26315134"}],
+            "rating": 5.8,
+        })
+    assert tmdb_owner.rating is None
+    assert imdb_owner.rating is None

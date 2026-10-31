@@ -120,7 +120,7 @@ def test_missing_required_fields_uses_resource_shape_and_false_is_present():
 def test_links_only_multi_season_shape_and_work_fields():
     """终态 multi_season 包（清 FK、works 在 links 上）：形态为
     tv_multi_season；content_type 经首个关联作品解析，year 跨全部 link
-    作品聚合最早年份。"""
+    作品聚合最晚年份。"""
     from app.services.required_fields import resource_shape
 
     work = SimpleNamespace(
@@ -151,8 +151,8 @@ def test_links_only_multi_season_shape_and_work_fields():
     assert missing == ["rating"]
 
 
-def test_links_year_aggregates_earliest_across_works():
-    """year 键跨全部 link 作品取最早年份：首个 link 作品无日期（如特典
+def test_links_year_aggregates_latest_across_works():
+    """year 键跨全部 link 作品取最晚年份：首个 link 作品无日期（如特典
     季）不再让 year 门禁恒 missing。"""
     specials = SimpleNamespace(start_date=None, is_anime=True)
     season1 = SimpleNamespace(start_date=date(2024, 4, 1), is_anime=True)
@@ -176,7 +176,7 @@ def test_links_year_aggregates_earliest_across_works():
 
     from app.services.required_fields import _semantic_field_value
 
-    assert _semantic_field_value(resource, "year") == 2024
+    assert _semantic_field_value(resource, "year") == 2026
 
     # 其他作品键维持「首个 link 作品」语义。
     resource_flipped = SimpleNamespace(

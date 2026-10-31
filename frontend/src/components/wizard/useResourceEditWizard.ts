@@ -22,8 +22,12 @@ import {
 import {
   DIRECT_METADATA_FIELD_KEYS,
   MEDIA_TEXT_KEYS,
+  WORK_METADATA_FIELD_KEYS,
+  missingWorkMetadataFields,
   normTitle,
   scopeLabelOf,
+  workMetadataFieldsUpdate,
+  workMetadataLabelKey,
   worksAddedIsEmpty,
   type ChangesShape,
   type ClusterGroup,
@@ -31,6 +35,7 @@ import {
   type MediaFieldKey,
   type Placement,
   type PoolRow,
+  type WorkMetadataDraft,
 } from './types';
 import type {
   AssociationUpdatePayload,
@@ -116,6 +121,13 @@ export function useResourceEditWizard({
   const [subtitleLangs, setSubtitleLangs] = useState<string[]>([]);
   const [directMetadata, setDirectMetadata] = useState<Record<DirectMetadataFieldKey, string>>({
     title_cn: '', title_en: '', search_title: '',
+  });
+  const [workFieldsTarget, setWorkFieldsTarget] = useState<AssociationWorkRef | null>(null);
+  const [workMetadata, setWorkMetadata] = useState<WorkMetadataDraft>({
+    date: null, rating: null, is_anime: null, genre: [],
+  });
+  const [originalWorkMetadata, setOriginalWorkMetadata] = useState<WorkMetadataDraft>({
+    date: null, rating: null, is_anime: null, genre: [],
   });
   const [channelMetadataSource, setChannelMetadataSource] = useState<MetadataSource>('wikipedia');
   const [channelFallbackSources, setChannelFallbackSources] = useState<string[]>(DEFAULT_FALLBACK_SOURCES);
@@ -290,6 +302,38 @@ export function useResourceEditWizard({
         title_en: d.title_en || '',
         search_title: d.search_title || '',
       });
+      let nextWorkFieldsTarget: AssociationWorkRef | null = null;
+      let workSource:
+        | NonNullable<FileResourceDetail['series']>
+        | FileResourceDetail['work_links'][number]
+        | null = null;
+      if (d.series_id && d.series) {
+        nextWorkFieldsTarget = { work_type: 'series', work_id: d.series_id };
+        workSource = d.series;
+      } else if (d.movie_id && d.movie) {
+        nextWorkFieldsTarget = { work_type: 'movie', work_id: d.movie_id };
+        workSource = d.movie;
+      } else {
+        const link = (d.work_links ?? []).find((l) => l.series_id || l.movie_id);
+        if (link) {
+          nextWorkFieldsTarget = link.series_id
+            ? { work_type: 'series', work_id: link.series_id }
+            : { work_type: 'movie', work_id: link.movie_id! };
+          workSource = link;
+        }
+      }
+      const workDate = nextWorkFieldsTarget?.work_type === 'movie'
+        ? workSource?.release_date
+        : workSource?.start_date;
+      const nextWorkMetadata: WorkMetadataDraft = {
+        date: workDate?.slice(0, 4) ?? null,
+        rating: workSource?.rating ?? null,
+        is_anime: workSource?.is_anime ?? null,
+        genre: [...(workSource?.genre ?? [])],
+      };
+      setWorkFieldsTarget(nextWorkFieldsTarget);
+      setWorkMetadata({ ...nextWorkMetadata, genre: [...nextWorkMetadata.genre] });
+      setOriginalWorkMetadata(nextWorkMetadata);
       setLoading(false);
       const channelRes = await channelsApi.get(d.channel_id);
       if (!cancelled && channelRes.success) {
@@ -991,6 +1035,11 @@ export function useResourceEditWizard({
     gotoStep(next);
   };
 
+  const workFieldsTargetActive = () => Boolean(workFieldsTarget && works.some((w) =>
+    workKeyOf(w.work_type, w.work_id) ===
+    workKeyOf(workFieldsTarget.work_type, workFieldsTarget.work_id)
+  ));
+
   /** Snapshot of the wizard state the pure step validator reads. */
   const stepState = () => ({
     isBatch,
@@ -1001,6 +1050,10 @@ export function useResourceEditWizard({
       season: workSeasons[workKeyOf(w.work_type, w.work_id)] ?? null,
     })),
     placements,
+    missingWorkFields: missingWorkMetadataFields(
+      detail?.missing_fields ?? [], workFieldsTargetActive(),
+    ),
+    workMetadata,
   });
 
   /** Surface a step-validation failure: toast for the season gap (matches
@@ -1008,6 +1061,14 @@ export function useResourceEditWizard({
   const showStepError = (stepIdx: number, error: WizardStepError) => {
     if (error.code === 'tv_season_required') {
       message.error(t('resource.tvSeasonRequired'));
+    } else if (error.code === 'work_fields_required') {
+      const fields = (error.fields ?? []).map((key) =>
+        t(`resource.${workMetadataLabelKey(key)}`)
+      );
+      setSaveError({
+        step: stepIdx,
+        message: t('resource.workFieldsRequired', { fields: fields.join('、') }),
+      });
     } else {
       const names = (error.workKeys ?? []).map((k) => workTitles[k] || k);
       setSaveError({
@@ -1076,6 +1137,14 @@ export function useResourceEditWizard({
       fields.subtitle_langs = subtitleLangs;
     }
     if (Object.keys(fields).length > 0) payload.fields = fields;
+    if (workFieldsTargetActive() && workFieldsTarget) {
+      const workFields = workMetadataFieldsUpdate(
+        workFieldsTarget.work_type, workMetadata, originalWorkMetadata,
+      );
+      if (Object.keys(workFields).length > 0) {
+        payload.work_fields = [{ ...workFieldsTarget, fields: workFields }];
+      }
+    }
     return payload;
   };
 
@@ -1176,6 +1245,42 @@ export function useResourceEditWizard({
       }
     }
 
+    const workChanges: ChangesShape['workChanges'] = [];
+    if (payload.work_fields?.length) {
+      const off = t('common.off');
+      const animeLabel = (value: boolean | null) =>
+        value == null ? off : value ? t('works.anime') : t('works.liveAction');
+      const comparisons = {
+        year: {
+          changed: workMetadata.date !== originalWorkMetadata.date,
+          from: originalWorkMetadata.date?.slice(0, 4) || off,
+          to: workMetadata.date?.slice(0, 4) || off,
+        },
+        rating: {
+          changed: workMetadata.rating !== originalWorkMetadata.rating,
+          from: originalWorkMetadata.rating == null ? off : String(originalWorkMetadata.rating),
+          to: workMetadata.rating == null ? off : String(workMetadata.rating),
+        },
+        is_anime: {
+          changed: workMetadata.is_anime !== originalWorkMetadata.is_anime,
+          from: animeLabel(originalWorkMetadata.is_anime),
+          to: animeLabel(workMetadata.is_anime),
+        },
+        genre: {
+          changed: JSON.stringify(workMetadata.genre) !== JSON.stringify(originalWorkMetadata.genre),
+          from: originalWorkMetadata.genre.join(', ') || off,
+          to: workMetadata.genre.join(', ') || off,
+        },
+      };
+      for (const key of WORK_METADATA_FIELD_KEYS) {
+        if (comparisons[key].changed) {
+          workChanges.push({
+            key, from: comparisons[key].from, to: comparisons[key].to,
+          });
+        }
+      }
+    }
+
     return {
       payload,
       scopeFrom: detail.batch_scope
@@ -1203,6 +1308,7 @@ export function useResourceEditWizard({
           : null,
       singleEpChanges,
       mediaChanges,
+      workChanges,
     };
   };
 
@@ -1210,10 +1316,12 @@ export function useResourceEditWizard({
     if (!detail) return;
     setSaveError(null);
     // Final defense — the same checks already gate forward navigation.
-    const stepError = validateStep(1, stepState());
-    if (stepError) {
-      showStepError(1, stepError);
-      return;
+    for (const stepIdx of [1, 2]) {
+      const stepError = validateStep(stepIdx, stepState());
+      if (stepError) {
+        showStepError(stepIdx, stepError);
+        return;
+      }
     }
     const changes = computeChanges();
     if (!changes) return;
@@ -1222,6 +1330,7 @@ export function useResourceEditWizard({
       worksAddedIsEmpty(changes) &&
       changes.mappingChanged.length === 0 &&
       changes.mediaChanges.length === 0 &&
+      changes.workChanges.length === 0 &&
       changes.singleEpChanges.length === 0 &&
       !changes.collectionChanged &&
       changes.scopeFrom === changes.scopeTo;
@@ -1404,6 +1513,9 @@ export function useResourceEditWizard({
     setSubtitleLangs,
     directMetadata,
     setDirectMetadata,
+    workFieldsTarget,
+    workMetadata,
+    setWorkMetadata,
     // work picker
     pickerOpen,
     setPickerOpen,

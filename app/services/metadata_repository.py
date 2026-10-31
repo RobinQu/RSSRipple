@@ -291,21 +291,37 @@ async def _apply_to_resource(
                         (meta.matched_entity.get("title_cn") or meta.matched_entity.get("title_en") or "")[:60],
                         meta.matched_entity.get("external_id"),
                     )
-                    series = await create_or_update_series_from_external(
-                        db, meta.matched_entity,
-                        season_hint=resource_season_hint(resource, meta.matched_entity),
-                        season_ambiguous=meta.season_ambiguous,
-                        expected_series_id=expected_series_id,
-                    )
-                    if series is not None:
-                        resource.series_id = series.id
-                        resource.movie_id = None
-                        resource.audio_work_id = None
-                    else:
-                        # Season indeterminate: link the known owner row.
+                    primary_owner = await find_series_by_external_id(db, {
+                        **meta.matched_entity, "alt_external_ids": [],
+                    })
+                    if primary_owner is None:
+                        if expected_series_id is not None and existing_series.id != expected_series_id:
+                            from app.services.metadata_service import MetadataTargetMismatchError
+
+                            raise MetadataTargetMismatchError(
+                                "Metadata identity conflicts with selected season work"
+                            )
+                        # An alternate identity owns this series; do not let a
+                        # different primary identity create a duplicate season.
                         resource.series_id = existing_series.id
                         resource.movie_id = None
                         resource.audio_work_id = None
+                    else:
+                        series = await create_or_update_series_from_external(
+                            db, meta.matched_entity,
+                            season_hint=resource_season_hint(resource, meta.matched_entity),
+                            season_ambiguous=meta.season_ambiguous,
+                            expected_series_id=expected_series_id,
+                        )
+                        if series is not None:
+                            resource.series_id = series.id
+                            resource.movie_id = None
+                            resource.audio_work_id = None
+                        else:
+                            # Season indeterminate: link the known owner row.
+                            resource.series_id = existing_series.id
+                            resource.movie_id = None
+                            resource.audio_work_id = None
             else:
                 movie = await create_or_update_movie_from_external(db, meta.matched_entity)
                 resource.movie_id = movie.id

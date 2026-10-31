@@ -170,7 +170,7 @@ class TestSemanticFieldValueViaLinks:
         pack = self._pack([])
         assert "content_type" in rf.missing_required_fields(pack, ["content_type"])
 
-    def test_year_aggregates_earliest_across_all_link_works(self):
+    def test_year_aggregates_latest_across_all_link_works(self):
         links = [
             _series_link(0, None),  # specials season without a date
             _series_link(2, date(2022, 1, 1)),
@@ -178,6 +178,7 @@ class TestSemanticFieldValueViaLinks:
         ]
         pack = self._pack(links)
         assert rf.missing_required_fields(pack, ["year"]) == []
+        assert rf._semantic_field_value(pack, "year") == 2022
 
     def test_year_missing_when_all_link_works_dateless(self):
         pack = self._pack([_series_link(1, None)])

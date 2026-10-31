@@ -1,6 +1,10 @@
 import { Space, Typography } from 'antd';
 import { useTranslation } from 'react-i18next';
-import { mediaLabelKey, type ChangesShape, type MediaFieldKey } from './types';
+import {
+  mediaLabelI18nKey,
+  workMetadataLabelKey,
+  type ChangesShape,
+} from './types';
 
 const { Text } = Typography;
 
@@ -14,7 +18,8 @@ export default function ReviewRows({ changes }: { changes: ChangesShape }) {
     changes.mappingChanged.length > 0 ||
     !!changes.collectionChanged ||
     changes.singleEpChanges.length > 0 ||
-    changes.mediaChanges.length > 0;
+    changes.mediaChanges.length > 0 ||
+    changes.workChanges.length > 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -79,7 +84,17 @@ export default function ReviewRows({ changes }: { changes: ChangesShape }) {
         <ReviewSection title={t('resource.confirmMedia')}>
           {changes.mediaChanges.map((c) => (
             <div key={c.key} style={{ fontSize: 12 }}>
-              {t(`resource.${mediaLabelKey(c.key as MediaFieldKey)}`)}: {c.from} → {c.to}
+              {t(mediaLabelI18nKey(c.key))}: {c.from} → {c.to}
+            </div>
+          ))}
+        </ReviewSection>
+      )}
+
+      {changes.workChanges.length > 0 && (
+        <ReviewSection title={t('resource.confirmWorkMetadata')}>
+          {changes.workChanges.map((c) => (
+            <div key={c.key} style={{ fontSize: 12 }}>
+              {t(`resource.${workMetadataLabelKey(c.key)}`)}: {c.from} → {c.to}
             </div>
           ))}
         </ReviewSection>

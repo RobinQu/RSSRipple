@@ -90,12 +90,26 @@ export function admitWork(
   return { action: 'ok' };
 }
 
-export type WizardStepErrorCode = 'tv_season_required' | 'works_unassigned';
+export type WizardStepErrorCode =
+  | 'tv_season_required'
+  | 'works_unassigned'
+  | 'work_fields_required';
+
+export type WizardWorkMetadataFieldKey = 'year' | 'rating' | 'is_anime' | 'genre';
 
 export interface WizardStepError {
   code: WizardStepErrorCode;
   /** Work keys (`type:id`) without any file assignment (works_unassigned). */
   workKeys?: string[];
+  /** Missing work metadata keys (work_fields_required). */
+  fields?: WizardWorkMetadataFieldKey[];
+}
+
+export interface WizardWorkMetadataLike {
+  date: string | null;
+  rating: number | null;
+  is_anime: boolean | null;
+  genre: string[];
 }
 
 /**
@@ -108,11 +122,27 @@ export interface WizardStepError {
  * Step 1 (file mapping) mirrors the checks that used to live only in
  * handleSave: batch TV placements need a season, and every non-special work
  * of a multi-work pack needs at least one file assignment.
+ * Step 2 requires every displayed work-metadata gap to be filled.
  */
 export function validateStep(
   step: number,
-  state: WizardStepState,
+  state: WizardStepState & {
+    missingWorkFields?: WizardWorkMetadataFieldKey[];
+    workMetadata?: WizardWorkMetadataLike;
+  },
 ): WizardStepError | null {
+  if (step === 2) {
+    const draft = state.workMetadata;
+    if (!draft) return null;
+    const fields = (state.missingWorkFields ?? []).filter((key) => {
+      if (key === 'year') return !draft.date;
+      if (key === 'rating') return draft.rating == null;
+      if (key === 'is_anime') return draft.is_anime == null;
+      if (key === 'genre') return draft.genre.length === 0;
+      return false;
+    });
+    return fields.length ? { code: 'work_fields_required', fields } : null;
+  }
   if (step !== 1) return null;
   if (!state.isBatch || state.audioLinked) return null;
   const placements = Object.values(state.placements);
@@ -133,7 +163,7 @@ export function validateStep(
 }
 
 /** Machine-readable wizard step hints carried by the associations 422. */
-export type AssociationErrorStep = 'collection' | 'assignments';
+export type AssociationErrorStep = 'collection' | 'assignments' | 'media';
 
 /**
  * Wizard step index for a failed associations save. The server's 422 carries
@@ -143,6 +173,7 @@ export type AssociationErrorStep = 'collection' | 'assignments';
 export function stepFromSaveError(metaStep: unknown, message: string): number {
   if (metaStep === 'collection') return 0;
   if (metaStep === 'assignments') return 1;
+  if (metaStep === 'media') return 2;
   if (/合集|作品集|collection/i.test(message)) return 0;
   if (/文件|指派|覆盖|区间|季/.test(message)) return 1;
   return 3;

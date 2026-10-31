@@ -252,6 +252,11 @@ export interface ResourceWorkLinkItem {
   // for series works, the season the work IS (0 = specials).
   collection_id: string | null;
   season_number: number | null;
+  rating?: number | null;
+  start_date?: string | null;
+  release_date?: string | null;
+  is_anime?: boolean | null;
+  genre?: string[] | null;
 }
 
 // resource_file_assignments row — per-file work/season/episode mapping.
@@ -293,6 +298,18 @@ export interface AssociationFileAssignmentInput {
   episode_end?: number | null;
 }
 
+export interface AssociationWorkFieldsInput {
+  work_type: WorkRefType;
+  work_id: string;
+  fields: {
+    rating?: number | null;
+    start_date?: string | null;
+    release_date?: string | null;
+    is_anime?: boolean | null;
+    genre?: string[] | null;
+  };
+}
+
 export interface AssociationUpdatePayload {
   is_batch: boolean;
   works: AssociationWorkRef[];
@@ -318,6 +335,7 @@ export interface AssociationUpdatePayload {
       | 'subtitle_langs'
     >
   >;
+  work_fields?: AssociationWorkFieldsInput[];
 }
 
 export type BatchSuggestionScope = 'movies' | 'mixed' | 'franchise';

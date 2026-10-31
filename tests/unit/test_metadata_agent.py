@@ -3345,11 +3345,14 @@ async def test_process_routes_tmdb_to_react_then_web_fallback(monkeypatch):
         {"method": "react", "data_sources_used": ["tmdb"], "source_errors": {}, "error": None},
     )
     monkeypatch.setattr(ma_module, "web_fallback_judge", AsyncMock(return_value=None))
+    hydrate = AsyncMock()
+    monkeypatch.setattr(ma_module, "_hydrate_tmdb_movie_fallback", hydrate)
     channel = SimpleNamespace(
         id="ch", metadata_source="tmdb", metadata_fallback_sources=None, name="ch",
     )
     meta = await agent.process(_ns_resource(), channel, MagicMock())
     agent._run_react.assert_called_once()
+    hydrate.assert_awaited_once()
     assert meta.found is False
 
 
@@ -3418,8 +3421,11 @@ async def test_process_title_only_tmdb_react_and_fallback(monkeypatch):
         {"method": "react", "data_sources_used": ["tmdb"], "source_errors": {}, "error": None},
     ))
     monkeypatch.setattr(ma_module, "web_fallback_judge", AsyncMock(return_value=None))
+    hydrate = AsyncMock()
+    monkeypatch.setattr(ma_module, "_hydrate_tmdb_movie_fallback", hydrate)
     meta = await agent.process_title_only("Some Show 2005 - 01", "tmdb")
     agent._run_react.assert_awaited_once()
+    hydrate.assert_awaited_once()
     assert meta.found is False
 
 
@@ -3489,3 +3495,100 @@ def test_reset_metadata_agent_clears_singleton():
     ma_module._agent_instance = object()
     ma_module.reset_metadata_agent()
     assert ma_module._agent_instance is None
+
+
+def _black_spines_fallback() -> dict:
+    return {
+        "found": True,
+        "content_type": "movie",
+        "matched_entity": {
+            "external_source": "imdb",
+            "external_id": "imdb:tt26315134",
+            "title_en": "Black Spines",
+            "original_title": "Black Spines",
+            "description": "fallback synopsis",
+        },
+    }
+
+
+async def test_hydrate_tmdb_movie_fallback_backfills_black_spines(monkeypatch):
+    finalize = _black_spines_fallback()
+    find = AsyncMock(return_value={
+        "success": True,
+        "data": [{"id": 1370424, "title": "He's Watching You"}],
+    })
+    details = AsyncMock(return_value={
+        "success": True,
+        "data": {
+            "tmdb_id": 1370424,
+            "title_cn": "He's Watching You",
+            "title_en": "He's Watching You",
+            "original_title": "He's Watching You",
+            "overview": "primary synopsis",
+            "vote_average": 5.8,
+            "release_date": "2026-01-23",
+            "genre": ["Horror"],
+            "status": "Released",
+            "runtime": 91,
+            "is_anime": False,
+        },
+    })
+    monkeypatch.setattr(ma_module, "_execute_find_tmdb_movie_by_imdb", find)
+    monkeypatch.setattr(ma_module, "_execute_get_tmdb_details", details)
+
+    await ma_module._hydrate_tmdb_movie_fallback(finalize)
+
+    entity = finalize["matched_entity"]
+    assert entity["external_source"] == "tmdb"
+    assert entity["external_id"] == "tmdb:1370424"
+    assert entity["rating"] == 5.8
+    assert entity["release_date"] == "2026-01-23"
+    assert entity["description"] == "primary synopsis"
+    assert entity["alt_external_ids"] == [{"source": "imdb", "id": "imdb:tt26315134"}]
+    assert "Black Spines" in entity["alt_titles"]
+    find.assert_awaited_once_with("imdb:tt26315134")
+    details.assert_awaited_once_with("1370424", "movie")
+
+
+@pytest.mark.parametrize("finalize", [
+    {"found": False, "content_type": "movie", "matched_entity": {}},
+    {"found": True, "content_type": "tv", "matched_entity": {
+        "external_source": "imdb", "external_id": "imdb:tt26315134",
+    }},
+    {"found": True, "content_type": "movie", "matched_entity": {
+        "external_source": "tmdb", "external_id": "tmdb:1370424",
+    }},
+])
+async def test_hydrate_tmdb_movie_fallback_skips_ineligible_entities(monkeypatch, finalize):
+    find = AsyncMock()
+    monkeypatch.setattr(ma_module, "_execute_find_tmdb_movie_by_imdb", find)
+    before = {**finalize, "matched_entity": dict(finalize["matched_entity"])}
+    await ma_module._hydrate_tmdb_movie_fallback(finalize)
+    assert finalize == before
+    find.assert_not_awaited()
+
+
+async def test_hydrate_tmdb_movie_fallback_requires_unique_identity(monkeypatch):
+    finalize = _black_spines_fallback()
+    before = {**finalize, "matched_entity": dict(finalize["matched_entity"])}
+    monkeypatch.setattr(ma_module, "_execute_find_tmdb_movie_by_imdb", AsyncMock(return_value={
+        "success": True, "data": [{"id": 1}, {"id": 2}],
+    }))
+    details = AsyncMock()
+    monkeypatch.setattr(ma_module, "_execute_get_tmdb_details", details)
+    await ma_module._hydrate_tmdb_movie_fallback(finalize)
+    assert finalize == before
+    details.assert_not_awaited()
+
+
+async def test_hydrate_tmdb_movie_fallback_rejects_detail_identity_mismatch(monkeypatch):
+    finalize = _black_spines_fallback()
+    before = {**finalize, "matched_entity": dict(finalize["matched_entity"])}
+    monkeypatch.setattr(ma_module, "_execute_find_tmdb_movie_by_imdb", AsyncMock(return_value={
+        "success": True, "data": [{"id": 1370424}],
+    }))
+    monkeypatch.setattr(ma_module, "_execute_get_tmdb_details", AsyncMock(return_value={
+        "success": True, "data": {"tmdb_id": 999, "vote_average": 9.9},
+    }))
+    await ma_module._hydrate_tmdb_movie_fallback(finalize)
+    assert finalize == before

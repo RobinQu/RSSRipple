@@ -8,6 +8,14 @@ import {
   validateStep,
   workKeyOf,
 } from '../src/components/wizardValidation.ts';
+import {
+  mediaLabelI18nKey,
+  missingWorkMetadataFields,
+  workMetadataFieldsUpdate,
+  workMetadataLabelKey,
+} from '../src/components/wizard/types.ts';
+import en from '../src/i18n/locales/en-US.json' with { type: 'json' };
+import zh from '../src/i18n/locales/zh-CN.json' with { type: 'json' };
 
 // --- workKeyOf ---
 assert.equal(workKeyOf('series', 'abc'), 'series:abc');
@@ -25,8 +33,8 @@ assert.equal(validateStep(1, {
   isBatch: true, audioLinked: true, works: [S1, S2], placements: {},
 }), null);
 
-// Other steps are never gated.
-for (const step of [0, 2, 3]) {
+// Association and confirmation steps have no client-side gate.
+for (const step of [0, 3]) {
   assert.equal(validateStep(step, {
     isBatch: true, audioLinked: false, works: [S1],
     placements: { 'a.mkv': { workType: 'series', workId: 's1', season: null } },
@@ -78,6 +86,30 @@ assert.deepEqual(validateStep(1, {
   isBatch: true, audioLinked: false, works: [S1, S2],
   placements: { 'a.mkv': { workType: 'series', workId: 's1', season: null } },
 }), { code: 'tv_season_required' });
+
+// Displayed work-metadata gaps gate both step-2 navigation and final save.
+const blankWorkDraft = { date: null, rating: null, is_anime: null, genre: [] };
+const step2Base = {
+  isBatch: false, audioLinked: false, works: [S1], placements: {},
+};
+assert.deepEqual(validateStep(2, {
+  ...step2Base,
+  missingWorkFields: ['year', 'rating', 'is_anime', 'genre'],
+  workMetadata: blankWorkDraft,
+}), {
+  code: 'work_fields_required',
+  fields: ['year', 'rating', 'is_anime', 'genre'],
+});
+assert.equal(validateStep(2, {
+  ...step2Base,
+  missingWorkFields: ['year', 'rating', 'is_anime', 'genre'],
+  workMetadata: {
+    date: '2024-04-01', rating: 0, is_anime: false, genre: ['Drama'],
+  },
+}), null);
+assert.equal(validateStep(2, {
+  ...step2Base, missingWorkFields: [], workMetadata: blankWorkDraft,
+}), null);
 
 // --- pickWorkMatch ---
 const candidates = [
@@ -165,5 +197,47 @@ assert.deepEqual(admitWork(
   { isBatch: true, audioLinked: false, collectionId: 'c1', works: [S1] },
   { workType: 'series', workId: 's2' }, { collectionId: 'c2' },
 ), { action: 'clear-collection' });
+
+// Work-field validation errors return to the media step.
+assert.equal(stepFromSaveError('media', '作品字段修订目标不在作品关联列表中'), 2);
+
+// --- missingWorkMetadataFields ---
+assert.deepEqual(missingWorkMetadataFields(['year', 'rating', 'resolution'], true), [
+  'year', 'rating',
+]);
+assert.deepEqual(missingWorkMetadataFields(['year', 'rating'], false), []);
+
+for (const key of ['year', 'rating', 'is_anime', 'genre']) {
+  const labelKey = workMetadataLabelKey(key);
+  assert.equal(typeof zh.resource[labelKey], 'string');
+  assert.equal(typeof en.resource[labelKey], 'string');
+}
+assert.equal(typeof zh.resource.workFieldsRequired, 'string');
+assert.equal(typeof en.resource.workFieldsRequired, 'string');
+assert.equal(mediaLabelI18nKey('title_cn'), 'filter.titleCn');
+assert.equal(mediaLabelI18nKey('resolution'), 'resource.resolution');
+assert.equal(typeof zh.filter.titleCn, 'string');
+assert.equal(typeof en.filter.titleCn, 'string');
+
+// --- workMetadataFieldsUpdate ---
+const originalWork = {
+  date: null, rating: null, is_anime: null, genre: [],
+};
+assert.deepEqual(workMetadataFieldsUpdate('series', originalWork, originalWork), {});
+assert.deepEqual(workMetadataFieldsUpdate('series', {
+  date: '2024', rating: 8.1, is_anime: null, genre: [],
+}, originalWork), {
+  start_date: '2024', rating: 8.1,
+});
+assert.deepEqual(workMetadataFieldsUpdate('movie', {
+  date: '2025', rating: 0, is_anime: false, genre: ['Drama'],
+}, originalWork), {
+  release_date: '2025', rating: 0, is_anime: false, genre: ['Drama'],
+});
+assert.deepEqual(workMetadataFieldsUpdate('series', originalWork, {
+  date: '2024-04-01', rating: 8.1, is_anime: true, genre: ['Drama'],
+}), {
+  start_date: null, rating: null, is_anime: null, genre: [],
+});
 
 console.log('wizard-validation: ok');

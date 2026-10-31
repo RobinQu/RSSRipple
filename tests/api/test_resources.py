@@ -1624,6 +1624,50 @@ class TestResourceAssociations:
         assert res.json()["data"]["title_cn"] == "新 攻壳机动队"
         assert res.json()["data"]["search_title"] == "THE.GHOST.IN.THE.SHELL"
 
+    async def test_association_work_fields_clear_missing_year_and_rating(
+        self, client, sample_channel, db_session_factory,
+    ):
+        from app.models.channel import Channel
+        from app.models.series import TVSeries
+
+        sid = await self._make_series(db_session_factory, title="Black Spines")
+        async with db_session_factory() as s:
+            channel = await s.get(Channel, sample_channel.id)
+            channel.required_metadata_fields = [
+                *(channel.required_metadata_fields or []), "rating",
+            ]
+            await s.commit()
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            title_raw="Black.Spines.2024.1080p", series_id=sid,
+        )
+        before = await client.get(f"/api/v1/resources/{rid}")
+        assert {"year", "rating"} <= set(before.json()["data"]["missing_fields"])
+
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={
+                "is_batch": False,
+                "works": [{"work_type": "series", "work_id": sid}],
+                "assignments": [],
+                "work_fields": [{
+                    "work_type": "series",
+                    "work_id": sid,
+                    "fields": {"start_date": "2024", "rating": 8.1},
+                }],
+            },
+        )
+
+        assert res.status_code == 200, res.text[:500]
+        assert res.json()["data"]["series"]["start_date"] == "2024-01-01"
+        assert res.json()["data"]["series"]["rating"] == 8.1
+        after = await client.get(f"/api/v1/resources/{rid}")
+        assert "year" not in after.json()["data"]["missing_fields"]
+        assert "rating" not in after.json()["data"]["missing_fields"]
+        async with db_session_factory() as s:
+            series = await s.get(TVSeries, sid)
+            assert {"start_date", "rating"} <= set(series.manually_edited_fields)
+
     async def test_multi_season_evidence_derives_multi_season(
         self, client, sample_channel, db_session_factory,
     ):

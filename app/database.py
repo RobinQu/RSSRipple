@@ -662,7 +662,7 @@ _LIGHT_COLUMN_ADDITIONS: tuple[tuple[str, str, str | tuple[str, str]], ...] = (
     # purpose: NULL = not yet determined, distinct from False.
     ("tv_series", "is_anime", "BOOLEAN"),
     ("movies", "is_anime", "BOOLEAN"),
-    # Fields the user edited manually through the work detail edit form.
+    # Fields the user edited manually through work/resource edit forms.
     # JSON list of field names — auto metadata scans (upsert / refresh)
     # skip writing these unless the refresh action opts into overriding.
     ("tv_series", "manually_edited_fields", ("TEXT", "JSONB")),

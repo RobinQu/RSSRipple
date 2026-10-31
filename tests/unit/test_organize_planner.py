@@ -1008,8 +1008,8 @@ class TestFilterContext:
             {"field": "season", "operator": "eq", "value": 1}, ctx
         )
 
-    def test_batch_year_aggregates_earliest_across_works(self):
-        """合集快照含多 works 时 series.year 取各关联作品年份的最小值。"""
+    def test_batch_year_aggregates_latest_across_works(self):
+        """合集快照含多 works 时 series.year 取各关联作品年份的最大值。"""
         from app.services.filter_engine import evaluate_filter_config
 
         payload = _batch_payload()
@@ -1019,7 +1019,7 @@ class TestFilterContext:
         }
         ctx = build_filter_context(payload)
         assert evaluate_filter_config(
-            {"field": "series.year", "operator": "eq", "value": 2019}, ctx
+            {"field": "series.year", "operator": "eq", "value": 2026}, ctx
         )
 
     def test_non_batch_keeps_single_work_year(self):

@@ -845,9 +845,9 @@ class TestWorkFieldEvaluation:
         assert get_field_value(res, "movie.year") == 2018
         assert get_field_value(res, "series.rating") is None
 
-    def test_links_carried_pack_year_aggregates_min(self):
+    def test_links_carried_pack_year_aggregates_max(self):
         """Links-carried 合集包（FK 全清，works 在 links 上）：series.year
-        取全部已加载 link 作品的最早年份。"""
+        取全部已加载 link 作品的最晚年份。"""
         import datetime as _dt
 
         links = [
@@ -859,13 +859,13 @@ class TestWorkFieldEvaluation:
                             series=_work(start_date=_dt.date(2020, 4, 1))),
         ]
         res = _res(series=None, movie=None, work_links=links)
-        assert get_field_value(res, "series.year") == 2020
+        assert get_field_value(res, "series.year") == 2024
         assert evaluate_field_condition(
-            {"field": "series.year", "operator": "eq", "value": 2020}, res) is True
+            {"field": "series.year", "operator": "eq", "value": 2024}, res) is True
         assert evaluate_field_condition(
-            {"field": "series.year", "operator": "gte", "value": 2021}, res) is False
+            {"field": "series.year", "operator": "gte", "value": 2021}, res) is True
 
-    def test_links_carried_pack_movie_year_aggregates_min(self):
+    def test_links_carried_pack_movie_year_aggregates_max(self):
         import datetime as _dt
 
         links = [
@@ -875,7 +875,7 @@ class TestWorkFieldEvaluation:
                             movie=_work(release_date=_dt.date(2019, 1, 1))),
         ]
         res = _res(work_links=links)
-        assert get_field_value(res, "movie.year") == 2019
+        assert get_field_value(res, "movie.year") == 2023
 
     def test_links_unloaded_year_is_empty(self):
         # FK cleared and the link table not loaded → None → the usual

@@ -97,6 +97,7 @@ export default function Dashboard() {
   // Pending organize plans — in-place actions + detail drawer.
   const [planDrawerId, setPlanDrawerId] = useState<string | null>(null);
   const [executingPlanId, setExecutingPlanId] = useState<string | null>(null);
+  const [batchExecutingPlans, setBatchExecutingPlans] = useState(false);
   // Resource file listing drawer + parse-field correction modal, shared by
   // the decisions candidates and the confirmations rows.
   const [filesResourceId, setFilesResourceId] = useState<string | null>(null);
@@ -217,11 +218,30 @@ export default function Dashboard() {
     }));
   };
 
+  const handleBatchExecutePlans = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    setBatchExecutingPlans(true);
+    const r = await organizeApi.executeBatch(ids);
+    setBatchExecutingPlans(false);
+    if (r.success) {
+      message.success(t('organize.batchSubmitted', { count: ids.length }));
+      setSelectedTodos((prev) => ({
+        ...prev,
+        plan: prev.plan.filter((id) => !ids.includes(id)),
+      }));
+      await fetchOverview();
+    } else {
+      message.error(r.error?.message || t('organize.executeFailed'));
+    }
+  };
+
   const renderTodoToolbar = (
     kind: 'decision' | 'confirmation' | 'plan',
     pageIds: string[],
+    executableIds?: string[],
   ) => {
     const selected = selectedTodos[kind];
+    const selectedExecutable = selected.filter((id) => executableIds?.includes(id));
     const allSelected = pageIds.length > 0 && pageIds.every((id) => selected.includes(id));
     return (
       <div className="dashboard-todo-toolbar">
@@ -237,6 +257,18 @@ export default function Dashboard() {
         >
           {t('common.selectAll')}
         </Checkbox>
+        {kind === 'plan' && (
+          <Button
+            type="primary"
+            size="small"
+            icon={<Play size={14} />}
+            disabled={selectedExecutable.length === 0}
+            loading={batchExecutingPlans}
+            onClick={() => handleBatchExecutePlans(selectedExecutable)}
+          >
+            {t('organize.executeBatch', { count: selectedExecutable.length })}
+          </Button>
+        )}
         <Button
           size="small"
           danger
@@ -877,7 +909,11 @@ export default function Dashboard() {
               label: `${t('dashboard.pendingPlans')} (${dashboard.pending_plans_total})`,
               children: (
                 <>
-                {renderTodoToolbar('plan', dashboard.pending_plans.map((item) => item.id))}
+                {renderTodoToolbar(
+                  'plan',
+                  dashboard.pending_plans.map((item) => item.id),
+                  dashboard.pending_plans.filter(isPlanExecutable).map((item) => item.id),
+                )}
                 <List
                   className="dashboard-todo-list"
                   dataSource={dashboard.pending_plans}

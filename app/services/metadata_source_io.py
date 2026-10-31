@@ -38,6 +38,35 @@ async def _execute_search_tmdb(query: str) -> dict:
         return {"success": False, "data": [], "error": str(e)}
 
 
+async def _execute_find_tmdb_movie_by_imdb(imdb_id: str) -> dict:
+    """Resolve an IMDb movie identity through TMDB's exact external-ID lookup."""
+    api_key = runtime_config.tmdb_api_key
+    if not api_key:
+        return {"success": False, "data": [], "error": "TMDB API key not configured"}
+    match = re.fullmatch(r"(?:imdb:)?(tt[0-9]+)", str(imdb_id or ""))
+    if match is None:
+        return {"success": False, "data": [], "error": "Invalid IMDb movie id"}
+
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(
+                f"https://api.themoviedb.org/3/find/{match[1]}",
+                params={"api_key": api_key, "external_source": "imdb_id"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        results = data.get("movie_results", [])
+        return {"success": True, "data": results if isinstance(results, list) else []}
+    except Exception as e:
+        logger.warning(
+            "[metadata_agent] find_tmdb_movie_by_imdb failed: %s",
+            type(e).__name__,
+        )
+        return {"success": False, "data": [], "error": type(e).__name__}
+
+
 async def _execute_get_tmdb_details(tmdb_id: str, media_type: str) -> dict:
     """Fetch full TMDB details including season/episode structure."""
     from app.services.metadata_search_agent import _resolve_genre_ids, _tmdb_image_base

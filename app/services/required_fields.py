@@ -336,15 +336,14 @@ def _linked_work(resource: Any) -> tuple[str | None, Any | None]:
 
 
 def _linked_works_year(resource: Any) -> int | None:
-    """Earliest year across ALL loaded link works (not just the first) — a
-    links-carried pack's release window opens with its oldest work."""
+    """Latest year across ALL loaded link works (not just the first)."""
     ns = SimpleNamespace(work_links=loaded_relation(resource, "work_links") or [])
     years = [
         y
         for y in (get_field_value(ns, "series.year"), get_field_value(ns, "movie.year"))
         if y is not None
     ]
-    return min(years) if years else None
+    return max(years) if years else None
 
 
 def _semantic_field_value(resource: Any, key: str) -> Any:

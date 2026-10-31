@@ -316,7 +316,7 @@ Wikipedia judge 和 Wikipedia ReAct 回退共用身份证据选择：按 `(语�
 
 TMDB ReAct 仅采纳成功 `search_tmdb`/`get_tmdb_details` 工具消息。搜索候选使用 `external_id/content_type`，详情使用 `tmdb_id/media_type`；必须同时匹配数字 ID 与 TV/movie 类型，互相冲突的类型不提供证据。现有 TMDB 工具未提供跨来源身份，模型输出的别名和 Wikipedia URL 均清除。错误状态、失败工具、畸形数据、无类型身份不能作为依据。
 
-无法确认主身份时，保留标题与诊断，返回可重试的 `found=False` 并清空实体，阻止写入作品及身份袋。缓存 generation=7 使旧 verdict 懒失效，不能据此声称已经清理历史写入的错误身份；已有作品清理需要独立审计。
+无法确认主身份时，保留标题与诊断，返回可重试的 `found=False` 并清空实体，阻止写入作品及身份袋。缓存 generation=8 使旧 verdict 懒失效，不能据此声称已经清理历史写入的错误身份；已有作品清理需要独立审计。
 
 ### genre 归一化（统一分类标签）
 
@@ -326,7 +326,7 @@ TMDB ReAct 仅采纳成功 `search_tmdb`/`get_tmdb_details` 工具消息。搜�
 - **兜底推断**：`_ensure_genre`（`metadata_agent.py`）在钳制后仍无 genre 且 matched_entity 有 description 时，用 `genre_inference_system_prompt()` 发一次低成本 LLM 调用按简介分类，结果再过 `normalize_genres`；同一 title+synopsis 的推断进程内 memoize（上限 512），重复作品不再各发一次调用；失败/乱码不缓存、下次重试，静默不阻塞匹配。由此 judge 留空、auto-link 无 LLM、回退仅身份三条路径产出的作品都能拿到标签。
 - **出口钳制**：统一 finalize 消费点 `_clamp_finalize_genre`（`metadata_agent.py`，`process` 与 `process_title_only` 各一处）对 `matched_entity["genre"]` 调 `normalize_genres`——id 直译、大小写不敏感、少量别名，表外值丢弃（debug 日志），空结果置 None 视为"未提供"，genre 绝不阻塞匹配。TMDB 直连的 `_tmdb_genre_map` 动态拉取与注册表取交集、失败回退注册表静态表。同一消费点紧跟 `_normalize_finalize_dates`：确定性日期键名归一——series/tv 无 `start_date` 时依次从 `first_air_date`/`release_date` 补（TMDB 工具结果带 `first_air_date`，LLM 不总按 prompt 键名抄录），movie 对称补 `release_date`；只补空缺、绝不覆盖已有值。
 - **写回**：`metadata_service` 全部 genre 写入点（series/movie/audio 的新建/更新、刷新管线 `apply_work_metadata` 填空）先过 `normalize_genres`；非空才覆盖，归一化为空不清空旧值。
-- **缓存**：judge schema/指令变更属 verdict 逻辑变更，`METADATA_CACHE_GENERATION` 当前为 7（3=genre 入 schema + 钳制；4=prompt 改尽力推测 + `_ensure_genre` 兜底；6=网络回退候选身份与季集出口保护；7=Wikipedia/TMDB 主来源身份接地及别名证据约束），旧缓存惰性失效重跑。
+- **缓存**：judge schema/指令变更属 verdict 逻辑变更，`METADATA_CACHE_GENERATION` 当前为 8（3=genre 入 schema + 钳制；4=prompt 改尽力推测 + `_ensure_genre` 兜底；6=网络回退候选身份与季集出口保护；7=Wikipedia/TMDB 主来源身份接地及别名证据约束；8=TMDB 电影回退候选经 IMDb 精确身份回查补全），旧缓存惰性失效重跑。
 - **存量**：`scripts/genre_backfill.py`——模式 A（默认）就地规范化既有 genre 数组；模式 B（`--refresh-empty`）对仍为空的 series/movie 调 `refresh_work_by_source` 重跑补齐（身份源为 wikipedia/tmdb 时用原源，否则回退 wikipedia 标题判定；有网络/LLM 成本，`--limit/--delay` 限速）。
 - **消费面**：通知 payload `work.genre` 快照同样归一化；Filter DSL 新增 `series.genre`/`movie.genre`（list-of-string 逐元素语义，见 filter-dsl.md）。
 
@@ -380,6 +380,8 @@ MetadataAgent 不再采用多级搜索或跨数据源 fallback。每次搜索必
 - `bangumi`：Bangumi Subject Search（限动画分类 type 2），search-then-judge 形态同 wikipedia（确定性 auto-link 优先，否则单次 judge，流程详见「Metadata 匹配流程」）；命中作品自动落 `is_anime=True`；未命中时同样走下方网络搜索回退。无独立启用开关——配置了 token（`BANGUMI_API_KEY` 或设置页）即启用。
 
 **有序网络搜索回退（wigolo，三频道主源未命中时统一触发）**：主源判定返回 found=False 后（wikipedia 路径在 judge found=False 时、tmdb 路径（P4 起）在 ReAct finalize found=False 时、bangumi 路径在 auto-link 未中且 judge found=False 时；transient 失败如 agent error/超时**不**触发，避免用确定性回退 verdict 掩盖基础设施故障），`web_fallback_judge`（模块 `metadata_web_fallback`，函数名保留 exa 时代的 `exa_fallback_judge`→已更名，历史缓存 reason 由 transient marker 兼容匹配）用自托管 **wigolo** 搜索守护进程 + 单次 LLM judge 在频道 `metadata_fallback_sources`（JSON 有序站点白名单；NULL=默认顺序 `bangumi → mal → anilist → tmdb → wikipedia → imdb → douban`，`[]`=禁用回退；`process_title_only` 无频道上下文，用默认顺序）限定的站点内补身份：候选 URL 按白名单硬过滤，靠前站点在证据呈现中优先（tiebreak）。回退只提供身份/链接——matched_entity 不得携带 `seasons`/`number_of_seasons`/`number_of_episodes`（LLM 输出也会被剥离），内容一律以主数据源为准。站点身份体系为 7 站注册表 `metadata_source_registry`（wikipedia/tmdb/bangumi/mal/anilist/imdb/douban；baidu_baike、eiga 已移除；douban 仅匹配 movie./www. 子域——book./music. 的 `/subject/` 链接是书籍/音乐，不提取身份）。wigolo 对接走 **REST `/v1/search`**（`wigolo_client`，POST `{WIGOLO_BASE_URL}/v1/search`，非回环绑定的 daemon 需 `WIGOLO_API_TOKEN` Bearer），`WEB_FALLBACK_ENABLED=false` 时跳过回退。与被替换的神经检索不同，关键词引擎吃不下原始发布标题噪声，因此：①查询复用共享清洗器 `_candidate_queries`（≤3 个候选变体按序尝试，首个有产出者即停，全部无产出回退裸标题）；②白名单经 `SITE_DOMAINS` 映射下推为请求参数 `include_domains`（子域名命中），后置硬过滤仍保留作双保险；③hit URL 一律 `unquote` 归一化后再提取身份（百分号编码 slug 与明文必须收敛为同一 external_id）。wigolo 自身失败（网络/限流/协议错误）记为 transient 不缓存；回退命中时 `search_method` 分别为 `search_then_web_fallback`（wikipedia）/ `react_then_web_fallback`（tmdb、bangumi 共用共享回退函数 `_maybe_web_fallback`）。无法解析出注册表身份的页面沿用历史标记 `external_source="exa_web"`（已落库值，保持稳定）。
+
+**TMDB 电影身份回查补全**：TMDB 主源未命中且 grounded 网络回退选中 IMDb 电影身份时，`_hydrate_tmdb_movie_fallback` 继续调用 TMDB `/find/{imdb_id}?external_source=imdb_id`，只接受唯一 `movie_results`，并核验详情 ID 与 `/find` 一致。成功后候选提升为 TMDB 主身份，原 IMDb 身份进入 `alt_external_ids`，详情提供 `release_date`、`vote_average → rating` 及其他标准内容字段，原回退标题保留为 `alt_titles`；因此该候选在手动搜索和作品刷新中按主源候选正常应用，不再走 identity-only。刷新与 upsert 都会把主/别名身份入袋，并在写内容前核验全部身份的同作品、跨类型及主列归属；身份指向不同作品时拒绝写入，upsert 也可仅凭别名身份收敛到已有电影，不依赖标题兜底。无唯一映射、详情失败或身份不符时原样保留回退结果；此机制只丰富已选身份，不做标题重搜索纠错，不根据种子年份伪造日期，也暂不扩展到剧集的季级映射。
 
 **回退证据边界（2026-09-06）**：上述“首个有产出”指按 URL 注册表解析、通过频道白名单之后仍有候选；外站结果不能耗尽本轮查询，搜索返回的自声明 source/id 不可信。排序后最多五条即为 judge 和出口验证共享的候选集合。found=true 必须通过 `_bind_selected_entity`：显式 URL（百分号解码后）只能指向该集合中的同一候选；无 URL 时必须有唯一精确 source/id；模型 id/source 与 URL 身份冲突、未知候选或缺身份均返回 `web fallback judge returned ungrounded identity`，沿现有 transient 路径重试且不缓存。不得把模型生成的另一个页面当证据。回退出口除季数/集数外亦剥离 `episode_list`、`single_season_entry`、`alt_external_ids`，避免绕过季集与身份袋约束；found=false 不携带 matched_entity。历史 exa_web 行不迁移，新判定不再凭无依据标题创建 exa_web 身份。缓存代际升至 6，旧 verdict 惰性失效；不会自动解除既有作品关联或覆盖人工编辑。
 

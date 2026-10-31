@@ -69,8 +69,8 @@ logger = logging.getLogger(__name__)
 FUZZY_THRESHOLD = 70
 AUTO_LINK_THRESHOLD = 85
 
-# Fields a human may edit through the work detail edit form. Everything else
-# (canonical_name / wikipedia_* / seasons / collection_id / search_text /
+# Fields a human may edit through the work or resource edit forms. Everything
+# else (canonical_name / wikipedia_* / seasons / collection_id / search_text /
 # timestamps) is system-managed.
 # A work's ``manually_edited_fields`` list holds the subset of these the user
 # touched; automatic scans (upsert + refresh) must not overwrite them.
@@ -96,9 +96,10 @@ def field_manually_edited(work: Any, field: str) -> bool:
 def mark_manually_edited(work: Any, fields: dict) -> None:
     """Record which of ``fields`` the user edited manually on ``work``.
 
-    Called by the series/movie PUT handlers: every manually-editable field
-    present in the update payload (explicitly sent) is added to the work's
-    ``manually_edited_fields`` list so automatic scans stop overwriting it.
+    Called by the work editors and resource-association wizard: every
+    manually-editable field present in the update payload (explicitly sent)
+    is added to the work's ``manually_edited_fields`` list so automatic scans
+    stop overwriting it.
     """
     edited = [k for k in fields if k in MANUAL_EDITABLE_FIELDS]
     if not edited:
@@ -762,42 +763,67 @@ def _parse_date(val: Any) -> date | None:
     return None
 
 
-async def find_series_by_external_id(db: AsyncSession, data: dict) -> TVSeries | None:
-    """Look up an existing TVSeries by the candidate's canonical external_id.
+class MetadataIdentityConflictError(ValueError):
+    """An entity's external identities resolve to different existing works."""
 
-    Cross-table guard: a "movie" verdict for an external entity that already
-    owns a TVSeries row must not spawn a duplicate Movie (and vice versa).
-    """
-    raw_external_id = _qualify_incoming_wikipedia_id(data)
-    raw_source = data.get("external_source")
-    canonical_id = canonicalize_external_id(
-        raw_external_id, raw_source, data.get("content_type")
+
+def _external_identity_pairs(data: dict) -> list[tuple[str | None, str | None]]:
+    pairs = [(data.get("external_source"), data.get("external_id"))]
+    pairs.extend(
+        (alt.get("source"), alt.get("id"))
+        for alt in data.get("alt_external_ids") or []
+        if isinstance(alt, dict)
     )
-    lookup_ids = {i for i in (canonical_id, raw_external_id) if i}
-    if not lookup_ids:
-        return None
-    stmt = select(TVSeries).where(_external_id_match(TVSeries.external_id, lookup_ids))
-    lookup_sources = {s for s in (raw_source, "llm_search") if s}
-    if lookup_sources:
-        stmt = stmt.where(TVSeries.external_source.in_(lookup_sources))
-    return (await db.execute(stmt)).scalars().first()
+    return list(dict.fromkeys(pairs))
+
+
+async def _find_external_identity_owners(
+    db: AsyncSession,
+    model: type[TVSeries] | type[Movie],
+    work_type: str,
+    data: dict,
+) -> dict[str, TVSeries | Movie]:
+    owners: dict[str, TVSeries | Movie] = {}
+    for raw_source, raw_external_id in _external_identity_pairs(data):
+        canonical_id = canonicalize_external_id(
+            raw_external_id, raw_source, data.get("content_type")
+        )
+        lookup_ids = {i for i in (canonical_id, raw_external_id) if i}
+        if lookup_ids:
+            stmt = select(model).where(_external_id_match(model.external_id, lookup_ids))
+            lookup_sources = {s for s in (raw_source, "llm_search") if s}
+            if lookup_sources:
+                stmt = stmt.where(model.external_source.in_(lookup_sources))
+            for owner in (await db.execute(stmt)).scalars().all():
+                owners[owner.id] = owner
+        owner = await find_work_by_external_id(db, work_type, raw_source, raw_external_id)
+        if owner is not None:
+            owners[owner.id] = owner
+    return owners
+
+
+async def _find_single_external_identity_owner(
+    db: AsyncSession,
+    model: type[TVSeries] | type[Movie],
+    work_type: str,
+    data: dict,
+) -> TVSeries | Movie | None:
+    owners = await _find_external_identity_owners(db, model, work_type, data)
+    if len(owners) > 1:
+        raise MetadataIdentityConflictError("External identities belong to different works")
+    return next(iter(owners.values()), None)
+
+
+async def find_series_by_external_id(db: AsyncSession, data: dict) -> TVSeries | None:
+    """Look up a series through every primary and alternate external identity."""
+    _qualify_incoming_wikipedia_id(data)
+    return await _find_single_external_identity_owner(db, TVSeries, "series", data)
 
 
 async def find_movie_by_external_id(db: AsyncSession, data: dict) -> Movie | None:
-    """Mirror of :func:`find_series_by_external_id` for the movies table."""
-    raw_external_id = _qualify_incoming_wikipedia_id(data)
-    raw_source = data.get("external_source")
-    canonical_id = canonicalize_external_id(
-        raw_external_id, raw_source, data.get("content_type")
-    )
-    lookup_ids = {i for i in (canonical_id, raw_external_id) if i}
-    if not lookup_ids:
-        return None
-    stmt = select(Movie).where(_external_id_match(Movie.external_id, lookup_ids))
-    lookup_sources = {s for s in (raw_source, "llm_search") if s}
-    if lookup_sources:
-        stmt = stmt.where(Movie.external_source.in_(lookup_sources))
-    return (await db.execute(stmt)).scalars().first()
+    """Look up a movie through every primary and alternate external identity."""
+    _qualify_incoming_wikipedia_id(data)
+    return await _find_single_external_identity_owner(db, Movie, "movie", data)
 
 
 def _qualify_incoming_wikipedia_id(data: dict) -> str | None:
@@ -2229,26 +2255,8 @@ async def reconcile_linked_series_resource(
 
 async def find_existing_movie_for_external(db: AsyncSession, data: dict) -> Movie | None:
     """Resolve the movie an upsert would select, without changing its fields or identity bag."""
-    raw_external_id = _qualify_incoming_wikipedia_id(data)
-    raw_source = data.get("external_source")
-    content_type = data.get("content_type")
-    canonical_id = canonicalize_external_id(raw_external_id, raw_source, content_type)
-
-    # (1) Identity bag — deterministic cross-source convergence.
-    movie: Movie | None = None
-    if raw_external_id:
-        movie = await find_work_by_external_id(db, "movie", raw_source, raw_external_id)
-
-    # (2) Legacy column lookup.
-    lookup_ids = {i for i in (canonical_id, raw_external_id) if i}
-    lookup_sources = {s for s in (raw_source, "llm_search") if s}
-
-    if movie is None and lookup_ids:
-        stmt = select(Movie).where(_external_id_match(Movie.external_id, lookup_ids))
-        if lookup_sources:
-            stmt = stmt.where(Movie.external_source.in_(lookup_sources))
-        result = await db.execute(stmt)
-        movie = result.scalars().first()
+    _qualify_incoming_wikipedia_id(data)
+    movie = await _find_single_external_identity_owner(db, Movie, "movie", data)
 
     if movie is None:
         title_candidates = [

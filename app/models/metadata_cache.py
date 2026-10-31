@@ -46,7 +46,9 @@ from app.utils.sql_time import UTCNow
 #       early-stop and reject ungrounded identity/episode-list payloads.
 #   7 — bind primary/alternate identities to source evidence; invalidate
 #       cached model identities produced before grounding enforcement.
-METADATA_CACHE_GENERATION = 7
+#   8 — hydrate TMDB-primary movie fallbacks through exact IMDb identity lookup;
+#       older cached verdicts can lack the primary-source date/rating and id bag.
+METADATA_CACHE_GENERATION = 8
 
 
 def cache_title_hash(title: str) -> str:

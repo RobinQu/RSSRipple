@@ -70,7 +70,7 @@ class TVSeries(Base):
     # identity, Wikipedia TVAnime infobox, TMDB Animation+ja) with an LLM
     # fallback — see app/services/anime_signals.py.
     is_anime: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    # Fields the user edited manually through the work detail edit form. Any
+    # Fields the user edited manually through either work/resource editor. Any
     # field listed here is never overwritten by an automatic metadata scan
     # (upsert / refresh) unless the refresh action is run with
     # ``override_manual_edits``. See metadata_service.MANUAL_EDITABLE_FIELDS.

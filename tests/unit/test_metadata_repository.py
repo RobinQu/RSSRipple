@@ -8,6 +8,7 @@ import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from sqlalchemy import select
 
 from app.models.metadata_cache import METADATA_CACHE_GENERATION, MetadataCache
@@ -101,6 +102,69 @@ async def test_movie_verdict_flips_to_existing_series(db_session):
     assert resource.series_id == series.id
     assert resource.movie_id is None
     assert (await db_session.execute(select(Movie))).scalars().all() == []
+
+
+async def test_movie_verdict_flips_to_series_through_alternate_imdb_identity(db_session):
+    series = TVSeries(
+        id=_uuid(), title_en="Manually Renamed", external_id="imdb:tt26315134",
+        external_source="imdb", content_type="tv", season_number=1,
+    )
+    db_session.add(series)
+    await db_session.flush()
+    meta = _meta(
+        content_type="movie",
+        matched_entity={
+            "external_id": "tmdb:1370424",
+            "external_source": "tmdb",
+            "alt_external_ids": [{"source": "imdb", "id": "imdb:tt26315134"}],
+            "title_en": "He's Watching You",
+        },
+    )
+    resource = _resource()
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        await _apply_to_resource(meta, resource, SimpleNamespace(id=_uuid()), db_session)
+
+    assert resource.series_id == series.id
+    assert resource.movie_id is None
+    assert (await db_session.execute(select(Movie))).scalars().all() == []
+
+
+async def test_alternate_identity_link_preserves_expected_series_target(db_session):
+    from app.services.metadata_service import MetadataTargetMismatchError
+
+    selected = TVSeries(id=_uuid(), title_en="Selected", content_type="tv", season_number=1)
+    other = TVSeries(
+        id=_uuid(), title_en="Other", external_id="imdb:tt26315134",
+        external_source="imdb", content_type="tv", season_number=2,
+    )
+    db_session.add_all([selected, other])
+    await db_session.flush()
+    meta = _meta(
+        content_type="movie",
+        matched_entity={
+            "external_id": "tmdb:1370424",
+            "external_source": "tmdb",
+            "alt_external_ids": [{"source": "imdb", "id": "imdb:tt26315134"}],
+            "title_en": "He's Watching You",
+        },
+    )
+    resource = _resource()
+    resource.series_id = selected.id
+    with (
+        patch(
+            "app.services.metadata_service.download_and_cache_poster",
+            new_callable=AsyncMock, return_value=None,
+        ),
+        pytest.raises(MetadataTargetMismatchError),
+    ):
+        await _apply_to_resource(
+            meta, resource, SimpleNamespace(id=_uuid()), db_session,
+            expected_series_id=selected.id,
+        )
+    assert resource.series_id == selected.id
 
 
 async def test_movie_verdict_repairs_misfiled_movie_series(db_session):

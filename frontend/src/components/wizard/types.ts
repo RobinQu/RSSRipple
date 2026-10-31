@@ -4,6 +4,7 @@
 
 import type {
   AssociationUpdatePayload,
+  AssociationWorkFieldsInput,
   ResourceFileItem,
   WorkRefType,
 } from '../../types';
@@ -46,6 +47,53 @@ export const DIRECT_METADATA_FIELD_KEYS: DirectMetadataFieldKey[] = [
   'title_cn', 'title_en', 'search_title',
 ];
 
+export type WorkMetadataFieldKey = 'year' | 'rating' | 'is_anime' | 'genre';
+export const WORK_METADATA_FIELD_KEYS: WorkMetadataFieldKey[] = [
+  'year', 'rating', 'is_anime', 'genre',
+];
+
+export function missingWorkMetadataFields(
+  missingFields: string[],
+  targetActive: boolean,
+): WorkMetadataFieldKey[] {
+  return targetActive
+    ? WORK_METADATA_FIELD_KEYS.filter((key) => missingFields.includes(key))
+    : [];
+}
+
+export function workMetadataLabelKey(key: WorkMetadataFieldKey): string {
+  switch (key) {
+    case 'year': return 'workYear';
+    case 'rating': return 'workRating';
+    case 'is_anime': return 'workAnimeStatus';
+    case 'genre': return 'workGenre';
+  }
+}
+
+export interface WorkMetadataDraft {
+  date: string | null;
+  rating: number | null;
+  is_anime: boolean | null;
+  genre: string[];
+}
+
+export function workMetadataFieldsUpdate(
+  workType: WorkRefType,
+  current: WorkMetadataDraft,
+  original: WorkMetadataDraft,
+): AssociationWorkFieldsInput['fields'] {
+  const fields: AssociationWorkFieldsInput['fields'] = {};
+  if (current.date !== original.date) {
+    fields[workType === 'series' ? 'start_date' : 'release_date'] = current.date;
+  }
+  if (current.rating !== original.rating) fields.rating = current.rating;
+  if (current.is_anime !== original.is_anime) fields.is_anime = current.is_anime;
+  if (JSON.stringify(current.genre) !== JSON.stringify(original.genre)) {
+    fields.genre = current.genre;
+  }
+  return fields;
+}
+
 export const MEDIA_TEXT_KEYS: MediaFieldKey[] = [
   'resolution',
   'source',
@@ -72,6 +120,7 @@ export type ChangesShape = {
   collectionChanged: { from: string; to: string } | null;
   singleEpChanges: { key: string; from: string; to: string }[];
   mediaChanges: { key: MediaFieldKey | DirectMetadataFieldKey | 'subtitle_langs'; from: string; to: string }[];
+  workChanges: { key: WorkMetadataFieldKey; from: string; to: string }[];
 };
 
 export function worksAddedIsEmpty(c: { worksAdded: string[]; worksRemoved: string[] }): boolean {
@@ -92,6 +141,13 @@ export function mediaLabelKey(k: MediaFieldKey | string): string {
     case 'subtitle_groups': return 'subtitleGroup';
     default: return String(k);
   }
+}
+
+export function mediaLabelI18nKey(k: MediaFieldKey | string): string {
+  const namespace = DIRECT_METADATA_FIELD_KEYS.includes(k as DirectMetadataFieldKey)
+    ? 'filter'
+    : 'resource';
+  return `${namespace}.${mediaLabelKey(k)}`;
 }
 
 export function scopeLabelOf(t: (k: string) => string, scope: string): string {

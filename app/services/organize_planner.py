@@ -166,21 +166,20 @@ def build_filter_context(
     work_type = work.type if work else None
     is_batch = bool(resource.is_batch) if resource else False
 
-    def _min_work_year(kind: str) -> int | None:
-        """Earliest year across the snapshot's ``works`` of one kind — a
-        batch pack's release window opens with its oldest work."""
+    def _max_work_year(kind: str) -> int | None:
+        """Latest year across the snapshot's ``works`` of one kind."""
         years = [
             w.year
             for key, w in payload.works.items()
             if key.startswith(f"{kind}:") and w.year
         ]
-        return min(years) if years else None
+        return max(years) if years else None
 
     def _work_ns(kind: str) -> SimpleNamespace:
         assert work is not None
         year = work.year
         if is_batch:
-            agg = _min_work_year(kind)
+            agg = _max_work_year(kind)
             if agg is not None:
                 year = agg
         d = date(year, 1, 1) if year else None

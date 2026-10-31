@@ -17,6 +17,7 @@ from app.services.external_ids import add_external_id, find_work_by_external_id
 from app.services.genre_registry import normalize_genres
 from app.services.metadata_service import (
     _collection_fallback_start_date,
+    _external_id_match,
     _parse_date,
     _work_end_date,
     _work_start_date,
@@ -26,7 +27,12 @@ from app.services.metadata_service import (
     resolve_wikipedia_slug_id,
     upsert_episodes,
 )
-from app.services.metadata_source_registry import REGISTRY_SOURCES, granularity_of, wikipedia_url_lang
+from app.services.metadata_source_registry import (
+    REGISTRY_SOURCES,
+    canonicalize_external_id,
+    granularity_of,
+    wikipedia_url_lang,
+)
 from app.services.metadata_sources import is_metadata_source_available
 
 _WORK_SCOPE_CHANGED = "work season or collection changed during lookup; refresh again"
@@ -338,17 +344,62 @@ async def _bag_candidate_identity(
     candidate: MetadataCandidate,
     values: dict[str, Any],
 ) -> None:
-    """Bag the candidate's identity; slug-form wikipedia ids additionally bag
-    the MediaWiki-resolved pageid so slug and numeric forms converge."""
+    """Bag the candidate's primary and alternate source identities."""
     await add_external_id(
         db, work_type, work_id, candidate.identity_source, candidate.external_id
     )
+    for alternate in values.get("alt_external_ids") or []:
+        if isinstance(alternate, dict):
+            await add_external_id(
+                db, work_type, work_id, alternate.get("source"), alternate.get("id")
+            )
     if candidate.identity_source == "wikipedia":
         resolved = await resolve_wikipedia_slug_id(
             candidate.external_id, values.get("wikipedia_url") or values.get("url")
         )
         if resolved:
             await add_external_id(db, work_type, work_id, "wikipedia", resolved)
+
+
+async def _assert_candidate_identities_available(
+    db: AsyncSession,
+    work_type: str,
+    work_id: str,
+    candidate: MetadataCandidate,
+    values: dict[str, Any],
+) -> None:
+    pairs = [(candidate.identity_source, candidate.external_id)]
+    pairs.extend(
+        (alt.get("source"), alt.get("id"))
+        for alt in values.get("alt_external_ids") or []
+        if isinstance(alt, dict)
+    )
+    model = Movie if work_type == "movie" else TVSeries
+    other_type = "series" if work_type == "movie" else "movie"
+    other_model = Movie if other_type == "movie" else TVSeries
+    for source, external_id in dict.fromkeys(pairs):
+        if not external_id:
+            continue
+        lookup_ids = {
+            value for value in (external_id, canonicalize_external_id(external_id, source)) if value
+        }
+        owner = await find_work_by_external_id(db, work_type, source, external_id)
+        if owner is not None and owner.id != work_id:
+            raise HTTPException(status_code=409, detail="external identity belongs to another work")
+        column_taken = (await db.execute(
+            select(model.id).where(
+                _external_id_match(model.external_id, lookup_ids), model.id != work_id,
+            )
+        )).first()
+        if column_taken:
+            raise HTTPException(status_code=409, detail="external identity belongs to another work")
+        if await find_work_by_external_id(db, other_type, source, external_id) is not None:
+            raise HTTPException(status_code=409, detail="external identity belongs to another work type")
+        other_column_taken = (await db.execute(
+            select(other_model.id).where(_external_id_match(other_model.external_id, lookup_ids))
+        )).first()
+        if other_column_taken:
+            raise HTTPException(status_code=409, detail="external identity belongs to another work type")
 
 
 async def apply_work_metadata(
@@ -398,29 +449,7 @@ async def apply_work_metadata(
         raise HTTPException(status_code=404, detail="work not found")
     if (getattr(work, "season_number", None), work.collection_id) != expected_scope:
         raise HTTPException(status_code=409, detail=_WORK_SCOPE_CHANGED)
-    owner = await find_work_by_external_id(
-        db, work_type, candidate.identity_source, candidate.external_id
-    )
-    if owner is not None and owner.id != work.id:
-        raise HTTPException(status_code=409, detail="external identity belongs to another work")
-    if candidate.external_id:
-        # The bag lookup above misses ids only held in another work's PRIMARY
-        # column (never bagged) — check the column too before filling it.
-        model = Movie if work_type == "movie" else TVSeries
-        column_taken = (await db.execute(
-            select(model.id).where(
-                model.external_id == candidate.external_id, model.id != work.id,
-            )
-        )).first()
-        if column_taken:
-            raise HTTPException(
-                status_code=409, detail="external identity belongs to another work",
-            )
-    other_type = "series" if work_type == "movie" else "movie"
-    if await find_work_by_external_id(
-        db, other_type, candidate.identity_source, candidate.external_id
-    ) is not None:
-        raise HTTPException(status_code=409, detail="external identity belongs to another work type")
+    await _assert_candidate_identities_available(db, work_type, work.id, candidate, values)
 
     if identity_only:
         # Web-fallback refresh pick: the fallback grounds identity/links only

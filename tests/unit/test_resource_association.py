@@ -599,3 +599,96 @@ async def test_batch_marks_ambiguous_confidence_manual(db_session):
     await apply_association_update(db_session, resource, body)
     await db_session.flush()
     assert resource.episode_confidence == "manual"
+
+
+async def test_work_fields_update_series_and_mark_manual(db_session):
+    series = await _seed_series(db_session)
+    resource = await _seed_resource(db_session, series_id=series.id)
+    body = ResourceAssociationUpdateRequest(
+        is_batch=False,
+        works=[_ref(series)],
+        work_fields=[{
+            "work_type": "series",
+            "work_id": series.id,
+            "fields": {
+                "rating": 8.4,
+                "start_date": "2024",
+                "is_anime": True,
+                "genre": ["Animation", "Drama"],
+            },
+        }],
+    )
+
+    await apply_association_update(db_session, resource, body)
+    await db_session.flush()
+
+    assert series.rating == 8.4
+    assert series.start_date.isoformat() == "2024-01-01"
+    assert series.is_anime is True
+    assert series.genre == ["Animation", "Drama"]
+    assert set(series.manually_edited_fields) == {
+        "rating", "start_date", "is_anime", "genre",
+    }
+
+
+async def test_work_fields_use_movie_release_date(db_session):
+    movie = await _seed_movie(db_session)
+    resource = await _seed_resource(db_session, movie_id=movie.id)
+    body = ResourceAssociationUpdateRequest(
+        is_batch=False,
+        works=[_ref(movie)],
+        work_fields=[{
+            "work_type": "movie",
+            "work_id": movie.id,
+            "fields": {"release_date": "2025", "rating": 7.2},
+        }],
+    )
+
+    await apply_association_update(db_session, resource, body)
+
+    assert movie.release_date.isoformat() == "2025-01-01"
+    assert movie.rating == 7.2
+
+
+async def test_work_fields_reject_target_outside_association_set(db_session):
+    series = await _seed_series(db_session)
+    other = await _seed_series(db_session, title="其他作品")
+    resource = await _seed_resource(
+        db_session, series_id=series.id, title_cn="保留标题",
+    )
+    body = ResourceAssociationUpdateRequest(
+        is_batch=False,
+        works=[_ref(series)],
+        work_fields=[{
+            "work_type": "series",
+            "work_id": other.id,
+            "fields": {"rating": 9.0},
+        }],
+    )
+
+    with pytest.raises(AssociationValidationError) as exc_info:
+        await apply_association_update(db_session, resource, body)
+
+    assert exc_info.value.step == "media"
+    assert other.rating is None
+    assert resource.title_cn == "保留标题"
+
+
+async def test_work_fields_reject_incompatible_date(db_session):
+    series = await _seed_series(db_session)
+    resource = await _seed_resource(db_session, series_id=series.id)
+    body = ResourceAssociationUpdateRequest(
+        is_batch=False,
+        works=[_ref(series)],
+        work_fields=[{
+            "work_type": "series",
+            "work_id": series.id,
+            "fields": {"release_date": "2024-01-01"},
+        }],
+    )
+
+    with pytest.raises(AssociationValidationError) as exc_info:
+        await apply_association_update(db_session, resource, body)
+
+    assert exc_info.value.step == "media"
+    assert series.start_date is None
