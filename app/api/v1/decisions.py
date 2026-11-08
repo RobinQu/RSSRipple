@@ -140,6 +140,9 @@ async def _ai_pick_and_dispatch(decision, db, *, prepared=None):
     decision = await _lock_current_decision(decision, db)
     if decision is None:
         return False, "Decision no longer exists"
+    agent = await db.get(Agent, decision.agent_id, populate_existing=True)
+    if not agent or agent.status != "active":
+        return False, "Agent is not active"
     if set(decision.candidates or []) != choice.candidate_ids or decision.decision_scope != choice.scope:
         return False, "Decision candidates changed while computing the recommendation"
     if error := await current_choice_error(decision, db, lock_resources=True):
@@ -149,7 +152,6 @@ async def _ai_pick_and_dispatch(decision, db, *, prepared=None):
     if not resource:
         return False, f"Picked resource {choice.picked_id} not found"
 
-    agent = await db.get(Agent, decision.agent_id)
     await dispatch_download(agent, resource, db)
     decision.status = "decided"
     decision.decided_resource_id = choice.picked_id
@@ -237,6 +239,9 @@ async def confirm_decision(
                 "meta": {},
             },
         )
+    agent = await db.get(Agent, decision.agent_id)
+    if not agent or agent.status != "active":
+        return _invalid_choice("Agent is not active")
     if error := await current_choice_error(decision, db, lock_resources=True):
         return _invalid_choice(error)
     if body.resource_id not in decision.candidates:
@@ -255,9 +260,8 @@ async def confirm_decision(
     await db.flush()
 
     # Dispatch the chosen resource
-    agent = await db.get(Agent, decision.agent_id)
     resource = await db.get(FileResource, body.resource_id)
-    if agent and resource:
+    if resource:
         await dispatch_download(agent, resource, db)
 
     await maybe_reset_agent_run_status(db, decision.agent_id)
@@ -359,11 +363,18 @@ async def ai_pick_decision(decision_id: str, db: AsyncSession = Depends(get_db))
                 "meta": {},
             },
         )
+    from app.models.agent import Agent
+
+    agent = await db.get(Agent, decision.agent_id)
+    if not agent or agent.status != "active":
+        return _invalid_choice("Agent is not active")
     if error := await current_choice_error(decision, db):
         return _invalid_choice(error)
     ok, err = await _ai_pick_and_dispatch(decision, db)
     if not ok:
         await db.rollback()
+        if err == "Agent is not active":
+            return _invalid_choice(err)
         return JSONResponse(
             status_code=400,
             content={
@@ -397,6 +408,12 @@ async def batch_decisions(
                 "meta": {},
             },
         )
+    if body.action == "ai":
+        from app.models.agent import Agent
+
+        agent = await db.get(Agent, agent_id)
+        if agent is not None and agent.status != "active":
+            return _invalid_choice("Agent is not active")
     queried_rows = (await db.execute(
         select(PendingDecision).where(
             PendingDecision.agent_id == agent_id,

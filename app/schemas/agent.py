@@ -2,7 +2,7 @@
 
 import json as _json
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, model_validator
 
@@ -62,7 +62,7 @@ class AgentCreate(BaseModel):
     # ranking layer ahead of the LLM pick in conflict resolution.
     pick_preferences: list[dict] | None = None
     filter_config: dict | None = None
-    status: str = "active"
+    status: Literal["active", "paused"] = "active"
     works: list[AgentWorkCreate] = []
     # Resource ids the user selected from the rules-preview diff to backfill
     # into the download queue. Sent by AgentForm after the preview modal; when
@@ -94,7 +94,7 @@ class AgentUpdate(BaseModel):
     llm_prompt: str | None = None
     pick_preferences: list[dict] | None = None
     filter_config: dict | None = None
-    status: str | None = None
+    status: Literal["active", "paused"] | None = None
     works: list[AgentWorkCreate] | None = None
     # See AgentCreate.dispatch_resource_ids. When present, the rules change is
     # treated as a backfill commit: dispatch the selected resources and

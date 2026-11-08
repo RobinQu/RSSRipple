@@ -19,6 +19,8 @@ export const agentsApi = {
   get: (id: string) => api.get<Agent>(`/agents/${id}`),
   create: (data: AgentCreate) => api.post<Agent>('/agents', data),
   update: (id: string, data: AgentUpdate) => api.put<Agent>(`/agents/${id}`, data),
+  pause: (id: string) => api.post<Agent>(`/agents/${id}/pause`),
+  resume: (id: string) => api.post<Agent>(`/agents/${id}/resume`),
   delete: (id: string) => api.delete<null>(`/agents/${id}`),
   run: (id: string, scanWindow?: { scan_since: string | null }) =>
     api.post<{ task_id: string }>(`/agents/${id}/run`, scanWindow),

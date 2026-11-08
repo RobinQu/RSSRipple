@@ -54,6 +54,14 @@ def _not_found(entity: str) -> dict:
             "meta": {}}
 
 
+def _agent_not_active() -> JSONResponse:
+    return JSONResponse(status_code=409, content={
+        "success": False, "data": None,
+        "error": {"code": "INVALID_STATE", "message": "Agent is not active"},
+        "meta": {},
+    })
+
+
 _NO_GATE = object()  # sentinel: caller has no channel gate to apply
 
 
@@ -237,6 +245,17 @@ async def list_agents(
 
 @router.post("/agents", status_code=201)
 async def create_agent(body: AgentCreate, db: AsyncSession = Depends(get_db)):
+    if body.status != "active" and (
+        body.run_immediately or body.dispatch_resource_ids is not None
+    ):
+        return JSONResponse(status_code=422, content={
+            "success": False, "data": None,
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "A paused agent cannot run immediately or commit a backfill",
+            },
+            "meta": {},
+        })
     # Validate channel
     ch = await db.get(Channel, body.channel_id)
     if not ch:
@@ -405,6 +424,7 @@ async def update_agent(agent_id: str, body: AgentUpdate, db: AsyncSession = Depe
     data = body.model_dump(exclude_unset=True)
     new_works = data.pop("works", None)
     dispatch_resource_ids = data.pop("dispatch_resource_ids", None)
+    effective_status = data.get("status", agent.status)
     # Validate the resulting state before mutating fields, replacing links or
     # advancing backfill progress. A scope-only edit may activate the limit.
     effective_scope = data.get("scope_channel_wide", agent.scope_channel_wide)
@@ -447,8 +467,11 @@ async def update_agent(agent_id: str, body: AgentUpdate, db: AsyncSession = Depe
                 "error": {"code": "VALIDATION_ERROR", "message": "downloader_id does not exist"},
                 "meta": {},
             })
+    if dispatch_resource_ids is not None and effective_status != "active":
+        return _agent_not_active()
     rules_changed = new_works is not None or any(
-        key != "name" and getattr(agent, key) != value for key, value in data.items()
+        key not in {"name", "status"} and getattr(agent, key) != value
+        for key, value in data.items()
     )
     for key, value in data.items():
         setattr(agent, key, value)
@@ -498,6 +521,34 @@ async def update_agent(agent_id: str, body: AgentUpdate, db: AsyncSession = Depe
     return success_response(AgentResponse.model_validate(agent).model_dump())
 
 
+async def _set_agent_status(agent_id: str, status: str, db: AsyncSession):
+    await _lock_agent_rules(db, agent_id)
+    agent = await db.get(Agent, agent_id)
+    if not agent:
+        return JSONResponse(status_code=404, content=_not_found("Agent"))
+    agent.status = status
+    await db.flush()
+    cur = await db.execute(
+        select(Agent).where(Agent.id == agent_id).options(
+            selectinload(Agent.channel), selectinload(Agent.downloader),
+            selectinload(Agent.works).selectinload(AgentWork.series),
+            selectinload(Agent.works).selectinload(AgentWork.movie),
+        )
+    )
+    agent = cur.scalar_one()
+    return success_response(AgentResponse.model_validate(agent).model_dump())
+
+
+@router.post("/agents/{agent_id}/pause")
+async def pause_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
+    return await _set_agent_status(agent_id, "paused", db)
+
+
+@router.post("/agents/{agent_id}/resume")
+async def resume_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
+    return await _set_agent_status(agent_id, "active", db)
+
+
 @router.delete("/agents/{agent_id}")
 async def delete_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
     agent = await db.get(Agent, agent_id)
@@ -529,6 +580,8 @@ async def run_agent(
     agent = await db.get(Agent, agent_id)
     if not agent:
         return JSONResponse(status_code=404, content=_not_found("Agent"))
+    if agent.status != "active":
+        return _agent_not_active()
     payload: dict = {"agent_id": agent_id}
     if body is not None:
         # Manual run with an explicit scan window (scenario ④, see

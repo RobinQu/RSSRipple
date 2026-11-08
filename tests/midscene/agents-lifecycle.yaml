@@ -170,6 +170,23 @@ tasks:
       - aiWaitFor: A run status line appears (queued / processing / finished) and eventually a row is added to the "Run history" table, or a message explains the run state
         timeout: 60000
 
+  # ── Pause / resume ───────────────────────────────────────────────
+  - name: Pause agent from detail and verify run is disabled
+    flow:
+      - ai: Click the "Pause" button in the agent detail header
+      - ai: In the confirmation dialog, click the "Confirm" button
+      - aiWaitFor: The agent header shows a Paused status badge and a success toast
+        timeout: 10000
+      - aiAssert: The Run Control tab shows a paused warning and both Run Now and Run From Start Time buttons are disabled
+
+  - name: Resume agent from detail
+    flow:
+      - ai: Click the "Resume" button in the agent detail header
+      - ai: In the confirmation dialog, click the "Confirm" button
+      - aiWaitFor: The agent header shows an Active status badge and a success toast
+        timeout: 10000
+      - ai: Reload the page and confirm the agent header still shows Active
+
   # ── Delete agent and prerequisites ──────────────────────────────
   - name: Delete the test agent
     flow:

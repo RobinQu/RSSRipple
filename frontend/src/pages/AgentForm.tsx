@@ -73,6 +73,7 @@ export default function AgentForm() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [downloaders, setDownloaders] = useState<DownloaderInstance[]>([]);
   const [works, setWorks] = useState<AgentWork[]>([]);
+  const [agentStatus, setAgentStatus] = useState<Agent['status']>('active');
   const [filterConfig, setFilterConfig] = useState<BoolCondition | null>(null);
   const [pickPreferences, setPickPreferences] = useState<FieldCondition[]>([]);
   const [saving, setSaving] = useState(false);
@@ -128,6 +129,7 @@ export default function AgentForm() {
             conflict_resolution: a.conflict_resolution,
           });
           setChannelWide(a.scope_channel_wide);
+          setAgentStatus(a.status);
           setFilterConfig(a.filter_config);
           setPickPreferences(a.pick_preferences ?? []);
           if (a.works) setWorks(a.works);
@@ -294,6 +296,14 @@ export default function AgentForm() {
       <Title level={3} style={{ marginBottom: 24 }}>
         {mode === 'create' ? t('agents.newAgent') : t('agents.editAgent')}
       </Title>
+      {agentStatus !== 'active' && (
+        <Alert
+          type="warning"
+          showIcon
+          message={t('agents.pausedEditHint')}
+          style={{ marginBottom: 16 }}
+        />
+      )}
       <Card>
         <Form
           form={form}

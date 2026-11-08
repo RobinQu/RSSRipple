@@ -7,7 +7,12 @@ from app.models.agent import Agent
 from app.models.agent_resource_request import AgentResourceRequest
 from app.models.series import TVSeries
 from app.models.work_collection import WorkCollection
-from app.services.agent_resource_requests import acknowledge_requests, request_resources, snapshot_requests
+from app.services.agent_resource_requests import (
+    acknowledge_requests,
+    request_channel_resources,
+    request_resources,
+    snapshot_requests,
+)
 from tests.integration.organize.test_organize_pipeline import _seed_chain
 
 
@@ -82,3 +87,27 @@ async def test_backoff_cap_and_new_revision_bypasses_old_failure(
         row = await writer.get(AgentResourceRequest, original.id, populate_existing=True)
         assert row.attempt_count == 0 and row.next_attempt_at is None and row.error_message is None
         assert await requests.snapshot_requests(writer, chain.agent.id) == [edited]
+
+
+async def test_channel_revision_is_retained_for_paused_agent_without_wakeup(
+    db_session, tmp_path
+):
+    from tests.integration.organize.test_agent_request_failures import seed
+
+    chain = await seed(db_session, tmp_path)
+    chain.agent.status = "paused"
+    await db_session.commit()
+
+    awakened = await request_channel_resources(
+        db_session, chain.channel.id, [chain.resource.id]
+    )
+    await db_session.commit()
+
+    assert awakened == []
+    [pending] = await snapshot_requests(db_session, chain.agent.id)
+    assert pending.resource_id == chain.resource.id
+    chain.agent.status = "active"
+    await db_session.commit()
+    assert await request_channel_resources(
+        db_session, chain.channel.id, [chain.resource.id]
+    ) == [chain.agent.id]

@@ -51,6 +51,61 @@ async def test_actual_success_finalizes_history_and_request_together(handler_see
     assert requests == leases == []
 
 
+@pytest.mark.parametrize("mode", ["incremental", "automatic", "targeted", "windowed"])
+async def test_pause_before_start_skips_every_run_mode_without_acknowledging(
+    handler_seed, mode
+):
+    factory, payload = handler_seed
+    payload = dict(payload)
+    if mode == "automatic":
+        payload["automatic"] = True
+    elif mode in {"incremental", "windowed"}:
+        payload.pop("resource_ids")
+    if mode == "windowed":
+        payload["scan_since"] = None
+    async with factory() as db:
+        agent = await db.get(Agent, payload["agent_id"])
+        agent.status = "paused"
+        await db.commit()
+
+    result = await _handle_run_agent(payload)
+
+    assert result == {"status": "skipped", "reason": "agent not active"}
+    runs, requests, agent, leases = await state(factory, payload)
+    assert runs == [] and leases == [] and len(requests) == 1
+    assert agent.status == "paused"
+
+
+async def test_pause_during_run_drains_without_overwriting_status(handler_seed, monkeypatch):
+    factory, payload = handler_seed
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def slow(*args, **kwargs):
+        entered.set()
+        await release.wait()
+        return agent_service.RunResult(total_resources=1, unrecognized=1)
+
+    monkeypatch.setattr(agent_service, "process_resources", slow)
+    task = asyncio.create_task(_handle_run_agent(payload))
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=10)
+        async with factory() as db:
+            agent = await db.get(Agent, payload["agent_id"])
+            agent.status = "paused"
+            await db.commit()
+        release.set()
+        result = await asyncio.wait_for(task, timeout=10)
+    finally:
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    runs, requests, agent, leases = await state(factory, payload)
+    assert len(runs) == 1 and runs[0].id == result["run_id"]
+    assert runs[0].status == "success"
+    assert requests == leases == [] and agent.status == "paused"
+
+
 async def test_unexpected_exception_finalizes_and_defers_without_leaking_error(handler_seed, monkeypatch):
     factory, payload = handler_seed
 

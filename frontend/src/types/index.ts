@@ -680,6 +680,7 @@ export interface AgentCreate {
   llm_prompt?: string | null;
   pick_preferences?: FieldCondition[] | null;
   filter_config?: BoolCondition | null;
+  status?: 'active' | 'paused';
   works?: AgentWorkCreate[];
   /** Resource ids selected from the rules-preview diff to backfill. Present
    *  (possibly empty) when the save went through the preview flow; null for
@@ -705,7 +706,7 @@ export interface AgentUpdate {
   llm_prompt?: string | null;
   pick_preferences?: FieldCondition[] | null;
   filter_config?: BoolCondition | null;
-  status?: AgentStatus;
+  status?: 'active' | 'paused';
   works?: AgentWorkCreate[];
   /** See AgentCreate.dispatch_resource_ids. */
   dispatch_resource_ids?: string[] | null;
@@ -1093,6 +1094,7 @@ export interface DashboardPendingItem {
   id: string;
   agent_id: string;
   agent_name: string;
+  agent_status: AgentStatus;
   reason: string;
   candidates: string[];
   candidate_resources?: FileResource[];

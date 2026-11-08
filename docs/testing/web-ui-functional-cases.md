@@ -48,7 +48,10 @@
 
 1. Open `/agents`.
 2. Assert the Agent list table and new Agent button are visible.
-3. Assert each row shows channel, downloader, status, scope, conflict handling, LLM state, and run/delete actions.
+3. Assert each row shows channel, downloader, status, scope, conflict handling, LLM state, and run/delete actions only (no pause/resume shortcut).
+4. Pause an Agent from its detail header and confirm the warning explains that an active run finishes naturally.
+5. Assert the Paused badge appears, Run Now/Run From Start Time and decision confirm/AI actions are disabled, while decision skip and existing task controls remain available.
+6. Resume the Agent from the detail header, reload, and assert the Active state persists and run actions are enabled.
 
 ## Works Repository
 

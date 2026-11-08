@@ -511,6 +511,9 @@ class Agent(Base):
                                          # "auto" 自动选择路径与 "ask" 模式下展示的 LLM 建议
     filter_config: dict | None           # 过滤规则 DSL 树（BoolCondition 根节点，详见 Filter DSL 章节）
     status: str                          # "active" | "paused" | "error"
+                                         # paused=用户临时禁用：拒绝新运行/回填/决策派发；
+                                         # 在途 run 自然完成，既有任务、通知与整理不受影响；
+                                         # 不移动发布进度，resume 后补消费
     last_run_at: datetime | None         # 上次运行时间
     current_run_token: str | None        # 内部运行归属；只有最新启动的 attempt 可发布 Agent 摘要
     last_run_status: str | None          # 上次运行状态:

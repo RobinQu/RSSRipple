@@ -63,7 +63,7 @@
 
 ### 核心业务逻辑（详见 business-logic.md）
 
-- Agent 四种运行模式：增量（未确认发布且满足历史准入）、定向（`resource_ids`，绕过准入且不确认普通游标）、回填提交（rules-preview 后保存）、指定起始时间（`scan_since`）。
+- Agent 四种运行模式：增量（未确认发布且满足历史准入）、定向（`resource_ids`，绕过准入且不确认普通游标）、回填提交（rules-preview 后保存）、指定起始时间（`scan_since`）。`paused` 临时禁用拒绝所有新运行、回填（含空数组）与决策派发；纯状态切换不重置发布进度，在途 run 自然完成，既有任务不受影响，持久工作恢复后补消费。
 - Metadata 匹配四层：已链接 → `ChannelRawTitleMapping` → 本地 DB 精确/模糊 → 统一 MetadataAgent；单季化 upsert 后所有链接路径统一走 `reconcile_linked_series_resource`，绝不猜季。
 - 频道源为三数据源架构 `wikipedia | tmdb | bangumi`（默认 `wikipedia`）；三主源未命中走有序网络搜索回退（仅补身份/链接，内容以主源为准）。
 - 冲突解决优选链：`Agent.pick_preferences`（只排序不过滤）→ `_generate_llm_pick` → 启发式评分。

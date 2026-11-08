@@ -28,7 +28,7 @@ import StatusBadge from '../../components/StatusBadge';
 import { formatBytes, timeAgo } from '../../utils/format';
 import { withMobileLabels } from '../../utils/table';
 import { createRequestGuard } from '../../utils/requestGuard';
-import type { AgentRun } from '../../types';
+import type { AgentRun, AgentStatus } from '../../types';
 
 const { Text } = Typography;
 
@@ -38,11 +38,13 @@ const { Text } = Typography;
  * the tasks tab refreshes when a run finishes. */
 export default function RunTab({
   agentId,
+  agentStatus,
   active,
   onActivity,
   onShowFiles,
 }: {
   agentId: string;
+  agentStatus: AgentStatus;
   /** Whether this tab is the visible one — entering it reloads the history. */
   active: boolean;
   /** A run finished (done/failed/success): the parent reloads the tasks. */
@@ -137,24 +139,29 @@ export default function RunTab({
         <Text type="secondary">
           {t('agents.runControlDesc')}
         </Text>
+        {agentStatus !== 'active' && (
+          <Alert type="warning" showIcon message={t('agents.pausedActionsHint')} />
+        )}
         <div>
           <Space size={12}>
-            <Tooltip title={t('agents.runNowHint')}>
+            <Tooltip title={t(agentStatus === 'active' ? 'agents.runNowHint' : 'agents.pausedActionsHint')}>
               <Button
                 type="primary"
                 size="large"
                 icon={<PlayCircle size={16} />}
                 loading={runPolling}
+                disabled={agentStatus !== 'active'}
                 onClick={() => handleRun()}
               >
                 {t('agents.runNow')}
               </Button>
             </Tooltip>
-            <Tooltip title={t('agents.runSinceHint')}>
+            <Tooltip title={t(agentStatus === 'active' ? 'agents.runSinceHint' : 'agents.pausedActionsHint')}>
               <Button
                 size="large"
                 icon={<CalendarClock size={16} />}
                 loading={runPolling}
+                disabled={agentStatus !== 'active'}
                 onClick={() => setScanModalOpen(true)}
               >
                 {t('agents.runSince')}

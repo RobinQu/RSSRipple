@@ -77,7 +77,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 }
 ```
 
-三个 `*_total` 均为对应待办的真实全量数，不受当前页 `page_size` 限制；三个页码相互独立，切换其中一个列表不会改变另两个列表的页位。Agent 决策总数与分页结果只计入候选数至少为 2 的有效多选一决策；文件资源确认总数与分页结果统一调用 Channel 确认策略计算，并排除 `confirmation_ignored_at` 非空的资源及存在无投递错误的 `ResourceReparseRequest` 的资源。
+三个 `*_total` 均为对应待办的真实全量数，不受当前页 `page_size` 限制；三个页码相互独立，切换其中一个列表不会改变另两个列表的页位。Agent 决策总数与分页结果只计入候选数至少为 2 的有效多选一决策；`pending_decisions` 条目含 `agent_status`，Dashboard 据此在非 active 时禁用快捷确认，skip/ignore 与资源修订不受影响。文件资源确认总数与分页结果统一调用 Channel 确认策略计算，并排除 `confirmation_ignored_at` 非空的资源及存在无投递错误的 `ResourceReparseRequest` 的资源。
 
 `pending_confirmations` 条目结构 `{resource, channel_name, work_title, work_ref, kinds, missing_fields}`：`work_title`/`work_ref` 为标题展示与跳转目标，按 互斥作品 FK（series/movie）→ 挂载合集（`collection_id`，对应 `/collections/:id`）→ 合集包 `resource_work_links` 首个关联作品 的优先级取首个可用者，全空（未识别）则为 null（标题不可点击）。
 
@@ -170,11 +170,13 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 | Method | Path | 说明 |
 |--------|------|------|
 | GET | `/agents` | Agent 列表（分页） |
-| POST | `/agents` | 创建 Agent，body 含 `filter_config`、`works`（AgentWork 列表，最多 10 个）、可选 `llm_prompt`、可选 `pick_preferences`（优选偏好：有序 FieldCondition 列表，确定性排序层，422 校验同 Filter DSL 叶子规则）、可选 `dispatch_resource_ids`（规则预览回填提交） |
+| POST | `/agents` | 创建 Agent，body 含 `filter_config`、`works`（AgentWork 列表，最多 10 个）、可选 `llm_prompt`、可选 `pick_preferences`（优选偏好：有序 FieldCondition 列表，确定性排序层，422 校验同 Filter DSL 叶子规则）、可选 `dispatch_resource_ids`（规则预览回填提交）；可写 status 仅 `active/paused`，paused 创建携带 `run_immediately=true` 或任意回填数组（含空）→ 422 且不创建 |
 | GET | `/agents/{id}` | Agent 详情（含 works、统计信息；TV 类型 works 附带 `latest_completed_season/episode`——按非空 `completed_at` 识别该剧集全库范围内最新已完成下载的季/集号，因此整理后转为 cancelled 的历史任务仍计入；无完成记录或为电影时为 null） |
-| PUT | `/agents/{id}` | 更新 Agent（整体替换，含 works 列表） |
+| PUT | `/agents/{id}` | 更新 Agent（整体替换，含 works 列表）；status 仅接受 `active/paused`，推荐用专用 pause/resume；纯状态变化不算规则变化、不更换 generation |
+| POST | `/agents/{id}/pause` | 临时禁用 Agent（幂等）：置 paused，拒绝新运行、回填和决策派发；在途 run 自然完成，既有下载任务不受影响，发布进度和修订请求保留 |
+| POST | `/agents/{id}/resume` | 恢复 Agent（幂等）：置 active（亦可从 error 恢复），后续调度周期补消费暂停期间的持久工作 |
 | DELETE | `/agents/{id}` | 删除 Agent（级联删除其 works、pending_decisions、runs；tasks 标记 cancelled） |
-| POST | `/agents/{id}/run` | 手动触发处理（入队处理该 Agent 频道下未处理资源）。可选 body `{"scan_since": "<ISO 8601>" \| null}`：指定本次运行的扫描起始时间（按资源入库时间，必须为过去时间，否则 422）；显式 `null` = 不限制（全量历史）；不带 body = 普通增量运行 |
+| POST | `/agents/{id}/run` | 手动触发处理（入队处理该 Agent 频道下未处理资源），非 active → 409 `INVALID_STATE`。可选 body `{"scan_since": "<ISO 8601>" \| null}`：指定本次运行的扫描起始时间（按资源入库时间，必须为过去时间，否则 422）；显式 `null` = 不限制（全量历史）；不带 body = 普通增量运行 |
 | GET | `/agents/{id}/run-status` | 轮询处理状态 |
 | POST | `/agents/{id}/test-filters` | 给定资源或全部资源测试 filter_config 匹配情况，返回匹配结果明细 |
 | GET | `/agents/{id}/suggestions` | 读取持久化的未识别资源建议分组，供用户一键添加为订阅作品 |
@@ -203,7 +205,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 
 `dispatch_resource_ids` 语义：
 - `null`（默认）：普通保存，不回填、不改动水位线（用于非规则编辑）。
-- 数组（可为空 `[]`）：表示本次保存经过 rules-preview 流程。后端会派发数组中选中的资源，并在同一保存事务重置发布 baseline/cursor 为当前频道提交前缀、更换 generation、清空历史时间准入；`last_consumed_at` 仍更新为兼容展示时间。空数组 = 不回填资源但重置准入边界。
+- 数组（可为空 `[]`）：表示本次保存经过 rules-preview 流程。后端会派发数组中选中的资源，并在同一保存事务重置发布 baseline/cursor 为当前频道提交前缀、更换 generation、清空历史时间准入；`last_consumed_at` 仍更新为兼容展示时间。空数组 = 不回填资源但重置准入边界。更新按提交后的有效状态门禁：非 active Agent 携带任意数组（含空）→ 409 `INVALID_STATE`，配置、works 和进度均不变。
 
 `POST /agents/{id}/test-filters` 请求体：`{ "resource_ids": ["..."]? }`（不传则测试最近 50 条资源）；响应返回每条资源是否通过及每个条件的命中情况。
 
@@ -348,7 +350,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 | POST | `/decisions/{id}/ai-pick` | AI 自动处理：让 LLM 选中最优候选（优先复用缓存的 `llm_picked_resource_id`，否则即时调用 LLM）并派发下载 |
 | POST | `/agents/{agent_id}/decisions/batch` | 批量处理：对多条 pending 决策统一执行 `skip` 或 `ai` 动作 |
 
-`POST /decisions/{id}/confirm` 请求体：`{ "resource_id": "uuid" }`。所有决策操作均要求至少两个合格候选；旧版单候选资源修订行返回 409 `INVALID_STATE`。
+`POST /decisions/{id}/confirm` 请求体：`{ "resource_id": "uuid" }`。所有决策操作均要求至少两个合格候选；旧版单候选资源修订行返回 409 `INVALID_STATE`。Agent 非 active 时 confirm、ai-pick 和批量 `action=ai` 均返回 409 且不关闭 pending、不创建下载；skip 仍允许。AI 在推荐计算后、最终派发前强制刷新并复查 Agent 状态。
 
 确认和 AI 派发在最终提交阶段重新校验：至少两个不同候选、未过期、频道归属、当前订阅/过滤规则、频道必填字段，以及与持久决策 scope 一致的覆盖度。资源已删除、覆盖改变或资格失效返回 409 `INVALID_STATE`，不使用旧推荐继续派发。模型准备期间候选集合或 scope 改变也拒绝；模型准备阶段不持有最终确认锁。跳过操作在锁内重新检查 pending，不能覆盖已处理的历史状态。旧表的无键 pending 必须先按 [审核迁移流程](db-migration.md#待决策覆盖身份的审核迁移) 处理。
 

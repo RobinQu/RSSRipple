@@ -238,6 +238,93 @@ class TestDecisions:
         })
         assert res.status_code == 422
 
+    async def test_paused_agent_blocks_dispatch_actions_but_allows_skip(
+        self, client, setup, db_session_factory, mock_transmission
+    ):
+        from sqlalchemy import select
+
+        from app.models.download_task import DownloadTask
+        from app.models.pending_decision import PendingDecision
+
+        ch, _dl, aid = setup
+        resources = [
+            await _create_resource(db_session_factory, ch, f"[G] Paused {index}")
+            for index in range(8)
+        ]
+        confirm_id = await _make_decision(
+            db_session_factory, aid, resources[0]["id"], resources[1]["id"],
+            picked_id=resources[0]["id"],
+        )
+        ai_id = await _make_decision(
+            db_session_factory, aid, resources[2]["id"], resources[3]["id"],
+            picked_id=resources[2]["id"],
+        )
+        batch_id = await _make_decision(
+            db_session_factory, aid, resources[4]["id"], resources[5]["id"],
+            picked_id=resources[4]["id"],
+        )
+        skip_id = await _make_decision(
+            db_session_factory, aid, resources[6]["id"], resources[7]["id"],
+        )
+        assert (await client.post(f"/api/v1/agents/{aid}/pause")).status_code == 200
+
+        responses = [
+            await client.post(
+                f"/api/v1/decisions/{confirm_id}/confirm",
+                json={"resource_id": resources[0]["id"]},
+            ),
+            await client.post(f"/api/v1/decisions/{ai_id}/ai-pick"),
+            await client.post(f"/api/v1/agents/{aid}/decisions/batch", json={
+                "decision_ids": [batch_id], "action": "ai",
+            }),
+        ]
+        assert [response.status_code for response in responses] == [409, 409, 409]
+        assert all(response.json()["error"]["code"] == "INVALID_STATE" for response in responses)
+        mock_transmission.add_torrent.assert_not_awaited()
+        skipped = await client.post(f"/api/v1/decisions/{skip_id}/skip")
+        assert skipped.status_code == 200
+
+        async with db_session_factory() as db:
+            decisions = list(await db.scalars(select(PendingDecision).where(
+                PendingDecision.id.in_([confirm_id, ai_id, batch_id, skip_id])
+            )))
+            assert {decision.id: decision.status for decision in decisions} == {
+                confirm_id: "pending", ai_id: "pending", batch_id: "pending", skip_id: "skipped",
+            }
+            tasks = list(await db.scalars(select(DownloadTask).where(DownloadTask.agent_id == aid)))
+            assert tasks == []
+
+    async def test_ai_pick_rechecks_agent_after_recommendation(
+        self, client, setup, db_session_factory, mock_transmission
+    ):
+        from app.api.v1 import decisions as decisions_module
+        from app.models.agent import Agent
+        from app.models.pending_decision import PendingDecision
+
+        ch, _dl, aid = setup
+        r1 = await _create_resource(db_session_factory, ch, "[G] Race - 01")
+        r2 = await _create_resource(db_session_factory, ch, "[G2] Race - 01")
+        did = await _make_decision(
+            db_session_factory, aid, r1["id"], r2["id"], picked_id=r1["id"]
+        )
+        original = decisions_module._prepare_ai_choice
+
+        async def pause_after_prepare(decision, db):
+            prepared = await original(decision, db)
+            async with db_session_factory() as session:
+                agent = await session.get(Agent, aid)
+                agent.status = "paused"
+                await session.commit()
+            return prepared
+
+        with patch.object(decisions_module, "_prepare_ai_choice", pause_after_prepare):
+            response = await client.post(f"/api/v1/decisions/{did}/ai-pick")
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "INVALID_STATE"
+        mock_transmission.add_torrent.assert_not_awaited()
+        async with db_session_factory() as db:
+            assert (await db.get(PendingDecision, did)).status == "pending"
+
 
 class TestDecisionSerializationWithSeries:
     """Regression: confirm/skip on a series-linked decision used to 500 on

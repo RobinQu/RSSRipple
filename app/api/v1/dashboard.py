@@ -160,6 +160,7 @@ async def _page_pending_decisions(
             "id": decision.id,
             "agent_id": decision.agent_id,
             "agent_name": decision.agent.name if decision.agent else None,
+            "agent_status": decision.agent.status if decision.agent else None,
             "series_id": decision.series_id,
             "movie_id": decision.movie_id,
             "episode": decision.episode,

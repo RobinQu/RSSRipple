@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  Alert,
   Button,
   Card,
   Checkbox,
@@ -18,7 +19,7 @@ import { decisionsApi } from '../../api/tasks';
 import { resourcesApi } from '../../api/channels';
 import SeasonInput from '../../components/SeasonInput';
 import { formatBytes, timeAgo } from '../../utils/format';
-import type { FileResource, PendingDecision } from '../../types';
+import type { AgentStatus, FileResource, PendingDecision } from '../../types';
 
 const { Text } = Typography;
 
@@ -35,6 +36,7 @@ interface EpisodeDraft {
  * batch actions and the ambiguous-episode correction form. */
 export default function DecisionsTab({
   agentId,
+  agentStatus,
   decisions,
   candidateCache,
   loading,
@@ -43,6 +45,7 @@ export default function DecisionsTab({
   onShowFiles,
 }: {
   agentId: string;
+  agentStatus: AgentStatus;
   decisions: PendingDecision[];
   candidateCache: Record<string, FileResource>;
   loading: boolean;
@@ -176,6 +179,14 @@ export default function DecisionsTab({
   return (
     <Card>
       <Spin spinning={loading}>
+        {agentStatus !== 'active' && (
+          <Alert
+            type="warning"
+            showIcon
+            message={t('agents.pausedActionsHint')}
+            style={{ marginBottom: 12 }}
+          />
+        )}
         {decisions.length === 0 ? (
           <Empty description={t('dashboard.noPendingDecisions')} />
         ) : (
@@ -193,7 +204,7 @@ export default function DecisionsTab({
                 size="small"
                 type="primary"
                 loading={batchLoading}
-                disabled={selectedDecisionIds.length === 0}
+                disabled={selectedDecisionIds.length === 0 || agentStatus !== 'active'}
                 onClick={() => handleBatch('ai')}
               >
                 {t('agents.batchAi', { n: selectedDecisionIds.length })}
@@ -258,6 +269,7 @@ export default function DecisionsTab({
                           size="small"
                           type="primary"
                           loading={aiPickLoading === d.id}
+                          disabled={agentStatus !== 'active'}
                           onClick={() => handleAiPick(d.id)}
                         >
                           {t('agents.aiHandle')}
@@ -414,6 +426,7 @@ export default function DecisionsTab({
                               type="primary"
                               size="small"
                               icon={<CheckCircle size={12} />}
+                              disabled={agentStatus !== 'active'}
                               onClick={() => handleConfirm(d.id, cid)}
                             >
                               {t('common.confirm')}

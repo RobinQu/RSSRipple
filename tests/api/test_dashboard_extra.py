@@ -62,9 +62,8 @@ class TestDashboardPopulated:
     async def test_pending_decision_carries_candidate_resources(
         self, client, setup_with_task_and_decision,
     ):
-        """Dashboard pending decisions expose full candidate rows (raw title +
-        episode_confidence) so the frontend can render an inline correction
-        form instead of a separate fetch."""
+        """Dashboard pending decisions expose candidate rows and Agent state
+        for inline correction and pause-aware confirmation controls."""
         fx = setup_with_task_and_decision
         res = await client.get("/api/v1/dashboard")
         data = res.json()["data"]
@@ -77,6 +76,15 @@ class TestDashboardPopulated:
         assert c["id"] == fx.r1
         assert c["title_raw"] == "[G] S - 01"
         assert "episode_confidence" in c
+        assert d["agent_status"] == "active"
+
+        assert (await client.post(f"/api/v1/agents/{fx.a_id}/pause")).status_code == 200
+        paused = await client.get("/api/v1/dashboard")
+        paused_decision = next(
+            item for item in paused.json()["data"]["pending_decisions"]
+            if item["id"] == fx.pd_id
+        )
+        assert paused_decision["agent_status"] == "paused"
 
     async def test_pending_decisions_have_independent_pagination_and_true_total(
         self, client, db_session_factory, setup_with_task_and_decision,

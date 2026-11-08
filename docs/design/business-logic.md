@@ -409,6 +409,8 @@ Wikipedia 数据源没有 TMDB media_type 这类权威字段，tv/movie 由页�
 
 入口：task queue worker `_handle_run_agent(payload)`（`app/main.py`），payload 为 `{"agent_id", "resource_ids"?, "scan_since"?}`（`scan_since` 为 naive UTC ISO 字符串或 null，键的存在即表示"指定起始时间运行"）。每次运行持久化一条 `AgentRun` 记录（开始即插入 `status="running"`，结束回填计数与状态）。
 
+`Agent.status=paused` 是用户临时禁用状态：四种模式的新运行全部拒绝，API 入队前返回 409，worker 对包括非 automatic 在内的所有已入队任务在请求快照、AgentRun 和 lease 创建之前再检查并跳过。rules-preview 本身仍可只读预览，但非 active Agent 的回填提交（含空数组）在任何字段/works/进度修改前返回 409；paused 创建携带立即运行或回填返回 422。暂停/恢复不属于规则变化，不更换 generation 或移动水位线。运行中暂停采用 drain：当前运行自然完成，仍可能产生下载，收尾不得覆盖 paused；不主动取消既有 DownloadTask、通知或整理。PendingDecision 的 confirm/AI/批量 AI 同样禁止新派发（skip 允许），AI 在模型计算后、父 Agent 锁下强制刷新状态再检查一次。
+
 **事务边界**（避免长时间持有 SQLite 写锁阻塞前台写请求）：handler 分三个阶段——阶段 1 短事务内插入 AgentRun 与租约、选定本次资源并立即提交；阶段 2 处理阶段（含 LLM 调用与 Transmission RPC）以 `process_resources(..., autocommit=True)` 运行，每完成一次派发/决策即增量提交，写锁绝不跨越外部调用持有；阶段 3 新短事务条件领取完成权，同时写入历史、请求确认及消费进度。已提交单元保持原幂等语义；收尾冲突只重试第三阶段，禁止重放外部调用。四种运行模式：
 
 | 模式 | 触发条件 | 处理范围 | 消费进度 |
@@ -777,9 +779,9 @@ Agent 候选组事务：后台运行先提交选择事务，再逐组用独立�
 
 ### 资源修订的持久化定向补偿
 
-三个资源修订端点在资源修改的同一事务内，为当前频道 active Agent 写入 AgentResourceRequest，包含自动修复的兄弟资源；commit 后再尝试唤醒队列。队列忙碌去重或 broker 故障不会清除请求。启用的调度器每 5 秒分发到期请求，保留现有 agent key 去重。作业选择阶段读取请求版本并合入资源集合；成功完成按 id＋revision 确认，内部错误或异常按该版本记录 30 秒起、1800 秒封顶的指数退避。新修订重置退避，迟到旧失败不能改变新版本。纯请求补偿不推进增量水位线。
+三个资源修订端点在资源修改的同一事务内，为当前频道 active/paused Agent 写入 AgentResourceRequest，包含自动修复的兄弟资源；commit 后只尝试唤醒 active Agent。队列忙碌去重或 broker 故障不会清除请求。启用的调度器每 5 秒分发到期请求，保留现有 agent key 去重。作业选择阶段读取请求版本并合入资源集合；成功完成按 id＋revision 确认，内部错误或异常按该版本记录 30 秒起、1800 秒封顶的指数退避。新修订重置退避，迟到旧失败不能改变新版本。纯请求补偿不推进增量水位线。
 
-暂停/error Agent 的已有请求保留，分发仅选择 active Agent；Agent/资源删除通过 FK 级联清除请求，频道不再匹配时分发器清除失效请求。请求确认表示已按当前规则处理，过滤、待确认或已有下载去重均可以成功确认，不承诺每个请求必有新下载。
+暂停/error Agent 的已有请求保留，暂停期间的新修订也为 paused Agent 持久化；分发仅选择 active Agent，恢复后下一周期补跑。Agent/资源删除通过 FK 级联清除请求，频道不再匹配时分发器清除失效请求。请求确认表示已按当前规则处理，过滤、待确认或已有下载去重均可以成功确认，不承诺每个请求必有新下载。
 
 
 ### 合集生命周期事务
@@ -826,13 +828,13 @@ PostgreSQL 创建决策在模型调用之后、Agent 行锁之前获取事务级
 
 Agent 的 baseline 控制历史准入，cursor 控制已确认发布前缀，两者独立且非负。事件需满足 `cursor < sequence <= through`，并且 `origin_sequence > baseline` 或资源在显式历史时间下界之后。快照包含 agent/channel/generation/through 和去重资源 IDs；成功确认采用 generation 条件更新，失败不吞掉未处理事件。`last_consumed_at` 保留兼容时间展示，不是消费游标；成功确认后取旧值与本轮资源时间最大值。
 
-首次 NULL 时间且缺进度时以当前发布前缀初始化，避免静默历史派发。有旧时间却缺进度必须先停写迁移。普通频道切换保持时间字段，以新频道当前前缀为 baseline、cursor=0，并以旧时间作为历史准入下界；NULL 时间的切换留待首次初始化。普通规则/派发参数实质变更和订阅 CRUD 只更换现有 generation，不移动准入或游标；仅改名或无变化保存不失效。
+首次 NULL 时间且缺进度时以当前发布前缀初始化，避免静默历史派发。有旧时间却缺进度必须先停写迁移。普通频道切换保持时间字段，以新频道当前前缀为 baseline、cursor=0，并以旧时间作为历史准入下界；NULL 时间的切换留待首次初始化。普通规则/派发参数实质变更和订阅 CRUD 只更换现有 generation，不移动准入或游标；仅改名、纯 active/paused 状态切换或无变化保存不失效。
 
 指定时间扫描在处理前事务扩展历史准入、回退 cursor 至最早所选创建事件之前并更换 generation；崩溃或候选持久化失败后普通增量能重读。成功确认仅覆盖扫描开始的发布前缀。显式回填重置优先，旧 generation 的扫描或确认不得再次打开历史范围。已持久化的 RPC 错误任务仍走下载任务重试。
 
 publication/window 运行在候选组开始及最终下载 RPC 前，用独立新会话检查当前频道和 generation，避免读取旧事务快照。已提交的范围变更阻止尚未开始的旧派发；不持数据库写锁跨网络调用，也不能撤销已开始的 RPC。显式定向请求沿用其独立语义，不以此宣称所有并发副作用都可撤销。
 
-worker/all 调度器每 5 秒扫描 active Agent 的发布前缀与 cursor 差，缺进度且 NULL 时间的 Agent 也获得初始化唤醒。事务外 enqueue 普通 run_agent，复用稳定 agent key 去重；队列失败或忙碌不确认数据库进度，下轮补发。自动唤醒携带 `automatic=true`，handler 在创建运行前跳过非 active Agent，恢复后继续消费。B9 持久修订请求仍独立补偿，不把自动完成事件转成绕过历史准入的定向请求。
+worker/all 调度器每 5 秒扫描 active Agent 的发布前缀与 cursor 差，缺进度且 NULL 时间的 Agent 也获得初始化唤醒。事务外 enqueue 普通 run_agent，复用稳定 agent key 去重；队列失败或忙碌不确认数据库进度，下轮补发。自动唤醒携带 `automatic=true`，handler 对所有运行模式均在创建运行前跳过非 active Agent，恢复后继续消费。B9 持久修订请求仍独立补偿，不把自动完成事件转成绕过历史准入的定向请求。
 
 Turso MVCC 同频道计数器写冲突通过既有 `retry_on_lock` 在尚未提交的完整 metadata 操作边界有限退避重试，每次重新创建会话。metadata 和发布已经提交后，后续海报失败不重跑主事务，避免重复计次。重试耗尽记录失败，后续回填保留恢复机会。
 

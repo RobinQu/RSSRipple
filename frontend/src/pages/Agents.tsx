@@ -130,6 +130,7 @@ export default function Agents() {
             type="text"
             size="small"
             icon={<Play size={14} />}
+            disabled={record.status !== 'active'}
             onClick={() => handleRun(record.id)}
             title={t('agents.runNow')}
           />

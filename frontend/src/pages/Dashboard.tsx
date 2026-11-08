@@ -705,6 +705,8 @@ export default function Dashboard() {
                               type="primary"
                               size="small"
                               icon={<Check size={12} />}
+                              disabled={d.agent_status !== 'active'}
+                              title={d.agent_status !== 'active' ? t('agents.pausedActionsHint') : undefined}
                               onClick={() => handleConfirm(d.id, r.id)}
                             >
                               {t('common.confirm')}

@@ -609,6 +609,105 @@ class TestAgentsCRUD:
         assert res.json()["data"]["name"] == "B"
 
 
+class TestAgentPauseResume:
+    async def test_pause_resume_are_idempotent_and_block_manual_run(
+        self, client, channel_and_dl
+    ):
+        ch_id, dl_id = channel_and_dl
+        create = await client.post("/api/v1/agents", json={
+            "name": "A", "channel_id": ch_id, "downloader_id": dl_id,
+            "scope_channel_wide": True,
+        })
+        aid = create.json()["data"]["id"]
+
+        for _ in range(2):
+            paused = await client.post(f"/api/v1/agents/{aid}/pause")
+            assert paused.status_code == 200
+            assert paused.json()["data"]["status"] == "paused"
+            assert paused.json()["data"]["channel"]["id"] == ch_id
+        blocked = await client.post(f"/api/v1/agents/{aid}/run")
+        assert blocked.status_code == 409
+        assert blocked.json()["error"]["code"] == "INVALID_STATE"
+
+        for _ in range(2):
+            resumed = await client.post(f"/api/v1/agents/{aid}/resume")
+            assert resumed.status_code == 200
+            assert resumed.json()["data"]["status"] == "active"
+        assert (await client.post(f"/api/v1/agents/{aid}/run")).status_code == 200
+
+        for action in ("pause", "resume"):
+            missing = await client.post(f"/api/v1/agents/missing/{action}")
+            assert missing.status_code == 404
+
+    @pytest.mark.parametrize("extra", [
+        {"run_immediately": True},
+        {"dispatch_resource_ids": []},
+    ])
+    async def test_paused_create_rejects_run_or_backfill_atomically(
+        self, client, channel_and_dl, extra
+    ):
+        ch_id, dl_id = channel_and_dl
+        res = await client.post("/api/v1/agents", json={
+            "name": "Paused", "channel_id": ch_id, "downloader_id": dl_id,
+            "scope_channel_wide": True, "status": "paused", **extra,
+        })
+        assert res.status_code == 422
+        assert res.json()["error"]["code"] == "VALIDATION_ERROR"
+        listed = await client.get("/api/v1/agents")
+        assert listed.json()["meta"]["total"] == 0
+
+    async def test_agent_status_write_is_validated(self, client, channel_and_dl):
+        ch_id, dl_id = channel_and_dl
+        invalid = await client.post("/api/v1/agents", json={
+            "name": "A", "channel_id": ch_id, "downloader_id": dl_id,
+            "scope_channel_wide": True, "status": "error",
+        })
+        assert invalid.status_code == 422
+        create = await client.post("/api/v1/agents", json={
+            "name": "A", "channel_id": ch_id, "downloader_id": dl_id,
+            "scope_channel_wide": True,
+        })
+        aid = create.json()["data"]["id"]
+        assert (await client.put(
+            f"/api/v1/agents/{aid}", json={"status": "error"}
+        )).status_code == 422
+
+    async def test_paused_backfill_and_status_only_put_preserve_progress(
+        self, client, channel_and_dl, db_session
+    ):
+        from app.models.agent_publication_progress import AgentPublicationProgress
+
+        ch_id, dl_id = channel_and_dl
+        create = await client.post("/api/v1/agents", json={
+            "name": "A", "channel_id": ch_id, "downloader_id": dl_id,
+            "scope_channel_wide": True,
+        })
+        aid = create.json()["data"]["id"]
+        progress = AgentPublicationProgress(
+            agent_id=aid, channel_id=ch_id, generation=_uuid(), baseline=3, cursor=2,
+        )
+        db_session.add(progress)
+        await db_session.commit()
+        generation = progress.generation
+
+        paused = await client.put(f"/api/v1/agents/{aid}", json={"status": "paused"})
+        assert paused.status_code == 200
+        rejected = await client.put(f"/api/v1/agents/{aid}", json={
+            "name": "Must not change", "dispatch_resource_ids": [],
+        })
+        assert rejected.status_code == 409
+        current = await client.get(f"/api/v1/agents/{aid}")
+        assert current.json()["data"]["name"] == "A"
+        assert current.json()["data"]["last_consumed_at"] is None
+        await db_session.refresh(progress)
+        assert (progress.generation, progress.baseline, progress.cursor) == (generation, 3, 2)
+
+        resumed = await client.put(f"/api/v1/agents/{aid}", json={"status": "active"})
+        assert resumed.status_code == 200
+        await db_session.refresh(progress)
+        assert progress.generation == generation
+
+
 class TestAgentActions:
     async def test_run_enqueues(self, client, channel_and_dl):
         ch_id, dl_id = channel_and_dl

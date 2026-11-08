@@ -84,18 +84,14 @@ async def acknowledge_requests(db: AsyncSession, requests: list[RequestSnapshot]
 async def request_channel_resources(db: AsyncSession, channel_id: str, resource_ids: list[str]) -> list[str]:
     from app.models.agent import Agent
 
-    agent_ids = list(
-        (
-            await db.scalars(
-                select(Agent.id).where(
-                    Agent.channel_id == channel_id,
-                    Agent.status == "active",
-                )
-            )
-        ).all()
-    )
-    await request_resources(db, agent_ids, resource_ids)
-    return agent_ids
+    rows = (await db.execute(
+        select(Agent.id, Agent.status).where(
+            Agent.channel_id == channel_id,
+            Agent.status.in_(["active", "paused"]),
+        )
+    )).all()
+    await request_resources(db, [agent_id for agent_id, _status in rows], resource_ids)
+    return [agent_id for agent_id, status in rows if status == "active"]
 
 
 async def wake_agents(agent_ids: list[str], resource_ids: list[str] | None = None) -> None:

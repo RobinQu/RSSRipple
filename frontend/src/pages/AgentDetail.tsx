@@ -12,8 +12,10 @@ import {
   Card,
   Typography,
   Spin,
+  App,
 } from 'antd';
-import { ArrowLeft, Edit } from 'lucide-react';
+import { ArrowLeft, Edit, Pause, Play } from 'lucide-react';
+import { agentsApi } from '../api/agents';
 import StatusBadge from '../components/StatusBadge';
 import NotificationsPanel from '../components/NotificationsPanel';
 import ResourceDetailDrawer from '../components/ResourceDetailDrawer';
@@ -41,6 +43,7 @@ const AGENT_DETAIL_TABS = ['works', 'tasks', 'decisions', 'filters', 'notificati
 export default function AgentDetail() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
+  const { message, modal } = App.useApp();
   const [tab, setTab] = useUrlTab('works', AGENT_DETAIL_TABS);
   // Task-table sort/column prefs (shared with the downloader local-task
   // table), persisted per agent in localStorage.
@@ -113,6 +116,28 @@ export default function AgentDetail() {
     loadTasks();
   };
 
+  const handleTogglePause = () => {
+    if (!id || !agent) return;
+    const isPaused = agent.status === 'paused';
+    modal.confirm({
+      title: t(isPaused ? 'agents.resumeConfirm' : 'agents.pauseConfirm'),
+      content: t(isPaused ? 'agents.resumeConfirmContent' : 'agents.pauseConfirmContent'),
+      okText: t('common.confirm'),
+      cancelText: t('common.cancel'),
+      onOk: async () => {
+        const r = isPaused ? await agentsApi.resume(id) : await agentsApi.pause(id);
+        if (r.success) {
+          setAgent(r.data);
+          message.success(t(isPaused ? 'agents.resumed' : 'agents.paused'));
+        } else {
+          message.error(
+            r.error?.message || t(isPaused ? 'agents.resumeFailed' : 'agents.pauseFailed'),
+          );
+        }
+      },
+    });
+  };
+
   if (loadingAgent || !agent) {
     return <Spin style={{ display: 'flex', justifyContent: 'center', padding: 48 }} />;
   }
@@ -127,6 +152,13 @@ export default function AgentDetail() {
           {agent.name}
         </Title>
         <StatusBadge status={agent.status} />
+        <Button
+          size="small"
+          icon={agent.status === 'paused' ? <Play size={12} /> : <Pause size={12} />}
+          onClick={handleTogglePause}
+        >
+          {t(agent.status === 'paused' ? 'agents.resume' : 'agents.pause')}
+        </Button>
         <Link to={`/agents/${id}/edit`}>
           <Button size="small" icon={<Edit size={12} />}>{t('common.edit')}</Button>
         </Link>
@@ -207,6 +239,7 @@ export default function AgentDetail() {
             children: id ? (
               <DecisionsTab
                 agentId={id}
+                agentStatus={agent.status}
                 decisions={decisions}
                 candidateCache={candidateCache}
                 loading={loadingDec}
@@ -242,6 +275,7 @@ export default function AgentDetail() {
             children: id ? (
               <RunTab
                 agentId={id}
+                agentStatus={agent.status}
                 active={tab === 'run'}
                 onActivity={loadTasks}
                 onShowFiles={setFilesResourceId}

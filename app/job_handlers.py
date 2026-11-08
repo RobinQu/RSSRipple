@@ -248,7 +248,7 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
         if not agent:
             raise RuntimeError(f"Agent {agent_id} not found")
 
-        if payload.get("automatic") and agent.status != "active":
+        if agent.status != "active":
             return {"status": "skipped", "reason": "agent not active"}
 
         request_snapshots = await snapshot_requests(session, agent_id)
