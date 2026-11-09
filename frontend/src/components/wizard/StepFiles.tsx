@@ -13,8 +13,9 @@ import {
 import { ChevronDown, ChevronRight, Plus, RefreshCw, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { seasonLabel } from '../../utils/season';
-import { workKeyOf } from '../wizardValidation';
+import { placementWorkKey, workKeyOf } from '../wizardValidation';
 import SeasonInput from '../SeasonInput';
+import FileRoleControls from './FileRoleControls';
 import { LabeledRow, PoolFileRow } from './PoolFileRow';
 import type { ResourceEditWizardState } from './useResourceEditWizard';
 
@@ -42,6 +43,7 @@ export default function StepFiles({
     works,
     epSeason,
     setEpSeason,
+    resourceSeasonLocked,
     epEpisode,
     setEpEpisode,
     epAbsolute,
@@ -57,7 +59,7 @@ export default function StepFiles({
     analyze,
     workTitles,
     workSeasons,
-    setWorkSeasons,
+    setWorkSeason,
     selectedWorkKey,
     setSelectedWorkKey,
     sortedEntriesFor,
@@ -67,6 +69,8 @@ export default function StepFiles({
     setBatchEpStart,
     applyBatchEpisodeIncrement,
     setPlacementField,
+    setSubtitleAttachment,
+    setFileRole,
     unassignPaths,
     removeWork,
     setPickerOpen,
@@ -75,7 +79,6 @@ export default function StepFiles({
     joinChecked,
     checkedFiles,
     suggestion,
-    poolFiles,
     poolRows,
     expandedClusters,
     toggleCluster,
@@ -99,9 +102,9 @@ export default function StepFiles({
       ) : !isBatch ? (
         <>
           {(!works.length || works[0]?.work_type === 'series') ? (
-            <>
+            <div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr' : 'repeat(3, 1fr)', gap: 8 }}>
               <LabeledRow label={t('resource.seasonLabel')}>
-                <SeasonInput value={epSeason} onChange={setEpSeason} style={{ width: '100%' }} />
+                <SeasonInput value={epSeason} onChange={setEpSeason} disabled={resourceSeasonLocked} style={{ width: '100%' }} />
               </LabeledRow>
               <LabeledRow label={t('resource.episodePerSeasonLabel')}>
                 <InputNumber min={0} value={epEpisode} onChange={(v) => setEpEpisode(typeof v === 'number' ? v : null)} style={{ width: '100%' }} />
@@ -109,11 +112,88 @@ export default function StepFiles({
               <LabeledRow label={t('resource.absoluteEpisodePlaceholder')}>
                 <InputNumber min={0} value={epAbsolute} onChange={(v) => setEpAbsolute(typeof v === 'number' ? v : null)} style={{ width: '100%' }} />
               </LabeledRow>
-            </>
+            </div>
           ) : (
             <Text type="secondary" style={{ fontSize: 12 }}>
               {t('resource.noEpisodeFields')}
             </Text>
+          )}
+          {files.length === 0 ? (
+            filesSource === 'none' && detail?.torrent_url?.startsWith('http') ? (
+              <Alert
+                type="warning"
+                showIcon
+                message={t('resource.torrentFetchFailed')}
+                action={
+                  <Button size="small" loading={filesRetrying} onClick={retryFetchFiles}>
+                    {t('common.retry')}
+                  </Button>
+                }
+              />
+            ) : (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('resource.noListingHint')} />
+            )
+          ) : (
+            <div style={{ border: '1px solid var(--rr-border-soft)', borderRadius: 8, padding: 8 }}>
+              <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
+                {t('resource.fileAssignments')}
+              </Text>
+              <div style={{ maxHeight: compact ? 320 : 420, overflowY: 'auto' }}>
+                {files.map((file) => {
+                  const p = placements[file.name];
+                  const workKey = p ? placementWorkKey(p) : null;
+                  return (
+                    <div key={file.name} style={{ padding: '5px 0', borderBottom: '1px solid var(--rr-border-soft)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                        <span title={file.name} style={{ flex: 1, minWidth: 180, fontSize: 12, overflowWrap: 'anywhere', wordBreak: 'break-all' }}>
+                          {file.name}
+                        </span>
+                        {workKey && (
+                          <Tag style={{ margin: 0, fontSize: 10 }}>{workTitles[workKey] || workKey}</Tag>
+                        )}
+                        <FileRoleControls
+                          path={file.name}
+                          placement={p}
+                          placements={placements}
+                          onRoleChange={setFileRole}
+                          onAttachedChange={setSubtitleAttachment}
+                        />
+                      </div>
+                      {p?.fileRole === 'episode' && p.workType === 'series' && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 5, paddingLeft: compact ? 0 : 12 }}>
+                          <SeasonInput
+                            size="small"
+                            value={p.season}
+                            onChange={(value) => setPlacementField(file.name, { season: value })}
+                            disabled={workKey != null && workSeasons[workKey] != null}
+                            addonBefore={t('resource.seasonLabel')}
+                            style={{ width: 130 }}
+                          />
+                          <InputNumber
+                            size="small"
+                            min={0}
+                            value={p.epStart}
+                            onChange={(value) => setPlacementField(file.name, { epStart: typeof value === 'number' ? value : null })}
+                            placeholder={t('resource.epStartCol')}
+                            style={{ width: 82 }}
+                            controls={false}
+                          />
+                          <InputNumber
+                            size="small"
+                            min={0}
+                            value={p.epEnd}
+                            onChange={(value) => setPlacementField(file.name, { epEnd: typeof value === 'number' ? value : null })}
+                            placeholder={t('resource.epEndCol')}
+                            style={{ width: 82 }}
+                            controls={false}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           )}
         </>
       ) : files.length === 0 ? (
@@ -148,9 +228,10 @@ export default function StepFiles({
               {works.map((w) => {
                 const key = workKeyOf(w.work_type, w.work_id);
                 const entries = sortedEntriesFor(key);
+                const episodeEntries = entries.filter(([, placement]) => placement.fileRole === 'episode');
                 const checkedSet = new Set(checkedAssign);
-                const checkedHere = entries.filter(([path]) => checkedSet.has(path));
-                const allChecked = entries.length > 0 && checkedHere.length === entries.length;
+                const checkedHere = episodeEntries.filter(([path]) => checkedSet.has(path));
+                const allChecked = episodeEntries.length > 0 && checkedHere.length === episodeEntries.length;
                 const count = entries.length;
                 const active = selectedWorkKey === key;
                 return (
@@ -204,9 +285,7 @@ export default function StepFiles({
                           <SeasonInput
                             size="small"
                             value={workSeasons[key] ?? null}
-                            onChange={(v) =>
-                              setWorkSeasons((prev) => ({ ...prev, [key]: v }))
-                            }
+                            onChange={(v) => setWorkSeason(key, v)}
                             placeholder={t('resource.workSeasonUnknown')}
                             style={{ width: 96, flexShrink: 0 }}
                           />
@@ -265,9 +344,10 @@ export default function StepFiles({
                         >
                           <Checkbox
                             checked={allChecked}
+                            disabled={episodeEntries.length === 0}
                             indeterminate={checkedHere.length > 0 && !allChecked}
                             onChange={(e) =>
-                              setCheckedAssign(e.target.checked ? entries.map(([path]) => path) : [])
+                              setCheckedAssign(e.target.checked ? episodeEntries.map(([path]) => path) : [])
                             }
                           />
                           <Text type="secondary" style={{ fontSize: 10, flex: 1 }}>{t('resource.fileColName')}</Text>
@@ -278,32 +358,51 @@ export default function StepFiles({
                         </div>
                         <div style={{ maxHeight: compact ? 220 : 300, overflowY: 'auto' }}>
                           {entries.map(([path, p]) => (
-                            <div key={path} style={{ display: 'flex', gap: 4, alignItems: 'flex-start', padding: '1px 0' }}>
-                              <Checkbox
-                                style={{ marginTop: 4 }}
-                                checked={checkedSet.has(path)}
-                                onChange={(e) =>
-                                  setCheckedAssign((prev) =>
-                                    e.target.checked
-                                      ? [...prev, path]
-                                      : prev.filter((x) => x !== path),
-                                  )
-                                }
-                              />
-                              <span
-                                title={path}
-                                style={{ fontSize: 11, flex: 1, minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-all', lineHeight: 1.4, marginTop: 3 }}
-                              >
-                                {path.split('/').pop()}
-                              </span>
-                              {/* Season is fixed by the target work
-                                  (per-season works) — read-only here. */}
-                              <span style={{ width: 52, flexShrink: 0, textAlign: 'center', fontSize: 11, marginTop: 3 }}>
-                                {p.season != null ? `S${p.season}` : '—'}
-                              </span>
-                              <InputNumber size="small" min={0} value={p.epStart} onChange={(v) => setPlacementField(path, { epStart: typeof v === 'number' ? v : null })} style={{ width: 52, flexShrink: 0 }} controls={false} />
-                              <InputNumber size="small" min={0} value={p.epEnd} onChange={(v) => setPlacementField(path, { epEnd: typeof v === 'number' ? v : null })} style={{ width: 52, flexShrink: 0 }} controls={false} />
-                              <Button size="small" type="text" icon={<X size={11} />} aria-label={t('resource.removeMapping')} onClick={() => unassignPaths([path])} />
+                            <div key={path} style={{ padding: '2px 0', borderBottom: '1px solid var(--rr-border-soft)' }}>
+                              <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start' }}>
+                                <Checkbox
+                                  style={{ marginTop: 4 }}
+                                  checked={checkedSet.has(path)}
+                                  disabled={p.fileRole !== 'episode'}
+                                  onChange={(e) =>
+                                    setCheckedAssign((prev) =>
+                                      e.target.checked
+                                        ? [...prev, path]
+                                        : prev.filter((x) => x !== path),
+                                    )
+                                  }
+                                />
+                                <span
+                                  title={path}
+                                  style={{ fontSize: 11, flex: 1, minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-all', lineHeight: 1.4, marginTop: 3 }}
+                                >
+                                  {path.split('/').pop()}
+                                </span>
+                                <Button size="small" type="text" icon={<X size={11} />} aria-label={t('resource.removeMapping')} onClick={() => unassignPaths([path])} />
+                              </div>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center', paddingLeft: 24, marginTop: 2 }}>
+                                <FileRoleControls
+                                  path={path}
+                                  placement={p}
+                                  placements={placements}
+                                  onRoleChange={setFileRole}
+                                  onAttachedChange={setSubtitleAttachment}
+                                />
+                                {p.fileRole === 'episode' && (
+                                  <>
+                                    <SeasonInput
+                                      size="small"
+                                      value={p.season}
+                                      onChange={(value) => setPlacementField(path, { season: value })}
+                                      disabled={workSeasons[key] != null}
+                                      placeholder={t('resource.seasonLabel')}
+                                      style={{ width: 68, flexShrink: 0 }}
+                                    />
+                                    <InputNumber size="small" min={0} value={p.epStart} onChange={(v) => setPlacementField(path, { epStart: typeof v === 'number' ? v : null })} style={{ width: 52, flexShrink: 0 }} controls={false} />
+                                    <InputNumber size="small" min={0} value={p.epEnd} onChange={(v) => setPlacementField(path, { epEnd: typeof v === 'number' ? v : null })} style={{ width: 52, flexShrink: 0 }} controls={false} />
+                                  </>
+                                )}
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -377,7 +476,7 @@ export default function StepFiles({
               style={{ flex: compact ? undefined : 1, minHeight: 0, maxHeight: compact ? 360 : undefined, overflowY: 'auto', userSelect: 'none', touchAction: 'none' }}
               onPointerMove={extendTouchSelect}
             >
-              {poolFiles.length === 0 ? (
+              {poolRows.length === 0 ? (
                 <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('resource.allMappedHint')} style={{ margin: 12 }} />
               ) : (
                 // Cluster-level rows: one header per work_title_hint group
@@ -452,26 +551,36 @@ export default function StepFiles({
                     // cluster too, so single-file tweaks (unassign back to
                     // the pool) stay in the cluster context.
                     const p = placements[row.path];
-                    const key = workKeyOf(p.workType, p.workId);
+                    const key = placementWorkKey(p);
                     return (
                       <div
                         key={`a-${row.path}`}
                         style={{
                           display: 'flex',
                           alignItems: 'center',
-                          gap: 8,
+                          flexWrap: 'wrap',
+                          gap: 6,
                           padding: '3px 4px 3px 26px',
                           borderBottom: '1px solid var(--rr-border-soft)',
                         }}
                       >
-                        <span style={{ flex: 1, minWidth: 0, fontSize: 12, overflowWrap: 'anywhere', wordBreak: 'break-all', lineHeight: 1.4 }}>
+                        <span style={{ flex: 1, minWidth: 160, fontSize: 12, overflowWrap: 'anywhere', wordBreak: 'break-all', lineHeight: 1.4 }}>
                           {row.path}
                         </span>
-                        <Tag color="blue" style={{ fontSize: 10, margin: 0 }}>
-                          {workTitles[key] || key}
-                          {p.season != null ? ` S${p.season}` : ''}
-                          {p.epStart != null ? ` E${p.epStart}` : ''}
-                        </Tag>
+                        {key && (
+                          <Tag color="blue" style={{ fontSize: 10, margin: 0 }}>
+                            {workTitles[key] || key}
+                            {p.fileRole === 'episode' && p.season != null ? ` S${p.season}` : ''}
+                            {p.fileRole === 'episode' && p.epStart != null ? ` E${p.epStart}` : ''}
+                          </Tag>
+                        )}
+                        <FileRoleControls
+                          path={row.path}
+                          placement={p}
+                          placements={placements}
+                          onRoleChange={setFileRole}
+                          onAttachedChange={setSubtitleAttachment}
+                        />
                         <Button size="small" type="text" icon={<X size={11} />} aria-label={t('resource.removeMapping')} onClick={() => unassignPaths([row.path])} />
                       </div>
                     );
@@ -485,6 +594,15 @@ export default function StepFiles({
                       checked={checkedFiles.includes(row.file.name)}
                       parsed={detParses[row.file.name]}
                       indented={clusterGroups.length > 1 || clusterGroups[0]?.title != null}
+                      actions={(
+                        <FileRoleControls
+                          path={row.file.name}
+                          placement={undefined}
+                          placements={placements}
+                          onRoleChange={setFileRole}
+                          onAttachedChange={setSubtitleAttachment}
+                        />
+                      )}
                       onPointerDown={beginPointerSelect}
                       onPointerEnter={extendDragSelect}
                       onToggle={toggleFileChecked}

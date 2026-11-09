@@ -830,7 +830,7 @@ class TestResourceFiles:
         )
         path = _write_torrent(tmp_path, [(["c.mkv"], 300)])
         with patch(
-            "app.api.v1.resources.fetch_torrent_file",
+            "app.services.resource_listing.fetch_torrent_file_detailed",
             new_callable=AsyncMock, return_value=path,
         ):
             res = await client.get(f"/api/v1/resources/{rid}/files")
@@ -843,6 +843,11 @@ class TestResourceFiles:
         async with db_session_factory() as s:
             r = await s.get(FileResource, rid)
             assert r.torrent_file == path
+            assert r.torrent_fetch_status == "done"
+            assert r.torrent_fetch_attempts == 1
+            assert r.torrent_fetch_attempt_id is not None
+            assert r.torrent_fetch_error is None
+            assert r.torrent_fetch_next_attempt_at is None
 
     async def test_downloader_fallback(
         self, client, sample_channel, sample_downloader, db_session_factory, monkeypatch,
@@ -1007,6 +1012,7 @@ class TestMagnetResolve:
         self, client, sample_channel, db_session_factory, monkeypatch,
     ):
         monkeypatch.setattr("app.services.magnet_resolve.lt", None)
+        monkeypatch.setattr("app.services.magnet_resolve.settings.magnet_resolve_cache_mirrors", [])
         rid = await _make_resource(db_session_factory, sample_channel.id)
         res = await client.post(f"/api/v1/resources/{rid}/magnet-resolve")
         assert res.status_code == 422
@@ -1458,12 +1464,17 @@ class TestParseCorrectionGenericFields:
 class TestResourceAssociations:
     """PUT /resources/{id}/associations — the edit wizard's write path."""
 
-    async def _make_series(self, db_session_factory, title="剧"):
+    async def _make_series(
+        self, db_session_factory, title="剧", *, season_number=1, collection_id=None,
+    ):
         from app.models.series import TVSeries
 
         sid = _uuid()
         async with db_session_factory() as s:
-            s.add(TVSeries(id=sid, title_cn=title, title_en="Show", content_type="tv"))
+            s.add(TVSeries(
+                id=sid, title_cn=title, title_en="Show", content_type="tv",
+                season_number=season_number, collection_id=collection_id,
+            ))
             await s.commit()
         return sid
 
@@ -1671,13 +1682,30 @@ class TestResourceAssociations:
     async def test_multi_season_evidence_derives_multi_season(
         self, client, sample_channel, db_session_factory,
     ):
-        sid = await self._make_series(db_session_factory)
+        from app.models.work_collection import WorkCollection
+
+        collection_id = _uuid()
+        async with db_session_factory() as session:
+            session.add(WorkCollection(
+                id=collection_id, title_cn="合集", external_source="series_group",
+            ))
+            await session.commit()
+        sid = await self._make_series(
+            db_session_factory, season_number=1, collection_id=collection_id,
+        )
+        sid2 = await self._make_series(
+            db_session_factory, title="剧 S2", season_number=2,
+            collection_id=collection_id,
+        )
         rid = await _make_resource(db_session_factory, sample_channel.id)
         res = await client.put(
             f"/api/v1/resources/{rid}/associations",
             json={
                 "is_batch": True,
-                "works": [{"work_type": "series", "work_id": sid}],
+                "works": [
+                    {"work_type": "series", "work_id": sid},
+                    {"work_type": "series", "work_id": sid2},
+                ],
                 "assignments": [
                     {
                         "file_path": "S01E01.mkv",
@@ -1686,7 +1714,7 @@ class TestResourceAssociations:
                     },
                     {
                         "file_path": "S02E01.mkv",
-                        "work_type": "series", "work_id": sid,
+                        "work_type": "series", "work_id": sid2,
                         "season": 2, "episode_start": 1, "episode_end": 1,
                     },
                 ],
@@ -2890,13 +2918,24 @@ class TestParseCorrectionSeasonSubtitleAndFailures:
     async def test_subtitle_group_disagreement_422(
         self, client, sample_channel, db_session_factory,
     ):
-        rid = await _make_resource(db_session_factory, sample_channel.id)
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            subtitle_group="原组", subtitle_groups=["原组"],
+            subtitle_groups_source="heuristic",
+        )
         res = await client.patch(
             f"/api/v1/resources/{rid}",
             json={"subtitle_group": "组A", "subtitle_groups": ["组B"]},
         )
         assert res.status_code == 422
         assert "disagree" in res.json()["error"]["message"]
+        async with db_session_factory() as s:
+            from app.models.file_resource import FileResource
+
+            row = await s.get(FileResource, rid)
+            assert row.subtitle_group == "原组"
+            assert row.subtitle_groups == ["原组"]
+            assert row.subtitle_groups_source == "heuristic"
 
     async def test_heal_failure_swallowed(
         self, client, sample_channel, db_session_factory, monkeypatch,

@@ -643,6 +643,7 @@ async def _handle_analyze_batch_files(payload: dict) -> dict:
         _valid_paths,
         analyze_listing_stream,
         build_candidate_works,
+        build_suggestion_files,
         resolve_fractional_specials,
     )
     from app.services.task_queue import require_execution_ownership
@@ -689,6 +690,12 @@ async def _handle_analyze_batch_files(payload: dict) -> dict:
                     parsed["season"] = 0
                     parsed["episode"] = special_episode
 
+        entries_by_path = {entry["path"]: entry for entry in report.file_entries}
+        for parsed in report.file_parses:
+            entry = entries_by_path.get(parsed["path"])
+            if entry is not None:
+                entry.update(season=parsed["season"], episode=parsed["episode"])
+
         grouped_episodes: dict[int, list[int]] = {}
         for parsed in report.file_parses:
             if parsed["season"] is not None and parsed["episode"] is not None:
@@ -704,7 +711,7 @@ async def _handle_analyze_batch_files(payload: dict) -> dict:
                 fp["season"] for fp in report.file_parses if fp["season"] is not None
             }),
             "season_ranges": season_ranges,
-            "files": report.file_parses,
+            "files": build_suggestion_files(report),
             "clusters": [
                 {"title": cluster.title, "files": list(cluster.files)}
                 for cluster in report.clusters
@@ -749,7 +756,11 @@ async def _handle_analyze_batch_files(payload: dict) -> dict:
                         parsed["episode"] = start
         merged: dict[int, list[int]] = {}
         for parsed in deterministic["files"]:
-            if parsed["season"] is not None and parsed["episode"] is not None:
+            if (
+                parsed["file_role"] == "episode"
+                and parsed["season"] is not None
+                and parsed["episode"] is not None
+            ):
                 merged.setdefault(parsed["season"], []).append(parsed["episode"])
         deterministic["seasons"] = sorted(merged)
         deterministic["season_ranges"] = [
@@ -835,6 +846,23 @@ async def _handle_refresh_resource_organize(payload: dict) -> dict:
         return await regenerate_resource_notifications(session, payload["resource_id"])
 
 
+async def _handle_reconcile_resource_listing(payload: dict) -> dict:
+    """Run one durable listing reconciliation attempt."""
+    from app.services.resource_listing import reconcile_resource
+
+    await _refresh_runtime_config()
+    result = await reconcile_resource(payload["resource_id"])
+    return {"reconciled": result.error is None, "error": result.error}
+
+
+async def _handle_fetch_torrent(payload: dict) -> dict:
+    """Retry one HTTP torrent fetch after its persisted due time."""
+    from app.services.resource_listing import retry_resource_torrent
+
+    await _refresh_runtime_config()
+    return await retry_resource_torrent(payload["resource_id"])
+
+
 async def _handle_resolve_magnet_torrent(payload: dict) -> dict:
     """Claim a magnet resource and spawn its detached resolution task.
 
@@ -850,11 +878,10 @@ async def _handle_resolve_magnet_torrent(payload: dict) -> dict:
 
 
 async def _handle_magnet_resolve_sweep(payload: dict) -> dict:
-    """Hourly: enqueue resolution for magnet resources never attempted yet.
+    """Hourly: enqueue unresolved magnets and due retryable HTTP torrent fetches.
 
-    Catches rows created before the feature existed (status NULL) that the
-    fetch path no longer revisits. Bounded per sweep; the next tick picks up
-    the remainder.
+    Magnet, HTTP and reconcile selections have independent stable 50-row quotas;
+    permanent HTTP failures have no due time and are never selected.
 
     Before the NULL-status scan, stale claimed rows are reclaimed: a worker
     crash/restart kills the detached resolution task but leaves the row in
@@ -868,11 +895,11 @@ async def _handle_magnet_resolve_sweep(payload: dict) -> dict:
     """
     from datetime import timedelta
 
-    from sqlalchemy import select, update
+    from sqlalchemy import and_, or_, select, update
 
     from app.config import settings
     from app.models.file_resource import FileResource
-    from app.services import magnet_resolve
+    from app.services import magnet_resolve, task_queue
     from app.services.task_queue import ExecutionOwnershipLostError, require_execution_ownership
     from app.utils.time import utcnow
 
@@ -893,7 +920,10 @@ async def _handle_magnet_resolve_sweep(payload: dict) -> dict:
             await session.execute(
                 update(FileResource)
                 .where(
-                    FileResource.torrent_url.like("magnet:%"),
+                    or_(
+                        FileResource.torrent_url.like("magnet:%"),
+                        FileResource.magnet_url.like("magnet:%"),
+                    ),
                     FileResource.magnet_resolve_status.in_(("pending", "running")),
                     FileResource.magnet_resolve_updated_at < stale_before,
                 )
@@ -908,37 +938,160 @@ async def _handle_magnet_resolve_sweep(payload: dict) -> dict:
                 )
             )
         ).rowcount or 0
+        reconcile_reclaimed = (
+            await session.execute(
+                update(FileResource)
+                .where(
+                    FileResource.listing_reconcile_status == "running",
+                    or_(
+                        FileResource.listing_reconcile_updated_at.is_(None),
+                        FileResource.listing_reconcile_updated_at < utcnow() - timedelta(hours=1),
+                    ),
+                )
+                .values(
+                    listing_reconcile_status="pending",
+                    listing_reconcile_attempt_id=None,
+                    listing_reconcile_error="previous reconcile interrupted; retry scheduled",
+                    listing_reconcile_updated_at=utcnow(),
+                    listing_reconcile_next_attempt_at=None,
+                )
+            )
+        ).rowcount or 0
+        http_reclaimed = (
+            await session.execute(
+                update(FileResource)
+                .where(
+                    or_(
+                        FileResource.torrent_url.like("http://%"),
+                        FileResource.torrent_url.like("https://%"),
+                    ),
+                    FileResource.torrent_fetch_status.in_(("pending", "running")),
+                    or_(
+                        FileResource.torrent_fetch_updated_at.is_(None),
+                        FileResource.torrent_fetch_updated_at < utcnow() - timedelta(minutes=5),
+                    ),
+                )
+                .values(
+                    torrent_fetch_status="failed",
+                    torrent_fetch_attempt_id=None,
+                    torrent_fetch_error="previous HTTP fetch interrupted; retry scheduled",
+                    torrent_fetch_updated_at=utcnow(),
+                    torrent_fetch_next_attempt_at=utcnow(),
+                )
+            )
+        ).rowcount or 0
         await require_execution_ownership()
     if reclaimed:
         logger.info("[magnet] sweep reclaimed %d stuck rows", reclaimed)
+    if http_reclaimed:
+        logger.info("[torrent] sweep reclaimed %d stuck HTTP fetches", http_reclaimed)
 
     async with committed_session() as session:
-        rows = (
-            await session.execute(
+        http_ids = list((
+            await session.scalars(
                 select(FileResource.id)
                 .where(
-                    FileResource.torrent_url.like("magnet:%"),
-                    FileResource.magnet_resolve_status.is_(None),
+                    or_(
+                        FileResource.torrent_url.like("http://%"),
+                        FileResource.torrent_url.like("https://%"),
+                    ),
+                    FileResource.torrent_fetch_status == "failed",
+                    FileResource.torrent_fetch_next_attempt_at.isnot(None),
+                    FileResource.torrent_fetch_next_attempt_at <= utcnow(),
                 )
+                .order_by(FileResource.torrent_fetch_next_attempt_at, FileResource.id)
                 .limit(50)
             )
-        ).scalars().all()
+        ).all())
+        reconcile_ids = list((
+            await session.scalars(
+                select(FileResource.id)
+                .where(or_(
+                    FileResource.listing_reconcile_status == "pending",
+                    and_(
+                        FileResource.listing_reconcile_status == "failed",
+                        FileResource.listing_reconcile_next_attempt_at.isnot(None),
+                        FileResource.listing_reconcile_next_attempt_at <= utcnow(),
+                    ),
+                ))
+                .order_by(FileResource.listing_reconcile_updated_at, FileResource.id)
+                .limit(50)
+            )
+        ).all())
     enqueued = 0
-    for resource_id in rows:
+    last_magnet_id = None
+    while enqueued < 50:
+        async with committed_session() as session:
+            predicates = [
+                or_(
+                    FileResource.torrent_url.like("magnet:%"),
+                    FileResource.magnet_url.like("magnet:%"),
+                ),
+                FileResource.magnet_resolve_status.is_(None),
+            ]
+            if last_magnet_id is not None:
+                predicates.append(FileResource.id > last_magnet_id)
+            magnet_ids = list((
+                await session.scalars(
+                    select(FileResource.id)
+                    .where(*predicates)
+                    .order_by(FileResource.id)
+                    .limit(50)
+                )
+            ).all())
+        if not magnet_ids:
+            break
+        last_magnet_id = magnet_ids[-1]
+        for resource_id in magnet_ids:
+            if enqueued >= 50:
+                break
+            try:
+                await require_execution_ownership()
+                if await magnet_resolve.enqueue_resolution(resource_id):
+                    enqueued += 1
+            except ExecutionOwnershipLostError:
+                raise
+            except Exception as e:  # noqa: BLE001 — advance past one bad row
+                logger.warning("[magnet] sweep enqueue failed for %s: %s", resource_id, e)
+    http_enqueued = 0
+    for resource_id in http_ids:
         try:
             await require_execution_ownership()
-            await magnet_resolve.enqueue_resolution(resource_id)
-            enqueued += 1
+            queued = await task_queue.task_queue.enqueue(
+                "fetch_torrent", f"torrent-fetch:{resource_id}", {"resource_id": resource_id}
+            )
+            if queued is not None:
+                http_enqueued += 1
         except ExecutionOwnershipLostError:
             raise
         except Exception as e:  # noqa: BLE001 — one bad row must not stop the sweep
-            logger.warning(
-                "[magnet] sweep enqueue failed for %s: %s", resource_id, e
+            logger.warning("[torrent] sweep enqueue failed for %s: %s", resource_id, e)
+    reconcile_enqueued = 0
+    for resource_id in reconcile_ids:
+        try:
+            await require_execution_ownership()
+            queued = await task_queue.task_queue.enqueue(
+                "reconcile_resource_listing", f"listing-reconcile:{resource_id}",
+                {"resource_id": resource_id},
             )
+            if queued is not None:
+                reconcile_enqueued += 1
+        except ExecutionOwnershipLostError:
+            raise
+        except Exception as e:  # noqa: BLE001 — one bad row must not stop the sweep
+            logger.warning("[listing] sweep enqueue failed for %s: %s", resource_id, e)
     if enqueued:
         logger.info("[magnet] sweep enqueued %d resolutions", enqueued)
+    if http_enqueued:
+        logger.info("[torrent] sweep enqueued %d retries", http_enqueued)
+    if reconcile_enqueued:
+        logger.info("[listing] sweep enqueued %d reconciliations", reconcile_enqueued)
     await require_execution_ownership()
-    return {"status": "done", "enqueued": enqueued, "reclaimed": reclaimed}
+    return {
+        "status": "done", "enqueued": enqueued, "http_enqueued": http_enqueued,
+        "reconcile_enqueued": reconcile_enqueued, "reclaimed": reclaimed,
+        "http_reclaimed": http_reclaimed, "reconcile_reclaimed": reconcile_reclaimed,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -967,5 +1120,7 @@ def register_all_handlers(queue) -> None:
     queue.register("fts_reconcile", _handle_fts_reconcile)
     queue.register("download_notifications", _handle_download_notifications)
     queue.register("refresh_resource_organize", _handle_refresh_resource_organize)
+    queue.register("fetch_torrent", _handle_fetch_torrent)
+    queue.register("reconcile_resource_listing", _handle_reconcile_resource_listing)
     queue.register("resolve_magnet_torrent", _handle_resolve_magnet_torrent)
     queue.register("magnet_resolve_sweep", _handle_magnet_resolve_sweep)

@@ -259,11 +259,16 @@ export interface ResourceWorkLinkItem {
   genre?: string[] | null;
 }
 
-// resource_file_assignments row — per-file work/season/episode mapping.
+export type FileAssignmentRole = 'episode' | 'subtitle' | 'extra' | 'excluded';
+
+// resource_file_assignments row — per-file role, work/season/episode mapping,
+// and the optional episode video a subtitle belongs to.
 export interface ResourceFileAssignmentItem {
   id: string;
   file_path: string;
   file_size: number | null;
+  file_role: FileAssignmentRole;
+  attached_to_path?: string | null;
   series_id: string | null;
   movie_id: string | null;
   work_title_hint: string | null;
@@ -290,8 +295,10 @@ export interface AssociationWorkRef {
 
 export interface AssociationFileAssignmentInput {
   file_path: string;
-  work_type: WorkRefType;
-  work_id: string;
+  file_role: FileAssignmentRole;
+  attached_to_path?: string | null;
+  work_type?: WorkRefType;
+  work_id?: string;
   file_size?: number | null;
   season?: number | null;
   episode_start?: number | null;
@@ -346,6 +353,8 @@ export interface BatchSuggestionWork {
   content_type: 'tv' | 'movie';
   files: {
     path: string;
+    file_role?: FileAssignmentRole;
+    attached_to_path?: string | null;
     season: number | null;
     episode_start: number | null;
     episode_end: number | null;
@@ -362,6 +371,8 @@ export interface BatchSuggestionDeterministic {
   files: {
     path: string;
     size: number | null;
+    file_role?: FileAssignmentRole;
+    attached_to_path?: string | null;
     season: number | null;
     episode: number | null;
   }[];

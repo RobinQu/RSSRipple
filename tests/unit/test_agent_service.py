@@ -808,6 +808,30 @@ class TestProcessResources:
         assert result.duplicates_skipped == 1
         assert result.dispatched == 0
 
+    async def test_single_episode_dedup_same_resource_without_number(
+        self, db_session, channel, downloader, series
+    ):
+        agent = await self._make_agent(
+            db_session, channel, downloader, scope_channel_wide=True
+        )
+        resource = _make_resource(
+            channel.id, series_id=series.id, episode=None, guid=_uuid(),
+        )
+        db_session.add(resource)
+        await db_session.flush()
+        db_session.add(DownloadTask(
+            id=_uuid(), agent_id=agent.id, file_resource_id=resource.id,
+            downloader_id=downloader.id, download_dir="/downloads/rssripple",
+            status="completed",
+        ))
+        await db_session.flush()
+
+        result = await process_resources(agent, [resource], db_session)
+
+        assert result.matched == 0
+        assert result.duplicates_skipped == 1
+        assert result.dispatched == 0
+
     async def test_episode_dedup_is_season_aware(
         self, db_session, channel, downloader, series
     ):

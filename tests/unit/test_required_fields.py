@@ -4,6 +4,8 @@ requirement tiers, allowed-field computation, and filter-tree gating."""
 from datetime import date
 from types import SimpleNamespace
 
+import pytest
+
 from app.services.filter_engine import ALL_FIELDS
 from app.services.required_fields import (
     BASE_REQUIRED_FIELDS,
@@ -372,3 +374,65 @@ def test_filter_gating_passes_when_all_allowed():
     allowed = allowed_agent_filter_fields(normalize_required_fields(["rating"]))
     assert allowed is not None
     assert validate_filter_against_allowed(cfg, allowed) == []
+
+
+def test_subtitle_group_semantic_value_prefers_canonical_groups():
+    from app.services.required_fields import _semantic_field_value
+
+    resource = SimpleNamespace(
+        subtitle_groups=["LoliHouse"], subtitle_group="stale-legacy-value"
+    )
+    assert _semantic_field_value(resource, "subtitle_group") == ["LoliHouse"]
+
+    resource.subtitle_groups = None
+    resource.subtitle_group = "LoliHouse"
+    assert _semantic_field_value(resource, "subtitle_group") == ["LoliHouse"]
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    [
+        ({"series_id": "series-1", "is_batch": False}, "tv_single"),
+        (
+            {"series_id": "series-1", "is_batch": True, "batch_scope": "season"},
+            "tv_season_batch",
+        ),
+        ({"batch_scope": "multi_season"}, "tv_multi_season"),
+        (
+            {"series_id": "series-1", "is_batch": True, "batch_scope": "franchise"},
+            "franchise",
+        ),
+        ({"movie_id": "movie-1"}, "movie"),
+    ],
+)
+def test_collection_id_does_not_override_explicit_or_regular_shape(overrides, expected):
+    from app.services.required_fields import resource_shape
+
+    values = {
+        "series_id": None,
+        "movie_id": None,
+        "audio_work_id": None,
+        "collection_id": "collection-1",
+        "is_batch": False,
+        "batch_scope": None,
+    }
+    values.update(overrides)
+    assert resource_shape(SimpleNamespace(**values)) == expected
+
+
+def test_links_only_single_season_pack_keeps_tv_batch_shape():
+    from app.services.required_fields import resource_shape
+
+    work = SimpleNamespace(id="series-1", season_number=1)
+    resource = SimpleNamespace(
+        series_id=None,
+        movie_id=None,
+        audio_work_id=None,
+        collection_id="collection-1",
+        is_batch=True,
+        batch_scope="season",
+        work_links=[SimpleNamespace(
+            series_id=work.id, movie_id=None, series=work,
+        )],
+    )
+    assert resource_shape(resource) == "tv_season_batch"

@@ -396,11 +396,13 @@ class TestUnavailableLibtorrent:
 
     async def test_launch_resolution_false_without_libtorrent(self, monkeypatch):
         monkeypatch.setattr(mr, "lt", None)
+        monkeypatch.setattr(mr.settings, "magnet_resolve_cache_mirrors", [])
         assert await mr.launch_resolution("rid") is False
 
     async def test_enqueue_resolution_noop_without_libtorrent(self, monkeypatch):
         monkeypatch.setattr(mr, "lt", None)
-        await mr.enqueue_resolution("rid")  # must not raise
+        monkeypatch.setattr(mr.settings, "magnet_resolve_cache_mirrors", [])
+        assert await mr.enqueue_resolution("rid") is False
 
 
 class TestPollMetadata:

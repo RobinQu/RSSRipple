@@ -408,7 +408,8 @@ class TestRetryPolicy:
         # Own durable recovery / interactive / own-backoff handlers are not.
         assert {
             "run_agent", "reprocess_resource_metadata", "analyze_batch_files",
-            "download_notifications", "resolve_magnet_torrent",
+            "download_notifications", "resolve_magnet_torrent", "fetch_torrent",
+            "reconcile_resource_listing",
         } == _NON_RETRYABLE_JOB_TYPES
 
     def test_resolve_policy_defaults(self, monkeypatch):
@@ -418,6 +419,8 @@ class TestRetryPolicy:
         monkeypatch.setattr(settings, "queue_job_retry_backoff_seconds", 7.5)
         assert resolve_retry_policy("fetch_channel") == (5, 7.5)
         assert resolve_retry_policy("run_agent") == (1, 7.5)
+        assert resolve_retry_policy("fetch_torrent") == (1, 7.5)
+        assert resolve_retry_policy("reconcile_resource_listing") == (1, 7.5)
         assert resolve_retry_policy("never-heard-of") == (1, 7.5)
 
     def test_resolve_policy_explicit_overrides_win(self, monkeypatch):

@@ -4,10 +4,9 @@ No lazy loading or network calls. Callers must load work_links and
 file_assignments; an unloaded relation is unknown, never an empty manifest.
 Dispatch uses this descriptor; persistent decision keys remain a separate migration.
 """
-import re
-
 from sqlalchemy import inspect
 
+from app.services.file_roles import classify_file, is_extra_video_path
 from app.services.filter_engine import loaded_relation
 from app.services.metadata_episode_reconcile import is_unsplit_legacy_series
 
@@ -40,21 +39,14 @@ def _interval(start, end):
     return start, end
 
 
-_NON_EPISODE_VIDEO_RE = re.compile(
-    r"(?:^|[\s._-]+)NC(?:OP|ED)\d*(?:v\d+)?(?=$|[\s._\[();-])",
-    re.IGNORECASE,
-)
-
-
 def is_non_episode_video_path(file_path: str | None) -> bool:
-    filename = re.split(r"[/\\]+", file_path or "")[-1]
-    return _NON_EPISODE_VIDEO_RE.search(filename) is not None
+    return is_extra_video_path(file_path)
 
 
 def _is_non_episode_video(row) -> bool:
     if row.episode_start is not None or row.episode_end is not None:
         return False
-    return is_non_episode_video_path(row.file_path)
+    return classify_file(row.file_path) != "video"
 
 
 def batch_coverage(resource):
@@ -108,6 +100,8 @@ def batch_coverage(resource):
         groups = {}
         seen = set()
         for row in assignments:
+            if (getattr(row, "file_role", None) or "episode") != "episode":
+                continue
             if row.series_id and not row.movie_id:
                 target = ('series', row.series_id)
                 if target not in targets:

@@ -41,7 +41,16 @@ from app.models.movie import Movie
 from app.models.resource_file_assignment import ResourceFileAssignment
 from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
-from app.services.resource_parser import extract_subtitle_group_from_filename, season_from_title
+from app.services.file_roles import (
+    assignment_file_role,
+    is_extra_video_path,
+    normalized_main_filename,
+)
+from app.services.resource_parser import (
+    extract_season_episode_from_path,
+    extract_subtitle_group_from_filename,
+    season_from_title,
+)
 from app.services.runtime_config import runtime_config
 from app.services.subtitle_groups import join_legacy_subtitle_group, normalize_subtitle_groups
 from app.services.torrent_inspect import TorrentReport
@@ -116,24 +125,91 @@ def llm_refinement_needed(
 # Deterministic assignment write-backs
 # ---------------------------------------------------------------------------
 
+def _report_entries(report: TorrentReport) -> list[dict]:
+    if report.file_entries:
+        return report.file_entries
+    return [
+        {**fp, "file_role": fp.get("file_role") or "episode"}
+        for fp in report.file_parses
+    ]
+
+
+def _subtitle_attachments(entries: list[dict]) -> dict[str, str]:
+    def entry_path(entry: dict) -> str:
+        return entry.get("path") or entry.get("file_path") or ""
+
+    episodes = [entry for entry in entries if entry.get("file_role") == "episode"]
+    by_stem: dict[str, list[dict]] = {}
+    for entry in episodes:
+        stem = normalized_main_filename(entry_path(entry))
+        if stem:
+            by_stem.setdefault(stem, []).append(entry)
+
+    attachments: dict[str, str] = {}
+    for subtitle in entries:
+        if subtitle.get("file_role") != "subtitle":
+            continue
+        path = entry_path(subtitle)
+        season, episode = extract_season_episode_from_path(path)
+        if episode is not None:
+            candidates = []
+            for video in episodes:
+                start = video.get("episode")
+                if start is None:
+                    start = video.get("episode_start")
+                end = video.get("episode_end")
+                if end is None:
+                    end = start
+                if (
+                    video.get("season") == season
+                    and start is not None
+                    and end is not None
+                    and start <= episode <= end
+                ):
+                    candidates.append(video)
+            if len(candidates) == 1:
+                attachments[path] = entry_path(candidates[0])
+                continue
+            if candidates:
+                stem = normalized_main_filename(path)
+                named = [
+                    video for video in candidates
+                    if normalized_main_filename(entry_path(video)) == stem
+                ]
+                if len(named) == 1:
+                    attachments[path] = entry_path(named[0])
+            continue
+        stem = normalized_main_filename(path)
+        named = by_stem.get(stem, []) if stem else []
+        if len(named) == 1:
+            attachments[path] = entry_path(named[0])
+    return attachments
+
+
+def build_suggestion_files(report: TorrentReport) -> list[dict]:
+    """Canonical role-aware file entries shared by both suggestion APIs."""
+    entries = _report_entries(report)
+    attachments = _subtitle_attachments(entries)
+    return [
+        {
+            "path": entry["path"],
+            "size": entry.get("size"),
+            "file_role": entry.get("file_role") or "episode",
+            "attached_to_path": (
+                attachments.get(entry["path"])
+                if entry.get("file_role") == "subtitle" else None
+            ),
+            "season": entry.get("season"),
+            "episode": entry.get("episode"),
+        }
+        for entry in entries
+    ]
+
+
 def apply_auto_assignments(resource: FileResource, report: TorrentReport) -> None:
-    """Upsert ``ResourceFileAssignment`` rows for every main video file.
-
-    Rows are keyed by ``(resource_id, file_path)``:
-
-    - new paths get a row with ``season`` / ``episode_start`` / ``episode_end``
-      from the path parses (episode start == end for single-episode files)
-      and ``work_title_hint`` from the top-level cluster membership;
-    - existing ``auto`` rows are refreshed in place;
-    - existing ``llm`` / ``manual`` rows keep their work binding and source
-      (only stale placement fields are left untouched too — provenance wins);
-    - previous ``auto`` rows whose path vanished from the listing are removed
-      (``manual`` / ``llm`` rows are kept).
-
-    Applies to every report with main-video parses. Single TV/movie releases
-    need the same durable file identity as batches for downstream organize.
-    """
-    if not report.file_parses:
+    """Upsert a complete role-aware file manifest without replacing human rows."""
+    entries = _report_entries(report)
+    if not entries:
         return
 
     # Title parsing remains authoritative.  When it yielded no group, use the
@@ -162,10 +238,12 @@ def apply_auto_assignments(resource: FileResource, report: TorrentReport) -> Non
                 hint = f"{hint} {stage.group(1)}"
             hint_by_path[p] = hint
 
+    attachments = _subtitle_attachments(entries)
     existing = {a.file_path: a for a in resource.file_assignments}
     seen_paths: set[str] = set()
-    for fp in report.file_parses:
+    for fp in entries:
         path = fp["path"]
+        role = fp.get("file_role") or assignment_file_role(path, fp.get("size"))
         seen_paths.add(path)
         row = existing.get(path)
         if row is not None and row.source in ("llm", "manual"):
@@ -178,11 +256,22 @@ def apply_auto_assignments(resource: FileResource, report: TorrentReport) -> Non
             )
             resource.file_assignments.append(row)
         row.file_size = fp.get("size")
-        row.work_title_hint = hint_by_path.get(path) or row.work_title_hint
-        row.season = fp.get("season")
-        episode = fp.get("episode")
-        row.episode_start = episode
-        row.episode_end = episode
+        row.file_role = role
+        row.attached_to_path = attachments.get(path) if role == "subtitle" else None
+        row.work_title_hint = hint_by_path.get(path) if role == "episode" else None
+        if role == "episode":
+            season = fp.get("season")
+            episode = fp.get("episode")
+            row.season = row.season if season is None else season
+            row.episode_start = row.episode_start if episode is None else episode
+            row.episode_end = row.episode_end if episode is None else episode
+        else:
+            row.season = 0 if role == "extra" else None
+            row.episode_start = None
+            row.episode_end = None
+        if role == "excluded":
+            row.series_id = None
+            row.movie_id = None
         row.source = "auto"
 
     for path, row in list(existing.items()):
@@ -198,7 +287,7 @@ def compute_season_ranges(resource: FileResource) -> list[dict] | None:
     """
     by_season: dict[int, list[int]] = {}
     for a in resource.file_assignments:
-        if a.season is None:
+        if (getattr(a, "file_role", None) or "episode") != "episode" or a.season is None:
             continue
         eps = [v for v in (a.episode_start, a.episode_end) if v is not None]
         if not eps:
@@ -425,9 +514,9 @@ async def bind_single_work_assignments(db: AsyncSession, resource: FileResource)
     """Bind deterministic batch rows after metadata linked one concrete work.
 
     Torrent inspection intentionally runs before metadata matching.  This
-    second pass closes that ordering gap without guessing: it only acts when
-    the resource FK identifies exactly one series or movie, and never
-    overwrites manual/LLM provenance.  Stale ``auto`` links pointing at
+    second pass closes that ordering gap without guessing: it acts only when
+    the flat FK or exactly one work link identifies one series/movie, and never
+    overwrites manual/LLM provenance. Stale ``auto`` links pointing at
     other works (left behind when the FK was re-pointed) are removed only for
     single-season shapes; multi-season/franchise rows and links are never
     flattened. The derived collection identity is settled onto the resource.
@@ -436,8 +525,20 @@ async def bind_single_work_assignments(db: AsyncSession, resource: FileResource)
         return 0
     work_type = "series" if resource.series_id else "movie" if resource.movie_id else None
     work_id = resource.series_id or resource.movie_id
-    if work_type is None or work_id is None:
-        return 0
+    if work_type is None:
+        resource_id = getattr(resource, "id", None)
+        if resource_id is None:
+            return 0
+        links = (await db.execute(
+            select(ResourceWorkLink).where(ResourceWorkLink.resource_id == resource_id)
+        )).scalars().all()
+        targets = {
+            ("series", link.series_id) if link.series_id else ("movie", link.movie_id)
+            for link in links if link.series_id or link.movie_id
+        }
+        if len(targets) != 1:
+            return 0
+        work_type, work_id = next(iter(targets))
     repair_existing = getattr(resource, "batch_scope", None) not in ("multi_season", "franchise")
     try:
         await db.refresh(resource, ["file_assignments"])
@@ -455,7 +556,9 @@ async def bind_single_work_assignments(db: AsyncSession, resource: FileResource)
             target_season = resource.season
     parsed_seasons = {
         row.season for row in resource.file_assignments
-        if row.source == "auto" and row.season not in (None, 0)
+        if row.source == "auto"
+        and (getattr(row, "file_role", None) or "episode") == "episode"
+        and row.season not in (None, 0)
     }
     if resource.batch_scope == "season" and len(parsed_seasons) > 1:
         return 0
@@ -480,7 +583,10 @@ async def bind_single_work_assignments(db: AsyncSession, resource: FileResource)
             return 0
     special_overrides = (
         await resolve_fractional_specials(
-            db, work_id, [row.file_path for row in resource.file_assignments],
+            db, work_id, [
+                row.file_path for row in resource.file_assignments
+                if (getattr(row, "file_role", None) or "episode") == "episode"
+            ],
         )
         if work_type == "series"
         else {}
@@ -488,8 +594,34 @@ async def bind_single_work_assignments(db: AsyncSession, resource: FileResource)
     changed = 0
     placement_changed = False
     special_changed = False
-    for row in resource.file_assignments:
+    by_path = {row.file_path: row for row in resource.file_assignments}
+    ordered_rows = sorted(
+        resource.file_assignments,
+        key=lambda row: (getattr(row, "file_role", None) or "episode") == "subtitle",
+    )
+    for row in ordered_rows:
         if row.source != "auto":
+            continue
+        role = getattr(row, "file_role", None) or "episode"
+        if role == "excluded":
+            continue
+        if role == "subtitle":
+            target = by_path.get(row.attached_to_path)
+            if target is None or (getattr(target, "file_role", None) or "episode") != "episode":
+                continue
+            target_matches = (
+                (work_type == "series" and target.series_id == work_id and not target.movie_id)
+                or (work_type == "movie" and target.movie_id == work_id and not target.series_id)
+            )
+            if not target_matches:
+                continue
+        if (
+            role == "episode"
+            and resource.batch_scope == "multi_season"
+            and work_type == "series"
+            and row.season not in (None, 0)
+            and row.season != work.season_number
+        ):
             continue
         was_bound = bool(row.series_id or row.movie_id)
         matches = (
@@ -509,8 +641,17 @@ async def bind_single_work_assignments(db: AsyncSession, resource: FileResource)
             row.series_id = work_id if work_type == "series" else None
             row.movie_id = work_id if work_type == "movie" else None
             changed += 1
+        if role == "extra":
+            row.season = 0 if work_type == "series" else None
+            row.episode_start = None
+            row.episode_end = None
+        elif role == "subtitle":
+            row.season = None
+            row.episode_start = None
+            row.episode_end = None
         if (
-            repair_existing
+            role == "episode"
+            and repair_existing
             and work_type == "series"
             and row.season != 0
             and target_season is not None
@@ -518,7 +659,11 @@ async def bind_single_work_assignments(db: AsyncSession, resource: FileResource)
         ):
             row.season = target_season
             placement_changed = True
-        if row.file_path in special_overrides and (repair_existing or not was_bound):
+        if (
+            role == "episode"
+            and row.file_path in special_overrides
+            and (repair_existing or not was_bound)
+        ):
             row.season = 0
             row.episode_start = special_overrides[row.file_path]
             row.episode_end = special_overrides[row.file_path]
@@ -530,9 +675,12 @@ async def bind_single_work_assignments(db: AsyncSession, resource: FileResource)
         episodes = [
             (row.episode_start, row.episode_end or row.episode_start)
             for row in resource.file_assignments
-            if row.season == target_season and row.episode_start is not None
+            if (getattr(row, "file_role", None) or "episode") == "episode"
+            and row.season == target_season and row.episode_start is not None
         ]
         if episodes:
+            resource.season = target_season
+            resource.batch_seasons = [target_season]
             resource.episode_start = min(start for start, _ in episodes)
             resource.episode_end = max(end for _, end in episodes)
     links = (await db.execute(
@@ -598,15 +746,15 @@ async def rebind_absolute_season_assignments(
         return 0
 
     from app.services.metadata_episode_reconcile import locate_absolute_episode
-    from app.services.resource_coverage import is_non_episode_video_path
 
     groups: dict[str, list[ResourceFileAssignment]] = {}
     for row in resource.file_assignments:
         if (
             row.source != "auto"
+            or (getattr(row, "file_role", None) or "episode") != "episode"
             or row.movie_id
             or row.season == 0
-            or is_non_episode_video_path(row.file_path)
+            or is_extra_video_path(row.file_path)
         ):
             continue
         if row.episode_start is None or row.episode_start != row.episode_end:
@@ -700,7 +848,9 @@ async def rebind_absolute_season_assignments(
         ))
         linked_series.add(work.id)
     resource.batch_seasons = sorted({
-        row.season for row in resource.file_assignments if row.season is not None
+        row.season for row in resource.file_assignments
+        if (getattr(row, "file_role", None) or "episode") == "episode"
+        and row.season is not None
     })
     resource.season_ranges = compute_season_ranges(resource)
     logger.info(
@@ -979,7 +1129,11 @@ def _apply_hint(resource: FileResource, work: dict) -> None:
     by_path = {a.file_path: a for a in resource.file_assignments}
     for f in work["files"]:
         row = by_path.get(f["path"])
-        if row is None or row.source == "manual":
+        if (
+            row is None
+            or row.source == "manual"
+            or (getattr(row, "file_role", None) or "episode") != "episode"
+        ):
             continue
         if (
             row.source == "auto"
@@ -1133,15 +1287,7 @@ async def suggest_batch_content(
         "scope_hint": report.scope,
         "seasons": report.seasons,
         "season_ranges": report.season_ranges,
-        "files": [
-            {
-                "path": fp["path"],
-                "size": fp.get("size"),
-                "season": fp["season"],
-                "episode": fp["episode"],
-            }
-            for fp in report.file_parses
-        ],
+        "files": build_suggestion_files(report),
         "clusters": [
             {"title": c.title, "files": list(c.files)} for c in report.clusters
         ],

@@ -131,7 +131,23 @@ pending --(2xx / mock)--> done
            "is_anime": true, "collection": "...", "genre": ["Animation", "Fantasy"],
            "season_number": 4, "number_of_episodes": 12,
            "episodes": [{"episode","title"}]},
-  "files": [{"name": "相对 torrent 根的路径", "size": 734003200}]
+  "works": {"series:<UUID>": {"type": "series", "season_number": 4,
+                                "number_of_episodes": 12, "episodes": []}},
+  "files": [{"name": "相对 torrent 根的路径", "size": 734003200}],
+  "file_associations": {
+    "version": 1,
+    "status": "complete",
+    "items": [
+      {"file_path": "Show/S04E09.mkv", "file_size": 734003200,
+       "file_role": "episode", "attached_to_path": null,
+       "work_type": "series", "work_id": "<UUID>", "season": 4,
+       "episode_start": 9, "episode_end": 9, "source": "manual"},
+      {"file_path": "Show/S04E09.chs.ass", "file_size": 10240,
+       "file_role": "subtitle", "attached_to_path": "Show/S04E09.mkv",
+       "work_type": "series", "work_id": "<UUID>", "season": null,
+       "episode_start": null, "episode_end": null, "source": "manual"}
+    ]
+  }
 }
 ```
 
@@ -145,7 +161,7 @@ pending --(2xx / mock)--> done
 
 - `work.genre`：作品分类标签快照，取值为**封闭 TMDB 27 类英文 canonical 名**（快照时经 `normalize_genres` 归一化；完整枚举见 data-models.md「genre 取值约定」，API 侧 /docs 中 `NotificationWorkPayload.genre` 渲染同一枚举）。旧通知无此键，走"重新生成"后补齐。
 - `work.is_anime`：三态动漫标记快照（`true`/`false`/`null`，与 `content_type` 并列，创建时冻结；判定规则见 data-models.md「is_anime 判定约定」，schema 见 `app/schemas/notification.py` 的 `NotificationWorkPayload`）。旧通知无此键，走"重新生成"后补齐。
-- `torrent_name` + `files` 来自下载器 RPC（`get_torrent_files`，统一客户端接口的一部分）；RPC 失败降级为不带 `files` 入队，消费者退回扫描 `download_dir`。
+- `torrent_name` + `files` 经共享清单解析器取得：通知生成优先有效 torrent cache，再读**当前任务**的下载器 RPC（`get_torrent_files`），不重新发起 HTTP，也不借用其他任务/旧通知的快照。没有清单时降级为不带 `files` 入队，消费者退回扫描 `download_dir`；通用 `GET /resources/{id}/files` 则会继续遍历全部相关任务与历史通知，见 api-endpoints.md。
 - 电影无 `season_number`/`number_of_episodes`/`episodes`（null）；`collection` 为 WorkCollection 显示名或 null。
 - `task.download_task_id` 是消费者后续操作任务的句柄（见"下游清理"）。
 
@@ -155,7 +171,9 @@ pending --(2xx / mock)--> done
 
 1. **入队（enqueue）**：为 completed 且无通知的任务**停种（best-effort `pause_torrent`）+ 补建通知**（`download_task_id` 唯一约束 + SAVEPOINT 竞争回读，幂等）。**仅当其 Agent 至少有一个启用 webhook、或存在任一启用的 OrganizeRule 时才补建**——内置 organize 也是通知快照的消费者（常开，存在启用规则即激活），需要通知驱动变更计划；两者皆无的 Agent 不生成通知，避免堆积无用记录（手动"重新生成"不受此限）。无 webhook 仅 organize 的通知不产生任何 delivery（聚合展示状态恒为 pending，随保留期正常清理）。
 
-通知快照新增版本化 `file_associations={version,status,items}`：`complete` 表示逐主视频作品/季/集映射完整，消费者必须直接信任；`partial`/`unavailable` 禁止隐式猜测；字段完全不存在才代表历史快照，可走统一确定性分析回退。`works` 以 `series|movie:<UUID>` 为键冻结所有关联作品的完整命名/分类/季集元数据，旧的单数 `work` 保留兼容单作品消费者。生成通知前若抓取期未建立关联（典型为 magnet），使用下载器返回的同一 `files` 清单运行频道扫描同款确定性分析并持久化。人工修改关联后入队资源级刷新任务，重建对应通知以及 pending/failed organize 计划，done/running/cancelled 不变。
+通知快照包含版本化 `file_associations={version,status,items}`。每个 item 冻结 `file_path/file_size/file_role/attached_to_path/work_type/work_id/season/episode_start/episode_end/source`；`file_role ∈ episode|subtitle|extra|excluded`，历史空角色按 episode 解读。只有 episode 是主视频并参与作品/季/集覆盖；extra 与 excluded 可空作品且不成为主视频，excluded 即使为常规视频也从预期正片覆盖中排除。字幕可在快照构建时从唯一同名/同作品正片继承作品并补 `attached_to_path`，但不得猜测歧义目标。`complete` 要求全部 episode 已绑作品、清单内预期正片均已覆盖，且全部 subtitle 都有唯一、同作品、已绑作品的 episode attachment；未绑 extra/excluded 不妨碍 complete，未解析字幕使状态为 partial。`partial`/`unavailable` 禁止隐式猜测；字段完全不存在才代表历史快照，可走统一确定性分析回退。`works` 以 `series|movie:<UUID>` 为键冻结所有关联作品的完整命名/分类/季集元数据，旧的单数 `work` 保留兼容单作品消费者。
+
+内置 organize 直接消费这份角色图：显式 `attached_to_path` 让字幕跟随目标正片的作品、季集、标题与文件名 stem；目标缺失、跨作品或不唯一时保留原文件（keep），不改走另一正片。extra/excluded 保持非正片并默认 keep。生成通知前若抓取期未建立关联（典型为 magnet），通过共享清单解析器取得当前任务的 cache/下载器清单，运行同一确定性分析并持久化；人工修改关联后入队资源级刷新任务，重建对应通知以及 pending/failed organize 计划，done/running/cancelled 不变。
 2. **fan-out（`ensure_deliveries`）**：为"通知 × 其 Agent 每个启用 webhook"补建缺失的 `pending` delivery（`next_attempt_at=now`）。幂等（`(notification_id, webhook_id)` 唯一约束 + SAVEPOINT 吸收竞争）；新注册/重新启用的 webhook 在下一次运行（或注册时立即，见下）收到全部积压。
 3. **投递（`deliver_due_deliveries`）**：捞取全部到期 `pending` delivery（每 tick 上限 50 条，`created_at` 升序），并发投递（`Semaphore(10)` 上限）。
 

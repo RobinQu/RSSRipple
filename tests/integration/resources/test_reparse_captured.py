@@ -18,6 +18,8 @@ from app.models.file_resource import FileResource
 from app.models.resource_file_assignment import ResourceFileAssignment
 from app.models.resource_publication import ResourcePublication
 from app.models.resource_reparse_request import ResourceReparseRequest
+from app.services.batch_content_analysis import build_suggestion_files
+from app.services.torrent_inspect import analyze_torrent_files, parse_torrent_files
 from tests.metadata_corpus.dataset import ROOT, asset, load_corpus
 
 TORRENT_SHA = "6936d731675641e065b7af4c3780b3c36c27b2782e65fc3989a6557b0cff75c3"
@@ -31,6 +33,14 @@ async def _captured_reparse(db_pair, monkeypatch, tmp_path, record_property):
     torrent = tmp_path / "recorded.torrent"
     torrent.write_bytes(source.read_bytes())
     assert hashlib.sha256(torrent.read_bytes()).hexdigest() == TORRENT_SHA
+    expected_entries = build_suggestion_files(analyze_torrent_files(
+        parse_torrent_files(str(torrent))
+    ))
+    assert len(expected_entries) == 14
+    assert {
+        role: sum(entry["file_role"] == role for entry in expected_entries)
+        for role in ("episode", "extra")
+    } == {"episode": 12, "extra": 2}
     rid = str(uuid.uuid4())
     async with factory() as db:
         channel = Channel(name="Recorded reparse input", type="rss_feed", url=f"https://example.invalid/feed/{str(uuid.uuid4())}",
@@ -77,10 +87,13 @@ async def _captured_reparse(db_pair, monkeypatch, tmp_path, record_property):
         assignments = list(await db.scalars(select(ResourceFileAssignment).where(
             ResourceFileAssignment.resource_id == rid,
         )))
-        assert len(assignments) == 12
-        assert sorted(a.episode_start for a in assignments) == list(range(1, 13))
+        assert len(assignments) == len(expected_entries)
+        episodes = [a for a in assignments if a.file_role == "episode"]
+        assert sorted(a.episode_start for a in episodes) == list(range(1, 13))
+        assert {a.file_role for a in assignments} == {"episode", "extra"}
+        assert sum(a.file_role == "extra" for a in assignments) == 2
         assert {a.file_path for a in assignments} == {
-            a["file_path"] for a in case["candidate_expected"]["assignments"]
+            entry["path"] for entry in expected_entries
         }
         assert all(a.file_size > 0 and a.series_id is None and a.movie_id is None for a in assignments)
         assert await db.get(ResourceReparseRequest, payload["request_id"]) is None
@@ -90,7 +103,7 @@ async def _captured_reparse(db_pair, monkeypatch, tmp_path, record_property):
     assert hashlib.sha256(Path(torrent).read_bytes()).hexdigest() == TORRENT_SHA
     record_property("recorded_case", case["id"])
     record_property("torrent_sha256", TORRENT_SHA)
-    record_property("recorded_files_persisted", 12)
+    record_property("recorded_files_persisted", len(expected_entries))
     record_property("real_processing_pipeline", True)
     record_property("synthetic_boundary", "queue delivery and unavailable identity provider; no media download")
 

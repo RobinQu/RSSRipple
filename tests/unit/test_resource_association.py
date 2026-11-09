@@ -491,8 +491,9 @@ async def test_non_batch_single_episode_fields_and_confidence(db_session):
     assert resource.season == 1
     assert resource.absolute_episode == 105
     assert resource.episode_confidence == "manual"
-    # Non-batch clears all placements, including the stale one.
-    assert list(resource.file_assignments) == []
+    # Non-batch persists the submitted manifest and removes only stale paths.
+    assert [row.file_path for row in resource.file_assignments] == ["ep05.mkv"]
+    assert resource.file_assignments[0].episode_start == 5
     assert list(resource.work_links) == []
 
 
@@ -692,3 +693,313 @@ async def test_work_fields_reject_incompatible_date(db_session):
 
     assert exc_info.value.step == "media"
     assert series.start_date is None
+
+
+def test_assignment_role_payload_validation():
+    excluded = AssociationFileAssignment(
+        file_path="fonts.zip", file_role="excluded",
+    )
+    assert excluded.work_type is None and excluded.work_id is None
+    with pytest.raises(ValueError, match="required"):
+        AssociationFileAssignment(file_path="e01.mkv")
+    with pytest.raises(ValueError, match="only episode"):
+        AssociationFileAssignment(
+            file_path="e01.chs.ass", file_role="subtitle",
+            work_type="series", work_id="s1", episode_start=1,
+        )
+    with pytest.raises(ValueError, match="season 0"):
+        AssociationFileAssignment(
+            file_path="NCOP.mkv", file_role="extra",
+            work_type="series", work_id="s1", season=1,
+        )
+    with pytest.raises(ValueError, match="cannot be associated"):
+        AssociationFileAssignment(
+            file_path="fonts.zip", file_role="excluded",
+            work_type="series", work_id="s1",
+        )
+
+
+async def test_role_aware_manifest_covers_every_listing_file(db_session, tmp_path):
+    import bencodepy
+
+    collection = await _seed_collection(db_session, "角色清单")
+    s1 = await _seed_series(
+        db_session, "S1", season_number=1, number_of_episodes=1,
+        collection_id=collection.id,
+    )
+    s2 = await _seed_series(
+        db_session, "S2", season_number=2, number_of_episodes=1,
+        collection_id=collection.id,
+    )
+    resource = await _seed_resource(db_session)
+    paths = [
+        "Show/S01/Show.S01E01.mkv",
+        "Show/S02/Show.S02E01.mkv",
+        "Show/S01/Show.S01E01.chs.ass",
+        "Show/NCOP/[Group] Show [NCOP_01].mkv",
+        "Show/Scans/cover.jpg",
+        "Show/fonts.zip",
+    ]
+    torrent = tmp_path / "roles.torrent"
+    torrent.write_bytes(bencodepy.encode({
+        b"info": {
+            b"name": b"Pack",
+            b"files": [
+                {b"length": 500 * 1024 * 1024, b"path": [path.encode()]}
+                for path in paths
+            ],
+            b"piece length": 16384,
+            b"pieces": b"x" * 20,
+        },
+    }))
+    resource.torrent_file = str(torrent)
+    await db_session.flush()
+
+    assignments = [
+        _asg(paths[0], s1, season=1, episode_start=1, episode_end=1),
+        _asg(paths[1], s2, season=2, episode_start=1, episode_end=1),
+        _asg(
+            paths[2], s1, file_role="subtitle", attached_to_path=paths[0],
+        ),
+        _asg(paths[3], s1, file_role="extra", season=0),
+        _asg(paths[4], s1, file_role="extra"),
+        AssociationFileAssignment(file_path=paths[5], file_role="excluded"),
+    ]
+    body = ResourceAssociationUpdateRequest(
+        is_batch=True, works=[_ref(s1), _ref(s2)], assignments=assignments,
+    )
+    result = await apply_association_update(db_session, resource, body)
+    await db_session.flush()
+
+    assert result.warnings == []
+    rows = {row.file_path: row for row in resource.file_assignments}
+    assert rows[paths[2]].attached_to_path == paths[0]
+    assert rows[paths[3]].file_role == "extra"
+    assert rows[paths[5]].file_role == "excluded"
+    assert rows[paths[5]].series_id is None
+
+    incomplete = ResourceAssociationUpdateRequest(
+        is_batch=True, works=[_ref(s1), _ref(s2)],
+        assignments=assignments[:-1],
+    )
+    with pytest.raises(AssociationValidationError, match="fonts.zip"):
+        await apply_association_update(db_session, resource, incomplete)
+
+
+async def test_subtitle_attachment_does_not_create_episode_overlap(db_session):
+    series = await _seed_series(db_session, season_number=1)
+    resource = await _seed_resource(db_session)
+    body = ResourceAssociationUpdateRequest(
+        is_batch=True, works=[_ref(series)],
+        assignments=[
+            _asg("Show.S01E01.mkv", series, season=1,
+                 episode_start=1, episode_end=1),
+            _asg("Show.S01E01.chs.ass", series, file_role="subtitle",
+                 attached_to_path="Show.S01E01.mkv"),
+        ],
+    )
+    result = await apply_association_update(db_session, resource, body)
+    assert result.warnings == []
+
+
+async def test_media_fields_match_patch_subtitle_group_normalization(db_session):
+    resource = await _seed_resource(
+        db_session, channel_default_fields=["subtitle_group"],
+    )
+    body = ResourceAssociationUpdateRequest(
+        is_batch=False, works=[],
+        fields={"subtitle_groups": ["A", "a", "B"]},
+    )
+    await apply_association_update(db_session, resource, body)
+    assert resource.subtitle_groups == ["A", "B"]
+    assert resource.subtitle_group == "A&B"
+    assert resource.subtitle_groups_source == "manual"
+    assert resource.channel_default_fields == []
+
+    legacy = ResourceAssociationUpdateRequest(
+        is_batch=False, works=[], fields={"subtitle_group": "C&D"},
+    )
+    await apply_association_update(db_session, resource, legacy)
+    assert resource.subtitle_groups == ["C", "D"]
+    assert resource.subtitle_group == "C&D"
+    assert resource.subtitle_groups_source == "manual"
+
+
+async def test_media_fields_reject_conflicting_subtitle_group_columns(db_session):
+    resource = await _seed_resource(db_session, subtitle_group="Old")
+    body = ResourceAssociationUpdateRequest(
+        is_batch=False, works=[],
+        fields={"subtitle_group": "A", "subtitle_groups": ["B"]},
+    )
+    with pytest.raises(AssociationValidationError, match="disagree"):
+        await apply_association_update(db_session, resource, body)
+    assert resource.subtitle_group == "Old"
+
+
+async def test_unbound_extra_and_inherited_subtitle_are_saved(db_session):
+    series = await _seed_series(db_session, season_number=1)
+    resource = await _seed_resource(db_session, season=1, episode=1)
+    body = ResourceAssociationUpdateRequest(
+        is_batch=False, works=[_ref(series)],
+        assignments=[
+            _asg("Show/S01E01.mkv", series, season=1,
+                 episode_start=1, episode_end=1),
+            AssociationFileAssignment(
+                file_path="Show/[NCOP_01].mkv", file_role="extra",
+            ),
+            AssociationFileAssignment(
+                file_path="Show/opaque.ass", file_role="subtitle",
+                attached_to_path="Show/S01E01.mkv",
+            ),
+        ],
+    )
+
+    await apply_association_update(db_session, resource, body)
+    await db_session.flush()
+
+    rows = {row.file_path: row for row in resource.file_assignments}
+    assert rows["Show/[NCOP_01].mkv"].series_id is None
+    assert rows["Show/opaque.ass"].series_id == series.id
+    assert rows["Show/opaque.ass"].source == "manual"
+
+
+async def test_multi_work_assigned_works_only_count_episodes(db_session):
+    collection = await _seed_collection(db_session, "只认正片")
+    s1 = await _seed_series(
+        db_session, "S1", season_number=1, number_of_episodes=1,
+        collection_id=collection.id,
+    )
+    s2 = await _seed_series(
+        db_session, "S2", season_number=2, number_of_episodes=1,
+        collection_id=collection.id,
+    )
+    resource = await _seed_resource(db_session)
+    body = ResourceAssociationUpdateRequest(
+        is_batch=True, works=[_ref(s1), _ref(s2)],
+        assignments=[
+            _asg("S1/E01.mkv", s1, season=1, episode_start=1, episode_end=1),
+            _asg("S2/E01.ass", s2, file_role="subtitle"),
+        ],
+    )
+    with pytest.raises(AssociationValidationError, match="缺少：S2"):
+        await apply_association_update(db_session, resource, body)
+
+
+async def test_non_batch_rejects_contradictory_episode_assignments(db_session):
+    series = await _seed_series(db_session, season_number=1)
+    resource = await _seed_resource(db_session)
+    body = ResourceAssociationUpdateRequest(
+        is_batch=False, works=[_ref(series)],
+        assignments=[
+            _asg("E01.mkv", series, season=1, episode_start=1, episode_end=1),
+            _asg("E02.mkv", series, season=1, episode_start=2, episode_end=2),
+        ],
+    )
+    with pytest.raises(AssociationValidationError, match="相互矛盾"):
+        await apply_association_update(db_session, resource, body)
+
+
+async def test_non_batch_rejects_resource_episode_mismatch(db_session):
+    series = await _seed_series(db_session, season_number=1)
+    resource = await _seed_resource(db_session, season=1, episode=1)
+    body = ResourceAssociationUpdateRequest(
+        is_batch=False, works=[_ref(series)],
+        assignments=[
+            _asg("E02.mkv", series, season=1, episode_start=2, episode_end=2),
+        ],
+    )
+    with pytest.raises(AssociationValidationError, match="资源级 episode"):
+        await apply_association_update(db_session, resource, body)
+
+
+async def test_non_batch_allows_same_episode_variants_and_empty_legacy_save(db_session):
+    series = await _seed_series(db_session, season_number=1)
+    resource = await _seed_resource(db_session, season=1, episode=1)
+    body = ResourceAssociationUpdateRequest(
+        is_batch=False, works=[_ref(series)],
+        assignments=[
+            _asg("E01-a.mkv", series, season=1, episode_start=1, episode_end=1),
+            _asg("E01-b.mkv", series, season=1, episode_start=1, episode_end=1),
+        ],
+    )
+    await apply_association_update(db_session, resource, body)
+    assert len(resource.file_assignments) == 2
+
+    legacy = ResourceAssociationUpdateRequest(
+        is_batch=False, works=[_ref(series)], assignments=[],
+        season=2, episode=8,
+    )
+    await apply_association_update(db_session, resource, legacy)
+    assert resource.season == 2 and resource.episode == 8
+
+
+async def test_episode_assignment_must_match_single_season_work_identity(db_session):
+    series = await _seed_series(db_session, season_number=1)
+    resource = await _seed_resource(db_session)
+    wrong_season = ResourceAssociationUpdateRequest(
+        is_batch=True, works=[_ref(series)],
+        assignments=[
+            _asg("S02E01.mkv", series, season=2, episode_start=1, episode_end=1),
+        ],
+    )
+    with pytest.raises(AssociationValidationError, match="单季作品身份"):
+        await apply_association_update(db_session, resource, wrong_season)
+
+    special = ResourceAssociationUpdateRequest(
+        is_batch=True, works=[_ref(series)],
+        assignments=[
+            _asg("SP01.mkv", series, season=0, episode_start=1, episode_end=1),
+        ],
+    )
+    await apply_association_update(db_session, resource, special)
+    assert resource.file_assignments[0].season == 0
+
+
+async def test_multi_work_regular_season_zero_does_not_count_as_assigned(db_session):
+    collection = await _seed_collection(db_session, "多季特典")
+    s1 = await _seed_series(
+        db_session, "S1", season_number=1, number_of_episodes=1,
+        collection_id=collection.id,
+    )
+    s2 = await _seed_series(
+        db_session, "S2", season_number=2, number_of_episodes=1,
+        collection_id=collection.id,
+    )
+    resource = await _seed_resource(db_session)
+    body = ResourceAssociationUpdateRequest(
+        is_batch=True, works=[_ref(s1), _ref(s2)],
+        assignments=[
+            _asg("S1/E01.mkv", s1, season=1, episode_start=1, episode_end=1),
+            _asg("S2/SP01.mkv", s2, season=0, episode_start=1, episode_end=1),
+        ],
+    )
+    with pytest.raises(AssociationValidationError, match="缺少：S2"):
+        await apply_association_update(db_session, resource, body)
+
+
+async def test_multi_work_regular_season_zero_does_not_cover_episode_count(db_session):
+    collection = await _seed_collection(db_session, "正片覆盖")
+    s1 = await _seed_series(
+        db_session, "S1", season_number=1, number_of_episodes=1,
+        collection_id=collection.id,
+    )
+    s2 = await _seed_series(
+        db_session, "S2", season_number=2, number_of_episodes=1,
+        collection_id=collection.id,
+    )
+    resource = await _seed_resource(db_session)
+    assignments = [
+        _asg("S1/E01.mkv", s1, season=1, episode_start=1, episode_end=1),
+        _asg("S2/E01.mkv", s2, season=2),
+        _asg("S2/SP01.mkv", s2, season=0, episode_start=1, episode_end=1),
+    ]
+    body = ResourceAssociationUpdateRequest(
+        is_batch=True, works=[_ref(s1), _ref(s2)], assignments=assignments,
+    )
+    with pytest.raises(AssociationValidationError, match="作品「S2」.*完全未覆盖"):
+        await apply_association_update(db_session, resource, body)
+
+    assignments[1].episode_start = 1
+    assignments[1].episode_end = 1
+    result = await apply_association_update(db_session, resource, body)
+    assert not any("S2" in warning and "缺少" in warning for warning in result.warnings)

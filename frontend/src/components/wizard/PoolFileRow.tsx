@@ -14,6 +14,7 @@ export function PoolFileRow({
   checked,
   parsed,
   indented,
+  actions,
   onPointerDown,
   onPointerEnter,
   onToggle,
@@ -25,6 +26,7 @@ export function PoolFileRow({
   parsed: { season: number | null; episode: number | null } | undefined;
   /** Align under a cluster header when the pool is cluster-grouped. */
   indented: boolean;
+  actions?: React.ReactNode;
   onPointerDown: (e: React.PointerEvent<HTMLDivElement>, path: string, index: number) => void;
   onPointerEnter: (index: number) => void;
   onToggle: (path: string, index: number, shiftKey: boolean) => void;
@@ -71,6 +73,7 @@ export function PoolFileRow({
       <Text type="secondary" style={{ fontSize: 11, flexShrink: 0, width: 64, textAlign: 'right' }}>
         {formatBytes(size)}
       </Text>
+      {actions}
     </div>
   );
 }

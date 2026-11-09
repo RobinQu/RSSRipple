@@ -113,7 +113,7 @@ async def test_non_batch_single_series_replaces_state(db_session):
         episode_confidence="ambiguous",
         resolution="1080p",
     )
-    # 预置一条旧 auto 映射与一条 link：非合集保存应全部清掉
+    # 预置一条旧 auto 映射与一条 link：非合集保存替换映射并清掉 link
     old = ResourceFileAssignment(
         resource_id=resource.id, file_path="old.mkv",
         series_id=series.id, source="auto",
@@ -142,8 +142,9 @@ async def test_non_batch_single_series_replaces_state(db_session):
     assert resource.season == 1 and resource.episode == 5
     # 合集字段清空
     assert resource.batch_scope is None and resource.season_ranges is None
-    # 旧映射被删除；非合集分支不落任何映射（载荷中的 placements 一并清除）
-    assert list(resource.file_assignments) == []
+    # 旧路径被删除，前端提交的非合集映射正常落库。
+    assert [row.file_path for row in resource.file_assignments] == ["ep05.mkv"]
+    assert resource.file_assignments[0].source == "manual"
     # 媒体字段显式键生效；未知键被忽略不报错
     assert resource.resolution == "2160p"
     assert not resource.work_links
@@ -368,7 +369,7 @@ async def test_batch_mixed_tv_movie_derives_franchise(db_session):
         is_batch=True,
         works=[_ref(s1), _ref(m1)],
         assignments=[
-            _asg("tv.mkv", s1, season=2, episode_start=1, episode_end=1),
+            _asg("tv.mkv", s1, season=1, episode_start=1, episode_end=1),
             _asg("mv.mkv", m1),
         ],
     )
@@ -406,13 +407,19 @@ async def test_batch_marks_stale_ambiguous_confidence_manual(db_session):
 
 
 async def test_batch_multi_season_evidence_from_assignments(db_session):
-    series = await _seed_series(db_session)
+    collection = await _seed_collection(db_session, "多季作品")
+    s1 = await _seed_series(
+        db_session, "S1", season_number=1, collection_id=collection.id,
+    )
+    s2 = await _seed_series(
+        db_session, "S2", season_number=2, collection_id=collection.id,
+    )
     resource = await _seed_resource(db_session)
     body = ResourceAssociationUpdateRequest(
-        is_batch=True, works=[_ref(series)],
+        is_batch=True, works=[_ref(s1), _ref(s2)],
         assignments=[
-            _asg("s1.mkv", series, season=1, episode_start=1, episode_end=1),
-            _asg("s2.mkv", series, season=2, episode_start=1, episode_end=1),
+            _asg("s1.mkv", s1, season=1, episode_start=1, episode_end=1),
+            _asg("s2.mkv", s2, season=2, episode_start=1, episode_end=1),
         ],
     )
     await apply_association_update(db_session, resource, body)

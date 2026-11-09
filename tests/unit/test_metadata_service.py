@@ -3184,3 +3184,24 @@ async def test_manual_search_metadata_local_movie_low_score_skipped(db_session, 
     monkeypatch.setattr("app.services.metadata_service.fts_service.search_movie_fts", fake_movie_fts)
     out = await ms.manual_search_metadata(db_session, "Quantum Physics", "movie", data_source_type="local")
     assert out == []
+
+
+async def test_local_autolink_reconcile_with_collection_does_not_lazy_load(db_session, channel):
+    collection = WorkCollection(id=_uuid(), title_cn="Honzuki")
+    series = TVSeries(
+        id=_uuid(), title_cn="小书痴的下克上", title_en="Honzuki no Gekokujou",
+        content_type="tv", season_number=1, collection_id=collection.id,
+    )
+    db_session.add_all([collection, series])
+    await db_session.flush()
+    resource = _resource(
+        channel.id, title_raw="[G] Honzuki S2 - 01 [1080p]",
+        search_title="Honzuki no Gekokujou", season=2, episode=1,
+    )
+    db_session.add(resource)
+    await db_session.flush()
+
+    await ms.fetch_and_link_metadata(db_session, resource, channel)
+
+    assert resource.series_id == series.id
+    assert resource.season == 2

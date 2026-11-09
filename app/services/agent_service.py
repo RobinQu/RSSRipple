@@ -1052,6 +1052,19 @@ async def process_resources(
             result.matched_resource_ids.append(resource.id)
             continue
 
+        # Every single work first honors this Agent's existing task for the
+        # same physical resource, including rows without a parsed episode.
+        same_resource = (await db.execute(
+            select(DownloadTask.id).where(
+                DownloadTask.agent_id == agent.id,
+                DownloadTask.file_resource_id == resource.id,
+                _task_occupies_download_slot(),
+            ).limit(1)
+        )).first()
+        if same_resource:
+            result.duplicates_skipped += 1
+            continue
+
         # Dedup check
         if resource.movie_id:
             stmt = select(DownloadTask).where(

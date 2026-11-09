@@ -45,9 +45,12 @@ _VIDEO_EXTENSION_RE = re.compile(
     flags=re.IGNORECASE,
 )
 _TECHNICAL_FILENAME_SUFFIXES = {
-    "aac", "aac20", "ac3", "av1", "avc", "bluray", "bdrip", "cr",
-    "ddp", "ddp51", "dts", "flac", "h264", "h265", "hevc", "opus",
-    "remux", "truehd", "web", "webdl", "webrip", "x264", "x265",
+    re.sub(r"[._-]", "", value.casefold())
+    for value in {
+        "aac", "aac20", "ac3", "av1", "avc", "avc_flac", "bluray", "bdrip", "cr",
+        "ddp", "ddp51", "dts", "flac", "h264", "h265", "hevc", "opus",
+        "remux", "truehd", "web", "webdl", "webrip", "x264", "x265",
+    }
 }
 
 

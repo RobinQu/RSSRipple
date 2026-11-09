@@ -45,7 +45,8 @@ fetch_channel_resources(channel, db)
   │     │     # 用户自定义 regex 一律按 re.IGNORECASE 匹配（"1080P"/"1080p" 等价）；
   │     │     # 解析后 resolution 统一正则化为小写 "Np" 形式（"1080P"→"1080p"，
   │     │     # "1920x1080" 等原样保留），降低订阅条件的编写成本
-  │     ├─ c. 兜底提取 torrent_url：从 enclosure/link 中找 magnet 或 .torrent
+  │     ├─ c. 从 enclosure/link/description 同时提取 torrent_url 与 magnet_url：
+  │     │     # 优先 HTTP .torrent 主链接并保留备用 magnet；无 HTTP 时 torrent_url=magnet
   │     ├─ d. 创建 FileResource 对象（parsed_at = now）
   │     │     # 预解析同步内联：detect_batch / extract_compilation_work_title /
   │     │     # detect_subtitle_langs / detect_absolute_episode；合集命中即置
@@ -53,66 +54,48 @@ fetch_channel_resources(channel, db)
   │     │     # 并清空 episode；全N季/N-M季整季标记（detect_season_span）
   │     │     # 额外落 batch_scope="multi_season" + batch_seasons=覆盖季集合
   │     │     #（覆盖度已知即可派发，torrent 分析可修正）
-  │     ├─ d2. torrent 缓存与通道 A 内容检测（metadata 匹配前，工作锁之外）：
-  │     │     # ① 一律缓存：所有 http(s) 直链资源先 ensure_torrent_cached
-  │     │     #   （先 bencode 校验完整 payload，只有有效清单才落盘
-  │     │     #   TORRENT_CACHE_DIR 并写回 torrent_file；已有缓存先校验，
-  │     │     #   无效缓存删除后再尝试下载；magnet/下载失败静默——超时 20s，
-  │     │     #   瞬时失败（超时/连接/非 200）自动重试一次，非 bencode/超限/
-  │     │     #   写盘失败不重试），保证后续
-  │     │     #   文件清单查询（GET /resources/{id}/files）无需重新下载；
-  │     │     #   手动修订/确认端点（PATCH episode / PATCH 资源 /
-  │     │     #   PUT associations）在 commit 后、入队定向运行前对
-  │     │     #   torrent_file 缺失的 http(s) 资源 best-effort 重建缓存
-  │     │     #   （ensure_torrent_cached + maybe_inspect_torrent，失败静默）
-  │     │     # ② 合集分析门控：maybe_inspect_torrent 对 is_batch=false 的
-  │     │     #   资源、以及已判合集但信息不完整（batch_scope 为 NULL，或
-  │     │     #   scope="season" 缺 episode_start/end）的资源跑 bencode 解析
-  │     │     #   文件清单 → analyze_torrent_files 判
-  │     │     #   scope（season/multi_season/franchise）并补齐集数范围
-  │     │     #   （season 分支对已链接且可验证单季的作品补 season=1；
-  │     │     #   single/unknown 不降级既有合集判定），franchise 触发
-  │     │     #   franchise_service.link_franchise_pack（成员作品逐个走
-  │     │     #   process_title_only 匹配落库 → get-or-create franchise_pack
-  │     │     #   来源 WorkCollection → 资源挂 collection_id、作品 FK 全清）。
-  │     │     #   通道 B（下载后 RPC 修正）为保留优化项未实现。
-  │     │     # ③ magnet 元数据解析：magnet: 链接无 .torrent 可缓存——
-  │     │     #   enqueue_resolution 入队 resolve_magnet_torrent 后台任务
-  │     │     #   （app/services/magnet_resolve.py，libtorrent upload_mode
-  │     │     #   仅取元数据不下载 payload，超时默认 900s），由分离 worker 池
-  │     │     #   （信号量并发 MAGNET_RESOLVE_CONCURRENCY，不占队列槽位）
-  │     │     #   重建标准 .torrent 进同一缓存目录并写回 torrent_file，
-  │     │     #   成功后经同一 maybe_inspect_torrent 跑通道 A；失败按
-  │     │     #   MAGNET_RESOLVE_MAX_ATTEMPTS 自动重试（MAGNET_RESOLVE_RETRY_SECONDS，默认 60s），状态/
-  │     │     #   错误/次数落 FileResource.magnet_resolve_* 四列；
-  │     │     #   每小时 sweep（magnet_resolve_sweep，双后端均注册）先回收
-  │     │     #   卡死行（pending/running 且 updated_at 超过
-  │     │     #   (1+max_attempts)*timeout + max_attempts*retry_seconds + 600s 安全
-  │     │     #   余量——worker 崩溃/重启后分离任务随之消亡，认领 UPDATE 与
-  │     │     #   手动重试又都排除 pending/running，不回收将永久卡死；
-  │     │     #   回收置 NULL/清计数/记中断错误），再补扫 status IS NULL
-  │     │     #   的存量 magnet 资源（单次 ≤50，含刚回收行）；手动重试
-  │     │     #   POST /resources/{id}/magnet-resolve（重置计数再入队，
-  │     │     #   pending/running 中 409，非 magnet/无 libtorrent/功能关闭
-  │     │     #   422）。tracker 注入：抓取的 TPB magnet 无 tr= 参数（解析
-  │     │     #   只剩 DHT），每次尝试合并 magnet 自带 + 手动重试自定义
-  │     │     #   （严格校验 udp/http(s)+host，存 magnet_resolve_trackers，
-  │     │     #   done 清空、failed 保留供下次预填）+ 默认公共 tracker 清单
-  │     │     #   （MAGNET_RESOLVE_DEFAULT_TRACKERS，去重保序，trackers 与
-  │     │     #   tracker_tiers 同步赋值；默认清单以
-  │     │     #   http://tracker.opentrackr.org:1337/announce 打头占 tier 0——
-  │     │     #   DHT 与 udp:// tracker 均依赖 UDP 出网（防火墙常封），
-  │     │     #   http 形式走 TCP，UDP 被封锁的部署也能解析）。
-  │     │     #   infohash 缓存镜像快速路径（P2P 之前的 step 0）：
-  │     │     #   MAGNET_RESOLVE_CACHE_MIRRORS（默认 itorrents.org，空列表
-  │     │     #   关闭）按 {infohash} 模板 HTTPS GET 缓存的 .torrent
-  │     │     #   （15s 短超时，秒级 vs P2P 最长 15min；base32/v2-only
-  │     │     #   magnet 无 v1 hash 静默跳过）；镜像对未知 hash 会 200 返回
-  │     │     #   无关 torrent，故必须结构校验 + 重算 v1 infohash 比对
-  │     │     #   （sha1(bencode(info))，bencodepy 输出即规范序）不符即弃；
-  │     │     #   全部镜像失败静默回退 P2P，快速路径永不抛错。
-  │     │     #   libtorrent 为运行时可选依赖：import 守卫，缺失时
-  │     │     #   只记一次日志、状态永不迁移。失败静默，绝不阻塞抓取。
+  │     ├─ d2. 统一清单获取、缓存与内容检测（metadata 匹配前，工作锁之外）：
+  │     │     # ① RSS 同时给出 HTTP .torrent 与 magnet 时分别写 torrent_url/
+  │     │     #   magnet_url；HTTP 是主路径，未取到有效清单时才用备用 magnet
+  │     │     #   入队解析（纯 magnet 资源直接入队）。HTTP 与 magnet 任一成功
+  │     │     #   都进入同一缓存、确定性分析与 listing reconcile；下载后 RPC
+  │     │     #   清单修正也由这条管线实际承担。
+  │     │     # ② fetch_resource_torrent 先读有效 torrent_file；HTTP 领取用
+  │     │     #   条件 UPDATE 生成 torrent_fetch_attempt_id 并先 commit，再发网络
+  │     │     #   请求。成功发布同时要求 resource + attempt + running + 领取时
+  │     │     #   torrent_file 原引用不变，避免迟到的 HTTP/magnet 互相覆盖缓存；
+  │     │     #   失败/状态更新同样按 attempt fencing。pending/running 超过 300s
+  │     │     #   可被新条件领取回收，旧 worker 之后无权写回。
+  │     │     #   网络/超时、HTTP 408/429/5xx 为可重试；其他非 200、目的地拒绝、
+  │     │     #   非 bencode/超过 50MB、缓存目录/写盘错误为永久失败。单次下载内部
+  │     │     #   对可重试错误再试一次；最终可重试失败持久化 failed + 60s 起、
+  │     │     #   3600s 封顶的 next_attempt_at，永久失败保持 NULL，需显式重试。
+  │     │     #   有效 payload 原子写入 <resource_id>-<sha256(content)>.torrent。
+  │     │     # ③ 手动修订/确认端点仍在 commit 后 best-effort 补缓存；GET files、
+  │     │     #   通知生成、magnet 完成与对账共用 resource_listing，不各养一套
+  │     │     #   下载/解析逻辑。maybe_inspect_torrent 对未判合集及信息不完整合集
+  │     │     #   跑 analyze_torrent_files；single/unknown 不降级既有合集，多季
+  │     │     #   compilation 不被单作品绑定压成 season。franchise 仍走
+  │     │     #   link_franchise_pack；作品链接后绑定与图收敛见下文专门章节。
+  │     │     # ④ magnet 元数据解析：enqueue_resolution 入队 resolve_magnet_torrent，
+  │     │     #   由分离 worker 池（MAGNET_RESOLVE_CONCURRENCY，不占队列槽位）将
+  │     │     #   元数据重建到 attempt 隔离缓存；成功后 CAS 发布 torrent_file，并
+  │     │     #   调用持久 reconcile_resource（携带 magnet attempt 再 fencing）。
+  │     │     #   失败按 MAGNET_RESOLVE_MAX_ATTEMPTS/RETRY_SECONDS 重试，状态、错误、
+  │     │     #   次数落 magnet_resolve_*；每小时 magnet_resolve_sweep 回收超预算
+  │     │     #   pending/running、补扫 NULL magnet，并分别以独立 50 行配额补发到期的
+  │     │     #   HTTP fetch_torrent 与 pending/到期 failed 的 reconcile 任务。
+  │     │     #   listing running 超过 1h 先转 pending、清 attempt；其失败按 60s 起、
+  │     │     #   3600s 封顶退避。队列不再叠加通用 retry，持久状态拥有恢复语义。
+  │     │     #   手动重试 POST /resources/{id}/magnet-resolve 在 pending/running
+  │     │     #   返回 409；非 magnet、功能关闭或 libtorrent 与缓存镜像均不可用时 422。
+  │     │     #   tracker 合并 magnet 自带 + 人工自定义 + 默认公共清单，done 清空
+  │     │     #   自定义值、failed 保留；DHT/UDP 受限时可使用 HTTP tracker。
+  │     │     #   infohash 缓存镜像是 P2P 之前的 step 0，**不依赖 libtorrent**：
+  │     │     #   MAGNET_RESOLVE_CACHE_MIRRORS 按 {infohash} HTTPS GET（15s），
+  │     │     #   base32/v2-only 无 v1 hash 跳过；必须结构校验并重算 v1 infohash，
+  │     │     #   全部失败才回退 P2P。libtorrent 仅 P2P 回退需要，无可 resolver
+  │     │     #   时不入队且不阻塞抓取。
   │     ├─ e. 统一 Metadata Agent（通过 LangGraph ReAct 循环，单次调用完成标题清洗 + 单数据源 metadata 搜索）
   │     │     agent = UnifiedMetadataAgent()
   │     │     await agent.process(resource, channel, db)
@@ -447,6 +430,8 @@ process_resources(agent, resources, db)
   │     │     季/集号不确定、合集覆盖范围不确定，任一命中即不参与 Agent
   │     │     过滤/下载（unrecognized++）。问题仅进入 Channel 文件资源待确认，
   │     │     不创建 AgentSuggestion/PendingDecision；修订后定向重跑。
+  │     │     所有作品形态随后先检查同 Agent + 同 FileResource 的
+  │     │     active/completed 任务，即使资源无集号也防止重复运行重复派发。
   │     │     links-only multi_season 包（作品单季化终态：作品 FK 全清、季作品
   │     │     挂在 resource_work_links）经 links 表识别——links 非空即视为
   │     │     已关联作品，覆盖度取关联季作品 id 集合。
@@ -633,6 +618,11 @@ startup:
   │     enqueue "fts_reconcile"      # FTS 影子表对账：全量 diff 基表 vs 影子表，
   │                                  # 修补绕过 outbox 的路径（脚本、直连 SQL）
   │
+  ├─ 5d. 每小时任务（Turso/PostgreSQL 均注册）:
+  │     enqueue "magnet_resolve_sweep"  # 回收中断的 magnet/listing 运行态，
+  │                                    # 补扫 NULL magnet、到期 HTTP 获取失败与
+  │                                    # pending/到期 listing reconcile；三类各 ≤50
+  │
   ├─ 6. 每分钟任务（NOTIFY_ENABLED 开启时）:
   │     enqueue "download_notifications"  # handler 三段式 tick：
   │                                    # ① 入队：为 completed 且无通知的任务停种（best-effort）
@@ -676,7 +666,7 @@ startup:
                             # 才合并）
 ```
 
-任务队列使用 MemoryQueue（默认）或 RedisQueue（配置时），承载手动触发的 fetch/run 与全部周期任务；同 key 的 active key 与执行 token 保证当前有效领取唯一；失权旧协程可能仍在运行，其数据库提交和外部副作用由各 handler 的所有权检查、条件写入及幂等协议保护，不承诺恰好执行一次。**web/worker 分离**（`APP_ROLE`）：web 进程只 HTTP + enqueue（`queue.start(consume=False)`）；worker 进程（`python -m app.worker`）跑调度器 + 消费队列。RedisQueue 必须先取得并发槽位，再以原子 `LMOVE` 把 job 从持久 backlog 移至该 consumer 的 processing 列表，禁止无界预取到进程内等待；consumer 以短 TTL 租约持续心跳，正常完成才从 processing 确认删除。worker 优雅退出时未完成 job 原样重新入队；进程崩溃时描述符仍留在 processing，其他 worker 在租约过期后通过全局恢复锁幂等重新入队，状态回退为 queued 且保留 active-key 去重锁，禁止产生永久 running 僵尸或窃取仍存活 consumer 的任务。旧版本遗留、没有可恢复描述符的 running 状态在升级启动时标记 failed 并释放 active 锁。`sync_progress`、`download_notifications`、`check_downloaders` 三类短周期运维 job 走队首优先级，避免下载状态与通知被 LLM 长任务积压。每个 job handler 执行前重读 `load_runtime_config`（进程本地缓存，跨进程设置变更靠此收敛）。分布式 compose 默认 1 web + 3 worker；standalone 单进程 `APP_ROLE=all` 行为不变。**有限自动重试**：handler 失败且次数未满时按 `QUEUE_JOB_RETRY_BACKOFF_SECONDS * 2^(n-1)`（封顶 1h）退避重排，耗尽 `QUEUE_JOB_MAX_ATTEMPTS`（默认 3，含首次）后仍置 FAILED 终态；仅 `task_queue._RETRYABLE_JOB_TYPES` 中已验证幂等的类型（fetch_channel、refresh_*、backfill_metadata、sync_progress、daily_cleanup/daily_dedup、check_downloaders、fts_drain/reconcile、magnet_resolve_sweep、refresh_resource_organize）启用，run_agent（水位线/请求退避自有持久恢复）、reprocess_resource_metadata（请求已在 finally 确认）、analyze_batch_files（交互式，需即时反馈）、download_notifications（投递退避自有状态机）、resolve_magnet_torrent（自身尝试预算 + DB 认领）保持一次即终态。重试期间保留 active-key 去重与所有权 fencing（Redis 走共享延迟 zset `rssripple:jobs:delayed`，崩溃后由任一 consumer 到期提升），不消耗新的调度 throttle 周期；任务状态字典新增 `attempt`/`max_attempts`/`backoff_seconds`/`next_retry_at` 供观测。
+任务队列使用 MemoryQueue（默认）或 RedisQueue（配置时），承载手动触发的 fetch/run 与全部周期任务；同 key 的 active key 与执行 token 保证当前有效领取唯一；失权旧协程可能仍在运行，其数据库提交和外部副作用由各 handler 的所有权检查、条件写入及幂等协议保护，不承诺恰好执行一次。**web/worker 分离**（`APP_ROLE`）：web 进程只 HTTP + enqueue（`queue.start(consume=False)`）；worker 进程（`python -m app.worker`）跑调度器 + 消费队列。RedisQueue 必须先取得并发槽位，再以原子 `LMOVE` 把 job 从持久 backlog 移至该 consumer 的 processing 列表，禁止无界预取到进程内等待；consumer 以短 TTL 租约持续心跳，正常完成才从 processing 确认删除。worker 优雅退出时未完成 job 原样重新入队；进程崩溃时描述符仍留在 processing，其他 worker 在租约过期后通过全局恢复锁幂等重新入队，状态回退为 queued 且保留 active-key 去重锁，禁止产生永久 running 僵尸或窃取仍存活 consumer 的任务。旧版本遗留、没有可恢复描述符的 running 状态在升级启动时标记 failed 并释放 active 锁。`sync_progress`、`download_notifications`、`check_downloaders` 三类短周期运维 job 走队首优先级，避免下载状态与通知被 LLM 长任务积压。每个 job handler 执行前重读 `load_runtime_config`（进程本地缓存，跨进程设置变更靠此收敛）。分布式 compose 默认 1 web + 3 worker；standalone 单进程 `APP_ROLE=all` 行为不变。**有限自动重试**：handler 失败且次数未满时按 `QUEUE_JOB_RETRY_BACKOFF_SECONDS * 2^(n-1)`（封顶 1h）退避重排，耗尽 `QUEUE_JOB_MAX_ATTEMPTS`（默认 3，含首次）后仍置 FAILED 终态；仅 `task_queue._RETRYABLE_JOB_TYPES` 中已验证幂等的类型（fetch_channel、refresh_*、backfill_metadata、sync_progress、daily_cleanup/daily_dedup、check_downloaders、fts_drain/reconcile、magnet_resolve_sweep、refresh_resource_organize）启用，run_agent（水位线/请求退避自有持久恢复）、reprocess_resource_metadata（请求已在 finally 确认）、analyze_batch_files（交互式，需即时反馈）、download_notifications（投递退避自有状态机）、resolve_magnet_torrent（自身尝试预算 + DB 认领）、fetch_torrent 与 reconcile_resource_listing（各自持久 attempt/next_attempt_at，禁止队列重试绕过退避或重放已提交图收敛）保持一次即终态。重试期间保留 active-key 去重与所有权 fencing（Redis 走共享延迟 zset `rssripple:jobs:delayed`，崩溃后由任一 consumer 到期提升），不消耗新的调度 throttle 周期；任务状态字典新增 `attempt`/`max_attempts`/`backoff_seconds`/`next_retry_at` 供观测。
 
 升级执行所有权协议时，必须先停止全部旧版本 worker，再启动新版本 worker。旧代码的无条件回写无法受新代码中的 WATCH/CAS 约束，不支持据此宣称新旧版本滚动混跑安全。无可恢复描述符的旧 running 作业转 failed；具有持久描述符、作业身份和 active key 一致的作业按租约恢复，身份不一致时不得窃取替代作业。
 
@@ -754,15 +744,17 @@ Mock downloader 面向本地开发和自动化测试；生产环境应使用 `tr
 
 ### Torrent 文件关联的抓取期收敛与遗留回填
 
-- 文件清单确定性解析以 `torrent_inspect.analyze_torrent_files` 为唯一实现：频道抓取、下载完成后的 Magnet 补齐及 organize 历史快照回退均复用它；不得在 planner 内维护另一套季集正则。所有主视频作品形态（单集 TV、单部电影、season/multi_season/franchise/movies）均建立 assignment，LLM 仍只处理确定性层无法完成的合集歧义（`llm_refinement_needed` 门控：franchise 恒触发；report.is_batch 且未解析占比超阈值触发；**资源 `is_batch=True`（标题层已判合集）且 report 落 `unknown` 且主视频 ≥2 个也触发**——覆盖 Stage 命名目录等路径层无季集结构的场景；单季包存在非 NCOP/NCED 的无集号视频时也触发，由 LLM 仅将明确额外内容标为 `season=0` 且空集号，角色不确定仍保持覆盖未知）。scope 判定先按共享剥季规则归一化顶层目录：只有同一基础作品且 ≥2 个明确非零季才判 multi_season，不同基础作品仍判 franchise；season 0（特典/SP 文件）排除在「季数」计数外，单季+SP 仍判 season 且 episode 范围只取真季集号（覆盖季集合保留 0，SP 文件的 file_parses 照常落 season=0 映射）；路径季集解析（`extract_season_episode_from_path`）中文件名分量的显式 `SxxEyy`（含 S00）优先于目录继承的季号，目录/文件名任意分量的英文序数 Stage 标记（`Second Stage`/`2nd Stage`）同样提供季号。存量误判（`batch_seasons` 含 0）走 `scripts/batch_sp_rescan.py`（dry-run 默认 + `--apply`，torrent 缓存离线重析重写 scope/范围/assignments，不联网、不调 LLM）。
+- 文件清单确定性解析以 `torrent_inspect.analyze_torrent_files` 为唯一实现：频道抓取、下载完成后的 Magnet 补齐及 organize 历史快照回退均复用它；不得在 planner 内维护另一套季集正则。所有作品形态（单集 TV、单部电影、season/multi_season/franchise/movies）均建立**完整角色化** assignment：episode 正片、subtitle、extra 与 excluded 均保留路径，只有 episode 参与季集覆盖；字幕的 attachment 仅由唯一同季集/同名正片确定，LLM 仍只处理确定性层无法完成的合集歧义（`llm_refinement_needed` 门控：franchise 恒触发；report.is_batch 且未解析占比超阈值触发；**资源 `is_batch=True`（标题层已判合集）且 report 落 `unknown` 且主视频 ≥2 个也触发**——覆盖 Stage 命名目录等路径层无季集结构的场景；单季包存在非 NCOP/NCED 的无集号视频时也触发，由 LLM 仅将明确额外内容标为 `season=0` 且空集号，角色不确定仍保持覆盖未知）。scope 判定先按共享剥季规则归一化顶层目录：只有同一基础作品且 ≥2 个明确非零季才判 multi_season，不同基础作品仍判 franchise；season 0（特典/SP 文件）排除在「季数」计数外，单季+SP 仍判 season 且 episode 范围只取真季集号（覆盖季集合保留 0，SP 文件的 file_parses 照常落 season=0 映射）；路径季集解析（`extract_season_episode_from_path`）中文件名分量的显式 `SxxEyy`（含 S00）优先于目录继承的季号，目录/文件名任意分量的英文序数 Stage 标记（`Second Stage`/`2nd Stage`）同样提供季号。存量误判（`batch_seasons` 含 0）走 `scripts/batch_sp_rescan.py`（dry-run 默认 + `--apply`，torrent 缓存离线重析重写 scope/范围/assignments，不联网、不调 LLM）。
 
-- 新资源先缓存并确定性解析 torrent 清单，metadata 作品链接完成后执行第二次无猜测绑定：资源恰好链接一个 series/movie 时，把仍为 `source=auto` 且未绑定作品的 assignment 全部挂到该作品，并补 `resource_work_links(source=auto)`；manual/llm 行不覆盖；franchise 不做整包平铺绑定，multi_season 未绑行仍可补到已确认作品。已绑定到另一作品类型的行不得被资源平铺 FK 重绑；清理孤儿 auto link 前必须确认没有任何 assignment 仍引用它，避免混合包的电影 assignment 与作品链接失配。
+- 新资源先缓存并确定性解析 torrent 清单，metadata 作品链接完成后执行第二次无猜测绑定：资源恰好链接一个 series/movie 时，把兼容的 `source=auto` 行挂到该作品（excluded 永不绑定，subtitle 仅在 attachment 指向该作品正片时继承，extra 可绑定但季号固定 S0/电影 NULL），并补 `resource_work_links(source=auto)`；manual/llm 行不覆盖；franchise 不做整包平铺绑定，multi_season 未绑行仍可补到已确认作品。已绑定到另一作品类型的行不得被资源平铺 FK 重绑；清理孤儿 auto link 前必须确认没有任何 assignment 仍引用它，避免混合包的电影 assignment 与作品链接失配。
 - **簇级作品解析（`cluster_work_binding.bind_hint_clusters`，挂在 `maybe_inspect_torrent` 富化段末尾、franchise 链接之后；另在 bangumi 系列图谱扩展后做第二次幂等运行）**：torrent 富化 pass 已按顶层目录聚类把簇标题写入 `work_title_hint` 并逐文件解析 season/episode，但 auto 行此前不绑作品；本步骤按 distinct hint 分簇（空 hint 跳过），对每个簇解析唯一目标作品后绑定 compatible 的未绑 auto 行；集号超出候选季作品已知集数的行保留给多季 reconcile，已明确的 `season=0` extras 可绑作品但不得被改写成正常季。解析顺序（先命中先用，拿不准一律不绑、hint 保留待人工/LLM）：①**同合集成员**——资源已关联作品（互斥 FK/links）或已 park 到合集时，在同合集成员中按归一化标题相等匹配（标题+aliases），三个层级依次为：精确标题/别名相等（标题证据）→ hint 等于合集自身标题/aliases 的基础名放宽（剥季目录如"作品X S02"，按季号众数严格选胜，**非标题证据**）→ **季标记层**（hint 自带季/Stage 标记且剥季基础名匹配**资源自身 park 合集**的主标题——相等或互为包含；兄弟壳合集的拉丁主标题会造成包含歧义，故只看 park 合集——由标记季号选成员；目录自带的 Stage 词是标题证据）；②**本地 FTS**——作品库搜索，仅接受 ≥ 既有自动链接阈值（`AUTO_LINK_THRESHOLD`=85）且最高分唯一的命中，且须过**双守卫**：**形态兼容**（仅路径中的**显式集号模式**——SxxEyy/Exx/第N话/`[NN]`——锁死 TV 证据并禁绑 Movie，目录名孤立数字或 LLM 提示集号不算；hint/路径带显式电影标记词 movie/电影/剧场版 = 电影形态；**单文件簇在 OVA/OAD/剧场版/Movie/Film 标记目录下不被锁死 tv**——弱数字证据下的 movie 裁决可绑；Movie 候选仅在簇无集数证据时可绑）与**基础名包含**（归一化基础形——剥括号标签、数字季 token 与 `:：·/` 等分隔标点，但保留 Stage 序数词——必须相等或互为包含，"Initial D Fifth Stage" 对 "Initial D Battle Stage" 基础名 fifth≠battle 拒绝；基础形**精确相等**的候选优先于仅包含的候选）；外加**续号歧义守卫**（`_sequel_ambiguous`：剥数字后基础名相关但原文尾数不同——"Initial D Battle Stage" vs "...Battle Stage 2"——视为续集兄弟而非同一作品，仅精确原文归一化相等可绑，否则不绑 hint 保留；季号 token "Show S02" 不算续号，季号选胜路径不受影响）；FTS 空召回由 `search_*_fts` 内部统一回退到有界（≤500 行抓取）且按相似度排序的 `search_text` LIKE 粗筛（token OR 语义可跨冒号类分隔符，覆盖 "Initial D: Battle Stage" 场景），不再整表扫描；③**外部搜索**——经频道 metadata 源 `process_title_only`（与 franchise 成员解析同一入口），仅接受 `found` 且非 ambiguous 且形态兼容的确定性结果，随后走既有 upsert 入口（TV 带簇季号作 `season_hint`——hint 自带的季/Stage 标记优先于路径季号众数；落不了季返回 None 即跳过；身份袋 creator-wins 与人工编辑保护不变）。**包内季号 vs 作品季号调和**：证据分两档——**标题证据**（精确成员标题匹配/过守卫的 FTS 命中/外部 found）说明"这个簇就是这个作品"，作品自身 `season_number` 优先于包内路径季号：不一致的行改写 season 为作品季号后绑定（episode 是季内集号保持不变，provenance 仍 auto，记 debug 日志，返回值 `BindOutcome.remapped` 暴露 remap 计数）；**纯季号选胜**（基础名放宽层）保持保守：不一致不绑记 warning。绑定 Movie 的行清空 season（电影无季）。**reconcile**：每次运行先扫已绑定 auto 行——作品的 `season_number` 在绑定后被修正时（如 franchise 链接先把 "Final Stage" 落 s1、系列图谱随后改判 s6），已绑 auto 行跟随改判镜像作品季号（llm/manual 永不动）。llm/manual 行永不动，已绑 auto 行不重复绑（幂等重跑）。绑定后补 `resource_work_links(source=auto)`、重算 `season_ranges`、`batch_seasons` 取并集（season 系 scope）并由 `sync_resource_collection` 沉淀合集身份；全部失败静默降级为 hint-only。对 LLM 明确判定且电影绑定成功的 TV+movie 包，`batch_scope` 升级为 `franchise` 后才进入系列图谱；图谱提供从 1 开始连续季作品及每季集数时，`rebind_absolute_season_assignments` 将同 hint 的绝对编号文件整体换算为各季作品/季内集号。重映射还要求同 hint 文件没有路径季号、正片主文件名含画质标签前的清晰序号且全局严格递增，并仅用于存在未绑行或当前唯一作品无法容纳最大编号的修复；已有明确逐季绑定不得覆盖。否则视为逐季或歧义内容，不做任何部分重映射，manual/llm 行不改。新增 work links 与 `batch_seasons` 只来自实际覆盖的作品/季，不得把合集中未覆盖的后续季一并纳入。顶层目录中的 First/Second/Final Stage 等限定词保留在 assignment hint 中，LLM 只能补缺、不得用基础剧名覆盖更具体目录身份。单季绑定完成后，资源级 `episode_start/end` 与权威 assignments 同步，避免 `Vol.2~3` 等包装范围与真实 04–09 集数范围互相矛盾。
 - 频道详情页「手动抓取」先弹窗确认，默认不勾选「重新抓取所有条目的 metadata」并发送 `force=false`；勾选后发送 `force=true`。`force=true` 无扫描条数上限地重跑该频道全部既有资源，跳过 MetadataCache 与本地已知作品短路，重新查询 metadata 源以补齐作品缺失字段（包括由 `start_date`/`release_date` 派生的必选年份），并对所有作品形态重新执行 torrent 文件关联富化；有本地 torrent 缓存时即使原 URL 是 magnet 也可复用。普通抓取与全局 backfill 也会按较长冷却周期选取“已关联但仍缺 Channel 必填字段”的资源，继续执行作品富化、发布字段写回和 torrent 文件关联；未匹配资源仍按原有失败冷却与限额回填，避免周期任务反复全表扫描。
 - 内容 LLM 对普通单集文件输出互斥的 `season + episode`；仅当一个物理视频文件实际包含连续多集（例如文件名明确为 E01-E02）时才输出 `season + episode_start + episode_end`，torrent 是整季合集本身不构成单文件范围的理由。服务层校验真实路径后将单集规范化为 assignment 的闭区间 `episode_start == episode_end` 落库，保持现有数据模型兼容。
 - 向导文件 LLM 分析使用 `MetadataCache(source=batch_file_analysis:v4)` 持久缓存，key 为资源 ID、搜索标题、文件路径/大小清单及逻辑版本的 SHA-256 指纹，任一输入变化自然失效；主动重新解析用 `force=true` 覆盖缓存。缓存未命中时 web 以 `batch-analysis:<fingerprint>` 为 key 入队 `analyze_batch_files`，由 worker 完成确定性解析、LLM 调用和缓存写入；队列 result 字段承载中间状态与最多 50k 字符的累计输出，SSE 只轮询并增量转发。Redis `SET NX` active-key 在多 web/多 worker 间原子去重，关闭任一窗口不取消任务；MemoryQueue 保持 APP_ROLE=all 单进程兼容。
 - 编辑向导「重新解析元数据」按钮走 `POST /resources/{id}/reparse-metadata`：创建唯一持久 `ResourceReparseRequest` 后先 commit，再以 `reprocess-resource:{id}` 为 key 入队。重复 HTTP 请求返回 409，不替换已有请求；队列返回 None 只说明 key 忙碌，保留请求供后续补发。handler payload 携带请求 UUID；旧 ID 或资源不匹配直接 superseded，不调用管线。配置刷新和 `force_refresh=True` 完整元数据处理均在受所有权保护的收尾范围内，成功或普通异常只删除自身请求，不清理人工忽略字段。不重置 metadata_attempts/metadata_failure_type，不创建定向派发请求。
 - 向导 LLM 输入包含服务端生成的候选作品清单：`candidate_key=series|movie:<UUID>`、work_type/work_id 与 title_cn/title_en/original_title/canonical_name 全部非空别名；输出必须复用 exact candidate_key。后端只接受输入集合内的 key，并由 key 对应候选还原作品类型/ID，拒绝模型生成或篡改的 UUID；前端优先按 candidate_key 绑定，标题归一化仅作旧结果兼容回退。最终 `season_ranges` 合并经路径与候选 ID 双重校验的 LLM 单集结果。
+- **统一清单解析器（`resource_listing.resolve_resource_listing`）**：所有调用方按本地 torrent cache → 可选 HTTP fetch → 下载器 RPC → 历史通知快照的顺序取首个有效清单。下载器阶段遍历资源的**全部**有 torrent ID 的 DownloadTask（可指定 preferred/only task；否则 created_at 新到旧），单任务失败继续尝试；通知阶段同样按 created_at 新到旧遍历**全部**快照，不以最新空清单遮蔽历史有效清单。`GET files` 取得结果后将 reconcile 需求持久化为 pending 并先 commit 再入队；通知生成限定当前任务且不读旧通知，避免生成链自我回退。
+- **迟到清单的完整收敛（`reconcile_resource`）**：独立领取 `listing_reconcile_attempt_id` 并提交 running，再应用角色化确定性分析、门控 LLM、单作品绑定与合集图收敛；人工资源形态（manual episode/work link/assignment）不被迟到自动结果改写。对 multi_season 资源，`link_declared_seasons` 仅在现有 FK/links 已共同确认**同一合集**时，为 `batch_seasons` 声明季补充该合集内唯一既有季作品的 auto links；不按标题匹配、不创建作品、不动 manual links，也不把 multi_season/franchise 压平成单作品。成功后同事务写入 `kind=metadata` 的 ResourcePublication 与 done，commit 后调用 `dispatch_pending_publications`；**只走 publication baseline/cursor/generation 的常规资格与派发，不创建 AgentResourceRequest、不发起人工 targeted request**。唤醒失败不撤销已提交发布，由 5 秒发布调度恢复；图收敛/发布/提交失败由 listing 自身 attempt CAS 与退避重试。
 - 特别篇文件统一映射到媒体库规范的 Season 0：文件名明确的 `SPxx` / `Special xx` / `OVA xx` / `OAD xx` 直接解析为 `S00Exx`；发布顺序式小数标签（`11.5`、`22.5`）不存入整数 episode 字段，而在作品关联后与 Episode 表的 Season 0 行按顺序一一校准。若作品源尚无 Season 0 数据但清单中存在明确 `.5` 插播标签，则按标签顺序映射为 `S00E01..N`；已有 Season 0 数据但数量不一致时保持未解析，禁止错配。单作品自动绑定和向导 SSE 确定性结果复用同一规则。
 
 ---

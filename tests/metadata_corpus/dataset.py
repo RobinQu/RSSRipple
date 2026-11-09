@@ -25,7 +25,7 @@ FIELDS = {
     "episodes": "series_id season episode title air_date",
     "file_resources": "id channel_id title_raw series_id movie_id audio_work_id collection_id season episode absolute_episode episode_confidence is_batch batch_scope batch_seasons season_ranges episode_start episode_end search_title title_cn title_en resolution source subtitle_langs subtitle_groups video_codec audio_codec container subtitle_type metadata_failure_type metadata_matched_at",
     "resource_work_links": "resource_id series_id movie_id source",
-    "resource_file_assignments": "resource_id file_path series_id movie_id season episode_start episode_end source",
+    "resource_file_assignments": "resource_id file_path series_id movie_id season episode_start episode_end source file_role attached_to_path",
 }
 
 
@@ -127,10 +127,14 @@ def resource_answer(row: dict, graph: dict) -> dict:
                 details["episodes"] = sorted(e["episode"] for e in episodes)
                 details["episode_seasons"] = sorted({e["season"] for e in episodes})
             answer["work_details"][key] = details
+    # The historical semantic goldens assert episode/special placements only.
+    # Role-aware sidecars and excluded manifest entries have dedicated tests.
     answer["assignments"] = sorted([
         {"file_path": a["file_path"], "work": identity(a),
          **{k: a.get(k) for k in ("season", "episode_start", "episode_end")}}
-        for a in graph["resource_file_assignments"] if a["resource_id"] == row["id"]
+        for a in graph["resource_file_assignments"]
+        if a["resource_id"] == row["id"]
+        and a.get("file_role") in (None, "episode")
     ], key=lambda a: a["file_path"])
     return answer
 

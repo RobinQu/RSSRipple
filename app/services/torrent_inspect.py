@@ -27,9 +27,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import bencodepy
+import httpx
 
 from app.clients import outbound_http
 from app.config import settings
+from app.services.file_roles import assignment_file_role, classify_file
 from app.services.resource_parser import (
     extract_release_title,
     extract_season_episode_from_path,
@@ -52,28 +54,6 @@ _DOWNLOAD_TIMEOUT = 20
 # only for transient failures (timeout / connection error / non-200 status).
 _MAX_ATTEMPTS = 2
 _RETRY_BACKOFF_SECONDS = 1
-
-# Files smaller than this are never a main feature (samples, previews, menus).
-_MIN_VIDEO_SIZE = 50 * 1024 * 1024
-
-# Common video container extensions. Disc images (iso) and BD stream files
-# (m2ts) are deliberately excluded: an ISO is a whole-disc dump whose episode
-# structure is invisible, and m2ts files live inside BDMV structures that the
-# extras-dir filter would only half-catch.
-_VIDEO_EXTS = {
-    "mkv", "mp4", "avi", "ts", "wmv", "flv", "mov", "webm", "mpg", "mpeg", "rmvb", "vob",
-}
-
-# Directory names whose contents are extras rather than main episodes.
-# Matched case-insensitively against whole path components only.
-_EXTRAS_DIRS = {
-    "sample", "samples",
-    "特典", "映像特典",
-    "sp", "sps", "special", "specials",
-    "op", "ed", "ncop", "nced",
-    "extra", "extras", "menu", "menus", "scans",
-}
-
 
 @dataclass
 class WorkCluster:
@@ -139,6 +119,9 @@ class TorrentReport:
     # [{"path", "size", "season", "episode"}]. Drives deterministic file
     # assignment write-backs without re-parsing the torrent.
     file_parses: list[dict] = field(default_factory=list)
+    # Complete role-classified listing, including subtitles, extras and other
+    # files which never participate in scope or episode-range detection.
+    file_entries: list[dict] = field(default_factory=list)
     video_file_count: int = 0
     unparsed_ratio: float = 0.0
 
@@ -147,70 +130,78 @@ class TorrentReport:
 # Fetching
 # ---------------------------------------------------------------------------
 
-async def fetch_torrent_file(url: str, resource_id: str) -> str | None:
-    """Download a .torrent file into ``settings.torrent_cache_dir``.
+class TorrentFetchError(Exception):
+    """A classified torrent acquisition failure suitable for retry state."""
 
-    Only plain http(s) URLs are fetched. The file is stored as
-    ``<resource_id>-<sha256(content)>.torrent`` and the local path is returned (relative to the
-    data root with the default config, mirroring how the poster cache hands
-    back its cache-dir path). Transient failures (timeout / connection
-    error / non-200 status) are retried once with a short backoff; permanent
-    failures (oversized body, non-bencode payload, write error, non-http(s)
-    URL) are not. Returns None on any failure.
-    """
-    if not url or not (url.startswith("http://") or url.startswith("https://")):
-        return None
+    def __init__(self, message: str, *, retryable: bool):
+        super().__init__(message)
+        self.retryable = retryable
+
+
+async def fetch_torrent_file_detailed(url: str, resource_id: str) -> str:
+    """Fetch and cache a torrent, raising :class:`TorrentFetchError` on failure."""
+    if not url or not url.startswith(("http://", "https://")):
+        raise TorrentFetchError("torrent URL must use HTTP or HTTPS", retryable=False)
     if not settings.torrent_cache_dir:
-        return None
+        raise TorrentFetchError("torrent cache directory is not configured", retryable=False)
 
     cache_dir = Path(settings.torrent_cache_dir)
     try:
         await asyncio.to_thread(cache_dir.mkdir, parents=True, exist_ok=True)
-    except Exception as e:
-        logger.warning("[torrent] cache dir not writable %s: %s", cache_dir, e)
-        return None
+    except Exception as error:
+        logger.warning("[torrent] cache dir not writable %s: %s", cache_dir, error)
+        raise TorrentFetchError(
+            f"torrent cache directory is not writable: {error}", retryable=False
+        ) from error
 
-    # Sentinel for non-retryable download failures (oversized body): distinct
-    # from None so the retry loop below does not waste the second attempt.
-    abort = object()
-
-    def _download():
+    def _download() -> bytes:
+        ua = (
+            f"{settings.app_name}/0.1.0 "
+            "(https://github.com/RobinQu/RSSRipple) torrent-inspect"
+        )
         try:
-            ua = (
-                f"{settings.app_name}/0.1.0 "
-                f"(https://github.com/RobinQu/RSSRipple) torrent-inspect"
-            )
             with outbound_http.client(
                 timeout=_DOWNLOAD_TIMEOUT, headers={"User-Agent": ua}
             ) as client, client.stream("GET", url) as resp:
                 if resp.status_code != 200:
-                    logger.debug("[torrent] %s -> HTTP %s", url[:80], resp.status_code)
-                    return None
+                    retryable = (
+                        resp.status_code in (408, 429) or 500 <= resp.status_code <= 599
+                    )
+                    raise TorrentFetchError(
+                        f"torrent download returned HTTP {resp.status_code}", retryable=retryable
+                    )
                 chunks: list[bytes] = []
                 total = 0
                 for chunk in resp.iter_bytes():
                     total += len(chunk)
                     if total > _MAX_TORRENT_BYTES:
-                        logger.warning("[torrent] oversized body (>50MB) %s", url[:80])
-                        return abort
+                        raise TorrentFetchError(
+                            "torrent response exceeds 50MB", retryable=False
+                        )
                     chunks.append(chunk)
                 return b"".join(chunks)
-        except Exception as e:
-            logger.warning("[torrent] download failed %s: %s", url[:80], e)
-            return None
+        except TorrentFetchError:
+            raise
+        except outbound_http.DestinationDenied as error:
+            raise TorrentFetchError(str(error), retryable=False) from error
+        except (httpx.TimeoutException, httpx.TransportError) as error:
+            raise TorrentFetchError(
+                f"torrent download failed: {error}", retryable=True
+            ) from error
 
-    content = None
     for attempt in range(_MAX_ATTEMPTS):
-        content = await asyncio.to_thread(_download)
-        if content is abort:
-            return None
-        if content is not None:
+        try:
+            content = await asyncio.to_thread(_download)
             break
-        if attempt < _MAX_ATTEMPTS - 1:
+        except TorrentFetchError as error:
+            if not error.retryable or attempt == _MAX_ATTEMPTS - 1:
+                logger.warning("[torrent] download failed %s: %s", url[:80], error)
+                raise
             await asyncio.sleep(_RETRY_BACKOFF_SECONDS)
+
     if not content or await asyncio.to_thread(parse_torrent_payload, content) is None:
         logger.debug("[torrent] rejecting non-bencode or unusable payload %s", url[:80])
-        return None
+        raise TorrentFetchError("response is not a usable bencoded torrent", retryable=False)
 
     dest = cache_dir / f"{resource_id}-{hashlib.sha256(content).hexdigest()}.torrent"
 
@@ -227,15 +218,25 @@ async def fetch_torrent_file(url: str, resource_id: str) -> str | None:
         # different final paths, and readers never observe a partial write.
         await asyncio.to_thread(publish)
         return str(dest)
-    except Exception as e:
-        logger.warning("[torrent] write failed %s: %s", dest, e)
+    except Exception as error:
+        logger.warning("[torrent] write failed %s: %s", dest, error)
+        raise TorrentFetchError(f"torrent cache write failed: {error}", retryable=False) from error
+
+
+async def fetch_torrent_file(url: str, resource_id: str) -> str | None:
+    """Compatibility wrapper returning ``path|None`` instead of classified errors."""
+    try:
+        return await fetch_torrent_file_detailed(url, resource_id)
+    except Exception as error:  # noqa: BLE001 - preserve the legacy best-effort contract
+        logger.debug("[torrent] fetch failed for %s: %s", resource_id, error)
         return None
 
 
 async def ensure_torrent_cached(resource: "FileResource") -> str | None:
-    """Best-effort .torrent caching for a resource during fetch.
+    """Legacy cache helper for callers that do not manage HTTP retry state.
 
-    Downloads ``resource.torrent_url`` into the cache dir when it is a plain
+    The fetch pipeline uses ``fetch_resource_torrent`` instead. This downloads
+    ``resource.torrent_url`` into the cache dir when it is a plain
     http(s) direct link and no usable cache exists yet (``torrent_file`` is
     empty or points at a file that has since been deleted). On success the
     local path is written to ``resource.torrent_file``. Magnets and any
@@ -359,20 +360,7 @@ def read_torrent_root_name(path: str) -> str | None:
 
 def _is_main_video(entry: dict) -> bool:
     """True when the entry looks like a main feature video file."""
-    name = entry.get("name") or ""
-    components = [c for c in re.split(r"[/\\]+", name) if c]
-    if not components:
-        return False
-    stem, dot, ext = components[-1].rpartition(".")
-    if not dot or ext.lower() not in _VIDEO_EXTS:
-        return False
-    # Extras directories: any whole component matching the blocklist.
-    for comp in components[:-1]:
-        if comp.strip().lower() in _EXTRAS_DIRS:
-            return False
-    if (entry.get("size") or 0) < _MIN_VIDEO_SIZE:
-        return False
-    return True
+    return classify_file(entry.get("name"), entry.get("size") or 0) == "video"
 
 
 # Cluster-title normalization: strip bracketed release tags, season suffixes
@@ -456,6 +444,17 @@ def analyze_torrent_files(files: list[dict]) -> TorrentReport:
     if not files:
         return unknown
 
+    file_entries = [
+        {
+            "path": f["name"],
+            "size": f.get("size"),
+            "file_role": assignment_file_role(f["name"], f.get("size") or 0),
+            "season": None,
+            "episode": None,
+        }
+        for f in files
+    ]
+    unknown.file_entries = file_entries
     videos = [f for f in files if _is_main_video(f)]
     unknown.video_file_count = len(videos)
     if not videos:
@@ -474,11 +473,17 @@ def analyze_torrent_files(files: list[dict]) -> TorrentReport:
         {
             "path": f["name"],
             "size": f.get("size"),
+            "file_role": "episode",
             "season": season,
             "episode": episode,
         }
         for f, season, episode in parsed
     ]
+    entries_by_path = {entry["path"]: entry for entry in file_entries}
+    for fp in file_parses:
+        entries_by_path[fp["path"]].update(
+            season=fp["season"], episode=fp["episode"]
+        )
     season_ranges = _season_ranges_from_parsed(parsed)
     clusters = _clusters_from_parsed(parsed)
 
@@ -490,6 +495,7 @@ def analyze_torrent_files(files: list[dict]) -> TorrentReport:
         season_ranges=season_ranges,
         clusters=clusters,
         file_parses=file_parses,
+        file_entries=file_entries,
     )
 
     if len(videos) <= 1:
@@ -541,6 +547,118 @@ def analyze_torrent_files(files: list[dict]) -> TorrentReport:
 # ---------------------------------------------------------------------------
 # Channel A: fetch-period inspection
 # ---------------------------------------------------------------------------
+
+def has_manual_listing_shape(resource: "FileResource") -> bool:
+    """Return whether late automation must preserve the human-curated shape."""
+    if getattr(resource, "episode_confidence", None) == "manual":
+        return True
+    return any(
+        getattr(row, "source", None) == "manual"
+        for attr in ("file_assignments", "work_links")
+        for row in vars(resource).get(attr, []) or []
+    )
+
+
+async def apply_torrent_report(
+    db: "AsyncSession", resource: "FileResource", report: TorrentReport,
+    channel: "Channel | None" = None, *, strict: bool = False,
+) -> bool:
+    """Apply scope, role-aware assignments and cluster enrichment without committing."""
+    manual_shape = has_manual_listing_shape(resource)
+    if manual_shape:
+        pass
+    elif report.scope == "season":
+        resource.is_batch = True
+        resource.batch_scope = "season"
+        resource.episode = None
+        resource.episode_start = report.episode_start
+        resource.episode_end = report.episode_end
+        if resource.season is None and resource.series_id:
+            try:
+                from app.models.series import TVSeries
+                from app.services.metadata_episode_reconcile import work_verified_season
+
+                series = await db.get(TVSeries, resource.series_id)
+                verified = work_verified_season(series) if series is not None else None
+                if verified is not None:
+                    resource.season = verified
+            except Exception:  # noqa: BLE001 — best-effort unless reconciling durably
+                if strict:
+                    raise
+                pass
+    elif report.scope == "multi_season":
+        resource.is_batch = True
+        resource.batch_scope = "multi_season"
+        resource.episode = None
+        resource.season = None
+        resource.episode_start = None
+        resource.episode_end = None
+        resource.batch_seasons = report.seasons or None
+    elif report.scope == "franchise":
+        resource.is_batch = True
+        resource.batch_scope = "franchise"
+        resource.episode = None
+        resource.batch_seasons = report.seasons or None
+    elif report.scope == "single" and resource.series_id and report.file_parses:
+        parsed = next(
+            (item for item in report.file_parses if item.get("episode") is not None),
+            None,
+        )
+        if parsed:
+            if resource.season is None and parsed.get("season") is not None:
+                resource.season = parsed["season"]
+            if resource.episode is None:
+                resource.episode = parsed["episode"]
+            if getattr(resource, "episode_confidence", None) in (None, "ambiguous"):
+                resource.episode_confidence = "raw"
+
+    if hasattr(type(resource), "file_assignments") or "file_assignments" in vars(resource):
+        from app.services import batch_content_analysis as bca
+
+        try:
+            await db.refresh(resource, ["file_assignments"])
+        except Exception:  # noqa: BLE001 — pending row edge
+            if strict:
+                raise
+        bca.apply_auto_assignments(resource, report)
+        resource.season_ranges = bca.compute_season_ranges(resource)
+        if not manual_shape and resource.is_batch and bca.llm_refinement_needed(
+            report, resource.batch_scope, resource.is_batch
+        ):
+            try:
+                llm_bound_movies = await bca.refine_batch_content(
+                    db, resource, report, channel
+                )
+            except Exception as e:  # noqa: BLE001 — strict mode records a durable retry
+                if strict:
+                    raise
+                logger.warning("[torrent] LLM refinement failed for %s: %s", resource.id, e)
+            else:
+                if llm_bound_movies:
+                    resource.season_ranges = bca.compute_season_ranges(resource)
+
+    if not manual_shape and resource.is_batch and resource.batch_scope == "franchise":
+        try:
+            from app.services.franchise_service import link_franchise_pack
+
+            await link_franchise_pack(db, resource, report, channel)
+        except Exception as e:
+            if strict:
+                raise
+            logger.warning("[torrent] franchise linking failed for %s: %s", resource.id, e)
+    if not manual_shape and resource.is_batch and (
+        hasattr(type(resource), "file_assignments") or "file_assignments" in vars(resource)
+    ):
+        try:
+            from app.services.cluster_work_binding import bind_hint_clusters
+
+            await bind_hint_clusters(db, resource, channel)
+        except Exception as e:  # noqa: BLE001 — strict mode records a durable retry
+            if strict:
+                raise
+            logger.warning("[torrent] cluster binding failed for %s: %s", resource.id, e)
+    return report.is_batch
+
 
 async def maybe_inspect_torrent(
     db: "AsyncSession", resource: "FileResource", channel: "Channel | None" = None
@@ -611,6 +729,7 @@ async def maybe_inspect_torrent(
 
                 unresolved_extras = resource.batch_scope == "season" and any(
                     getattr(row, "source", "auto") == "auto"
+                    and (getattr(row, "file_role", None) or "episode") == "episode"
                     and getattr(row, "season", None) != 0
                     and getattr(row, "episode_start", None) is None
                     and getattr(row, "episode_end", None) is None
@@ -640,12 +759,15 @@ async def maybe_inspect_torrent(
         return False
 
     try:
-        # Reuse an already-cached .torrent (``ensure_torrent_cached`` runs
-        # first in the fetch pipeline); only download when there is no
-        # usable cache on disk.
         path = resource.torrent_file
         if not (path and await asyncio.to_thread(Path(path).exists)):
-            path = await fetch_torrent_file(url, resource.id)
+            if db is None or not hasattr(db, "execute"):
+                path = await fetch_torrent_file(url, resource.id)
+            else:
+                from app.services.resource_listing import fetch_resource_torrent
+
+                listing = await fetch_resource_torrent(db, resource)
+                path = resource.torrent_file if listing.files else None
             if not path:
                 return False
             resource.torrent_file = path
@@ -654,131 +776,7 @@ async def maybe_inspect_torrent(
         if files is None:
             return False
         report = await asyncio.to_thread(analyze_torrent_files, files)
-
-        if report.scope == "season":
-            resource.is_batch = True
-            resource.batch_scope = "season"
-            resource.episode = None
-            resource.episode_start = report.episode_start
-            resource.episode_end = report.episode_end
-            if resource.season is None and resource.series_id:
-                # 无季标记合集：linked 作品可验证季号时补（与
-                # resolve_missing_work 同一 verified 证据规则，绝不猜测——
-                # 单季化作品的 season_number 即其身份）；
-                # 多季/未知保持 None，走 batch coverage 门禁。失败静默，
-                # 绝不阻断检测。
-                try:
-                    from app.models.series import TVSeries
-                    from app.services.metadata_episode_reconcile import (
-                        work_verified_season,
-                    )
-
-                    series = await db.get(TVSeries, resource.series_id)
-                    verified = work_verified_season(series) if series is not None else None
-                    if verified is not None:
-                        resource.season = verified
-                except Exception:  # noqa: BLE001 — best-effort enrichment
-                    pass
-        elif report.scope == "multi_season":
-            resource.is_batch = True
-            resource.batch_scope = "multi_season"
-            resource.episode = None
-            resource.season = None
-            resource.episode_start = None
-            resource.episode_end = None
-            # Persist the covered seasons — the agent runner's batch dedup
-            # keys on the exact coverage (see _batch_coverage_key).
-            resource.batch_seasons = report.seasons or None
-        elif report.scope == "franchise":
-            resource.is_batch = True
-            resource.batch_scope = "franchise"
-            resource.episode = None
-            resource.batch_seasons = report.seasons or None
-        elif report.scope == "single" and resource.series_id and report.file_parses:
-            # A single-file TV release can carry its episode only in the
-            # torrent filename (notably ``[01a]``).  Persist that deterministic
-            # evidence at resource level so Channel required-field checks can
-            # settle without an unnecessary manual decision.  Keep movie and
-            # audio resources untouched; their numeric tokens are not episodes.
-            parsed = next(
-                (
-                    item
-                    for item in report.file_parses
-                    if item.get("episode") is not None
-                ),
-                None,
-            )
-            if parsed:
-                if resource.season is None and parsed.get("season") is not None:
-                    resource.season = parsed["season"]
-                if resource.episode is None:
-                    resource.episode = parsed["episode"]
-                if getattr(resource, "episode_confidence", None) in (None, "ambiguous"):
-                    resource.episode_confidence = "raw"
-
-        # Enrichment pass for every resource type: all main video files get a
-        # durable assignment row. Batch-only LLM refinement may subsequently
-        # bind ambiguous multi-work rows.
-        llm_bound_movies = False
-        if hasattr(type(resource), "file_assignments") or "file_assignments" in vars(resource):
-            from app.services import batch_content_analysis as bca
-
-            try:
-                await db.refresh(resource, ["file_assignments"])
-            except Exception:  # noqa: BLE001 — pending row edge
-                pass
-            bca.apply_auto_assignments(resource, report)
-            resource.season_ranges = bca.compute_season_ranges(resource)
-
-            if resource.is_batch and bca.llm_refinement_needed(
-                report, resource.batch_scope, resource.is_batch
-            ):
-                try:
-                    llm_bound_movies = await bca.refine_batch_content(
-                        db, resource, report, channel
-                    )
-                except Exception as e:  # noqa: BLE001 — refinement degrades silently
-                    logger.warning(
-                        "[torrent] LLM refinement failed for %s: %s", resource.id, e
-                    )
-                if llm_bound_movies:
-                    resource.season_ranges = bca.compute_season_ranges(resource)
-
-            # Member-work linking + collection attach — skipped only for
-            # PURE-movie packs: the LLM refinement upgrades those to
-            # batch_scope="movies" itself (all resolved works are movies), so
-            # a still-"franchise" scope after refinement means MIXED content
-            # (movies bound, TV clusters hint-only) — those still get their
-            # franchise collection so every associated work, bound movies
-            # included, lands in it and resource.collection_id settles.
-            # Isolated from the verdict above: a linking failure must not
-            # lose the batch classification.
-        if resource.is_batch and resource.batch_scope == "franchise":
-            try:
-                from app.services.franchise_service import link_franchise_pack
-
-                await link_franchise_pack(db, resource, report, channel)
-            except Exception as e:
-                logger.warning(
-                    "[torrent] franchise linking failed for %s: %s", resource.id, e
-                )
-        # Cluster-level work binding (C1): resolve each work_title_hint
-        # cluster to one work and bind the cluster's unbound auto rows.
-        # Runs after franchise/collection linking so same-collection members
-        # resolve first; every failure degrades to the hint-only state.
-        if resource.is_batch and (
-            hasattr(type(resource), "file_assignments") or "file_assignments" in vars(resource)
-        ):
-            try:
-                from app.services.cluster_work_binding import bind_hint_clusters
-
-                await bind_hint_clusters(db, resource, channel)
-            except Exception as e:  # noqa: BLE001 — enrichment must not lose the verdict
-                logger.warning(
-                    "[torrent] cluster binding failed for %s: %s", resource.id, e
-                )
-        # "single" / "unknown": keep the verdict, only the torrent_file cache.
-        return report.is_batch
+        return await apply_torrent_report(db, resource, report, channel)
     except Exception as e:
         logger.debug("[torrent] inspect failed for %s: %s", resource.id, e)
         return False

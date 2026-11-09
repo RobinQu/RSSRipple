@@ -133,6 +133,9 @@ def _finalize_result(messages: list) -> dict:
                 "description": "Mock LLM metadata result for integration tests.",
                 "genre": ["Anime", "Action"],
                 "rating": 8.4,
+                # The dispatch E2E uses the channel's mandatory work fields.
+                "start_date": "2026-01-01",
+                "is_anime": True,
             },
         }
     if canned:

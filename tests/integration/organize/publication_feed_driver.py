@@ -4,7 +4,9 @@ import asyncio
 import json
 import os
 import tempfile
+from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from xml.sax.saxutils import escape
 
@@ -76,6 +78,7 @@ async def main():
             collection_id=collection.id,
             season_number=1,
             number_of_episodes=12,
+            start_date=date(2020, 1, 1),
             content_type="tv",
             is_anime=True,
         )
@@ -111,6 +114,13 @@ async def main():
         resource.episode_confidence = "reconciled"
         resource.content_type = "tv"
 
+    cache_path = Path(tempfile.mkdtemp(prefix="publication-feed-")) / "captured.torrent"
+    cache_path.write_bytes(raw)
+
+    async def acquired_listing(db, resource, *, force=False):
+        resource.torrent_file = str(cache_path)
+        return SimpleNamespace(files=listing)
+
     failure = os.environ.get("FAIL_KIND", "")
     queue_recovery = os.environ.get("QUEUE_RECOVERY") == "1"
     lost_wakeup = AsyncMock(side_effect=RuntimeError("Synthetic queue outage") if queue_recovery else None)
@@ -125,8 +135,8 @@ async def main():
     with (
         patch.object(fetch, "_parse_feed_sync", return_value=parsed_feed),
         patch.object(fetch, "fetch_and_link_metadata", reviewed_link),
-        patch("app.services.torrent_inspect.ensure_torrent_cached", AsyncMock()),
-        patch("app.services.torrent_inspect.maybe_inspect_torrent", AsyncMock()),
+        patch("app.services.resource_listing.fetch_resource_torrent", acquired_listing),
+        patch("app.services.resource_listing.schedule_listing_reconcile", AsyncMock()),
         patch("app.services.task_queue.task_queue.enqueue", lost_wakeup),
     ):
         try:
@@ -184,7 +194,20 @@ async def main():
                     await queue.stop()
         else:
             consumed = await _handle_run_agent({"agent_id": aid})
-        assert consumed["dispatched"] == (0 if failure == "created" else 1), consumed
+        async with database.async_session_factory() as db:
+            resource = await db.scalar(select(FileResource).options(selectinload(FileResource.series)))
+            from app.services.resource_confirmation import inspect_resource_confirmation
+
+            channel = await db.get(Channel, cid)
+            confirmation = inspect_resource_confirmation(
+                resource, channel.required_metadata_fields
+            ) if resource is not None else None
+        diagnostic = {
+            "series_id": resource.series_id if resource is not None else None,
+            "episode": resource.episode if resource is not None else None,
+            "confirmation": confirmation,
+        }
+        assert consumed["dispatched"] == (0 if failure == "created" else 1), (consumed, diagnostic)
         assert not consumed["errors"]
         again = await _handle_run_agent({"agent_id": aid})
         assert again["total_resources"] == 0, again

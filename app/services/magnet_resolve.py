@@ -9,9 +9,9 @@ standard .torrent file in the regular torrent cache (``<resource_id>.torrent``
 under ``settings.torrent_cache_dir``). From then on the resource flows through
 the normal Channel A inspection / file-listing paths unchanged.
 
-libtorrent is an optional-at-runtime dependency: every import is guarded and
-the feature degrades to a one-time log line plus no status transitions when
-it is missing (the manual-retry API returns 422 instead).
+Verified HTTPS cache mirrors run before libtorrent and also work without it.
+If neither a mirror nor libtorrent can resolve the magnet, the manual-retry
+API reports that no resolver is available.
 
 Concurrency: queue jobs (``resolve_magnet_torrent``) only *claim* the resource
 row and spawn a detached worker task — the 15-minute metadata wait never
@@ -21,6 +21,7 @@ local concurrency to ``settings.magnet_resolve_concurrency``.
 """
 
 import asyncio
+import base64
 import hashlib
 import logging
 import re
@@ -142,27 +143,33 @@ def merge_trackers(
 # This is a fast path — a long wait defeats it, so mirrors get a short timeout.
 _MIRROR_TIMEOUT = 15
 
-_BTIH_V1_RE = re.compile(r"xt=urn:btih:([0-9a-fA-F]{40})")
+_BTIH_V1_RE = re.compile(
+    r"(?:[?&]|^)xt=urn:btih:([0-9a-zA-Z]{32}|[0-9a-fA-F]{40})(?:&|$)",
+    re.IGNORECASE,
+)
 
 
 def _extract_v1_infohash(magnet_uri: str, params) -> str | None:
-    """v1 SHA-1 infohash (lowercase 40-hex) from parsed magnet params.
-
-    Prefers libtorrent's parsed ``info_hashes``; falls back to a regex on
-    the URI when the params object lacks it (fake bindings in tests). base32
-    and v2-only (``btmh``) magnets yield None — the mirror fast path simply
-    does not apply to them.
-    """
+    """Return a lowercase v1 hash from libtorrent or hex/base32 magnet params."""
     info_hashes = getattr(params, "info_hashes", None)
     if info_hashes is not None:
         try:
             if info_hashes.has_v1():
                 return str(info_hashes.v1)
             return None
-        except Exception:  # noqa: BLE001 — fall through to the regex
+        except Exception:  # noqa: BLE001 — fall through to the URI
             pass
-    m = _BTIH_V1_RE.search(magnet_uri)
-    return m.group(1).lower() if m else None
+    match = _BTIH_V1_RE.search(magnet_uri)
+    if match is None:
+        return None
+    value = match.group(1)
+    if len(value) == 40:
+        return value.lower()
+    try:
+        decoded = base64.b32decode(value.upper())
+    except ValueError:
+        return None
+    return decoded.hex() if len(decoded) == 20 else None
 
 
 def _fetch_mirror_torrent(url: str) -> bytes | None:
@@ -325,6 +332,9 @@ async def resolve_magnet_to_cache(
     libtorrent errors never escape. On success *dest_path* holds a valid
     .torrent that ``parse_torrent_payload`` accepts.
     """
+    # Mirror resolution needs only the URI's v1 hash, not libtorrent bindings.
+    if await _try_cache_mirrors(magnet_uri, None, dest_path):
+        return
     if lt is None:
         _log_unavailable_once()
         raise MagnetUnavailableError("libtorrent is not installed")
@@ -333,11 +343,6 @@ async def resolve_magnet_to_cache(
         params = await asyncio.to_thread(lt.parse_magnet_uri, magnet_uri)
     except Exception as e:
         raise InvalidMagnetError(f"invalid magnet link: {e}") from e
-
-    # Step 0: HTTPS infohash-cache mirror fast path. A verified hit writes
-    # dest_path and short-circuits the entire libtorrent/P2P phase below.
-    if await _try_cache_mirrors(magnet_uri, params, dest_path):
-        return
 
     merged = merge_trackers(
         list(getattr(params, "trackers", None) or []),
@@ -421,10 +426,9 @@ async def launch_resolution(resource_id: str) -> bool:
 
     The claim is an atomic guarded UPDATE, so it is safe across processes
     (3-worker deployment): only the first caller transitions the row out of a
-    non-active state. Returns False when the row is already pending/running
-    (or the feature is off / libtorrent is missing).
+    non-active state. Returns False when already active or no resolver is available.
     """
-    if lt is None:
+    if lt is None and not settings.magnet_resolve_cache_mirrors:
         _log_unavailable_once()
         return False
     if not settings.magnet_resolve_enabled:
@@ -439,10 +443,19 @@ async def launch_resolution(resource_id: str) -> bool:
     await require_execution_ownership()
     attempt_id = str(uuid.uuid4())
     async with committed_session() as db:
+        resource = await db.get(FileResource, resource_id)
+        if resource is None or _has_usable_cache(resource):
+            return False
+        if not (resource.magnet_url or resource.torrent_url or "").startswith("magnet:"):
+            return False
         result = await db.execute(
             update(FileResource)
             .where(
                 FileResource.id == resource_id,
+                or_(
+                    FileResource.torrent_url.like("magnet:%"),
+                    FileResource.magnet_url.like("magnet:%"),
+                ),
                 or_(
                     FileResource.magnet_resolve_status.is_(None),
                     FileResource.magnet_resolve_status.notin_(("pending", "running")),
@@ -476,11 +489,13 @@ async def _run_resolution(resource_id: str, attempt_id: str) -> None:
         )
 
 
-async def _set_status(resource_id: str, attempt_id: str, **values) -> bool:
-    """Write status fields in their own short transaction.
+_CACHE_ANY = object()
 
-    Returns False when the row disappeared (resource deleted mid-flight).
-    """
+
+async def _set_status(
+    resource_id: str, attempt_id: str, *, expected_torrent_file=_CACHE_ANY, **values
+) -> bool:
+    """Write a fenced status, optionally requiring the original cache reference."""
     uuid.UUID(attempt_id)
     from sqlalchemy import update
 
@@ -488,12 +503,15 @@ async def _set_status(resource_id: str, attempt_id: str, **values) -> bool:
     from app.models.file_resource import FileResource
 
     async with committed_session() as db:
+        predicates = [
+            FileResource.id == resource_id,
+            FileResource.magnet_resolve_attempt_id == attempt_id,
+        ]
+        if expected_torrent_file is not _CACHE_ANY:
+            predicates.append(FileResource.torrent_file == expected_torrent_file)
         result = await db.execute(
             update(FileResource)
-            .where(
-                FileResource.id == resource_id,
-                FileResource.magnet_resolve_attempt_id == attempt_id,
-            )
+            .where(*predicates)
             .values(magnet_resolve_updated_at=utcnow(), **values)
         )
         return result.rowcount > 0
@@ -501,12 +519,9 @@ async def _set_status(resource_id: str, attempt_id: str, **values) -> bool:
 
 async def _attempt_loop(resource_id: str, attempt_id: str) -> None:
     """Run resolve attempts for a claimed resource until done/failed."""
-    from sqlalchemy import update
-
     from app.database import committed_session
-    from app.models.channel import Channel
     from app.models.file_resource import FileResource
-    from app.services.torrent_inspect import maybe_inspect_torrent
+    from app.services.resource_listing import reconcile_resource
 
     uuid.UUID(attempt_id)
     max_attempts = 1 + settings.magnet_resolve_max_attempts
@@ -515,13 +530,28 @@ async def _attempt_loop(resource_id: str, attempt_id: str) -> None:
             return
         async with committed_session() as db:
             resource = await db.get(FileResource, resource_id)
-            magnet_uri = (resource.torrent_url or "") if resource is not None else ""
+            magnet_uri = (
+                (resource.magnet_url or resource.torrent_url or "")
+                if resource is not None else ""
+            )
+            cache_before = resource.torrent_file if resource is not None else None
+            cache_ready = resource is not None and _has_usable_cache(resource)
             # Custom trackers from the manual-retry endpoint (NULL = defaults).
             extra_trackers = (
                 list(resource.magnet_resolve_trackers)
                 if resource is not None and resource.magnet_resolve_trackers
                 else None
             )
+        if cache_ready:
+            accepted = await _set_status(
+                resource_id, attempt_id=attempt_id, magnet_resolve_status="done",
+                magnet_resolve_error=None, magnet_resolve_trackers=None,
+                listing_reconcile_status="pending", listing_reconcile_attempt_id=None,
+                listing_reconcile_error=None, listing_reconcile_next_attempt_at=None,
+            )
+            if accepted:
+                await reconcile_resource(resource_id, expected_magnet_attempt_id=attempt_id)
+            return
         if not magnet_uri.startswith("magnet:"):
             return
         filename = f"{resource_id}-{attempt_id}.torrent"
@@ -571,17 +601,19 @@ async def _attempt_loop(resource_id: str, attempt_id: str) -> None:
             )
             return
 
-        # Success: cache path + terminal status first, then the same Channel A
-        # inspection call site as the fetch pipeline (fresh session, committed
-        # on exit). Custom trackers are cleared on done; on failure they are
-        # kept so the UI can show what was tried and prefill the next retry.
+        # A valid HTTP winner changes the cache reference and wins this CAS.
         accepted = await _set_status(
             resource_id,
             attempt_id=attempt_id,
+            expected_torrent_file=cache_before,
             torrent_file=dest,
             magnet_resolve_status="done",
             magnet_resolve_error=None,
             magnet_resolve_trackers=None,
+            listing_reconcile_status="pending",
+            listing_reconcile_attempt_id=None,
+            listing_reconcile_error=None,
+            listing_reconcile_next_attempt_at=None,
         )
         if not accepted:
             try:
@@ -591,55 +623,24 @@ async def _attempt_loop(resource_id: str, attempt_id: str) -> None:
             return
         logger.info("[magnet] resolved metadata for %s -> %s", resource_id, dest)
         try:
-            async with committed_session() as db:
-                resource = await db.get(FileResource, resource_id)
-                if resource is None or resource.magnet_resolve_attempt_id != attempt_id:
-                    return
-                # Inspection reads this relationship synchronously before its
-                # refresh path; async lazy loading would be swallowed as an
-                # inspection failure and leave the file list unassigned.
-                await db.refresh(resource, ["file_assignments"])
-                channel = await db.get(Channel, resource.channel_id)
-                await maybe_inspect_torrent(db, resource, channel)
-                # Inspection can await network/metadata work. Acquire the row's
-                # write lock with an ownership predicate before flushing its
-                # changes; retain that lock through committed_session's commit.
-                with db.no_autoflush:
-                    owned = await db.execute(
-                        update(FileResource)
-                        .where(
-                            FileResource.id == resource_id,
-                            FileResource.magnet_resolve_attempt_id == attempt_id,
-                            FileResource.magnet_resolve_status == "done",
-                        )
-                        .values(magnet_resolve_attempt_id=attempt_id)
-                        .execution_options(synchronize_session=False)
-                    )
-                if not owned.rowcount:
-                    await db.rollback()
-                    return
-        except Exception:  # noqa: BLE001 — inspection failure must not flip done
+            await reconcile_resource(
+                resource_id, expected_magnet_attempt_id=attempt_id
+            )
+        except Exception:  # noqa: BLE001 — reconciliation failure must not flip done
             logger.warning(
-                "[magnet] post-resolve inspection failed for %s",
+                "[magnet] post-resolve reconciliation failed for %s",
                 resource_id, exc_info=True,
             )
         return
 
 
-async def enqueue_resolution(resource_id: str) -> None:
-    """Enqueue a ``resolve_magnet_torrent`` queue job for *resource_id*.
-
-    Used by the fetch path, the hourly sweep and the manual-retry endpoint.
-    Skips silently when the feature is disabled, libtorrent is missing, the
-    resource is not a magnet link, or a usable .torrent is already cached.
-    A ``None`` return from ``enqueue`` (same key already active) is fine —
-    the DB status claim in ``launch_resolution`` is the real dedup.
-    """
+async def enqueue_resolution(resource_id: str) -> bool:
+    """Return True only when a new magnet resolution job was actually enqueued."""
     if not settings.magnet_resolve_enabled:
-        return
-    if lt is None:
+        return False
+    if lt is None and not settings.magnet_resolve_cache_mirrors:
         _log_unavailable_once()
-        return
+        return False
 
     from app.database import async_session_factory
     from app.models.file_resource import FileResource
@@ -647,16 +648,17 @@ async def enqueue_resolution(resource_id: str) -> None:
     async with async_session_factory() as db:
         resource = await db.get(FileResource, resource_id)
         if resource is None:
-            return
-        if not (resource.torrent_url or "").startswith("magnet:"):
-            return
+            return False
+        if not (resource.magnet_url or resource.torrent_url or "").startswith("magnet:"):
+            return False
         if _has_usable_cache(resource):
-            return
+            return False
 
     from app.services.task_queue import task_queue
 
-    await task_queue.enqueue(
+    queued = await task_queue.enqueue(
         "resolve_magnet_torrent",
         f"magnet:{resource_id}",
         {"resource_id": resource_id},
     )
+    return queued is not None

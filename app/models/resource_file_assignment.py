@@ -29,9 +29,18 @@ class ResourceFileAssignment(Base):
     file_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     # Denormalized snapshot of the listing entry size (display convenience).
     file_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    # Bound work. Both NULL = unassigned placement (deterministic/LLM layers
-    # run before the resource is linked to works); app-level validation keeps
-    # the mutual exclusivity when a work IS bound.
+    # Only episode rows contribute season/episode coverage or organize main
+    # videos. Extras and excluded files never become main-video candidates.
+    file_role: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="episode", server_default="episode"
+    )
+    # A subtitle's exact target within the same resource snapshot. NULL means
+    # unresolved; consumers must not infer a target from an ambiguous graph.
+    attached_to_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    # Bound work. Both NULL is valid for excluded files, standalone extras and
+    # unresolved subtitles; automatic layers may later inherit a subtitle's
+    # work from its unique attached episode. App validation keeps FKs mutually
+    # exclusive whenever a work is bound.
     series_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("tv_series.id", ondelete="CASCADE"), nullable=True
     )

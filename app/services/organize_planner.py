@@ -88,6 +88,42 @@ def _association_for(payload: NotificationPayload, rel: str) -> Any | None:
     return suffix[0] if len(suffix) == 1 else None
 
 
+def _file_role(item: Any) -> str:
+    role = getattr(item, "file_role", None)
+    fields = getattr(item, "model_fields_set", set())
+    legacy = role is None or (role == "episode" and "file_role" not in fields)
+    if legacy and classify(os.path.basename(item.file_path)) == FileKind.SUBTITLE:
+        return "subtitle"
+    return role or "episode"
+
+
+def _work_key(item: Any) -> str | None:
+    if item is None or item.work_type is None or item.work_id is None:
+        return None
+    return f"{item.work_type}:{item.work_id}"
+
+
+def _attached_episode(
+    payload: NotificationPayload, subtitle: Any
+) -> Any | None:
+    """Resolve a subtitle attachment to one same-work episode in this snapshot."""
+    path = subtitle.attached_to_path
+    if path is None or payload.file_associations is None:
+        return None
+    wanted = _normalized_rel(path)
+    targets = [
+        item for item in payload.file_associations.items
+        if _file_role(item) == "episode" and _normalized_rel(item.file_path) == wanted
+    ]
+    if len(targets) != 1:
+        return None
+    target = targets[0]
+    subtitle_work = _work_key(subtitle)
+    if _work_key(target) is None or subtitle_work not in (None, _work_key(target)):
+        return None
+    return target
+
+
 @dataclass
 class DiskFile:
     """调用方收集的磁盘文件（绝不扫描共享下载根，只扫种子独立目录）。
@@ -349,7 +385,10 @@ def build_plan(
             f"文件关联状态为 {associations.status}，请先在计划详情中补全关联"
         )
     if associations is not None:
-        work_ids = {item.work_id for item in associations.items}
+        work_ids = {
+            _work_key(item) for item in associations.items
+            if _file_role(item) == "episode" and _work_key(item) is not None
+        }
         if len(work_ids) > 1:
             return _plan_same_target_multi_work(
                 payload, disk_files, rules, library_map,
@@ -470,7 +509,9 @@ def _plan_same_target_multi_work(
     assert associations is not None and associations.status == "complete"
     groups: dict[str, list[Any]] = {}
     for item in associations.items:
-        groups.setdefault(f"{item.work_type}:{item.work_id}", []).append(item)
+        key = _work_key(item)
+        if _file_role(item) == "episode" and key is not None:
+            groups.setdefault(key, []).append(item)
 
     group_files: dict[str, list[DiskFile]] = {key: [] for key in groups}
     video_stem_groups: dict[str, set[str]] = {}
@@ -478,26 +519,35 @@ def _plan_same_target_multi_work(
         if classify(os.path.basename(disk_file.path)) != FileKind.VIDEO:
             continue
         item = _association_for(payload, disk_file.rel)
-        key = f"{item.work_type}:{item.work_id}" if item is not None else None
+        key = _work_key(item) if item is not None and _file_role(item) == "episode" else None
         if key in group_files:
             stem = os.path.splitext(_normalized_rel(disk_file.rel))[0].casefold()
             video_stem_groups.setdefault(stem, set()).add(key)
 
     leftovers: list[DiskFile] = []
     for disk_file in disk_files:
-        if classify(os.path.basename(disk_file.path)) == FileKind.VIDEO:
+        kind = classify(os.path.basename(disk_file.path))
+        if kind == FileKind.VIDEO:
             item = _association_for(payload, disk_file.rel)
-            key = f"{item.work_type}:{item.work_id}" if item is not None else None
+            key = _work_key(item) if item is not None and _file_role(item) == "episode" else None
             if key in group_files:
                 group_files[key].append(disk_file)
             else:
                 leftovers.append(disk_file)
             continue
-        if classify(os.path.basename(disk_file.path)) == FileKind.SUBTITLE:
+        if kind == FileKind.SUBTITLE:
             item = _association_for(payload, disk_file.rel)
             if item is not None:
-                key = f"{item.work_type}:{item.work_id}"
-                if key in group_files:
+                if _file_role(item) != "subtitle":
+                    leftovers.append(disk_file)
+                    continue
+                target = _attached_episode(payload, item)
+                key = _work_key(target) if target is not None else _work_key(item)
+                if target is not None and item.attached_to_path is not None:
+                    groups[key].append(item)
+                    group_files[key].append(disk_file)
+                elif item.attached_to_path is None and key in group_files:
+                    groups[key].append(item)
                     group_files[key].append(disk_file)
                 else:
                     leftovers.append(disk_file)
@@ -531,18 +581,19 @@ def _plan_same_target_multi_work(
         if work is None:
             raise PlanError(f"多作品快照缺少作品元数据：{key}")
         items = groups[key]
-        seasons = sorted({item.season for item in items if item.season is not None})
-        starts = [item.episode_start for item in items if item.episode_start is not None]
+        episode_items = [item for item in items if _file_role(item) == "episode"]
+        seasons = sorted({
+            item.season for item in episode_items if item.season is not None
+        })
+        starts = [
+            item.episode_start for item in episode_items if item.episode_start is not None
+        ]
         ends = [
             item.episode_end if item.episode_end is not None else item.episode_start
-            for item in items if item.episode_start is not None
+            for item in episode_items if item.episode_start is not None
         ]
         is_series = work.type == "series"
-        video_assignments = sum(
-            classify(os.path.basename(item.file_path)) == FileKind.VIDEO
-            for item in items
-        )
-        is_batch = is_series and video_assignments > 1
+        is_batch = is_series and len(episode_items) > 1
         child_resource = payload.resource.model_copy(update={
             "is_batch": is_batch,
             "batch_scope": (
@@ -724,24 +775,23 @@ def _plan_single(
     category: str | None,
 ) -> list[PlanOp]:
     resource = payload.resource
-    association = next(
-        (
-            found
-            for f in disk_files
-            if classify(os.path.basename(f.path)) == FileKind.VIDEO
-            for found in [_association_for(payload, f.rel)]
-            if found is not None
-        ),
-        None,
-    )
-    if payload.file_associations is not None and association is None:
-        raise PlanError("权威文件关联中没有单集主视频映射")
-    # A complete file-association snapshot is authoritative for the file
-    # mapping, but an auto-generated single-file assignment may carry the
-    # episode while still lacking the season. Fall back to the resource-level
-    # season rather than treating the nullable association value as an
-    # explicit override; v2 snapshots can finally fall back to the work's own
-    # season_number (a per-season work IS the season).
+    videos, subtitles, others = _split(disk_files)
+    all_videos = list(videos)
+    if not videos:
+        raise PlanError("下载目录中未找到视频文件")
+    if payload.file_associations is not None:
+        videos = [
+            f for f in videos
+            if (item := _association_for(payload, f.rel)) is not None
+            and _file_role(item) == "episode"
+        ]
+        if not videos:
+            raise PlanError("权威文件关联中没有单集主视频映射")
+    videos.sort(key=lambda f: f.size, reverse=True)
+    main = videos[0]
+    extra_videos = [f for f in all_videos if f is not main]
+    association = _association_for(payload, main.rel)
+
     season = (
         association.season
         if association is not None and association.season is not None
@@ -760,22 +810,42 @@ def _plan_single(
     if episode is None:
         raise PlanError("缺少集号，无法规划单集")
 
-    videos, subtitles, others = _split(disk_files)
-    if not videos:
-        raise PlanError("下载目录中未找到视频文件")
-    videos.sort(key=lambda f: f.size, reverse=True)
-    main, extra_videos = videos[0], videos[1:]
-
     dst, stem = _render_main(
         payload, library, template, category, main,
         season=season, episode=episode,
         episode_end=association.episode_end if association is not None else episode,
     )
+
+    def subtitle_target(f: DiskFile) -> tuple[int, int, str] | None:
+        if payload.file_associations is None:
+            return season, episode, stem
+        item = _association_for(payload, f.rel)
+        if item is None:
+            return season, episode, stem
+        if _file_role(item) != "subtitle":
+            return None
+        if item.attached_to_path is not None:
+            target = _attached_episode(payload, item)
+            if (
+                target is None
+                or association is None
+                or _normalized_rel(target.file_path) != _normalized_rel(association.file_path)
+            ):
+                return None
+            target_episode = target.episode_start
+            if target_episode is None:
+                return None
+            return (
+                target.season if target.season is not None else season
+            ), target_episode, stem
+        if _work_key(item) not in (None, _work_key(association)):
+            return None
+        return season, episode, stem
+
     ops = [PlanOp(op_type="move", src=main.path, dst=dst, size=main.size)]
     ops += [_keep(f, "非主视频，原地保留") for f in extra_videos]
     ops += _subtitle_ops(
-        payload, subtitles, library, template, category,
-        lambda f: (season, episode, stem),
+        payload, subtitles, library, template, category, subtitle_target,
     )
     ops += [_keep(f, "非媒体文件，原地保留") for f in others]
     return ops
@@ -817,6 +887,9 @@ def _plan_batch(
     ops: list[PlanOp] = []
     for f in videos:
         association = _association_for(payload, f.rel)
+        if association is not None and _file_role(association) != "episode":
+            ops.append(_keep(f, "非正片角色，原地保留"))
+            continue
         if association is not None:
             season = association.season
             episode = association.episode_start
@@ -902,15 +975,30 @@ def _plan_batch(
 
     def subtitle_target(f: DiskFile) -> tuple[int, int, str] | None:
         association = _association_for(payload, f.rel)
-        if association is not None and (
-            association.season is None or association.episode_start is None
-        ):
-            return None
-        if (
-            association is not None
-            and association.season is not None
-            and association.episode_start is not None
-        ):
+        current_work = (
+            f"{work.type}:{work.series_id or work.movie_id}"
+            if work is not None and work.type in ("series", "movie") else None
+        )
+        if association is not None:
+            if _file_role(association) != "subtitle":
+                return None
+            if _work_key(association) not in (None, current_work):
+                return None
+            if association.attached_to_path is not None:
+                target = _attached_episode(payload, association)
+                if (
+                    target is None
+                    or _work_key(target) != current_work
+                    or target.season is None
+                    or target.episode_start is None
+                ):
+                    return None
+                key = (target.season, target.episode_start)
+                if key not in episodes:
+                    return None
+                return *key, stems[key]
+            if association.season is None or association.episode_start is None:
+                return None
             key = (association.season, association.episode_start)
             if key not in episodes:
                 return None
@@ -986,26 +1074,54 @@ def _plan_movie(
     category: str | None,
 ) -> list[PlanOp]:
     videos, subtitles, others = _split(disk_files)
+    all_videos = list(videos)
     audio_tracks = [f for f in others if is_audio(os.path.basename(f.path))]
     others = [f for f in others if not is_audio(os.path.basename(f.path))]
     if not videos:
         raise PlanError("下载目录中未找到视频文件")
     if payload.file_associations is not None:
-        assigned = [f for f in videos if _association_for(payload, f.rel) is not None]
+        assigned = [
+            f for f in videos
+            if (item := _association_for(payload, f.rel)) is not None
+            and _file_role(item) == "episode"
+        ]
         if not assigned:
             raise PlanError("权威文件关联中没有电影主文件")
         videos = assigned
     videos.sort(key=lambda f: f.size, reverse=True)
-    main, extra_videos = videos[0], videos[1:]
+    main = videos[0]
+    extra_videos = [f for f in all_videos if f is not main]
+    main_association = _association_for(payload, main.rel)
 
     dst, stem = _render_main(
         payload, library, template, category, main, season=None, episode=None
     )
+
+    def subtitle_target(f: DiskFile) -> tuple[int, int, str] | None:
+        if payload.file_associations is None:
+            return 0, 0, stem
+        item = _association_for(payload, f.rel)
+        if item is None:
+            return 0, 0, stem
+        if _file_role(item) != "subtitle":
+            return None
+        if _work_key(item) not in (None, _work_key(main_association)):
+            return None
+        if item.attached_to_path is not None:
+            target = _attached_episode(payload, item)
+            if (
+                target is None
+                or main_association is None
+                or _normalized_rel(target.file_path)
+                != _normalized_rel(main_association.file_path)
+            ):
+                return None
+        return 0, 0, stem
+
     ops = [PlanOp(op_type="move", src=main.path, dst=dst, size=main.size)]
     ops += [_keep(f, "非主视频，原地保留") for f in extra_videos]
     ops += _subtitle_ops(
-        payload, subtitles, library, template, category,
-        lambda f: (0, 0, stem),
+        payload, subtitles, library, template, category, subtitle_target,
     )
     # Plex has no documented sidecar-audio naming convention for movies. Keep
     # the tracks losslessly in a clearly scoped child directory of the movie;

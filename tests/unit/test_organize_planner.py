@@ -330,6 +330,33 @@ class TestBatch:
         result = build_plan(payload, files, [rule], [lib])
         assert len([op for op in result.ops if op.op_type == "move"]) == 3
 
+    def test_unbound_excluded_association_does_not_create_work_group(self):
+        payload = {
+            **GITS_PAYLOAD,
+            "file_associations": {
+                "version": 1, "status": "complete",
+                "items": [
+                    {
+                        "file_path": "ep04.mkv", "file_role": "episode",
+                        "work_type": "series", "work_id": "s-1", "season": 1,
+                        "episode_start": 4, "episode_end": 4, "source": "auto",
+                    },
+                    {
+                        "file_path": "fonts.zip", "file_role": "excluded",
+                        "work_type": None, "work_id": None, "source": "auto",
+                    },
+                ],
+            },
+        }
+        files = [
+            DiskFile("/d/ep04.mkv", 300, "ep04.mkv"),
+            DiskFile("/d/fonts.zip", 20, "fonts.zip"),
+        ]
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        result = build_plan(payload, files, [rule], [lib])
+        assert len([op for op in result.ops if op.op_type == "move"]) == 1
+
     def test_bdmv_only_manually_associated_m2ts_videos_are_organized(self):
         payload = _batch_payload()
         payload["resource"] = {**payload["resource"], "episode_end": 2}
@@ -1625,3 +1652,172 @@ class TestMultiWorkEdgeCases:
         assert len(movedirs) == 1
         assert movedirs[0].src == "/d"
         assert movedirs[0].dst == "/data/recycle/d"
+
+
+class TestRoleAwareReview:
+    def test_single_roles_and_attached_subtitle_end_to_end(self):
+        payload = {
+            **GITS_PAYLOAD,
+            "file_associations": {
+                "version": 1, "status": "complete",
+                "items": [
+                    {
+                        "file_path": "ep04.mkv", "file_role": "episode",
+                        "work_type": "series", "work_id": "s-1", "season": 1,
+                        "episode_start": 4, "episode_end": 4,
+                    },
+                    {
+                        "file_path": "excluded.mkv", "file_role": "excluded",
+                    },
+                    {
+                        "file_path": "[NCOP_01].mkv", "file_role": "extra",
+                    },
+                    {
+                        "file_path": "opaque.ass", "file_role": "subtitle",
+                        "attached_to_path": "ep04.mkv",
+                    },
+                ],
+            },
+        }
+        files = [
+            DiskFile("/d/excluded.mkv", 2000, "excluded.mkv"),
+            DiskFile("/d/[NCOP_01].mkv", 1500, "[NCOP_01].mkv"),
+            DiskFile("/d/ep04.mkv", 300, "ep04.mkv"),
+            DiskFile("/d/opaque.ass", 5, "opaque.ass"),
+        ]
+
+        result = build_plan(payload, files, [_rule("tv", 10, "lib-tv", PRESET_TV)], [_library()])
+
+        by_src = {op.src: op for op in result.ops}
+        assert by_src["/d/ep04.mkv"].op_type == "move"
+        assert by_src["/d/opaque.ass"].dst.endswith("s01e04 - 机器人回旋曲.und.ass")
+        assert by_src["/d/excluded.mkv"].op_type == "keep"
+        assert by_src["/d/[NCOP_01].mkv"].op_type == "keep"
+
+    def test_batch_attachment_reuses_target_episode_and_stem(self):
+        payload = _batch_payload()
+        payload["file_associations"] = {
+            "version": 1, "status": "complete",
+            "items": [
+                {
+                    "file_path": f"opaque-{episode}.mkv", "file_role": "episode",
+                    "work_type": "series", "work_id": "s-1", "season": 1,
+                    "episode_start": episode, "episode_end": episode,
+                }
+                for episode in (1, 2, 3)
+            ] + [{
+                "file_path": "opaque.ass", "file_role": "subtitle",
+                "work_type": "series", "work_id": "s-1",
+                "attached_to_path": "opaque-2.mkv",
+            }],
+        }
+        files = [
+            DiskFile(f"/d/opaque-{episode}.mkv", 300, f"opaque-{episode}.mkv")
+            for episode in (1, 2, 3)
+        ] + [DiskFile("/d/opaque.ass", 5, "opaque.ass")]
+
+        result = build_plan(payload, files, [_rule("tv", 10, "lib-tv", PRESET_TV)], [_library()])
+
+        subtitle = next(op for op in result.ops if op.src == "/d/opaque.ass")
+        assert subtitle.op_type == "move"
+        assert "s01e02 - 第二集" in subtitle.dst
+
+    def test_multi_work_attachment_inherits_work_and_extras_stay_out(self):
+        payload = TestMultiWorkEdgeCases()._multi_work_payload()
+        payload["file_associations"]["items"] += [
+            {
+                "file_path": "A/opaque.ass", "file_role": "subtitle",
+                "attached_to_path": "A/ep.mkv",
+            },
+            {"file_path": "A/bonus.mkv", "file_role": "extra"},
+            {"file_path": "B/skip.mkv", "file_role": "excluded"},
+        ]
+        files = [
+            DiskFile("/d/A/ep.mkv", 300, "A/ep.mkv"),
+            DiskFile("/d/B/ep.mkv", 300, "B/ep.mkv"),
+            DiskFile("/d/A/opaque.ass", 5, "A/opaque.ass"),
+            DiskFile("/d/A/bonus.mkv", 2000, "A/bonus.mkv"),
+            DiskFile("/d/B/skip.mkv", 1000, "B/skip.mkv"),
+        ]
+
+        result = build_plan(
+            payload, files, [_rule("all-tv", 10, "lib-tv", PRESET_TV)], [_library()]
+        )
+
+        by_src = {op.src: op for op in result.ops}
+        assert by_src["/d/A/opaque.ass"].op_type == "move"
+        assert "作品甲" in by_src["/d/A/opaque.ass"].dst
+        assert "s01e01" in by_src["/d/A/opaque.ass"].dst
+        assert by_src["/d/A/bonus.mkv"].op_type == "keep"
+        assert by_src["/d/B/skip.mkv"].op_type == "keep"
+
+    def test_cross_work_or_missing_attachment_is_kept(self):
+        payload = TestMultiWorkEdgeCases()._multi_work_payload()
+        payload["file_associations"]["items"] += [
+            {
+                "file_path": "A/cross.ass", "file_role": "subtitle",
+                "work_type": "series", "work_id": "s-1",
+                "attached_to_path": "B/ep.mkv",
+            },
+            {
+                "file_path": "A/missing.ass", "file_role": "subtitle",
+                "work_type": "series", "work_id": "s-1",
+                "attached_to_path": "missing.mkv",
+            },
+        ]
+        files = [
+            DiskFile("/d/A/ep.mkv", 300, "A/ep.mkv"),
+            DiskFile("/d/B/ep.mkv", 300, "B/ep.mkv"),
+            DiskFile("/d/A/cross.ass", 5, "A/cross.ass"),
+            DiskFile("/d/A/missing.ass", 5, "A/missing.ass"),
+        ]
+
+        result = build_plan(
+            payload, files, [_rule("all-tv", 10, "lib-tv", PRESET_TV)], [_library()]
+        )
+
+        keeps = {op.src for op in result.ops if op.op_type == "keep"}
+        assert {"/d/A/cross.ass", "/d/A/missing.ass"} <= keeps
+
+    def test_movie_roles_and_invalid_attachment_are_kept(self):
+        payload = {
+            **HAMNET_PAYLOAD,
+            "file_associations": {
+                "version": 1, "status": "complete",
+                "items": [
+                    {
+                        "file_path": "movie.mkv", "file_role": "episode",
+                        "work_type": "movie", "work_id": "m-1",
+                    },
+                    {"file_path": "sample.mkv", "file_role": "extra"},
+                    {"file_path": "duplicate.mkv", "file_role": "excluded"},
+                    {
+                        "file_path": "movie.ass", "file_role": "subtitle",
+                        "attached_to_path": "movie.mkv",
+                    },
+                    {
+                        "file_path": "orphan.ass", "file_role": "subtitle",
+                        "work_type": "movie", "work_id": "m-1",
+                        "attached_to_path": "missing.mkv",
+                    },
+                ],
+            },
+        }
+        files = [
+            DiskFile("/d/duplicate.mkv", 2000, "duplicate.mkv"),
+            DiskFile("/d/sample.mkv", 1500, "sample.mkv"),
+            DiskFile("/d/movie.mkv", 300, "movie.mkv"),
+            DiskFile("/d/movie.ass", 5, "movie.ass"),
+            DiskFile("/d/orphan.ass", 5, "orphan.ass"),
+        ]
+        result = build_plan(
+            payload, files,
+            [_rule("movies", 10, "lib-movies", PRESET_MOVIE)],
+            [_library("lib-movies", "/data/movies", kind="movie")],
+        )
+        by_src = {op.src: op for op in result.ops}
+        assert by_src["/d/movie.mkv"].op_type == "move"
+        assert by_src["/d/movie.ass"].op_type == "move"
+        assert by_src["/d/sample.mkv"].op_type == "keep"
+        assert by_src["/d/duplicate.mkv"].op_type == "keep"
+        assert by_src["/d/orphan.ass"].op_type == "keep"

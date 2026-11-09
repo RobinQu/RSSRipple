@@ -8,6 +8,7 @@ import {
   LANG_PRESETS,
   MEDIA_TEXT_KEYS,
   mediaLabelI18nKey,
+  missingReleaseMetadataFields,
   missingWorkMetadataFields,
   workMetadataLabelKey,
   type WorkMetadataFieldKey,
@@ -51,14 +52,13 @@ export default function StepMedia({
   const missingWorkFields = missingWorkMetadataFields(
     detail.missing_fields ?? [], Boolean(workTargetActive),
   );
+  const missingReleaseFields = missingReleaseMetadataFields(detail.missing_fields ?? []);
   const showWorkField = (key: WorkMetadataFieldKey) => missingWorkFields.includes(key);
 
   return (
     <>
       {alert}
-      {DIRECT_METADATA_FIELD_KEYS.filter((k) =>
-        (detail.missing_fields ?? []).includes(k),
-      ).map((k) => (
+      {DIRECT_METADATA_FIELD_KEYS.filter((k) => missingReleaseFields.includes(k)).map((k) => (
         <div key={k} style={{ marginBottom: 12 }}>
           <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
             {t(mediaLabelI18nKey(k))}
@@ -165,6 +165,7 @@ export default function StepMedia({
                   .includes(input.toLowerCase())
               }
               allowClear
+              status={missingReleaseFields.includes(k) && !media[k].trim() ? 'error' : undefined}
             />
           </div>
         ))}
@@ -179,6 +180,7 @@ export default function StepMedia({
             onChange={setSubtitleLangs}
             options={LANG_PRESETS.map((l) => ({ value: l, label: l === 'multi' ? t('channels.langMulti') : l }))}
             tokenSeparators={[',']}
+            status={missingReleaseFields.includes('subtitle_langs') && subtitleLangs.length === 0 ? 'error' : undefined}
           />
         </div>
       </div>

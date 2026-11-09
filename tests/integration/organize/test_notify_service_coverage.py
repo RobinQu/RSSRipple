@@ -532,6 +532,7 @@ async def test_regenerate_keeps_old_snapshot_when_rpc_unavailable(
     async with session_factory() as db:
         notification, _ = await create_notification_for_task(db, chain.task)
         original = dict(notification.payload)
+        await db.commit()
 
     # RPC now fails: regenerate must keep the old snapshot, not degrade it.
     rpc_mocks.get_files.side_effect = RuntimeError("rpc down")

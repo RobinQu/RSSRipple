@@ -118,6 +118,31 @@ def _resources(channel_id: str, **params) -> list[dict]:
     return r.json().get("data", [])
 
 
+_ACQUISITION_JOB_TYPES = frozenset({
+    "fetch_channel", "backfill_metadata", "reprocess_resource_metadata",
+    "fetch_torrent", "reconcile_resource_listing", "run_agent",
+    "refresh_resource_organize", "download_notifications", "sync_progress",
+})
+
+
+def _wait_for_acquisition_quiescence() -> None:
+    """Wait for fixture/previous-edit background writers before the next PATCH."""
+    deadline = time.time() + 90
+    while True:
+        r = _api("/api/v1/queue/jobs", params={"page_size": 100})
+        assert r.status_code == 200, f"queue snapshot failed: {r.text}"
+        active = [
+            job for job in r.json().get("data", [])
+            if job.get("status") in ("queued", "running")
+            and job.get("job_type") in _ACQUISITION_JOB_TYPES
+        ]
+        if not active:
+            return
+        if time.time() >= deadline:
+            raise AssertionError(f"acquisition writers did not quiesce: {active}")
+        time.sleep(0.2)
+
+
 def _create_agent(channel_id: str, downloader_id: str, **overrides) -> str:
     payload = {
         "name": f"Cov2 Agent {uuid.uuid4().hex[:6]}",
@@ -616,6 +641,7 @@ class TestParseCorrection:
     def test_subtitle_groups_sync_and_conflict(self, env):
         res = env["res_linked"][4]
         # Plural-only update: legacy scalar is derived from the list.
+        _wait_for_acquisition_quiescence()
         r = _api(
             f"/api/v1/resources/{res['id']}",
             method="patch",
@@ -626,7 +652,8 @@ class TestParseCorrection:
         assert data["subtitle_groups"] == ["GroupA", "GroupB"]
         assert data["subtitle_group"] == "GroupA&GroupB"
 
-        # Agreeing pair is accepted.
+        # Agreeing pair is accepted after the first edit's targeted run finishes.
+        _wait_for_acquisition_quiescence()
         r = _api(
             f"/api/v1/resources/{res['id']}",
             method="patch",
@@ -636,6 +663,7 @@ class TestParseCorrection:
         assert r.json()["data"]["subtitle_group"] == "GroupA"
 
         # Conflicting pair → 422.
+        _wait_for_acquisition_quiescence()
         r = _api(
             f"/api/v1/resources/{res['id']}",
             method="patch",

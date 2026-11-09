@@ -20,6 +20,7 @@ from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
 from app.models.work_collection import WorkCollection
 from app.schemas.file_resource import ResourceAssociationUpdateRequest
+from app.services.batch_content_analysis import build_suggestion_files
 from app.services.metadata_episode_reconcile import park_resource_on_collection
 from app.services.resource_association import apply_association_update
 from app.services.resource_cleanup import cleanup_channel_unresolved_resources, cleanup_stale_unresolved_resources
@@ -37,7 +38,9 @@ async def test_cleanup_preserves_authoritative_associations(
     torrent = Path(__file__).resolve().parents[2] / "fixtures/metadata_corpus_v1/torrents" / f"{TORRENT_SHA}.torrent"
     assert hashlib.sha256(torrent.read_bytes()).hexdigest() == TORRENT_SHA
     report = analyze_torrent_files(parse_torrent_files(str(torrent)))
+    entries = build_suggestion_files(report)
     assert report.video_file_count == 27 and report.scope == "franchise"
+    assert len(entries) == 43
     record_testsuite_property("torrent_sha256", TORRENT_SHA)
     record_testsuite_property("synthetic_inputs", "work identities, age, policy, explicit manual season 1")
     channel = Channel(id=str(uuid.uuid4()), name="Synthetic cleanup", type="rss_feed", url=f"https://example.invalid/rss/{str(uuid.uuid4())}", field_mapping={},
@@ -58,11 +61,23 @@ async def test_cleanup_preserves_authoritative_associations(
         assert resource.episode_confidence == "ambiguous"
     elif handled == "multiwork":
         assignments = []
-        for entry in report.file_parses:
-            is_movie = entry["path"].startswith("Film ")
-            assignments.append(dict(file_path=entry["path"], file_size=entry["size"],
-                                    work_type="movie" if is_movie else "series", work_id=movie.id if is_movie else series.id,
-                                    season=None if is_movie else 1, episode_start=entry["episode"], episode_end=entry["episode"]))
+        for entry in entries:
+            is_episode = entry["file_role"] == "episode"
+            is_movie = is_episode and entry["path"].startswith("Film ")
+            assignments.append(dict(
+                file_path=entry["path"], file_size=entry["size"],
+                file_role=entry["file_role"],
+                attached_to_path=entry["attached_to_path"],
+                work_type=(
+                    "movie" if is_movie else "series" if is_episode else None
+                ),
+                work_id=(
+                    movie.id if is_movie else series.id if is_episode else None
+                ),
+                season=1 if is_episode and not is_movie else None,
+                episode_start=entry["episode"] if is_episode else None,
+                episode_end=entry["episode"] if is_episode else None,
+            ))
         await apply_association_update(db_session, resource, ResourceAssociationUpdateRequest(
             is_batch=True, works=[dict(work_type="series", work_id=series.id), dict(work_type="movie", work_id=movie.id)],
             assignments=assignments,
@@ -99,7 +114,10 @@ async def test_cleanup_preserves_authoritative_associations(
     placements = await db_session.scalar(select(func.count()).select_from(ResourceFileAssignment).where(ResourceFileAssignment.resource_id == resource_id))
     assert (deleted, remaining, links, placements) == (
         (1, None, 0, 0) if handled == "unresolved"
-        else (0, resource_id, 2 if handled == "multiwork" else 0, 27 if handled == "multiwork" else 0)
+        else (
+            0, resource_id, 2 if handled == "multiwork" else 0,
+            len(entries) if handled == "multiwork" else 0,
+        )
     )
     assert hashlib.sha256(torrent.read_bytes()).hexdigest() == TORRENT_SHA
 

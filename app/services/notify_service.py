@@ -126,13 +126,14 @@ def build_payload(
     assignment_rows = list(getattr(resource, "file_assignments", []) or []) if resource else []
     association_items = []
     for row in assignment_rows:
+        role = getattr(row, "file_role", None) or "episode"
         work_type = "series" if row.series_id else "movie" if row.movie_id else None
         work_id = row.series_id or row.movie_id
-        if work_type is None or work_id is None:
-            continue
         association_items.append({
             "file_path": row.file_path,
             "file_size": row.file_size,
+            "file_role": role,
+            "attached_to_path": getattr(row, "attached_to_path", None),
             "work_type": work_type,
             "work_id": work_id,
             "season": row.season,
@@ -140,6 +141,76 @@ def build_payload(
             "episode_end": row.episode_end,
             "source": row.source,
         })
+
+    def normalized_path(path: str | None) -> str:
+        return "/".join(part for part in (path or "").replace("\\", "/").split("/") if part)
+
+    def work_key(item: dict) -> tuple[str | None, str | None]:
+        return item["work_type"], item["work_id"]
+
+    episode_items = [
+        item for item in association_items if item["file_role"] == "episode"
+    ]
+    episodes_by_path: dict[str, list[dict]] = {}
+    for item in episode_items:
+        episodes_by_path.setdefault(normalized_path(item["file_path"]), []).append(item)
+
+    def attached_episode(subtitle: dict) -> dict | None:
+        path = subtitle.get("attached_to_path")
+        if path is None:
+            return None
+        targets = episodes_by_path.get(normalized_path(path), [])
+        return targets[0] if len(targets) == 1 else None
+
+    subtitles = [
+        item for item in association_items if item["file_role"] == "subtitle"
+    ]
+    if subtitles:
+        from app.services.batch_content_analysis import _subtitle_attachments
+        from app.services.resource_parser import extract_season_episode_from_path
+
+        inferred_paths = _subtitle_attachments(association_items)
+        bound_episodes = [item for item in episode_items if item["work_id"]]
+        episode_works = {work_key(item) for item in bound_episodes}
+        for subtitle in subtitles:
+            target = attached_episode(subtitle)
+            if subtitle.get("attached_to_path") is None:
+                inferred = inferred_paths.get(subtitle["file_path"])
+                candidates = episodes_by_path.get(normalized_path(inferred), []) if inferred else []
+                if len(candidates) == 1:
+                    target = candidates[0]
+                else:
+                    subtitle_season, subtitle_episode = extract_season_episode_from_path(
+                        subtitle["file_path"]
+                    )
+                    if subtitle_season is None and subtitle_episode is None:
+                        same_work = [
+                            item for item in bound_episodes
+                            if subtitle["work_id"] is None or work_key(item) == work_key(subtitle)
+                        ]
+                        if len(same_work) == 1:
+                            target = same_work[0]
+                if (
+                    target is not None
+                    and target["work_id"]
+                    and (subtitle["work_id"] is None or work_key(target) == work_key(subtitle))
+                ):
+                    subtitle["attached_to_path"] = target["file_path"]
+            if target is not None and target["work_id"] and subtitle["work_id"] is None:
+                subtitle["work_type"] = target["work_type"]
+                subtitle["work_id"] = target["work_id"]
+            if subtitle["work_id"] is None and len(episode_works) == 1:
+                subtitle["work_type"], subtitle["work_id"] = next(iter(episode_works))
+
+    def valid_subtitle_graph(subtitle: dict) -> bool:
+        target = attached_episode(subtitle)
+        return bool(
+            target is not None
+            and target["work_id"]
+            and subtitle["work_id"]
+            and work_key(target) == work_key(subtitle)
+        )
+
     if assignment_rows:
         expected_paths: set[str] = set()
         if torrent_info is not None and torrent_info.get("files"):
@@ -150,11 +221,23 @@ def build_payload(
                     torrent_info["files"]
                 ).file_parses
             }
-        bound_paths = {item["file_path"] for item in association_items}
+        non_episode_paths = {
+            normalized_path(item["file_path"])
+            for item in association_items if item["file_role"] != "episode"
+        }
+        expected_paths = {
+            normalized_path(path) for path in expected_paths
+            if normalized_path(path) not in non_episode_paths
+        }
+        bound_episode_paths = {
+            normalized_path(item["file_path"])
+            for item in episode_items if item["work_id"]
+        }
         association_status = (
             "complete"
-            if len(association_items) == len(assignment_rows)
-            and (not expected_paths or expected_paths <= bound_paths)
+            if all(item["work_id"] for item in episode_items)
+            and expected_paths <= bound_episode_paths
+            and all(valid_subtitle_graph(item) for item in subtitles)
             else "partial"
         )
     else:
@@ -251,62 +334,53 @@ async def _find_by_task(
 async def _build_snapshot(
     db, task: DownloadTask, notification_id: str
 ) -> tuple[dict, bool]:
-    """Run the full notification generation chain for a task: stop seeding
-    (best-effort), snapshot the torrent's file listing via the downloader RPC
-    (best-effort) and build the frozen payload.
+    """Build a frozen payload through the shared listing/apply pipeline.
 
-    Returns ``(payload, torrent_snapshot)``. ``torrent_snapshot`` is False
-    when no file listing could be obtained (no torrent attached, or RPC
-    failure) — the payload then carries no ``files`` and the consumer falls
-    back to scanning the download directory itself.
+    Pausing remains a best-effort notification operation so the consumer can
+    move completed files; it is not a prerequisite for obtaining a listing.
     """
+    from app.services.resource_listing import (
+        apply_resource_listing,
+        mark_listing_reconcile_pending,
+        resolve_resource_listing,
+    )
     from app.services.task_queue import require_execution_ownership
 
     await require_execution_ownership()
     agent = await db.get(Agent, task.agent_id) if task.agent_id else None
     resource = await _load_resource(db, task.file_resource_id)
 
-    torrent_info: dict | None = None
     if task.transmission_torrent_id is not None and task.downloader_id:
         downloader = await db.get(DownloaderInstance, task.downloader_id)
         if downloader is not None:
             from app.clients.downloader import get_downloader_client
 
-            wrapper = get_downloader_client(downloader)
             await require_execution_ownership()
-            # Stop seeding before the consumer moves the files (best-effort).
             try:
-                await wrapper.pause_torrent(task.transmission_torrent_id)
+                await get_downloader_client(downloader).pause_torrent(
+                    task.transmission_torrent_id
+                )
             except Exception as e:
                 logger.warning(
                     "[notify] pause torrent %s failed: %s",
                     task.transmission_torrent_id, e,
                 )
-            await require_execution_ownership()
-            try:
-                torrent_info = await wrapper.get_torrent_files(
-                    task.transmission_torrent_id
-                )
-            except Exception as e:
-                logger.warning(
-                    "[notify] file listing for torrent %s unavailable: %s",
-                    task.transmission_torrent_id, e,
-                )
+
     await require_execution_ownership()
-    if resource is not None and torrent_info is not None:
-        files = torrent_info.get("files") or []
-        if files:
-            from app.services.batch_content_analysis import (
-                apply_auto_assignments,
-                bind_single_work_assignments,
-            )
-            from app.services.torrent_inspect import analyze_torrent_files
-
-            report = analyze_torrent_files(files)
-            apply_auto_assignments(resource, report)
-            await db.flush()
-            await bind_single_work_assignments(db, resource)
-
+    listing = None
+    if resource is not None:
+        listing = await resolve_resource_listing(
+            db, resource, fetch_http=False, preferred_task_id=task.id,
+            only_task_id=task.id, include_notifications=False,
+        )
+        if listing.files:
+            await mark_listing_reconcile_pending(db, resource.id)
+        await apply_resource_listing(db, resource, listing.files)
+    await require_execution_ownership()
+    torrent_info = (
+        {"name": listing.name, "files": listing.files}
+        if listing is not None and listing.files else None
+    )
     return (
         build_payload(notification_id, agent, task, resource, torrent_info),
         torrent_info is not None,

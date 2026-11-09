@@ -40,6 +40,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from app.services.filter_engine import ALL_FIELDS, get_field_value, loaded_relation
+from app.services.subtitle_groups import subtitle_groups_for_resource
 
 # ── Row shapes ────────────────────────────────────────────────────────────
 # Mirrors RowShape in frontend/src/utils/requiredFields.ts. Derived from which
@@ -286,20 +287,26 @@ def resource_shape(resource: Any) -> str | None:
     if getattr(resource, "audio_work_id", None):
         return AUDIO
     scope = getattr(resource, "batch_scope", None)
-    if getattr(resource, "collection_id", None) or scope == "franchise":
+    if scope == "franchise":
         return FRANCHISE
+    if scope == "multi_season":
+        return TV_MULTI_SEASON
     if getattr(resource, "movie_id", None):
         return MOVIE
     if getattr(resource, "series_id", None):
         if not getattr(resource, "is_batch", False):
             return TV_SINGLE
-        if scope == "multi_season":
-            return TV_MULTI_SEASON
         if scope == "season":
             return TV_SEASON_BATCH
         return None
-    if scope == "multi_season" and getattr(resource, "is_batch", False):
-        return TV_MULTI_SEASON
+    if scope == "season" and getattr(resource, "is_batch", False):
+        kind, work = _linked_work(resource)
+        if kind == "series" and work is not None:
+            return TV_SEASON_BATCH
+        if kind == "movie" and work is not None:
+            return MOVIE
+    if getattr(resource, "collection_id", None):
+        return FRANCHISE
     return None
 
 
@@ -348,6 +355,8 @@ def _linked_works_year(resource: Any) -> int | None:
 
 def _semantic_field_value(resource: Any, key: str) -> Any:
     """Resolve one catalog key to the value relevant to this resource."""
+    if key == "subtitle_group":
+        return subtitle_groups_for_resource(resource)
     fields = REQUIRED_FIELD_CATALOG[key]["dsl_fields"]
     if len(fields) == 1:
         value = get_field_value(resource, fields[0])

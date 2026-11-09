@@ -5,6 +5,7 @@ from typing import Any
 from app.services.subtitle_groups import (
     join_legacy_subtitle_group,
     normalize_subtitle_groups,
+    subtitle_groups_for_resource,
 )
 
 DEFAULTABLE_REQUIRED_FIELD_TYPES: dict[str, str] = {
@@ -98,7 +99,11 @@ def reconcile_channel_metadata_defaults(resource: Any, defaults: dict[str, Any] 
     for key, value in defaults.items():
         if key not in DEFAULTABLE_REQUIRED_FIELD_TYPES:
             continue
-        current = getattr(resource, key, None)
+        current = (
+            subtitle_groups_for_resource(resource)
+            if key == "subtitle_group"
+            else getattr(resource, key, None)
+        )
         if key in marked or _missing(current):
             _set_default_value(resource, key, value)
             marked.add(key)

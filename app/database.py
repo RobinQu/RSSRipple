@@ -697,6 +697,22 @@ _LIGHT_COLUMN_ADDITIONS: tuple[tuple[str, str, str | tuple[str, str]], ...] = (
     ("file_resources", "batch_scope", "VARCHAR(16)"),
     ("file_resources", "collection_id", "VARCHAR(36) REFERENCES work_collections(id)"),
     ("file_resources", "torrent_file", "VARCHAR(2048)"),
+    # Preserve the alternate RSS magnet when the primary enclosure is HTTP, and
+    # make direct torrent acquisition failures observable/retryable.
+    ("file_resources", "magnet_url", "VARCHAR(2048)"),
+    ("file_resources", "torrent_fetch_status", "VARCHAR(16)"),
+    ("file_resources", "torrent_fetch_error", "TEXT"),
+    ("file_resources", "torrent_fetch_attempts", "INTEGER NOT NULL DEFAULT 0"),
+    ("file_resources", "torrent_fetch_attempt_id", "VARCHAR(36)"),
+    ("file_resources", "torrent_fetch_updated_at", ("DATETIME", "TIMESTAMP")),
+    ("file_resources", "torrent_fetch_next_attempt_at", ("DATETIME", "TIMESTAMP")),
+    # Durable graph reconciliation is distinct from torrent acquisition.
+    ("file_resources", "listing_reconcile_status", "VARCHAR(16)"),
+    ("file_resources", "listing_reconcile_error", "TEXT"),
+    ("file_resources", "listing_reconcile_attempts", "INTEGER NOT NULL DEFAULT 0"),
+    ("file_resources", "listing_reconcile_attempt_id", "VARCHAR(36)"),
+    ("file_resources", "listing_reconcile_updated_at", ("DATETIME", "TIMESTAMP")),
+    ("file_resources", "listing_reconcile_next_attempt_at", ("DATETIME", "TIMESTAMP")),
     # Seasons covered by a multi_season/franchise batch pack (JSON int
     # list, persisted from torrent content analysis) — drives the strict
     # content-coverage dedup of batch resources in the agent runner.
@@ -710,6 +726,10 @@ _LIGHT_COLUMN_ADDITIONS: tuple[tuple[str, str, str | tuple[str, str]], ...] = (
     # content analysis / the edit wizard. Recomputed from file
     # assignments whenever those change.
     ("file_resources", "season_ranges", ("TEXT", "JSONB")),
+    # Role-aware file manifest: subtitle attachment is nullable when no unique
+    # episode video can be identified; legacy rows converge to episode.
+    ("resource_file_assignments", "file_role", "VARCHAR(16) NOT NULL DEFAULT 'episode'"),
+    ("resource_file_assignments", "attached_to_path", "VARCHAR(1024)"),
     # Per-channel periodic work-metadata refresh (off by default; legacy
     # rows converge to disabled — the old global auto-refresh toggle is
     # gone). NULL interval → DEFAULT_METADATA_REFRESH_INTERVAL_MINUTES.
@@ -839,7 +859,12 @@ async def _apply_light_migrations(conn) -> None:
             applied_blocks.append(f"add column {table}.{column}")
             continue
         if table in ("organize_plans", "organize_configuration", "webhook_deliveries") or (
-            table == "file_resources" and column == "magnet_resolve_attempt_id"
+            table == "file_resources" and (
+                column == "magnet_resolve_attempt_id"
+                or column == "magnet_url"
+                or column.startswith("torrent_fetch_")
+                or column.startswith("listing_reconcile_")
+            )
         ) or (table == "agents" and column == "current_run_token"):
             # Ownership/version columns are safety-critical: a partial schema
             # must fail startup rather than silently run old semantics.

@@ -6,7 +6,7 @@ placements, generic media-descriptor fields and work metadata corrections. All
 invariants downstream pipelines rely on are enforced here:
 
 - Non-batch resources keep the legacy single-work FK model: at most one
-  work; links / assignments / collection cleared.
+  work; links / collection cleared, while the submitted file manifest persists.
 - Batch resources with exactly one work mirror it into the legacy FK (the
   agent dedup coverage key reads that column); multi-work packs clear the
   legacy FKs and carry associations in ``resource_work_links`` only.
@@ -23,9 +23,9 @@ invariants downstream pipelines rely on are enforced here:
   listing is assigned (when the listing is known), and each regular season's
   episode run covers its expected range (whole-range misses are hard errors,
   gaps are warnings). Season-0 works are extras and may have no placement.
-- Every file placement must reference a work of the association set; TV
-  placements require a season; episode runs within one (work, season) may
-  not overlap (hard error) and gaps surface as warnings.
+- Episodes reference a work; extras/subtitles may remain unbound and subtitles
+  can inherit from their target. Only TV episodes require a season and
+  participate in overlap, gap and expected-range checks.
 """
 
 from __future__ import annotations
@@ -128,7 +128,7 @@ async def _resolve_works(
                 )
         resolved[key] = obj
     for assignment in body.assignments:
-        if assignment.work_id in candidate_ids:
+        if assignment.work_id is not None and assignment.work_id in candidate_ids:
             assignment.work_id = candidate_ids[assignment.work_id]
     for update in body.work_fields:
         if update.work_id in candidate_ids:
@@ -166,7 +166,7 @@ def _derive_batch_scope(
                 if work.season_number:
                     seasons.add(work.season_number)
         for a in assignments:
-            if a.season:
+            if a.file_role == "episode" and a.season:
                 seasons.add(a.season)
         seasons.update(s for s in (resource.batch_seasons or []) if s)
         if resource.season:
@@ -181,24 +181,19 @@ def _validate_assignments(
     works_map: dict[tuple[str, str], TVSeries | Movie] | None = None,
     media_files: set[str] | None = None,
 ) -> list[str]:
-    """Cross-check placements against the works set.
-
-    Hard errors (422): duplicate paths, placement referencing a work outside
-    the association set, a TV placement without a season, overlapping episode
-    runs inside one (work, season). Soft warnings: gaps between runs.
-
-    Multi-work packs (>1 work) additionally enforce file-manifest
-    completeness (per docs/design/per-season-works.md): every associated work
-    except a season-0 special has at least one placement; every media file of
-    the torrent listing is assigned (skipped with a warning when the listing
-    is unavailable); each regular series work's placements cover its
-    ``number_of_episodes`` range — a whole-range miss is a hard error,
-    head/tail shortfalls are warnings.
-    """
+    """Validate role-aware placements and episode-only interval coverage."""
     result: list[str] = []
     multi_work = len(work_keys) > 1
     seen_paths: set[str] = set()
+    by_path = {a.file_path: a for a in body.assignments}
     intervals: dict[tuple[str, str, int], list[tuple[int, int, str]]] = defaultdict(list)
+
+    def is_multi_work_extra(a) -> bool:
+        if not multi_work or a.file_role != "episode" or a.work_type != "series":
+            return False
+        work = (works_map or {}).get(("series", a.work_id))
+        work_season = getattr(work, "season_number", None)
+        return a.season == 0 and work_season not in (None, 0)
 
     for a in body.assignments:
         path = (a.file_path or "").strip()
@@ -207,16 +202,52 @@ def _validate_assignments(
         if path in seen_paths:
             raise AssociationValidationError(f"文件重复映射：{path}")
         seen_paths.add(path)
-        if (a.work_type, a.work_id) not in work_keys:
+        if a.file_role == "excluded":
+            continue
+        has_work = a.work_type is not None
+        if has_work and (a.work_type, a.work_id) not in work_keys:
             raise AssociationValidationError(
                 f"文件 {path} 关联的作品不在作品关联列表中"
             )
+        if a.file_role == "subtitle":
+            if a.attached_to_path is None:
+                continue
+            target = by_path.get(a.attached_to_path)
+            if target is None or target.file_role != "episode":
+                raise AssociationValidationError(
+                    f"字幕 {path} 的 attached_to_path 必须指向已指派的正片文件"
+                )
+            if has_work and (target.work_type, target.work_id) != (a.work_type, a.work_id):
+                raise AssociationValidationError(
+                    f"字幕 {path} 与正片必须关联同一作品"
+                )
+            continue
+        if a.file_role == "extra":
+            continue
+        if not has_work:
+            raise AssociationValidationError(f"正片文件必须关联作品：{path}")
         if a.work_type == "series" and a.season is None:
-            raise AssociationValidationError(f"TV 文件必须指定季：{path}")
+            raise AssociationValidationError(f"TV 正片文件必须指定季：{path}")
+        if a.work_type == "series":
+            work = (works_map or {}).get(("series", a.work_id))
+            work_season = getattr(work, "season_number", None)
+            if work_season is not None and (
+                a.season != work_season
+                and not (a.season == 0 and work_season > 0)
+            ):
+                raise AssociationValidationError(
+                    f"正片 {path} 的季号与单季作品身份不一致"
+                )
         lo = a.episode_start if a.episode_start is not None else a.episode_end
         hi = a.episode_end if a.episode_end is not None else a.episode_start
-        if a.season is not None and lo is not None and hi is not None:
+        if (
+            a.season is not None and lo is not None and hi is not None
+            and not is_multi_work_extra(a)
+        ):
             intervals[(a.work_type, a.work_id, a.season)].append((lo, hi, path))
+
+    if not body.is_batch:
+        return result
 
     for (work_type, work_id, season), ivs in sorted(intervals.items()):
         ivs.sort()
@@ -244,9 +275,11 @@ def _validate_assignments(
             return f"{key[0]} {key[1]}"
         return work.title_cn or work.title_en or work.original_title or key[1]
 
-    # 1) Every non-special associated work has at least one placement. A
-    # season-0 work is an extra and may be linked without assigned files.
-    assigned_works = {(a.work_type, a.work_id) for a in body.assignments}
+    assigned_works = {
+        (a.work_type, a.work_id)
+        for a in body.assignments
+        if a.file_role == "episode" and not is_multi_work_extra(a)
+    }
     unassigned = sorted(
         key
         for key in work_keys - assigned_works
@@ -259,8 +292,6 @@ def _validate_assignments(
             f"多作品合集的每个关联作品都必须有文件指派，缺少：{listing}"
         )
 
-    # 2) Every media file of the torrent listing is assigned (best-effort:
-    # skipped with a warning when no listing is available).
     if media_files is None:
         result.append("无法获取 torrent 文件清单，已跳过文件覆盖完整性校验")
     else:
@@ -272,8 +303,6 @@ def _validate_assignments(
                 f"多作品合集存在未指派的文件：{listing}{suffix}"
             )
 
-    # 3) Each regular series work's placements cover its expected episode
-    # range (whole-range miss → hard error; head/tail shortfall → warning).
     for key in sorted(work_keys):
         if key[0] != "series":
             continue
@@ -311,6 +340,38 @@ def _validate_assignments(
     return result
 
 
+def _validate_non_batch_episodes(
+    resource: FileResource, body: ResourceAssociationUpdateRequest
+) -> None:
+    episodes = [a for a in body.assignments if a.file_role == "episode"]
+    if not episodes:
+        return
+
+    def placement(a) -> tuple[int | None, int | None, int | None]:
+        start = a.episode_start if a.episode_start is not None else a.episode_end
+        end = a.episode_end if a.episode_end is not None else start
+        return a.season, start, end
+
+    if len({placement(a) for a in episodes}) > 1:
+        raise AssociationValidationError("非合集资源包含多个相互矛盾的正片季集指派")
+
+    sent = body.model_fields_set
+    expected_season = body.season if "season" in sent else resource.season
+    expected_episode = body.episode if "episode" in sent else resource.episode
+    for assignment in episodes:
+        season, start, end = placement(assignment)
+        if expected_season is not None and season != expected_season:
+            raise AssociationValidationError(
+                f"正片 {assignment.file_path} 的季号与资源级 season 不一致"
+            )
+        if expected_episode is not None and (
+            start != expected_episode or end != expected_episode
+        ):
+            raise AssociationValidationError(
+                f"正片 {assignment.file_path} 的集号与资源级 episode 不一致"
+            )
+
+
 def _apply_media_fields(resource: FileResource, fields: dict | None) -> None:
     """Generic media-descriptor corrections (explicit keys only)."""
     if not fields:
@@ -319,13 +380,34 @@ def _apply_media_fields(resource: FileResource, fields: dict | None) -> None:
         DEFAULTABLE_REQUIRED_FIELD_TYPES,
         clear_channel_default,
     )
+    from app.services.subtitle_groups import (
+        join_legacy_subtitle_group,
+        normalize_subtitle_groups,
+    )
 
     explicit_keys = (
         fields.model_fields_set if hasattr(fields, "model_fields_set") else set(fields)
     )
+    if "subtitle_group" in fields and "subtitle_groups" in fields:
+        if normalize_subtitle_groups(fields["subtitle_group"]) != normalize_subtitle_groups(
+            fields["subtitle_groups"], split=False
+        ):
+            raise AssociationValidationError(
+                "subtitle_group and subtitle_groups disagree", step="media"
+            )
     for key in MEDIA_FIELDS:
-        if key in fields:
+        if key in fields and key not in ("subtitle_group", "subtitle_groups"):
             setattr(resource, key, fields[key])
+    if "subtitle_groups" in fields:
+        resource.subtitle_groups = normalize_subtitle_groups(
+            fields["subtitle_groups"], split=False
+        )
+        resource.subtitle_group = join_legacy_subtitle_group(resource.subtitle_groups)
+        resource.subtitle_groups_source = "manual"
+    elif "subtitle_group" in fields:
+        resource.subtitle_groups = normalize_subtitle_groups(fields["subtitle_group"])
+        resource.subtitle_group = fields["subtitle_group"]
+        resource.subtitle_groups_source = "manual"
     for key in explicit_keys & set(DEFAULTABLE_REQUIRED_FIELD_TYPES) | (
         {"subtitle_group"} if "subtitle_groups" in fields else set()
     ):
@@ -353,11 +435,20 @@ def _apply_assignments(
         resource.file_assignments.remove(row)
 
     for path, a in incoming.items():
-        t_series = a.work_id if a.work_type == "series" else None
-        t_movie = a.work_id if a.work_type == "movie" else None
+        work_type, work_id = a.work_type, a.work_id
+        if a.file_role == "subtitle" and work_id is None:
+            target = incoming.get(a.attached_to_path or "")
+            if target is not None and target.file_role == "episode":
+                work_type, work_id = target.work_type, target.work_id
+            elif len(body.works) == 1:
+                work_type, work_id = body.works[0].work_type, body.works[0].work_id
+        t_series = work_id if work_type == "series" else None
+        t_movie = work_id if work_type == "movie" else None
         row = existing.get(path)
         unchanged = (
             row is not None
+            and (row.file_role or "episode") == a.file_role
+            and row.attached_to_path == a.attached_to_path
             and row.series_id == t_series
             and row.movie_id == t_movie
             and row.season == a.season
@@ -369,6 +460,8 @@ def _apply_assignments(
         if row is None:
             row = ResourceFileAssignment(resource_id=resource.id, file_path=path)
             resource.file_assignments.append(row)
+        row.file_role = a.file_role
+        row.attached_to_path = a.attached_to_path
         row.series_id = t_series
         row.movie_id = t_movie
         if a.file_size is not None:
@@ -416,12 +509,7 @@ def _apply_work_links(
 
 
 async def _known_media_files(resource: FileResource) -> set[str] | None:
-    """Best-effort torrent media-file listing for the completeness check.
-
-    Only the local .torrent cache is consulted (PUT must stay fast — no live
-    fetch / downloader RPC here; the endpoint re-caches the torrent after
-    commit). Returns None when no listing is available.
-    """
+    """Return the complete cached torrent listing for manifest validation."""
     cached = getattr(resource, "torrent_file", None)
     if not cached:
         return None
@@ -429,12 +517,12 @@ async def _known_media_files(resource: FileResource) -> set[str] | None:
 
     if not Path(cached).exists():
         return None
-    from app.services.torrent_inspect import analyze_torrent_files, parse_torrent_files
+    from app.services.torrent_inspect import parse_torrent_files
 
     files = parse_torrent_files(cached)
     if not files:
         return None
-    return {row["path"] for row in analyze_torrent_files(files).file_parses}
+    return {row["name"] for row in files}
 
 
 def _validate_collection_consistency(
@@ -528,6 +616,8 @@ async def apply_association_update(
             body, work_keys, works_map=works_map, media_files=media_files
         )
     )
+    if not body.is_batch:
+        _validate_non_batch_episodes(resource, body)
     work_field_updates = _validate_work_fields(body, works_map)
 
     # 2) Resource-level flags + association tables.
@@ -552,7 +642,10 @@ async def apply_association_update(
         resource.audio_work_id = None
         resource.collection_id = body.collection_id
 
-        seasons = sorted({a.season for a in body.assignments if a.season is not None})
+        seasons = sorted({
+            a.season for a in body.assignments
+            if a.file_role == "episode" and a.season is not None
+        })
         if seasons:
             resource.batch_seasons = seasons
 
@@ -602,9 +695,7 @@ async def apply_association_update(
         resource.season_ranges = None
         resource.batch_seasons = None
         resource.work_links.clear()
-        for row in list(resource.file_assignments):
-            await db.delete(row)
-            resource.file_assignments.remove(row)
+        _apply_assignments(db, resource, body)
 
         if "episode" in sent:
             resource.episode = body.episode

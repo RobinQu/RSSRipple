@@ -186,6 +186,177 @@ def test_build_payload_freezes_complete_file_associations():
     assert payload["file_associations"]["items"][0]["source"] == "manual"
 
 
+def test_build_payload_role_aware_associations_allow_unbound_excluded():
+    from app.schemas.notification import NotificationPayload
+
+    episode = SimpleNamespace(
+        file_path="Show/S01E01.mkv", file_size=100 * 1024 * 1024,
+        file_role="episode", attached_to_path=None,
+        series_id="series-1", movie_id=None, season=1,
+        episode_start=1, episode_end=1, source="auto",
+    )
+    subtitle = SimpleNamespace(
+        file_path="Show/S01E01.chs.ass", file_size=1000,
+        file_role="subtitle", attached_to_path=episode.file_path,
+        series_id="series-1", movie_id=None, season=None,
+        episode_start=None, episode_end=None, source="auto",
+    )
+    excluded = SimpleNamespace(
+        file_path="Show/fonts.zip", file_size=2000,
+        file_role="excluded", attached_to_path=None,
+        series_id=None, movie_id=None, season=None,
+        episode_start=None, episode_end=None, source="auto",
+    )
+    payload = build_payload(
+        "notif-roles", None, SimpleNamespace(id="t", download_dir="/d"),
+        _resource_ns(
+            id="resource-roles", series=_series_ns(),
+            file_assignments=[episode, subtitle, excluded],
+        ),
+        {"name": "Show", "files": [
+            {"name": episode.file_path, "size": episode.file_size},
+            {"name": subtitle.file_path, "size": subtitle.file_size},
+            {"name": excluded.file_path, "size": excluded.file_size},
+        ]},
+    )
+
+    assert payload["file_associations"]["status"] == "complete"
+    items = {item["file_path"]: item for item in payload["file_associations"]["items"]}
+    assert items[subtitle.file_path]["attached_to_path"] == episode.file_path
+    assert items[subtitle.file_path]["file_role"] == "subtitle"
+    assert items[excluded.file_path]["work_type"] is None
+    assert items[excluded.file_path]["work_id"] is None
+    validated = NotificationPayload.model_validate(payload)
+    assert validated.file_associations.items[2].file_role == "excluded"
+
+
+def _role_assignment(path, role, *, work_id="series-1", episode=None, attached=None):
+    return SimpleNamespace(
+        file_path=path, file_size=100 * 1024 * 1024,
+        file_role=role, attached_to_path=attached,
+        series_id=work_id, movie_id=None,
+        season=1 if role == "episode" else None,
+        episode_start=episode, episode_end=episode, source="manual",
+    )
+
+
+@pytest.mark.parametrize("role", ["excluded", "extra"])
+def test_non_episode_regular_mkv_does_not_make_notification_partial(role):
+    episode = _role_assignment("Show/S01E01.mkv", "episode", episode=1)
+    non_episode = _role_assignment("Show/duplicate.mkv", role, work_id=None)
+    payload = build_payload(
+        "notif-non-episode-video", None, SimpleNamespace(id="t", download_dir="/d"),
+        _resource_ns(series=_series_ns(), file_assignments=[episode, non_episode]),
+        {"name": "Show", "files": [
+            {"name": episode.file_path, "size": episode.file_size},
+            {"name": non_episode.file_path, "size": non_episode.file_size},
+        ]},
+    )
+    assert payload["file_associations"]["status"] == "complete"
+
+
+def test_unbound_extra_is_complete_but_unresolved_subtitle_is_partial():
+    from app.schemas.notification import NotificationPayload
+
+    episodes = [
+        _role_assignment(f"Show/S01E0{episode}.mkv", "episode", episode=episode)
+        for episode in (1, 2)
+    ]
+    extra = _role_assignment("Show/[NCOP_01].mkv", "extra", work_id=None)
+    subtitle = _role_assignment("Show/opaque.ass", "subtitle", work_id=None)
+    payload = build_payload(
+        "notif-unresolved-subtitle", None, SimpleNamespace(id="t", download_dir="/d"),
+        _resource_ns(
+            series=_series_ns(), file_assignments=[*episodes, extra, subtitle],
+        ),
+        {"name": "Show", "files": [
+            {"name": item.file_path, "size": item.file_size}
+            for item in [*episodes, extra, subtitle]
+        ]},
+    )
+    items = {item["file_path"]: item for item in payload["file_associations"]["items"]}
+    assert items[extra.file_path]["work_id"] is None
+    assert items[subtitle.file_path]["work_id"] == "series-1"
+    assert items[subtitle.file_path]["attached_to_path"] is None
+    assert payload["file_associations"]["status"] == "partial"
+    NotificationPayload.model_validate(payload)
+
+
+def test_unbound_subtitle_inherits_unique_episode_work_and_attachment():
+    episode = _role_assignment("Show/S01E01.mkv", "episode", episode=1)
+    subtitle = _role_assignment("Show/opaque.ass", "subtitle", work_id=None)
+    payload = build_payload(
+        "notif-inherit-subtitle", None, SimpleNamespace(id="t", download_dir="/d"),
+        _resource_ns(series=_series_ns(), file_assignments=[episode, subtitle]),
+        {"name": "Show", "files": [
+            {"name": episode.file_path, "size": episode.file_size},
+            {"name": subtitle.file_path, "size": subtitle.file_size},
+        ]},
+    )
+    item = payload["file_associations"]["items"][1]
+    assert item["work_id"] == "series-1"
+    assert item["attached_to_path"] == episode.file_path
+    assert payload["file_associations"]["status"] == "complete"
+
+
+def test_subtitle_with_episode_evidence_never_uses_unique_episode_fallback():
+    episode = _role_assignment("Show/S01E01.mkv", "episode", episode=1)
+    subtitle = _role_assignment("Show/S01E02.chs.ass", "subtitle", work_id=None)
+    payload = build_payload(
+        "notif-conflicting-subtitle", None, SimpleNamespace(id="t", download_dir="/d"),
+        _resource_ns(series=_series_ns(), file_assignments=[episode, subtitle]),
+        {"name": "Show", "files": [
+            {"name": episode.file_path, "size": episode.file_size},
+            {"name": subtitle.file_path, "size": subtitle.file_size},
+        ]},
+    )
+    item = payload["file_associations"]["items"][1]
+    assert item["work_id"] == "series-1"
+    assert item["attached_to_path"] is None
+    assert payload["file_associations"]["status"] == "partial"
+
+
+def test_complete_requires_same_work_attachment_graph():
+    first = _role_assignment("A/S01E01.mkv", "episode", episode=1)
+    second = _role_assignment(
+        "B/S01E01.mkv", "episode", work_id="series-2", episode=1,
+    )
+    subtitle = _role_assignment(
+        "A/opaque.ass", "subtitle", attached=second.file_path,
+    )
+    first_work, second_work = _series_ns(), _series_ns(id="series-2")
+    resource = _resource_ns(
+        series=None, movie=None, file_assignments=[first, second, subtitle],
+        work_links=[
+            SimpleNamespace(series=first_work, movie=None),
+            SimpleNamespace(series=second_work, movie=None),
+        ],
+    )
+    payload = build_payload(
+        "notif-cross-work-subtitle", None, SimpleNamespace(id="t", download_dir="/d"),
+        resource, {"name": "Show", "files": [
+            {"name": item.file_path, "size": item.file_size}
+            for item in (first, second, subtitle)
+        ]},
+    )
+    assert payload["file_associations"]["status"] == "partial"
+
+
+def test_unbound_extra_alone_does_not_block_complete_snapshot():
+    episode = _role_assignment("Show/S01E01.mkv", "episode", episode=1)
+    extra = _role_assignment("Show/Scans/cover.jpg", "extra", work_id=None)
+    payload = build_payload(
+        "notif-unbound-extra", None, SimpleNamespace(id="t", download_dir="/d"),
+        _resource_ns(series=_series_ns(), file_assignments=[episode, extra]),
+        {"name": "Show", "files": [
+            {"name": episode.file_path, "size": episode.file_size},
+            {"name": extra.file_path, "size": extra.file_size},
+        ]},
+    )
+    assert payload["file_associations"]["status"] == "complete"
+    assert payload["file_associations"]["items"][1]["work_id"] is None
+
+
 def test_build_payload_freezes_all_linked_work_metadata():
     first = _series_ns()
     second = _series_ns()
@@ -239,8 +410,8 @@ def test_build_payload_movie_work_link():
     assert payload["works"]["movie:movie-1"]["type"] == "movie"
 
 
-def test_build_payload_skips_unassigned_assignment_rows():
-    """A file-assignment row with neither series nor movie is skipped."""
+def test_build_payload_keeps_unassigned_episode_partial():
+    """An unbound episode remains visible in a partial diagnostic snapshot."""
     assignment = SimpleNamespace(
         file_path="unmapped.mkv", file_size=100,
         series_id=None, movie_id=None, season=None,
@@ -254,9 +425,8 @@ def test_build_payload_skips_unassigned_assignment_rows():
         "notif-unmapped", None, SimpleNamespace(id="t", download_dir="/d"),
         resource, {"name": "pack", "files": [{"name": "unmapped.mkv", "size": 100}]},
     )
-    assert payload["file_associations"]["items"] == []
-    # Every assignment row bound → but the skipped row counts as unbound →
-    # status is partial (1 row, 0 items, paths mismatch).
+    assert len(payload["file_associations"]["items"]) == 1
+    assert payload["file_associations"]["items"][0]["work_id"] is None
     assert payload["file_associations"]["status"] == "partial"
 
 
@@ -370,6 +540,8 @@ async def test_create_notification_snapshots_and_pauses(db_session, seed):
 
     state = _store(seed.downloader.id).torrents[seed.task.transmission_torrent_id]
     assert state.paused is True
+    await db_session.refresh(seed.resource)
+    assert seed.resource.listing_reconcile_status == "pending"
 
 
 async def test_create_notification_idempotent(db_session, seed):

@@ -966,9 +966,15 @@ def test_directory_season_inherited_without_filename_marker():
         ("Show[Group].mkv", "Group"),
         ("dir/subdir/Show-Group.mkv", "Group"),
         ("Show-Group.Name.mkv", "Group.Name"),
+        (
+            "[LoliHouse] 某作品 S01E01 [WebRip 1080p HEVC-10bit AAC]-LoliHouse.mkv",
+            "LoliHouse",
+        ),
         ("Show-1234.mkv", None),           # pure digits
         ("Show[123].mkv", None),           # digits in bracket form
         ("Show-HEVC.mkv", None),           # technical suffix
+        ("Show-AVC_FLAC.mkv", None),       # normalized technical compound
+        ("Show-avc.flac.mkv", None),       # separator/case normalization
         ("Show-1080p.mkv", None),          # resolution token
         ("Show-720P.mkv", None),           # resolution token (case-insensitive)
         ("Show-AC3.mkv", None),            # technical suffix compound

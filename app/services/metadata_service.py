@@ -2213,6 +2213,9 @@ async def reconcile_linked_series_resource(
         series = await db.get(TVSeries, resource.series_id)
     if series is None:
         return
+    # Link writes must reach the database before collection/history queries;
+    # otherwise their implicit autoflush can expire ORM objects mid-reconcile.
+    await db.flush()
     if repair_season_identity:
         series = await _repoint_explicit_season_work(
             db, resource, series, entity=entity

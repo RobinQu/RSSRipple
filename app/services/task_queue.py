@@ -146,9 +146,11 @@ _NON_RETRYABLE_JOB_TYPES = frozenset({
     # Delivery retries live in the notification backoff state machine; the
     # tick handler already self-contains its failures.
     "download_notifications",
-    # Magnet resolution has its own attempt budget + backoff and claims the
-    # DB row; a re-launched queue job no-ops on the already-claimed row.
+    # These jobs own durable attempt/backoff state. Queue-level retries would
+    # bypass next_attempt_at and could duplicate an already-committed graph run.
     "resolve_magnet_torrent",
+    "fetch_torrent",
+    "reconcile_resource_listing",
 })
 
 RETRY_BACKOFF_CAP_SECONDS = 3600.0

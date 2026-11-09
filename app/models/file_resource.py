@@ -132,6 +132,26 @@ class FileResource(Base):
     container: Mapped[str | None] = mapped_column(String(20), nullable=True)
     file_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     torrent_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    magnet_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    # HTTP .torrent acquisition state. The attempt id fences late workers;
+    # retryable failures carry a due time for the fetch scheduler's sweep.
+    torrent_fetch_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    torrent_fetch_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    torrent_fetch_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    torrent_fetch_attempt_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    torrent_fetch_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    torrent_fetch_next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Listing acquisition and graph convergence are separate durable phases.
+    listing_reconcile_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    listing_reconcile_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    listing_reconcile_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    listing_reconcile_attempt_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    listing_reconcile_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    listing_reconcile_next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # Local relative path of the downloaded-and-cached .torrent file (torrent
     # content detection P1). The bytes are cached on disk only — never stored
     # in the DB. NULL = not (yet) fetched.

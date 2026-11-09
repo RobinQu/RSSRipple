@@ -97,7 +97,7 @@ async def test_admin_sdk_origin_does_not_authorize_other_private_target(sdk_serv
     else:
         monkeypatch.setattr(feed_analyzer, "runtime_config", SimpleNamespace(
             llm_base_url=base + "/v1", llm_api_key="synthetic-test-key",
-            llm_model="synthetic-model", llm_extra_body=lambda: {},
+            llm_model="synthetic-model", llm_temperature=0.0, llm_extra_body=lambda: {},
         ))
         try:
             messages = [{"role": "user", "content": "synthetic request"}]
@@ -123,7 +123,7 @@ async def test_other_llm_paths_enforce_destination(sdk_servers, monkeypatch, kin
     config = SimpleNamespace(
         llm_base_url=base, llm_api_key="synthetic-test-key",
         llm_model="synthetic-batch" if kind.startswith("batch") else "synthetic-model",
-        llm_extra_body=lambda: {},
+        llm_temperature=0.0, llm_extra_body=lambda: {},
     )
     monkeypatch.setattr(batch_content_analysis, "runtime_config", config)
     monkeypatch.setattr(metadata_agent, "runtime_config", config)

@@ -1,6 +1,10 @@
 # 数据库迁移方案
 
-为 `file_resources` 增加 nullable `magnet_resolve_attempt_id VARCHAR(36)`。轻量迁移按列存在性幂等执行，失败须阻止启动，禁止静默回退旧所有权语义；历史状态和缓存路径不改，旧行标识保持 NULL。升级前须停止全部旧版本 worker，迁移完成后再启动新版本。
+为 `file_resources` 增加 nullable `magnet_resolve_attempt_id VARCHAR(36)`。轻量迁移按列存在性幂等执行，失败须阻止启动，禁止静默回退旧所有权语义；历史状态和缓存路径不改，旧行标识保持 NULL。
+
+统一清单获取升级另为 `file_resources` 增加 `magnet_url`、完整 `torrent_fetch_*` 与 `listing_reconcile_*` 列（状态/错误/attempts/attempt_id/updated_at/next_attempt_at；两个 attempts 均 NOT NULL DEFAULT 0）。这些列承载 RSS HTTP→magnet 回退、获取/对账 CAS 与持久退避，**全部属于 mandatory 轻迁移**：任一列添加失败必须中止启动，不得落入 best-effort 后以无 fencing 的旧代码继续运行。升级前停止全部旧版本 web/worker 及其他数据库写入进程并完成备份，模式收敛后才启动新版本；不支持新旧写入者滚动混跑。历史行状态与 attempt ID 保持 NULL、计数为 0，由新 sweep/访问路径按需恢复，不把既有 torrent_file 改写或删除。
+
+`resource_file_assignments` 同时增加 `file_role VARCHAR(16) NOT NULL DEFAULT 'episode'` 与 nullable `attached_to_path VARCHAR(1024)`；历史指派由默认值收敛为 episode，attachment 保持 NULL，不根据文件名批量猜字幕父视频。角色校验和通知/整理消费以新应用代码为准。
 
 RSSRipple 支持三种数据库后端，两两之间都有可复现的迁移脚本。本文是**迁移的权威操作手册**：迁移矩阵、各脚本的用法与行为、Docker 部署下的迁移步骤、以及数据安全不变量。后端选型与全文检索语义见 [conventions.md](conventions.md) 的 `DATABASE_URL` 一节。
 

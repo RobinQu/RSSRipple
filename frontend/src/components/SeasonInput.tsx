@@ -15,6 +15,7 @@ interface SeasonInputProps {
   size?: InputProps['size'];
   style?: CSSProperties;
   addonBefore?: ReactNode;
+  disabled?: boolean;
 }
 
 /** Season picker with common 0-9 choices and unrestricted numeric entry. */
@@ -25,6 +26,7 @@ export default function SeasonInput({
   size,
   style,
   addonBefore,
+  disabled,
 }: SeasonInputProps) {
   const [text, setText] = useState(value == null ? '' : String(value));
 
@@ -44,7 +46,8 @@ export default function SeasonInput({
       options={SEASON_OPTIONS}
       onChange={update}
       onSelect={update}
-      allowClear
+      allowClear={!disabled}
+      disabled={disabled}
       onClear={() => update('')}
       style={style}
       filterOption={(input, option) => option?.value.startsWith(input) ?? false}
@@ -54,6 +57,7 @@ export default function SeasonInput({
         placeholder={placeholder}
         inputMode="numeric"
         addonBefore={addonBefore}
+        disabled={disabled}
       />
     </AutoComplete>
   );

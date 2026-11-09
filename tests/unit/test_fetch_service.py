@@ -258,6 +258,23 @@ class TestPausedChannelWriteBack:
         )).scalar_one()
         assert count == 1
 
+    async def test_http_enclosure_preserves_alternate_magnet(
+        self, db_session, channel, fake_queue, monkeypatch,
+    ):
+        from sqlalchemy import select
+
+        magnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
+        entry = _entry(
+            "dual", "[Group] Show - 01", description=f'<a href="{magnet}">magnet</a>',
+            enclosures=[{"url": "https://example.com/show.torrent", "type": "application/x-bittorrent"}],
+        )
+        monkeypatch.setattr(fs, "_parse_feed_sync", lambda _: _mock_feed([entry]))
+        monkeypatch.setattr(fs, "_process_resource_metadata", AsyncMock())
+        await fs.fetch_channel_resources(channel, db_session)
+        row = await db_session.scalar(select(FileResource).where(FileResource.guid == "dual"))
+        assert row.torrent_url == "https://example.com/show.torrent"
+        assert row.magnet_url == magnet
+
     async def test_pre_parser_fills_batch_and_subtitle_langs(self, db_session, channel, fake_queue):
         """Batch flag and subtitle language tags land on the row before the
         LLM path runs — even with the metadata agent stubbed out."""
@@ -1346,12 +1363,10 @@ async def test_reconcile_stale_raw_episodes(db_session, channel):
 # _process_resource_metadata: torrent caching wiring
 # ---------------------------------------------------------------------------
 
-async def test_process_resource_metadata_caches_torrent_before_inspect(
+async def test_process_resource_metadata_fetches_torrent_before_inspect(
     db_session, sample_channel, monkeypatch,
 ):
-    """Every resource gets its .torrent cached (ensure_torrent_cached) before
-    the batch-detection analysis (maybe_inspect_torrent) runs."""
-
+    """Classified HTTP acquisition precedes the batch report pipeline."""
     import app.services.torrent_inspect as ti
 
     res = FileResource(
@@ -1364,8 +1379,9 @@ async def test_process_resource_metadata_caches_torrent_before_inspect(
 
     calls: list[str] = []
 
-    async def _ensure(resource):
-        calls.append("ensure")
+    async def _fetch(db, resource, *, force=False):
+        calls.append("fetch")
+        return SimpleNamespace(files=[])
 
     async def _inspect(db, resource, channel):
         calls.append("inspect")
@@ -1374,14 +1390,58 @@ async def test_process_resource_metadata_caches_torrent_before_inspect(
     async def _link(db, resource, channel):
         calls.append("link")
 
-    monkeypatch.setattr(ti, "ensure_torrent_cached", _ensure)
+    monkeypatch.setattr("app.services.resource_listing.fetch_resource_torrent", _fetch)
     monkeypatch.setattr(ti, "maybe_inspect_torrent", _inspect)
     monkeypatch.setattr(fs, "fetch_and_link_metadata", _link)
 
     await fs._process_resource_metadata(
         res.id, sample_channel.id, MetadataConcurrency(1),
     )
-    assert calls == ["ensure", "inspect", "link"]
+    assert calls == ["fetch", "inspect", "link"]
+
+
+async def test_http_fetch_failure_enqueues_alternate_magnet(
+    db_session, sample_channel, monkeypatch,
+):
+    resource = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(), title_raw="Show - 01",
+        torrent_url="https://example.com/a.torrent", magnet_url="magnet:?xt=urn:btih:abc",
+        search_title="Show",
+    )
+    db_session.add(resource)
+    await db_session.commit()
+    monkeypatch.setattr(
+        "app.services.resource_listing.fetch_resource_torrent",
+        AsyncMock(return_value=SimpleNamespace(files=[], error="HTTP 503")),
+    )
+    monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", AsyncMock(return_value=False))
+    monkeypatch.setattr(fs, "fetch_and_link_metadata", AsyncMock())
+    enqueue = AsyncMock()
+    monkeypatch.setattr("app.services.magnet_resolve.enqueue_resolution", enqueue)
+
+    await fs._process_resource_metadata(resource.id, sample_channel.id, MetadataConcurrency(1))
+
+    enqueue.assert_awaited_once_with(resource.id)
+
+
+async def test_manual_reparse_forces_http_fetch(db_session, sample_channel, monkeypatch):
+    resource = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(), title_raw="Show - 01",
+        torrent_url="https://example.com/a.torrent", search_title="Show",
+        torrent_fetch_status="failed", torrent_fetch_error="disk full",
+    )
+    db_session.add(resource)
+    await db_session.commit()
+    fetch = AsyncMock(return_value=SimpleNamespace(files=[]))
+    monkeypatch.setattr("app.services.resource_listing.fetch_resource_torrent", fetch)
+    monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", AsyncMock(return_value=False))
+    monkeypatch.setattr(fs, "fetch_and_link_metadata", AsyncMock())
+
+    await fs._process_resource_metadata(
+        resource.id, sample_channel.id, MetadataConcurrency(1), force_refresh=True
+    )
+
+    assert fetch.call_args.kwargs["force"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -1457,16 +1517,16 @@ async def test_process_resource_metadata_restored_fk_is_cleared(
     await bootstrap_publications(db_session, writers_stopped=True)
     await db_session.commit()
 
-    async def _ensure(resource):
-        return None
-
     async def _inspect(db, resource, channel):
         return False
 
     async def _link(db, resource, channel):
         return None
 
-    monkeypatch.setattr("app.services.torrent_inspect.ensure_torrent_cached", _ensure)
+    monkeypatch.setattr(
+        "app.services.resource_listing.fetch_resource_torrent",
+        AsyncMock(return_value=SimpleNamespace(files=[])),
+    )
     monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", _inspect)
     monkeypatch.setattr(fs, "fetch_and_link_metadata", _link)
     monkeypatch.setattr(
@@ -1491,10 +1551,10 @@ async def test_process_resource_metadata_outer_exception_is_swallowed(
     db_session.add(res)
     await db_session.commit()
 
-    async def _boom(resource):
+    async def _boom(db, resource, *, force=False):
         raise RuntimeError("torrent cache exploded")
 
-    monkeypatch.setattr("app.services.torrent_inspect.ensure_torrent_cached", _boom)
+    monkeypatch.setattr("app.services.resource_listing.fetch_resource_torrent", _boom)
 
     # No exception should escape.
     await fs._process_resource_metadata(
@@ -1542,9 +1602,6 @@ async def test_process_resource_metadata_batch_enrichment_failures_are_swallowed
     await bootstrap_publications(db_session, writers_stopped=True)
     await db_session.commit()
 
-    async def _ensure(resource):
-        return None
-
     async def _inspect(db, resource, channel):
         return False
 
@@ -1554,7 +1611,10 @@ async def test_process_resource_metadata_batch_enrichment_failures_are_swallowed
     def _raise(*a, **kw):
         raise RuntimeError("enrichment down")
 
-    monkeypatch.setattr("app.services.torrent_inspect.ensure_torrent_cached", _ensure)
+    monkeypatch.setattr(
+        "app.services.resource_listing.fetch_resource_torrent",
+        AsyncMock(return_value=SimpleNamespace(files=[])),
+    )
     monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", _inspect)
     monkeypatch.setattr(fs, "fetch_and_link_metadata", _link)
     monkeypatch.setattr(
@@ -1612,6 +1672,83 @@ async def test_compilation_title_marks_batch_and_sets_search_title(
     )).scalar_one()
     assert row.is_batch is True
     assert row.search_title == "猫眼三姐妹"
+
+
+async def test_compilation_preserves_detected_multi_season_coverage(
+    db_session, channel, fake_queue,
+):
+    entries = [_entry(
+        "gcomp-multi",
+        "[整理搬运] 某动画 全三季：TV动画+剧场版",
+        enclosures=[{"url": "magnet:?xt=urn:btih:comp-multi"}],
+    )]
+    with patch(
+        "app.services.fetch_service._parse_feed_sync",
+        return_value=_mock_feed(entries),
+    ), patch(
+        "app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock
+    ):
+        await fs.fetch_channel_resources(channel, db_session)
+
+    from sqlalchemy import select
+
+    row = (await db_session.execute(
+        select(FileResource).where(FileResource.guid == "gcomp-multi")
+    )).scalar_one()
+    assert row.batch_scope == "multi_season"
+    assert row.batch_seasons == [1, 2, 3]
+
+
+async def test_metadata_reprocess_backfills_group_and_preserves_manual_value(
+    db_session, sample_channel, fake_queue, monkeypatch,
+):
+    missing = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
+        title_raw="[LoliHouse] 某作品 S01E01 [WebRip 1080p HEVC-10bit AAC]",
+        torrent_url="https://example.com/missing.torrent", search_title="某作品",
+    )
+    manual = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
+        title_raw="[WrongGroup] 某作品 S01E02 [WebRip 1080p]",
+        torrent_url="https://example.com/manual.torrent", search_title="某作品",
+        subtitle_group="ManualGroup", subtitle_groups=["ManualGroup"],
+        subtitle_groups_source="manual",
+    )
+    db_session.add_all([missing, manual])
+    await db_session.flush()
+    from app.services.publication_migration import bootstrap_publications
+
+    await bootstrap_publications(db_session, writers_stopped=True)
+    await db_session.commit()
+
+    async def _inspect(db, resource, channel):
+        return False
+
+    async def _link(db, resource, channel):
+        return None
+
+    monkeypatch.setattr(
+        "app.services.resource_listing.fetch_resource_torrent",
+        AsyncMock(return_value=SimpleNamespace(files=[])),
+    )
+    monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", _inspect)
+    monkeypatch.setattr(fs, "fetch_and_link_metadata", _link)
+
+    missing_id, manual_id = missing.id, manual.id
+    for resource_id in (missing_id, manual_id):
+        await fs._process_resource_metadata(
+            resource_id, sample_channel.id, MetadataConcurrency(1), force_refresh=True
+        )
+
+    db_session.expire_all()
+    missing_row = await db_session.get(FileResource, missing_id)
+    manual_row = await db_session.get(FileResource, manual_id)
+    assert missing_row.subtitle_group == "LoliHouse"
+    assert missing_row.subtitle_groups == ["LoliHouse"]
+    assert missing_row.subtitle_groups_source == "heuristic"
+    assert manual_row.subtitle_group == "ManualGroup"
+    assert manual_row.subtitle_groups == ["ManualGroup"]
+    assert manual_row.subtitle_groups_source == "manual"
 
 
 async def test_nn_mm_title_records_absolute_episode(

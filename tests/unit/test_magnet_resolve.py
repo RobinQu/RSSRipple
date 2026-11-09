@@ -10,6 +10,7 @@ torrent_inspect) so the success path can be validated end-to-end through
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import uuid
 from datetime import timedelta
@@ -280,7 +281,7 @@ async def test_stale_manual_retry_preserves_new_claim(db_session, sample_channel
         assert saved.magnet_resolve_status == "pending" and saved.magnet_resolve_attempts == 2
 
 
-async def test_inspection_discards_changes_after_attempt_replaced(db_session, sample_channel, monkeypatch, tmp_path):
+async def test_reconciliation_preserves_replacement_attempt(db_session, sample_channel, monkeypatch, tmp_path):
     from app.database import async_session_factory
     from app.models.file_resource import FileResource
 
@@ -293,16 +294,16 @@ async def test_inspection_discards_changes_after_attempt_replaced(db_session, sa
     monkeypatch.setattr(mr.settings, "torrent_cache_dir", str(tmp_path))
     monkeypatch.setattr(mr, "resolve_magnet_to_cache", AsyncMock())
 
-    async def inspect(db, stale_resource, channel):
+    async def reconcile(_resource_id, *, expected_magnet_attempt_id):
+        assert expected_magnet_attempt_id == attempt_id
         async with async_session_factory() as replacement:
             row = await replacement.get(FileResource, resource_id)
             row.magnet_resolve_attempt_id = replacement_id
             row.magnet_resolve_status = "pending"
             row.title_en = "Replacement title"
             await replacement.commit()
-        stale_resource.title_en = "Stale inspection title"
 
-    monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", inspect)
+    monkeypatch.setattr("app.services.resource_listing.reconcile_resource", reconcile)
     await mr._attempt_loop(resource_id, attempt_id)
     async with async_session_factory() as observer:
         saved = await observer.get(FileResource, resource_id)
@@ -391,26 +392,72 @@ async def test_old_resolution_preserves_replacement_result(db_session, sample_ch
         assert not (tmp_path / f"{resource_id}-{attempt_id}.torrent").exists()
 
 
-async def test_launch_skipped_when_libtorrent_missing(
+async def test_magnet_late_success_preserves_http_cache_winner(
+    db_session, sample_channel, monkeypatch, tmp_path,
+):
+    from app.database import async_session_factory
+    from app.models.file_resource import FileResource
+
+    resource = await _make_magnet_resource(db_session, sample_channel.id)
+    attempt_id = str(uuid.uuid4())
+    resource.magnet_resolve_attempt_id = attempt_id
+    await db_session.commit()
+    winner = tmp_path / "http-winner.torrent"
+
+    async def resolve_and_lose_cache(_uri, dest, _timeout, **kwargs):
+        Path(dest).write_bytes(b"late magnet")
+        async with async_session_factory() as other:
+            row = await other.get(FileResource, resource.id)
+            row.torrent_file = str(winner)
+            await other.commit()
+
+    monkeypatch.setattr(mr, "resolve_magnet_to_cache", resolve_and_lose_cache)
+    await mr._attempt_loop(resource.id, attempt_id)
+
+    async with async_session_factory() as observer:
+        saved = await observer.get(FileResource, resource.id)
+        assert saved.torrent_file == str(winner)
+        assert saved.magnet_resolve_attempt_id == attempt_id
+    assert not (tmp_path / f"{resource.id}-{attempt_id}.torrent").exists()
+
+
+async def test_launch_rechecks_url_and_usable_cache(
+    db_session, sample_channel, monkeypatch, tmp_path,
+):
+    monkeypatch.setattr(mr, "lt", _fake_lt())
+    nonmagnet = await _make_magnet_resource(
+        db_session, sample_channel.id, torrent_url="https://example.com/a.torrent"
+    )
+    assert await mr.launch_resolution(nonmagnet.id) is False
+
+    cached_path = tmp_path / "cached.torrent"
+    cached_path.write_bytes(bencodepy.encode(_VALID_TORRENT))
+    cached = await _make_magnet_resource(
+        db_session, sample_channel.id, torrent_file=str(cached_path)
+    )
+    assert await mr.launch_resolution(cached.id) is False
+    await db_session.refresh(cached)
+    assert cached.magnet_resolve_status is None
+
+
+async def test_launch_skipped_without_libtorrent_or_mirrors(
     db_session, sample_channel, monkeypatch
 ):
     monkeypatch.setattr(mr, "lt", None)
+    monkeypatch.setattr(mr.settings, "magnet_resolve_cache_mirrors", [])
     r = await _make_magnet_resource(db_session, sample_channel.id)
     assert await mr.launch_resolution(r.id) is False
     await db_session.refresh(r)
-    # Statuses never transition without libtorrent.
     assert r.magnet_resolve_status is None
 
 
-async def test_attempt_loop_success_marks_done_and_inspects(
+async def test_attempt_loop_success_marks_done_and_reconciles(
     db_session, sample_channel, monkeypatch, tmp_path
 ):
     monkeypatch.setattr(mr, "lt", _fake_lt())
     monkeypatch.setattr(mr.settings, "torrent_cache_dir", str(tmp_path))
-    inspect = AsyncMock(return_value=False)
-    monkeypatch.setattr(
-        "app.services.torrent_inspect.maybe_inspect_torrent", inspect
-    )
+    reconcile = AsyncMock()
+    monkeypatch.setattr("app.services.resource_listing.reconcile_resource", reconcile)
 
     r = await _make_magnet_resource(db_session, sample_channel.id)
     assert await mr.launch_resolution(r.id) is True
@@ -420,7 +467,27 @@ async def test_attempt_loop_success_marks_done_and_inspects(
     assert r.magnet_resolve_error is None
     assert r.torrent_file and Path(r.torrent_file).exists()
     assert parse_torrent_files(r.torrent_file) is not None
-    inspect.assert_awaited_once()
+    reconcile.assert_awaited_once_with(
+        r.id, expected_magnet_attempt_id=r.magnet_resolve_attempt_id
+    )
+
+
+async def test_attempt_loop_prefers_separate_magnet_url(
+    db_session, sample_channel, monkeypatch, tmp_path
+):
+    magnet = "magnet:?xt=urn:btih:abc"
+    resource = await _make_magnet_resource(
+        db_session, sample_channel.id,
+        torrent_url="https://example.com/fallback.torrent", magnet_url=magnet,
+    )
+    monkeypatch.setattr(mr.settings, "torrent_cache_dir", str(tmp_path))
+    resolve = AsyncMock()
+    monkeypatch.setattr(mr, "resolve_magnet_to_cache", resolve)
+    monkeypatch.setattr("app.services.resource_listing.reconcile_resource", AsyncMock())
+
+    await _run_claimed_attempt(resource.id)
+
+    assert resolve.call_args.args[0] == magnet
 
 
 async def test_attempt_loop_failure_exhausts_attempts(
@@ -700,6 +767,23 @@ async def test_mirror_hit_short_circuits_p2p(tmp_path, monkeypatch):
     assert fake.added_params == []
 
 
+async def test_mirror_base32_hit_without_libtorrent(tmp_path, monkeypatch):
+    raw, digest = _mirror_payload()
+    encoded = base64.b32encode(bytes.fromhex(digest)).decode().rstrip("=")
+    monkeypatch.setattr(mr, "lt", None)
+    fetch = Mock(return_value=raw)
+    monkeypatch.setattr(mr, "_fetch_mirror_torrent", fetch)
+
+    dest = tmp_path / "base32.torrent"
+    await mr.resolve_magnet_to_cache(
+        f"magnet:?dn=example&xt=urn:btih:{encoded}", str(dest), 60
+    )
+
+    assert dest.read_bytes() == raw
+    assert digest in fetch.call_args.args[0]
+    assert mr._session is None
+
+
 async def test_mirror_wrong_torrent_falls_back_to_p2p(tmp_path, monkeypatch):
     """A valid but unrelated torrent (itorrents' unknown-hash behavior) is
     discarded on infohash mismatch and the P2P path completes instead."""
@@ -751,8 +835,8 @@ async def test_mirror_skipped_without_v1_hash(tmp_path, monkeypatch):
     monkeypatch.setattr(mr, "_fetch_mirror_torrent", fetch)
 
     dest = tmp_path / "r.torrent"
-    # base32 btih and a magnet without xt both lack a 40-hex v1 hash.
-    for uri in ("magnet:?xt=urn:btih:MFRGGZDFMZTWQ2LK", "magnet:?dn=only"):
+    # v2-only and missing-xt magnets have no v1 mirror key.
+    for uri in ("magnet:?xt=urn:btmh:1220abcd", "magnet:?dn=only"):
         await mr.resolve_magnet_to_cache(uri, str(dest), 60)
     assert fetch.call_count == 0
     assert len(fake.added_params) == 2
@@ -1140,6 +1224,7 @@ async def test_enqueue_disabled_returns(db_session, sample_channel, monkeypatch)
 
 async def test_enqueue_missing_libtorrent_returns(db_session, sample_channel, monkeypatch):
     monkeypatch.setattr(mr, "lt", None)
+    monkeypatch.setattr(mr.settings, "magnet_resolve_cache_mirrors", [])
     fake_queue = SimpleNamespace(enqueue=AsyncMock())
     monkeypatch.setattr("app.services.task_queue.task_queue", fake_queue)
     r = await _make_magnet_resource(db_session, sample_channel.id)

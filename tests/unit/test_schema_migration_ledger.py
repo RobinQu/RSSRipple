@@ -172,7 +172,7 @@ def test_additions_single_source_of_truth():
     assert len(keys) == len(set(keys)), "duplicate (table, column) entry"
     # The historically stray entry lives in the main list now.
     assert ("webhook_deliveries", "attempt_token") in keys
-    assert len(_LIGHT_COLUMN_ADDITIONS) == 76
+    assert len(_LIGHT_COLUMN_ADDITIONS) == 91
     # The migration body consumes the constant; no runtime mutation anywhere.
     body = inspect.getsource(db_mod._apply_light_migrations)
     assert "_LIGHT_COLUMN_ADDITIONS" in body

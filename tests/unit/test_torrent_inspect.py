@@ -639,14 +639,14 @@ async def test_fetch_transient_failure_exhausts_attempts(tmp_path, monkeypatch):
     assert list(tmp_path.iterdir()) == []
 
 
-async def test_fetch_404_retried_once(tmp_path, monkeypatch):
+async def test_fetch_404_is_permanent_and_not_retried(tmp_path, monkeypatch):
     monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
     calls = _stub_httpx_counting(monkeypatch, [
         ("respond", 404, [b""]),
         ("respond", 404, [b""]),
     ])
     assert await fetch_torrent_file("https://x/missing.torrent", "rid-404") is None
-    assert calls[0] == 2
+    assert calls[0] == 1
 
 
 async def test_fetch_oversize_not_retried(tmp_path, monkeypatch):
@@ -668,6 +668,48 @@ async def test_fetch_invalid_bencode_not_retried(tmp_path, monkeypatch):
     ])
     assert await fetch_torrent_file("https://x/html.torrent", "rid-html") is None
     assert calls[0] == 1
+
+
+async def test_detailed_fetch_classifies_timeout_connection_and_http_retryable(tmp_path, monkeypatch):
+    monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
+    calls = _stub_httpx_counting(monkeypatch, [
+        ("raise", httpx.ConnectError("connection refused")),
+        ("raise", httpx.ReadTimeout("timed out")),
+    ])
+    with pytest.raises(ti.TorrentFetchError) as caught:
+        await ti.fetch_torrent_file_detailed("https://x/down.torrent", "rid-detailed")
+    assert caught.value.retryable is True
+    assert calls[0] == 2
+
+
+@pytest.mark.parametrize("status,retryable,call_count", [
+    (401, False, 1), (404, False, 1), (408, True, 2),
+    (429, True, 2), (500, True, 2), (503, True, 2),
+])
+async def test_detailed_fetch_classifies_http_status(
+    tmp_path, monkeypatch, status, retryable, call_count,
+):
+    monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
+    calls = _stub_httpx_counting(monkeypatch, [("respond", status, [b""])] * 2)
+    with pytest.raises(ti.TorrentFetchError) as caught:
+        await ti.fetch_torrent_file_detailed("https://x/status.torrent", "rid-status")
+    assert caught.value.retryable is retryable
+    assert calls[0] == call_count
+
+
+async def test_detailed_fetch_classifies_invalid_payload_permanent(tmp_path, monkeypatch):
+    monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
+    calls = _stub_httpx_counting(monkeypatch, [("respond", 200, [b"not bencode"])])
+    with pytest.raises(ti.TorrentFetchError) as caught:
+        await ti.fetch_torrent_file_detailed("https://x/html.torrent", "rid-html-detailed")
+    assert caught.value.retryable is False
+    assert calls[0] == 1
+
+
+async def test_detailed_fetch_rejects_invalid_url_as_permanent():
+    with pytest.raises(ti.TorrentFetchError) as caught:
+        await ti.fetch_torrent_file_detailed("magnet:?xt=urn:btih:abc", "rid-magnet")
+    assert caught.value.retryable is False
 
 
 # =============================================================================

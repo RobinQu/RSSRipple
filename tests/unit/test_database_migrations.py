@@ -212,6 +212,32 @@ async def test_torrent_detection_columns_are_added(db_engine, db_session):
     assert res.torrent_file == "cache/torrents/xyz.torrent"
 
 
+_TORRENT_FETCH_COLUMNS = {
+    "magnet_url", "torrent_fetch_status", "torrent_fetch_error",
+    "torrent_fetch_attempts", "torrent_fetch_attempt_id",
+    "torrent_fetch_updated_at", "torrent_fetch_next_attempt_at",
+    "listing_reconcile_status", "listing_reconcile_error", "listing_reconcile_attempts",
+    "listing_reconcile_attempt_id", "listing_reconcile_updated_at",
+    "listing_reconcile_next_attempt_at",
+}
+
+
+async def test_light_migrations_torrent_listing_columns_turso():
+    """Turso legacy rows gain the complete magnet/HTTP fetch state, idempotently."""
+    async with _raw_turso_engine() as engine:
+        async with engine.begin() as conn:
+            for column in _TORRENT_FETCH_COLUMNS:
+                await conn.execute(text(f"ALTER TABLE file_resources DROP COLUMN {column}"))
+        for _ in range(2):
+            async with engine.begin() as conn:
+                await _apply_light_migrations(conn)
+        async with engine.begin() as conn:
+            rows = (await conn.execute(text("PRAGMA table_info(file_resources)"))).fetchall()
+            columns = {row[1]: row for row in rows}
+            assert _TORRENT_FETCH_COLUMNS <= columns.keys()
+            assert columns["torrent_fetch_attempts"][4] == "0"
+
+
 async def test_plex_env_migration_creates_media_server(db_engine, db_session, monkeypatch):
     """存量全局 PLEX_URL/PLEX_TOKEN 环境变量 → 一条 Plex MediaServerInstance；
     libraries.plex_section 值拷到 section_key。幂等：实例表非空不再插。"""
@@ -619,6 +645,52 @@ async def test_light_migrations_column_additions_alter():
             await _apply_light_migrations(conn)
             cols = (await conn.execute(text("PRAGMA table_info(file_resources)"))).fetchall()
             assert "episode_confidence" in {row[1] for row in cols}
+
+
+async def test_light_migrations_file_roles_legacy_rows():
+    """旧指派行升级为 episode；字幕绑定列可空且迁移幂等。"""
+    async with _raw_turso_engine() as engine:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "INSERT INTO file_resources (id, channel_id, guid, title_raw, "
+                "torrent_url) VALUES ('fr1', 'c1', 'g1', 'x', 'http://x')"
+            ))
+            await conn.execute(text(
+                "INSERT INTO resource_file_assignments "
+                "(id, resource_id, file_path, source) "
+                "VALUES ('rfa1', 'fr1', 'Show/E01.mkv', 'auto')"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE resource_file_assignments DROP COLUMN attached_to_path"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE resource_file_assignments DROP COLUMN file_role"
+            ))
+        for _ in range(2):
+            async with engine.begin() as conn:
+                await _apply_light_migrations(conn)
+        async with engine.begin() as conn:
+            info = (await conn.execute(text(
+                "PRAGMA table_info(resource_file_assignments)"
+            ))).fetchall()
+            columns = {row[1]: row for row in info}
+            assert columns["file_role"][3] == 1
+            assert columns["file_role"][4] == "'episode'"
+            assert columns["attached_to_path"][3] == 0
+            row = (await conn.execute(text(
+                "SELECT file_role, attached_to_path FROM resource_file_assignments "
+                "WHERE id = 'rfa1'"
+            ))).one()
+            assert (row.file_role, row.attached_to_path) == ("episode", None)
+            await conn.execute(text(
+                "INSERT INTO resource_file_assignments "
+                "(id, resource_id, file_path, source) "
+                "VALUES ('rfa2', 'fr1', 'Show/E01.chs.ass', 'manual')"
+            ))
+            role = await conn.scalar(text(
+                "SELECT file_role FROM resource_file_assignments WHERE id = 'rfa2'"
+            ))
+            assert role == "episode"
 
 
 async def test_light_migrations_agent_webhook_copy():
@@ -1314,6 +1386,29 @@ async def test_create_tables_postgres_path(pg_env):
         assert "season_number" in {r[0] for r in cols}
 
 
+async def test_light_migrations_torrent_listing_columns_postgres(pg_env):
+    """PostgreSQL legacy rows converge to the same magnet/HTTP fetch columns."""
+    from app.database import create_tables
+
+    await create_tables()
+    async with pg_env.begin() as conn:
+        for column in _TORRENT_FETCH_COLUMNS:
+            await conn.execute(text(f"ALTER TABLE file_resources DROP COLUMN {column}"))
+    for _ in range(2):
+        async with pg_env.begin() as conn:
+            await _apply_light_migrations(conn)
+    async with pg_env.begin() as conn:
+        rows = await conn.execute(text(
+            "SELECT column_name, data_type, column_default FROM information_schema.columns "
+            "WHERE table_name = 'file_resources'"
+        ))
+        columns = {row.column_name: row for row in rows}
+        assert _TORRENT_FETCH_COLUMNS <= columns.keys()
+        assert columns["torrent_fetch_updated_at"].data_type == "timestamp without time zone"
+        assert columns["torrent_fetch_next_attempt_at"].data_type == "timestamp without time zone"
+        assert columns["torrent_fetch_attempts"].column_default == "0"
+
+
 async def test_light_migrations_postgres_legacy_shapes(pg_env):
     """PostgreSQL 分支：枚举扩展、download_tasks FK 放宽、旧投递列
     NOT NULL 放宽、required_metadata_fields 各收敛分支。"""
@@ -1755,6 +1850,31 @@ async def test_light_migrations_postgres_branches_fake_conn(monkeypatch):
     assert any("download_tasks_agent_id_fkey" in q for q in conn.executed)
     assert any("ALTER TABLE public.channels" in q and "AT TIME ZONE 'UTC'" in q
                for q in conn.executed)
+    for column in _TORRENT_FETCH_COLUMNS:
+        assert any(f"ADD COLUMN {column}" in q for q in conn.executed)
+    assert any("ADD COLUMN torrent_fetch_updated_at TIMESTAMP" in q for q in conn.executed)
+    assert any("ADD COLUMN torrent_fetch_next_attempt_at TIMESTAMP" in q for q in conn.executed)
+
+
+@pytest.mark.parametrize("column", [
+    "magnet_url", "torrent_fetch_status", "torrent_fetch_attempt_id",
+    "listing_reconcile_status", "listing_reconcile_attempt_id",
+])
+async def test_listing_cas_column_migration_failure_is_mandatory(column, monkeypatch):
+    import app.database as db_mod
+    from app.config import settings
+
+    class _FailConn(_FakePGConn):
+        async def execute(self, stmt, params=None):
+            if f"ADD COLUMN {column}" in str(stmt):
+                raise RuntimeError(f"injected {column} failure")
+            return await super().execute(stmt, params)
+
+    monkeypatch.setattr(settings, "database_url", "postgresql+asyncpg://u:p@h/db")
+    monkeypatch.setattr("app.services.resource_work_schema.ensure_resource_work_fk_guard", AsyncMock())
+    monkeypatch.setattr("app.services.metadata_cache_schema.upgrade_metadata_cache_keys", AsyncMock())
+    with pytest.raises(RuntimeError, match=f"injected {column} failure"):
+        await db_mod._apply_light_migrations(_FailConn([]))
 
 
 async def test_ensure_pg_trgm_indexes_fake_conn():

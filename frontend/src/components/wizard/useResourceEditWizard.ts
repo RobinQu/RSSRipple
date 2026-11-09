@@ -5,7 +5,7 @@
 // only render what this hook returns.
 // ---------------------------------------------------------------------------
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type SetStateAction } from 'react';
 import { App } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { collectionsApi } from '../../api/collections';
@@ -13,7 +13,9 @@ import { channelsApi, resourcesApi } from '../../api/channels';
 import { DEFAULT_FALLBACK_SOURCES } from '../channel-form/constants';
 import {
   admitWork,
+  isEpisodePlacement,
   pickWorkMatch,
+  placementWorkKey,
   stepFromSaveError,
   validateStep,
   workKeyOf,
@@ -23,6 +25,8 @@ import {
   DIRECT_METADATA_FIELD_KEYS,
   MEDIA_TEXT_KEYS,
   WORK_METADATA_FIELD_KEYS,
+  mediaLabelI18nKey,
+  missingReleaseMetadataFields,
   missingWorkMetadataFields,
   normTitle,
   scopeLabelOf,
@@ -36,12 +40,26 @@ import {
   type Placement,
   type PoolRow,
   type WorkMetadataDraft,
+  type WorkMetadataFieldKey,
 } from './types';
+import {
+  attachSubtitleToEpisode,
+  changePlacementRole,
+  defaultRoleWork,
+  placementsFromAssignments,
+  reconcileSubtitleAttachments,
+  seasonForWork,
+  shouldApplySuggestedEpisode,
+  sharedEpisodeEntries,
+  updateSharedEpisodes,
+  type PlacementMap,
+} from './placementState';
 import type {
   AssociationUpdatePayload,
   AssociationWorkRef,
   BatchSuggestion,
   BatchSuggestionWork,
+  FileAssignmentRole,
   FileResource,
   FileResourceDetail,
   MetadataSource,
@@ -95,15 +113,20 @@ export function useResourceEditWizard({
   // Per-work collection membership (series only) — drives the cross-collection
   // hints in step ① and the admission rule in addWork.
   const [workCollections, setWorkCollections] = useState<Record<string, string | null>>({});
-  const [placements, setPlacements] = useState<Record<string, Placement>>({});
-  const [originalPlacements, setOriginalPlacements] = useState<Record<string, Placement>>({});
+  const [placements, setPlacementsState] = useState<PlacementMap>({});
+  const setPlacements = (next: SetStateAction<PlacementMap>) => {
+    setPlacementsState((prev) => reconcileSubtitleAttachments(
+      typeof next === 'function' ? next(prev) : next,
+    ));
+  };
+  const [originalPlacements, setOriginalPlacements] = useState<PlacementMap>({});
   const [collectionId, setCollectionId] = useState<string | null>(null);
   const [collections, setCollections] = useState<
     { id: string; name: string }[]
   >([]);
 
-  const [epSeason, setEpSeason] = useState<number | null>(null);
-  const [epEpisode, setEpEpisode] = useState<number | null>(null);
+  const [epSeasonDraft, setEpSeasonDraft] = useState<number | null>(null);
+  const [epEpisodeDraft, setEpEpisodeDraft] = useState<number | null>(null);
   const [epAbsolute, setEpAbsolute] = useState<number | null>(null);
 
   const [media, setMedia] = useState<Record<MediaFieldKey, string>>({
@@ -141,6 +164,11 @@ export function useResourceEditWizard({
 
   // File-mapping selection state (step ① right pane).
   const [selectedWorkKey, setSelectedWorkKey] = useState<string | null>(null);
+  const workSelectionExplicitRef = useRef(false);
+  const selectWork = (key: string | null) => {
+    workSelectionExplicitRef.current = true;
+    setSelectedWorkKey(key);
+  };
   const [checkedFiles, setCheckedFiles] = useState<string[]>([]);
   const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
   // Cluster key waiting on a WorkPickerModal pick (whole-cluster binding).
@@ -171,6 +199,7 @@ export function useResourceEditWizard({
     setSuggestion(null);
     setCheckedFiles([]);
     setSelectedWorkKey(null);
+    workSelectionExplicitRef.current = false;
     setPickerCluster(null);
     setExpandedClusters(new Set());
     setStep(initialStep);
@@ -226,7 +255,7 @@ export function useResourceEditWizard({
       }
       for (const a of d.file_assignments ?? []) {
         const wt: WorkRefType | null = a.series_id ? 'series' : a.movie_id ? 'movie' : null;
-        if (!wt) continue;
+        if (!wt || (a.file_role ?? 'episode') !== 'episode') continue;
         const key = workKeyOf(wt, (a.series_id || a.movie_id)!);
         if (nextWorkSeasons[key] == null && a.season != null) {
           nextWorkSeasons[key] = a.season;
@@ -252,20 +281,9 @@ export function useResourceEditWizard({
       if (nextWorks.length > 0) {
         setSelectedWorkKey(workKeyOf(nextWorks[0].work_type, nextWorks[0].work_id));
       }
-      const nextPlacements: Record<string, Placement> = {};
-      for (const a of d.file_assignments ?? []) {
-        const wt: WorkRefType | null = a.series_id ? 'series' : a.movie_id ? 'movie' : null;
-        if (!wt) continue;
-        nextPlacements[a.file_path] = {
-          workType: wt,
-          workId: (a.series_id || a.movie_id)!,
-          season: a.season,
-          epStart: a.episode_start,
-          epEnd: a.episode_end,
-        };
-      }
-      setPlacements(nextPlacements);
+      const nextPlacements = placementsFromAssignments(d.file_assignments ?? []);
       setOriginalPlacements({ ...nextPlacements });
+      setPlacements(nextPlacements);
       // Collection preselection: season packs don't persist collection_id —
       // when it's null but every linked/FK work resolves to one and the same
       // collection, adopt it (mirrors the addWork adoption path).
@@ -284,8 +302,8 @@ export function useResourceEditWizard({
         if (ids.size === 1) nextCollectionId = [...ids][0];
       }
       setCollectionId(nextCollectionId);
-      setEpSeason(d.season ?? null);
-      setEpEpisode(d.episode ?? null);
+      setEpSeasonDraft(d.season ?? null);
+      setEpEpisodeDraft(d.episode ?? null);
       setEpAbsolute(d.absolute_episode ?? null);
       setMedia({
         resolution: d.resolution || '',
@@ -489,6 +507,7 @@ export function useResourceEditWizard({
     for (const path of paths) {
       const parsed = detParses[path];
       const placed = placements[path];
+      if (placed && !isEpisodePlacement(placed)) continue;
       const season = parsed?.season ?? placed?.season ?? null;
       const eps = [
         parsed?.episode ?? null,
@@ -522,7 +541,8 @@ export function useResourceEditWizard({
       paths
         .map((p) => placements[p])
         .filter((p): p is Placement => p != null)
-        .map((p) => workKeyOf(p.workType, p.workId)),
+        .map(placementWorkKey)
+        .filter((key): key is string => key != null),
     );
     if (keys.size === 0) return null;
     if (keys.size > 1) return 'mixed';
@@ -539,7 +559,7 @@ export function useResourceEditWizard({
     if (types.size === 1 && works.length === 1) {
       const seasons = new Set(
         Object.values(placements)
-          .filter((p) => p.workId === works[0].work_id)
+          .filter((p) => isEpisodePlacement(p) && p.workId === works[0].work_id)
           .map((p) => p.season)
           .filter((s): s is number => s != null),
       );
@@ -595,6 +615,19 @@ export function useResourceEditWizard({
     worksDirtyRef.current = true;
   };
 
+  const setWorkSeason = (key: string, season: number | null) => {
+    setWorkSeasons((prev) => ({ ...prev, [key]: season }));
+    setPlacements((prev) => {
+      const next = { ...prev };
+      for (const [path, placement] of Object.entries(next)) {
+        if (placement.fileRole === 'episode' && placementWorkKey(placement) === key) {
+          next[path] = { ...placement, season: seasonForWork(season, placement.season) };
+        }
+      }
+      return next;
+    });
+  };
+
   const removeWork = (key: string) => {
     const idx = works.findIndex(
       (w) => workKeyOf(w.work_type, w.work_id) === key,
@@ -611,20 +644,19 @@ export function useResourceEditWizard({
       delete next[key];
       return next;
     });
-    setPlacements((prev) => {
-      const next: Record<string, Placement> = {};
-      for (const [path, p] of Object.entries(prev)) {
-        if (workKeyOf(p.workType, p.workId) !== key) next[path] = p;
-      }
-      return next;
-    });
+    setPlacements((prev) => Object.fromEntries(
+      Object.entries(prev).filter(([, placement]) => placementWorkKey(placement) !== key),
+    ));
     setCheckedAssign((prev) =>
       prev.filter((path) => {
         const p = placements[path];
-        return p != null && workKeyOf(p.workType, p.workId) !== key;
+        return p != null && placementWorkKey(p) !== key;
       }),
     );
-    if (selectedWorkKey === key) setSelectedWorkKey(null);
+    if (selectedWorkKey === key) {
+      workSelectionExplicitRef.current = false;
+      setSelectedWorkKey(null);
+    }
     worksDirtyRef.current = true;
   };
 
@@ -648,19 +680,77 @@ export function useResourceEditWizard({
     }));
   };
 
+  const setSubtitleAttachment = (path: string, parentPath: string | null) => {
+    setPlacements((prev) => attachSubtitleToEpisode(prev, path, parentPath));
+  };
+
+  const setFileRole = (path: string, fileRole: FileAssignmentRole) => {
+    const existing = placements[path];
+    const existingWorkKey = existing ? placementWorkKey(existing) : null;
+    const work = existingWorkKey
+      ? works.find((candidate) => workKeyOf(candidate.work_type, candidate.work_id) === existingWorkKey) ?? null
+      : defaultRoleWork(works, selectedWorkKey, workSelectionExplicitRef.current);
+    if (fileRole !== 'excluded' && !existingWorkKey && !work) {
+      message.warning(t('resource.fileWorkRequired'));
+      return;
+    }
+    const workKey = existingWorkKey ?? (work ? workKeyOf(work.work_type, work.work_id) : null);
+    const parsed = detParses[path];
+    setPlacements(changePlacementRole(placements, path, fileRole, {
+      work,
+      workSeason: workKey ? workSeasons[workKey] : null,
+      parsedSeason: parsed?.season,
+      parsedEpisode: parsed?.episode,
+      fallbackSeason: joinSeason,
+    }));
+  };
+
+  const resourceEpisodeEntries = !isBatch ? sharedEpisodeEntries(placements) : [];
+  const resourceEpisodeEntry = resourceEpisodeEntries[0] ?? null;
+  const resourceEpisodeKey = resourceEpisodeEntry
+    ? placementWorkKey(resourceEpisodeEntry[1])
+    : null;
+  const resourceSeasonWorkKey = resourceEpisodeKey ?? (
+    works.length === 1 && works[0].work_type === 'series'
+      ? workKeyOf(works[0].work_type, works[0].work_id)
+      : null
+  );
+  const identitySeason = resourceSeasonWorkKey ? workSeasons[resourceSeasonWorkKey] : null;
+  const resourceSeasonLocked = identitySeason != null;
+  const epSeason = identitySeason ?? (
+    resourceEpisodeEntry ? resourceEpisodeEntry[1].season : epSeasonDraft
+  );
+  const epEpisode = resourceEpisodeEntry ? resourceEpisodeEntry[1].epStart : epEpisodeDraft;
+  const setEpSeason = (value: number | null) => {
+    if (resourceEpisodeEntry) {
+      if (!resourceSeasonLocked) {
+        setPlacements((prev) => updateSharedEpisodes(prev, 'season', value));
+      }
+    } else {
+      setEpSeasonDraft(value);
+    }
+  };
+  const setEpEpisode = (value: number | null) => {
+    if (resourceEpisodeEntry) {
+      setPlacements((prev) => updateSharedEpisodes(prev, 'episode', value));
+    } else {
+      setEpEpisodeDraft(value);
+    }
+  };
+
   /** Assignment rows of one work in display order (natural path sort, so the
    * episode numbers embedded in filenames ascend) — shared by the render and
    * the batch increment fill to guarantee identical ordering. */
   const sortedEntriesFor = (key: string): [string, Placement][] =>
     Object.entries(placements)
-      .filter(([, p]) => workKeyOf(p.workType, p.workId) === key)
+      .filter(([, p]) => placementWorkKey(p) === key)
       .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
 
-  /** Fill checked rows with ascending episode numbers (start, start+1, …) in
-   * display order; each file becomes a single-episode mapping. */
+  /** Fill checked episode rows with ascending episode numbers in display order. */
   const applyBatchEpisodeIncrement = () => {
     if (batchEpStart == null || !selectedWorkKey || checkedAssign.length === 0) return;
     const order = sortedEntriesFor(selectedWorkKey)
+      .filter(([, placement]) => isEpisodePlacement(placement))
       .map(([path]) => path)
       .filter((path) => checkedAssign.includes(path));
     setPlacements((prev) => {
@@ -674,13 +764,12 @@ export function useResourceEditWizard({
     });
   };
 
-  /** Selected work identity wins, except explicit season-0 extras stay specials. */
   const seasonForJoin = (
     workKey: string,
     parsedSeason: number | null | undefined,
     pickedSeason?: number | null,
   ): number | null =>
-    parsedSeason === 0 ? 0 : pickedSeason ?? workSeasons[workKey] ?? parsedSeason ?? joinSeason;
+    seasonForWork(pickedSeason ?? workSeasons[workKey], parsedSeason, joinSeason);
 
   const joinChecked = () => {
     if (!selectedWorkKey || checkedFiles.length === 0) return;
@@ -701,6 +790,8 @@ export function useResourceEditWizard({
         next[path] = {
           workType: wt,
           workId: wid,
+          fileRole: 'episode',
+          attachedToPath: null,
           season,
           epStart: ep,
           epEnd: ep,
@@ -737,7 +828,7 @@ export function useResourceEditWizard({
       const next = { ...prev };
       for (const path of group.allPaths) {
         const existing = next[path];
-        if (existing && workKeyOf(existing.workType, existing.workId) === targetKey) {
+        if (existing && placementWorkKey(existing) === targetKey) {
           continue;
         }
         const parsed = detParses[path];
@@ -750,7 +841,15 @@ export function useResourceEditWizard({
           continue;
         }
         const ep = parsed?.episode ?? null;
-        next[path] = { workType: ref.work_type, workId: ref.work_id, season: s, epStart: ep, epEnd: ep };
+        next[path] = {
+          workType: ref.work_type,
+          workId: ref.work_id,
+          fileRole: 'episode',
+          attachedToPath: null,
+          season: s,
+          epStart: ep,
+          epEnd: ep,
+        };
         applied += 1;
       }
       return next;
@@ -914,12 +1013,14 @@ export function useResourceEditWizard({
     if (soleSeries) {
       const workKey = workKeyOf(soleSeries.work_type, soleSeries.work_id);
       for (const f of sug.deterministic.files) {
+        if (!shouldApplySuggestedEpisode(next[f.path], f.file_role) || next[f.path]) continue;
         const workSeason = workSeasons[workKey];
-        if (workSeason != null && f.season != null && f.season !== 0 && f.season !== workSeason) continue;
-        const season = f.season === 0 ? 0 : workSeason ?? f.season;
+        if (workSeason != null && workSeason !== 0 && f.season != null && f.season !== 0 && f.season !== workSeason) continue;
+        const season = seasonForWork(workSeason, f.season);
         if (next[f.path] || season == null) continue;
         next[f.path] = {
           workType: 'series', workId: soleSeries.work_id,
+          fileRole: 'episode', attachedToPath: null,
           season, epStart: f.episode, epEnd: f.episode,
         };
         applied += 1;
@@ -949,10 +1050,12 @@ export function useResourceEditWizard({
       if (!target) continue;
       const targetSeason = workSeasons[workKeyOf(target.work_type, target.work_id)];
       for (const f of w.files) {
-        if (targetSeason != null && f.season != null && f.season !== 0 && f.season !== targetSeason) continue;
+        if (!shouldApplySuggestedEpisode(next[f.path], f.file_role)) continue;
+        if (targetSeason != null && targetSeason !== 0 && f.season != null && f.season !== 0 && f.season !== targetSeason) continue;
         next[f.path] = {
           workType: target.work_type, workId: target.work_id,
-          season: f.season === 0 ? 0 : targetSeason ?? f.season,
+          fileRole: 'episode', attachedToPath: null,
+          season: seasonForWork(targetSeason, f.season),
           epStart: f.episode_start, epEnd: f.episode_end,
         };
         applied += 1;
@@ -1053,6 +1156,10 @@ export function useResourceEditWizard({
     missingWorkFields: missingWorkMetadataFields(
       detail?.missing_fields ?? [], workFieldsTargetActive(),
     ),
+    missingReleaseFields: missingReleaseMetadataFields(detail?.missing_fields ?? []),
+    media,
+    directMetadata,
+    subtitleLangs,
     workMetadata,
   });
 
@@ -1061,9 +1168,24 @@ export function useResourceEditWizard({
   const showStepError = (stepIdx: number, error: WizardStepError) => {
     if (error.code === 'tv_season_required') {
       message.error(t('resource.tvSeasonRequired'));
+    } else if (error.code === 'tv_season_mismatch') {
+      message.error(t('resource.tvSeasonMismatch'));
+    } else if (error.code === 'subtitle_attachment_invalid') {
+      setSaveError({
+        step: stepIdx,
+        message: t('resource.subtitleAttachmentInvalid', {
+          paths: (error.paths ?? []).join('、'),
+        }),
+      });
+    } else if (error.code === 'release_fields_required') {
+      const fields = (error.fields ?? []).map((key) => t(mediaLabelI18nKey(key)));
+      setSaveError({
+        step: stepIdx,
+        message: t('resource.releaseFieldsRequired', { fields: fields.join('、') }),
+      });
     } else if (error.code === 'work_fields_required') {
       const fields = (error.fields ?? []).map((key) =>
-        t(`resource.${workMetadataLabelKey(key)}`)
+        t(`resource.${workMetadataLabelKey(key as WorkMetadataFieldKey)}`)
       );
       setSaveError({
         step: stepIdx,
@@ -1098,18 +1220,20 @@ export function useResourceEditWizard({
     const payload: AssociationUpdatePayload = {
       is_batch: isBatch,
       works,
-      assignments:
-        isBatch && !audioLinked
-          ? Object.entries(placements).map(([file_path, p]) => ({
-              file_path,
-              work_type: p.workType,
-              work_id: p.workId,
-              file_size: files.find((f) => f.name === file_path)?.size ?? null,
-              season: p.season,
-              episode_start: p.epStart,
-              episode_end: p.epEnd,
-            }))
-          : [],
+      assignments: audioLinked
+        ? []
+        : Object.entries(placements).map(([file_path, p]) => ({
+            file_path,
+            file_role: p.fileRole,
+            attached_to_path: p.fileRole === 'subtitle' ? p.attachedToPath : null,
+            ...(p.workType && p.workId
+              ? { work_type: p.workType, work_id: p.workId }
+              : {}),
+            file_size: files.find((f) => f.name === file_path)?.size ?? null,
+            season: p.fileRole === 'episode' || p.fileRole === 'extra' ? p.season : null,
+            episode_start: p.fileRole === 'episode' ? p.epStart : null,
+            episode_end: p.fileRole === 'episode' ? p.epEnd : null,
+          })),
       ...(isBatch ? { collection_id: collectionId } : {}),
     };
     if (!isBatch && !audioLinked) {
@@ -1169,27 +1293,45 @@ export function useResourceEditWizard({
       .map((k) => workTitles[k] || k);
 
     const mappingChanged: { path: string; label: string }[] = [];
-    for (const [path, p] of Object.entries(placements)) {
+    const mappingPaths = new Set([
+      ...Object.keys(originalPlacements),
+      ...Object.keys(placements),
+    ]);
+    for (const path of mappingPaths) {
+      const p = placements[path];
       const orig = originalPlacements[path];
+      if (!p) {
+        mappingChanged.push({ path, label: t('resource.mappingRemoved') });
+        continue;
+      }
       const same =
         orig &&
         orig.workType === p.workType &&
         orig.workId === p.workId &&
+        orig.fileRole === p.fileRole &&
+        orig.attachedToPath === p.attachedToPath &&
         orig.season === p.season &&
         orig.epStart === p.epStart &&
         orig.epEnd === p.epEnd;
       if (!same) {
-        const label = workTitles[workKeyOf(p.workType, p.workId)] || p.workId;
+        const workKey = placementWorkKey(p);
+        const workLabel = workKey ? workTitles[workKey] || workKey : null;
         const se =
           p.epStart != null
             ? p.epEnd != null && p.epEnd !== p.epStart
               ? `E${p.epStart}-${p.epEnd}`
               : `E${p.epStart}`
             : '';
-        mappingChanged.push({
-          path,
-          label: `${label}${p.season != null ? ` · S${p.season}` : ''}${se ? ` · ${se}` : ''}`,
-        });
+        const labels = [
+          t(`resource.fileRole_${p.fileRole}`),
+          workLabel,
+          p.fileRole === 'episode' && p.season != null ? `S${p.season}` : null,
+          p.fileRole === 'episode' && se ? se : null,
+          p.fileRole === 'subtitle' && p.attachedToPath
+            ? t('resource.attachedToEpisode', { path: p.attachedToPath })
+            : null,
+        ].filter(Boolean);
+        mappingChanged.push({ path, label: labels.join(' · ') });
       }
     }
 
@@ -1447,7 +1589,7 @@ export function useResourceEditWizard({
     workTitles,
     workSeasons,
     workCollections,
-    setWorkSeasons,
+    setWorkSeason,
     collectionId,
     setCollectionId,
     collections,
@@ -1463,6 +1605,7 @@ export function useResourceEditWizard({
     // single-episode fields (step 1, non-batch)
     epSeason,
     setEpSeason,
+    resourceSeasonLocked,
     epEpisode,
     setEpEpisode,
     epAbsolute,
@@ -1474,11 +1617,13 @@ export function useResourceEditWizard({
     setBatchEpStart,
     placements,
     setPlacementField,
+    setSubtitleAttachment,
+    setFileRole,
     unassignPaths,
     sortedEntriesFor,
     applyBatchEpisodeIncrement,
     selectedWorkKey,
-    setSelectedWorkKey,
+    setSelectedWorkKey: selectWork,
     checkedFiles,
     expandedClusters,
     toggleCluster,

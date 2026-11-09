@@ -11,6 +11,8 @@ import uuid
 
 from sqlalchemy import select
 
+from app.models.resource_file_assignment import ResourceFileAssignment
+
 
 def _uuid() -> str:
     return str(uuid.uuid4())
@@ -1375,6 +1377,8 @@ async def test_suggest_batch_content_with_files(monkeypatch):
     assert result["deterministic"]["scope_hint"] == "season"
     assert result["deterministic"]["seasons"] == []
     assert result["deterministic"]["files"][0]["episode"] == 1
+    assert result["deterministic"]["files"][0]["file_role"] == "episode"
+    assert result["deterministic"]["files"][0]["attached_to_path"] is None
     assert result["deterministic"]["clusters"][0]["title"] == "Show"
     assert result["works"][0]["title"] == "Show"
 
@@ -1724,3 +1728,193 @@ def test_apply_hint_marks_bound_auto_extras_without_touching_manual():
     })
     assert auto.season == 0 and auto.series_id == "s1"
     assert manual.season == 1
+
+
+async def test_multi_season_bind_leaves_explicit_other_season_unbound(
+    db_session, sample_channel,
+):
+    from app.models.file_resource import FileResource
+    from app.models.resource_file_assignment import ResourceFileAssignment
+    from app.models.series import TVSeries
+
+    work = TVSeries(id=_uuid(), title_cn="作品", season_number=1)
+    resource = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
+        title_raw="作品 多季包", torrent_url="https://x/a.torrent",
+        is_batch=True, batch_scope="multi_season", series_id=work.id,
+    )
+    db_session.add_all([work, resource])
+    await db_session.flush()
+    same = ResourceFileAssignment(
+        resource_id=resource.id, file_path="Show/S01/Show.S01E01.mkv",
+        season=1, episode_start=1, episode_end=1, source="auto",
+    )
+    other = ResourceFileAssignment(
+        resource_id=resource.id, file_path="Show/S02/Show.S02E01.mkv",
+        season=2, episode_start=1, episode_end=1, source="auto",
+    )
+    manual = ResourceFileAssignment(
+        resource_id=resource.id, file_path="Show/S02/Show.S02E02.mkv",
+        season=2, episode_start=2, episode_end=2, source="manual",
+    )
+    db_session.add_all([same, other, manual])
+    await db_session.flush()
+
+    assert await _bca.bind_single_work_assignments(db_session, resource) == 1
+    assert same.series_id == work.id
+    assert other.series_id is None and other.season == 2
+    assert manual.series_id is None and manual.season == 2
+
+
+async def test_single_work_binding_follows_roles_and_subtitle_target(
+    db_session, sample_channel,
+):
+    from app.models.file_resource import FileResource
+    from app.models.resource_file_assignment import ResourceFileAssignment
+    from app.models.series import TVSeries
+
+    work = TVSeries(id=_uuid(), title_cn="作品", season_number=1)
+    resource = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
+        title_raw="作品", torrent_url="https://x/a.torrent",
+        is_batch=True, batch_scope="season", series_id=work.id, season=1,
+    )
+    db_session.add_all([work, resource])
+    await db_session.flush()
+    episode = ResourceFileAssignment(
+        resource_id=resource.id, file_path="Show/S01E01.mkv",
+        file_role="episode", season=1, episode_start=1, episode_end=1,
+        source="auto",
+    )
+    subtitle = ResourceFileAssignment(
+        resource_id=resource.id, file_path="Show/S01E01.chs.ass",
+        file_role="subtitle", attached_to_path=episode.file_path, source="auto",
+    )
+    extra = ResourceFileAssignment(
+        resource_id=resource.id, file_path="Show/[NCOP_01].mkv",
+        file_role="extra", season=0, source="auto",
+    )
+    excluded = ResourceFileAssignment(
+        resource_id=resource.id, file_path="Show/fonts.zip",
+        file_role="excluded", source="auto",
+    )
+    db_session.add_all([episode, subtitle, extra, excluded])
+    await db_session.flush()
+
+    assert await _bca.bind_single_work_assignments(db_session, resource) == 3
+    assert episode.series_id == work.id
+    assert subtitle.series_id == work.id
+    assert extra.series_id == work.id and extra.season == 0
+    assert excluded.series_id is None and excluded.movie_id is None
+
+
+def test_auto_reparse_preserves_existing_placement_when_new_parse_is_empty():
+    row = ResourceFileAssignment(
+        resource_id="r-reparse", file_path="Show/E01.mkv", source="auto",
+        file_role="episode", season=1, episode_start=1, episode_end=1,
+    )
+    resource = _SimpleNamespace(
+        id="r-reparse", file_assignments=[row], subtitle_group="G",
+        subtitle_groups=["G"],
+    )
+    empty = TorrentReport(
+        scope="single", is_batch=False,
+        file_parses=[{
+            "path": row.file_path, "size": 100, "file_role": "episode",
+            "season": None, "episode": None,
+        }],
+    )
+
+    _bca.apply_auto_assignments(resource, empty)
+
+    assert (row.season, row.episode_start, row.episode_end) == (1, 1, 1)
+
+    corrected = TorrentReport(
+        scope="single", is_batch=False,
+        file_parses=[{
+            "path": row.file_path, "size": 100, "file_role": "episode",
+            "season": 2, "episode": 5,
+        }],
+    )
+    _bca.apply_auto_assignments(resource, corrected)
+    assert (row.season, row.episode_start, row.episode_end) == (2, 5, 5)
+
+
+async def test_bind_does_not_guess_between_multiple_work_links(db_session, sample_channel):
+    from app.models.file_resource import FileResource
+    from app.models.resource_work_link import ResourceWorkLink
+    from app.models.series import TVSeries
+
+    first = TVSeries(id=_uuid(), title_cn="第一季", season_number=1)
+    second = TVSeries(id=_uuid(), title_cn="第二季", season_number=2)
+    resource = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
+        title_raw="多季包", torrent_url="https://x/a.torrent",
+        is_batch=True, batch_scope="season",
+    )
+    db_session.add_all([first, second, resource])
+    await db_session.flush()
+    row = ResourceFileAssignment(
+        resource_id=resource.id, file_path="S01/E01.mkv", source="auto",
+        file_role="episode", episode_start=1, episode_end=1,
+    )
+    db_session.add_all([
+        ResourceWorkLink(resource_id=resource.id, series_id=first.id, source="auto"),
+        ResourceWorkLink(resource_id=resource.id, series_id=second.id, source="auto"),
+        row,
+    ])
+    await db_session.flush()
+
+    assert await _bca.bind_single_work_assignments(db_session, resource) == 0
+    assert row.series_id is None
+    assert row.season is None
+
+
+async def test_links_only_single_season_recovers_assignment_and_coverage(
+    db_session, sample_channel,
+):
+    from app.models.file_resource import FileResource
+    from app.models.resource_work_link import ResourceWorkLink
+    from app.models.series import TVSeries
+    from app.models.work_collection import WorkCollection
+    from app.services.resource_coverage import batch_coverage
+
+    collection = WorkCollection(id=_uuid(), title_cn="作品")
+    work = TVSeries(
+        id=_uuid(), title_cn="作品 S1", season_number=1,
+        number_of_episodes=12, collection_id=collection.id,
+        external_source="bangumi", external_id="bangumi:1",
+    )
+    resource = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
+        title_raw="作品 S01 01-12", torrent_url="https://x/a.torrent",
+        is_batch=True, batch_scope="season", season=None,
+    )
+    link = ResourceWorkLink(
+        resource_id=resource.id, series_id=work.id, source="auto", series=work,
+    )
+    resource.work_links = [link]
+    db_session.add_all([collection, work, resource])
+    await db_session.flush()
+    rows = [
+        ResourceFileAssignment(
+            resource_id=resource.id, file_path=f"Show/E{episode:02d}.mkv",
+            series_id=work.id, file_role="episode", season=None,
+            episode_start=episode, episode_end=episode, source="auto",
+        )
+        for episode in range(1, 13)
+    ]
+    db_session.add_all(rows)
+    await db_session.flush()
+
+    assert await _bca.bind_single_work_assignments(db_session, resource) == 0
+
+    assert resource.season == 1
+    assert resource.batch_seasons == [1]
+    assert resource.season_ranges == [
+        {"season": 1, "episode_start": 1, "episode_end": 12}
+    ]
+    assert {row.season for row in rows} == {1}
+    assert batch_coverage(resource) == (
+        ("series", work.id, 1, ((1, 12),)),
+    )

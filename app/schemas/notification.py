@@ -150,11 +150,15 @@ class NotificationResourcePayload(BaseModel):
 class NotificationFileAssociation(BaseModel):
     file_path: str
     file_size: int | None = None
-    work_type: Literal["series", "movie"]
-    work_id: str
+    file_role: Literal["episode", "subtitle", "extra", "excluded"] = "episode"
+    attached_to_path: str | None = None
+    work_type: Literal["series", "movie"] | None = None
+    work_id: str | None = None
     season: int | None = None
     episode_start: int | None = None
     episode_end: int | None = None
+    # Work fields stay nullable so partial snapshots can expose unresolved
+    # episodes/subtitles; completeness is validated by the snapshot builder.
     source: Literal["auto", "llm", "manual"] | None = None
 
 

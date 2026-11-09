@@ -5,13 +5,16 @@
 import type {
   AssociationUpdatePayload,
   AssociationWorkFieldsInput,
+  FileAssignmentRole,
   ResourceFileItem,
   WorkRefType,
 } from '../../types';
 
 export interface Placement {
-  workType: WorkRefType;
-  workId: string;
+  workType: WorkRefType | null;
+  workId: string | null;
+  fileRole: FileAssignmentRole;
+  attachedToPath: string | null;
   season: number | null;
   epStart: number | null;
   epEnd: number | null;
@@ -59,6 +62,24 @@ export function missingWorkMetadataFields(
   return targetActive
     ? WORK_METADATA_FIELD_KEYS.filter((key) => missingFields.includes(key))
     : [];
+}
+
+export type ReleaseMetadataFieldKey =
+  | DirectMetadataFieldKey
+  | MediaFieldKey
+  | 'subtitle_langs';
+
+export function missingReleaseMetadataFields(
+  missingFields: string[],
+): ReleaseMetadataFieldKey[] {
+  const normalized = new Set(
+    missingFields.map((key) => key === 'subtitle_group' ? 'subtitle_groups' : key),
+  );
+  return [
+    ...DIRECT_METADATA_FIELD_KEYS,
+    ...MEDIA_TEXT_KEYS,
+    'subtitle_langs',
+  ].filter((key): key is ReleaseMetadataFieldKey => normalized.has(key));
 }
 
 export function workMetadataLabelKey(key: WorkMetadataFieldKey): string {
@@ -139,6 +160,7 @@ export function mediaLabelKey(k: MediaFieldKey | string): string {
     case 'subtitle_type': return 'subtitleType';
     case 'container': return 'container';
     case 'subtitle_groups': return 'subtitleGroup';
+    case 'subtitle_langs': return 'subtitleLangs';
     default: return String(k);
   }
 }

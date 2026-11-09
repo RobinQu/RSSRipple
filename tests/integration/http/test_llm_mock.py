@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import uuid
 
 import httpx
@@ -71,6 +72,62 @@ def _poll_fetch(channel_id: str, timeout: int = 120) -> dict:
             return data
         time.sleep(2)
     raise TimeoutError(f"Fetch did not complete for channel {channel_id}")
+
+
+_ACQUISITION_JOB_TYPES = frozenset({
+    "fetch_channel", "backfill_metadata", "reprocess_resource_metadata",
+    "fetch_torrent", "reconcile_resource_listing", "run_agent",
+    "refresh_resource_organize", "download_notifications", "sync_progress",
+})
+
+
+def _active_acquisition_writers() -> list[dict]:
+    r = _api("/api/v1/queue/jobs", params={"page_size": 100})
+    assert r.status_code == 200, f"queue snapshot failed: {r.text}"
+    return [
+        job for job in r.json().get("data", [])
+        if job.get("status") in ("queued", "running")
+        and job.get("job_type") in _ACQUISITION_JOB_TYPES
+    ]
+
+
+def _wait_for_writer_quiescence() -> None:
+    """Wait for acquisition writers before creating a backfill Agent."""
+    deadline = time.time() + 90
+    while True:
+        active = _active_acquisition_writers()
+        if not active:
+            return
+        if time.time() >= deadline:
+            raise AssertionError(f"acquisition writers did not quiesce: {active}")
+        time.sleep(0.2)
+
+
+def _wait_for_candidate_resources(channel_id: str) -> list[dict]:
+    """Wait until all feed rows are linked and their background writes finish."""
+    deadline = time.time() + 120
+    while True:
+        r = _api(f"/api/v1/channels/{channel_id}/resources", params={"page_size": 100})
+        rows = r.json().get("data", [])
+        linked = [row for row in rows if row.get("series_id")]
+        active = _active_acquisition_writers()
+        if len(linked) == 18 and not active:
+            return linked
+        if time.time() >= deadline:
+            unlinked = [
+                {
+                    "guid": row.get("guid"),
+                    "metadata_failure_type": row.get("metadata_failure_type"),
+                    "episode_confidence": row.get("episode_confidence"),
+                    "metadata_attempts": row.get("metadata_attempts"),
+                }
+                for row in rows if not row.get("series_id")
+            ]
+            raise AssertionError(
+                f"candidate fixture did not converge: linked={len(linked)}/18; "
+                f"unlinked={unlinked}; active_writers={active}"
+            )
+        time.sleep(0.25)
 
 
 def _ensure_mock_downloader() -> str:
@@ -197,10 +254,9 @@ def _llm_env():
     if result.get("status") != "done":
         pytest.skip(f"Fetch did not complete: {result}")
 
-    r = _api(f"/api/v1/channels/{ch_id}/resources", params={"page_size": 100})
-    resources = [res for res in r.json().get("data", []) if res.get("series_id")]
-    if not resources:
-        pytest.skip("resources not linked")
+    # Fetch completion alone does not prove that all metadata commits and
+    # queued writers have settled under full-suite load.
+    resources = _wait_for_candidate_resources(ch_id)
 
     dl_id = _ensure_mock_downloader()
     yield {
@@ -216,6 +272,7 @@ def _llm_env():
 class TestLLMCandidatePick:
     def test_ask_decisions_carry_llm_pick_and_ai_pick_dispatches(self, _llm_env):
         """ask-mode backfill → decisions with cached LLM pick → ai-pick works."""
+        _wait_for_writer_quiescence()
         r = _api(
             "/api/v1/agents",
             method="post",
@@ -277,6 +334,7 @@ class TestLLMCandidatePick:
         ep1 = [res for res in _llm_env["resources"] if res.get("episode") == 1]
         assert len(ep1) == 3
 
+        _wait_for_writer_quiescence()
         r = _api(
             "/api/v1/agents",
             method="post",
@@ -376,7 +434,16 @@ class TestEndToEndMockPipeline:
             linked = [res for res in resources if res.get("series_id") == series_id]
             assert len(linked) == 18, (
                 f"expected all 18 S0 resources linked to the canned series, "
-                f"got {len(linked)}"
+                f"got {len(linked)}; unlinked={[
+                    {
+                        'title_raw': res['title_raw'],
+                        'season': res.get('season'),
+                        'episode': res.get('episode'),
+                        'confidence': res.get('episode_confidence'),
+                        'failure': res.get('metadata_failure_type'),
+                    }
+                    for res in resources if res.get('series_id') != series_id
+                ]}"
             )
 
             # Agent backfill dispatch: auto conflict resolution with the mock

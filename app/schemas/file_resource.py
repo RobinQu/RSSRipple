@@ -160,6 +160,8 @@ class ResourceFileAssignmentItem(BaseModel):
     id: str
     file_path: str
     file_size: int | None = None
+    file_role: Literal["episode", "subtitle", "extra", "excluded"] = "episode"
+    attached_to_path: str | None = None
     series_id: str | None = None
     movie_id: str | None = None
     work_title_hint: str | None = None
@@ -286,18 +288,41 @@ class AssociationWorkRef(BaseModel):
 
 
 class AssociationFileAssignment(BaseModel):
-    """One file→work placement inside the association update payload."""
+    """One role-aware file placement inside the association update payload."""
 
     file_path: str
-    work_type: Literal["series", "movie"]
-    work_id: str
+    work_type: Literal["series", "movie"] | None = None
+    work_id: str | None = None
     file_size: int | None = None
+    file_role: Literal["episode", "subtitle", "extra", "excluded"] = "episode"
+    attached_to_path: str | None = None
     season: int | None = None
     episode_start: int | None = None
     episode_end: int | None = None
 
     @model_validator(mode="after")
-    def _check_range(self) -> "AssociationFileAssignment":
+    def _check_role_and_range(self) -> "AssociationFileAssignment":
+        has_work_type = self.work_type is not None
+        has_work_id = self.work_id is not None
+        if self.file_role == "excluded":
+            if has_work_type or has_work_id:
+                raise ValueError("excluded files cannot be associated with a work")
+        elif self.file_role == "episode" and not has_work_type and not has_work_id:
+            raise ValueError("work_type and work_id are required for episode files")
+        if has_work_type != has_work_id:
+            raise ValueError("work_type and work_id must be supplied together")
+        if self.file_role != "subtitle" and self.attached_to_path is not None:
+            raise ValueError("attached_to_path is only valid for subtitle files")
+        if self.attached_to_path is not None and not self.attached_to_path.strip():
+            raise ValueError("attached_to_path cannot be empty")
+        if self.file_role != "episode" and (
+            self.episode_start is not None or self.episode_end is not None
+        ):
+            raise ValueError("only episode files can have an episode range")
+        if self.file_role in ("subtitle", "excluded") and self.season is not None:
+            raise ValueError("subtitle/excluded files cannot have a season")
+        if self.file_role == "extra" and self.season not in (None, 0):
+            raise ValueError("extra files can only use season 0")
         if (
             self.episode_start is not None
             and self.episode_end is not None
@@ -370,7 +395,7 @@ class ResourceAssociationUpdateRequest(BaseModel):
     Invariants enforced server-side (see resources.apply_association_update):
 
     - ``is_batch=False``: at most one work — written to the legacy mutually
-      exclusive FK; links / assignments / collection are cleared.
+      exclusive FK; links / collection are cleared, assignments are retained.
     - ``is_batch=True`` with exactly one TV work: that work also lands in the
       legacy FK so the agent dedup coverage key keeps working.
     - ``is_batch=True`` with 2+ works or any movie pack: legacy work FKs are
@@ -378,7 +403,8 @@ class ResourceAssociationUpdateRequest(BaseModel):
     - ``batch_scope`` may be omitted — it is derived from the works set:
       all-movie → "movies"; mixed tv+movie or multi-tv → "franchise";
       single tv → "season" when a season is known else "multi_season".
-    - Every assignment's (work_type, work_id) must appear in ``works``.
+    - Episodes reference ``works``. Extras and excluded files need none;
+      subtitles may inherit from ``attached_to_path`` or the sole work.
     - Every ``work_fields`` target must also appear in ``works``; series use
       ``start_date`` and movies use ``release_date``.
     - Two-level association (per-season works): when ``collection_id`` is

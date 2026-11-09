@@ -15,9 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import async_session_factory, get_db
 from app.models.channel import Channel
-from app.models.download_notification import DownloadNotification
 from app.models.download_task import DownloadTask
-from app.models.downloader import DownloaderInstance
 from app.models.file_resource import FileResource
 from app.models.metadata_cache import METADATA_CACHE_GENERATION, MetadataCache
 
@@ -42,12 +40,7 @@ from app.services import task_queue as task_queue_module  # live queue singleton
 from app.services.agent_resource_requests import request_channel_resources, wake_agents
 from app.services.metadata_cache_store import cache_identity, store_cache
 from app.services.metadata_service import fetch_and_link_metadata
-from app.services.torrent_inspect import (
-    ensure_torrent_cached,
-    fetch_torrent_file,
-    maybe_inspect_torrent,
-    parse_torrent_files,
-)
+from app.services.torrent_inspect import ensure_torrent_cached, maybe_inspect_torrent
 
 router = APIRouter()
 
@@ -828,67 +821,13 @@ async def correct_episode(
 async def _resolve_resource_files(
     db: AsyncSession, resource: FileResource
 ) -> tuple[list[dict], str]:
-    """Resolve a resource's torrent file listing (shared by the files GET
-    endpoint and the analyze-batch suggestions).
+    """Delegate to the shared cache/HTTP/downloader/notification resolver."""
+    from app.services.resource_listing import resolve_resource_listing, schedule_listing_reconcile
 
-    Resolution order (first hit wins, recorded in ``source``):
-    torrent_cache → torrent_fetch → downloader RPC → notification snapshot.
-    Returns ``([], "none")`` when nothing is available. May commit (the live
-    fetch persists the cache path).
-    """
-    # 1. Local .torrent cache.
-    cached = resource.torrent_file
-    if cached and Path(cached).exists():
-        files = parse_torrent_files(cached)
-        if files is not None:
-            return files, "torrent_cache"
-
-    # 2. Live fetch of an http(s) direct link (persist the cache path).
-    url = resource.torrent_url or ""
-    if url.startswith(("http://", "https://")):
-        path = await fetch_torrent_file(url, resource.id)
-        if path:
-            resource.torrent_file = path
-            await db.commit()
-            files = parse_torrent_files(path)
-            if files is not None:
-                return files, "torrent_fetch"
-
-    # 3. Latest download task → downloader RPC (best-effort, failures silent).
-    task = (await db.execute(
-        select(DownloadTask)
-        .where(DownloadTask.file_resource_id == resource.id)
-        .order_by(DownloadTask.created_at.desc())
-        .limit(1)
-    )).scalar_one_or_none()
-    if task is not None and task.transmission_torrent_id is not None and task.downloader_id:
-        downloader = await db.get(DownloaderInstance, task.downloader_id)
-        if downloader is not None:
-            from app.clients.downloader import get_downloader_client
-
-            try:
-                torrent_info = await get_downloader_client(
-                    downloader
-                ).get_torrent_files(task.transmission_torrent_id)
-            except Exception:  # noqa: BLE001 — best-effort
-                torrent_info = None
-            if torrent_info and torrent_info.get("files"):
-                return torrent_info["files"], "downloader"
-
-    # 4. Frozen download-notification snapshot.
-    notification = (await db.execute(
-        select(DownloadNotification)
-        .join(DownloadTask, DownloadNotification.download_task_id == DownloadTask.id)
-        .where(DownloadTask.file_resource_id == resource.id)
-        .order_by(DownloadNotification.created_at.desc())
-        .limit(1)
-    )).scalar_one_or_none()
-    if notification is not None:
-        files = (notification.payload or {}).get("files")
-        if files:
-            return files, "notification"
-
-    return [], "none"
+    listing = await resolve_resource_listing(db, resource)
+    if listing.files:
+        await schedule_listing_reconcile(db, resource.id)
+    return listing.files, listing.source
 
 
 @router.get("/resources/{resource_id}/files")
@@ -900,7 +839,7 @@ async def get_resource_files(resource_id: str, db: AsyncSession = Depends(get_db
     1. ``torrent_cache`` — a previously cached .torrent on disk.
     2. ``torrent_fetch`` — live-download the http(s) ``torrent_url`` (the
        local path is persisted back to ``resource.torrent_file``).
-    3. ``downloader`` — the latest download task's downloader RPC.
+    3. ``downloader`` — task downloader RPCs, newest first until one succeeds.
     4. ``notification`` — the frozen download-notification snapshot.
     5. ``none`` — no source could produce a listing.
     """
@@ -914,7 +853,7 @@ async def get_resource_files(resource_id: str, db: AsyncSession = Depends(get_db
 
     files, source = await _resolve_resource_files(db, resource)
     magnet_state = None
-    if not files and (resource.torrent_url or "").startswith("magnet:"):
+    if not files and (resource.magnet_url or resource.torrent_url or "").startswith("magnet:"):
         magnet_state = {
             "status": resource.magnet_resolve_status,
             "error": resource.magnet_resolve_error,
@@ -939,8 +878,8 @@ async def resolve_magnet_metadata(
 
     Resets the failure state (attempts, error) and re-enqueues the background
     resolution job. Rejected with 422 when the resource is not a magnet link,
-    libtorrent is unavailable, or the feature is disabled; 409 while a
-    resolution is already pending/running.
+    neither mirrors nor libtorrent are available, or the feature is disabled;
+    409 while a resolution is already pending/running.
 
     Optional body ``{"trackers": [...]}``: a validated custom tracker list
     persisted for the resolution attempt(s) (kept on failure, cleared on
@@ -956,19 +895,19 @@ async def resolve_magnet_metadata(
             content={"success": False, "data": None,
                      "error": {"code": "NOT_FOUND", "message": "Resource not found"}},
         )
-    if not (resource.torrent_url or "").startswith("magnet:"):
+    if not (resource.magnet_url or resource.torrent_url or "").startswith("magnet:"):
         return JSONResponse(
             status_code=422,
             content={"success": False, "data": None,
                      "error": {"code": "VALIDATION_ERROR",
                                "message": "Resource is not a magnet link"}},
         )
-    if magnet_resolve.lt is None:
+    if magnet_resolve.lt is None and not settings.magnet_resolve_cache_mirrors:
         return JSONResponse(
             status_code=422,
             content={"success": False, "data": None,
                      "error": {"code": "VALIDATION_ERROR",
-                               "message": "libtorrent is not installed on this server"}},
+                               "message": "libtorrent and magnet cache mirrors are unavailable"}},
         )
     if not settings.magnet_resolve_enabled:
         return JSONResponse(
@@ -1005,6 +944,7 @@ async def resolve_magnet_metadata(
             FileResource.magnet_resolve_attempt_id == resource.magnet_resolve_attempt_id,
             FileResource.magnet_resolve_status == resource.magnet_resolve_status,
             FileResource.torrent_url == resource.torrent_url,
+            FileResource.magnet_url == resource.magnet_url,
         )
         .values(
             magnet_resolve_trackers=custom_trackers,
@@ -1318,6 +1258,24 @@ async def correct_parse_fields(
         )
 
     sent = body.model_fields_set
+    # Validate the dual-column contract before any ORM mutation. Otherwise an
+    # early 422 response would still commit a dirty resource in get_db.
+    from app.services.subtitle_groups import (
+        join_legacy_subtitle_group,
+        normalize_subtitle_groups,
+    )
+    if "subtitle_group" in sent and "subtitle_groups" in sent:
+        if normalize_subtitle_groups(body.subtitle_group) != normalize_subtitle_groups(
+            body.subtitle_groups, split=False
+        ):
+            return JSONResponse(
+                status_code=422,
+                content={"success": False, "data": None, "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "subtitle_group and subtitle_groups disagree",
+                }},
+            )
+
     if "episode" in sent:
         resource.episode = body.episode
     if "season" in sent:
@@ -1336,32 +1294,14 @@ async def correct_parse_fields(
     # Generic media-descriptor corrections (wizard step 3). Applied like the
     # parse fields (explicitly-sent keys only) but they never touch
     # episode_confidence — a mis-parsed resolution says nothing about the
-    # episode number.
+    # episode number. Subtitle groups use the synchronized path below.
     for _field in (
-        "resolution", "subtitle_group", "subtitle_groups", "source", "video_codec",
-        "audio_codec", "subtitle_type", "container", "subtitle_langs",
+        "resolution", "source", "video_codec", "audio_codec", "subtitle_type",
+        "container", "subtitle_langs",
     ):
         if _field in sent:
             setattr(resource, _field, getattr(body, _field))
 
-    # Keep the legacy scalar and canonical list synchronized.  The plural
-    # field is authoritative when both are present; conflicting submissions
-    # are rejected rather than silently rewriting a manual correction.
-    from app.services.subtitle_groups import (
-        join_legacy_subtitle_group,
-        normalize_subtitle_groups,
-    )
-    if "subtitle_group" in sent and "subtitle_groups" in sent:
-        if normalize_subtitle_groups(body.subtitle_group) != normalize_subtitle_groups(
-            body.subtitle_groups, split=False
-        ):
-            return JSONResponse(
-                status_code=422,
-                content={"success": False, "data": None, "error": {
-                    "code": "VALIDATION_ERROR",
-                    "message": "subtitle_group and subtitle_groups disagree",
-                }},
-            )
     if "subtitle_groups" in sent:
         resource.subtitle_groups = normalize_subtitle_groups(body.subtitle_groups, split=False)
         resource.subtitle_group = join_legacy_subtitle_group(resource.subtitle_groups)

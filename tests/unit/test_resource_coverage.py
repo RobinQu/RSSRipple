@@ -234,3 +234,35 @@ def test_specials_only_pack_has_unknown_coverage():
     r = resource()
     r.file_assignments = [assignment(1, 3, season=0)]
     assert batch_coverage(r) is None
+
+
+def test_only_episode_role_contributes_to_coverage():
+    r = resource()
+    r.file_assignments = [
+        assignment(1, 12),
+        ResourceFileAssignment(
+            file_path='Show.S01E01.chs.ass', file_role='subtitle',
+            attached_to_path='s1-1.mkv',
+        ),
+        ResourceFileAssignment(
+            file_path='[Group] Show [NCOP_01].mkv', file_role='extra',
+            series_id='not-a-coverage-target', season=0,
+        ),
+        ResourceFileAssignment(file_path='fonts.zip', file_role='excluded'),
+    ]
+    assert batch_coverage(r) == (('series', 's1', 1, ((1, 12),)),)
+
+
+def test_legacy_bracketed_ncop_path_remains_compatible():
+    r = resource()
+    r.file_assignments = [
+        assignment(1, 12),
+        ResourceFileAssignment(
+            series_id='s1', season=1,
+            file_path='[VCB-Studio] Show [NCED_01][BDRip].mkv',
+        ),
+        ResourceFileAssignment(
+            series_id='s1', file_path='Show.S01E01.chs.ass',
+        ),
+    ]
+    assert batch_coverage(r) == (('series', 's1', 1, ((1, 12),)),)

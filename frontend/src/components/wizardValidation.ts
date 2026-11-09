@@ -31,9 +31,21 @@ export function pickWorkMatch<T>(
 }
 
 export interface WizardPlacementLike {
-  workType: string;
-  workId: string;
+  workType: string | null;
+  workId: string | null;
+  fileRole?: 'episode' | 'subtitle' | 'extra' | 'excluded';
+  attachedToPath?: string | null;
   season: number | null;
+}
+
+export function isEpisodePlacement(placement: WizardPlacementLike): boolean {
+  return (placement.fileRole ?? 'episode') === 'episode';
+}
+
+export function placementWorkKey(placement: WizardPlacementLike): string | null {
+  return placement.workType != null && placement.workId != null
+    ? workKeyOf(placement.workType, placement.workId)
+    : null;
 }
 
 export interface WizardStepState {
@@ -92,17 +104,20 @@ export function admitWork(
 
 export type WizardStepErrorCode =
   | 'tv_season_required'
+  | 'tv_season_mismatch'
+  | 'subtitle_attachment_invalid'
   | 'works_unassigned'
-  | 'work_fields_required';
+  | 'work_fields_required'
+  | 'release_fields_required';
 
 export type WizardWorkMetadataFieldKey = 'year' | 'rating' | 'is_anime' | 'genre';
 
 export interface WizardStepError {
   code: WizardStepErrorCode;
-  /** Work keys (`type:id`) without any file assignment (works_unassigned). */
+  /** Work keys (`type:id`) without any episode assignment (works_unassigned). */
   workKeys?: string[];
-  /** Missing work metadata keys (work_fields_required). */
-  fields?: WizardWorkMetadataFieldKey[];
+  fields?: string[];
+  paths?: string[];
 }
 
 export interface WizardWorkMetadataLike {
@@ -119,19 +134,31 @@ export interface WizardWorkMetadataLike {
  * Step 0 (association) has no client-side check — its invariants (works
  * existence, collection membership, non-batch single-work cap) are
  * server-enforced and routed back via ``meta.step``.
- * Step 1 (file mapping) mirrors the checks that used to live only in
- * handleSave: batch TV placements need a season, and every non-special work
- * of a multi-work pack needs at least one file assignment.
- * Step 2 requires every displayed work-metadata gap to be filled.
+ * Step 1 requires seasons on episode placements only; subtitle, extra and
+ * excluded rows do not participate in episode coverage. Multi-work batches
+ * still require one episode assignment per non-special work.
+ * Step 2 requires every displayed release- and work-metadata gap to be filled.
  */
 export function validateStep(
   step: number,
   state: WizardStepState & {
     missingWorkFields?: WizardWorkMetadataFieldKey[];
     workMetadata?: WizardWorkMetadataLike;
+    missingReleaseFields?: string[];
+    media?: Record<string, string>;
+    directMetadata?: Record<string, string>;
+    subtitleLangs?: string[];
   },
 ): WizardStepError | null {
   if (step === 2) {
+    const releaseFields = (state.missingReleaseFields ?? []).filter((key) =>
+      key === 'subtitle_langs'
+        ? (state.subtitleLangs ?? []).length === 0
+        : !(state.media?.[key] ?? state.directMetadata?.[key] ?? '').trim(),
+    );
+    if (releaseFields.length) {
+      return { code: 'release_fields_required', fields: releaseFields };
+    }
     const draft = state.workMetadata;
     if (!draft) return null;
     const fields = (state.missingWorkFields ?? []).filter((key) => {
@@ -143,15 +170,42 @@ export function validateStep(
     });
     return fields.length ? { code: 'work_fields_required', fields } : null;
   }
-  if (step !== 1) return null;
-  if (!state.isBatch || state.audioLinked) return null;
-  const placements = Object.values(state.placements);
-  if (placements.some((p) => p.workType === 'series' && p.season == null)) {
+  if (step !== 1 || state.audioLinked) return null;
+  const invalidAttachments = Object.entries(state.placements)
+    .filter(([, placement]) => {
+      if (placement.fileRole !== 'subtitle' || !placement.attachedToPath) return false;
+      const parent = state.placements[placement.attachedToPath];
+      const subtitleWorkKey = placementWorkKey(placement);
+      return !parent ||
+        !isEpisodePlacement(parent) ||
+        (subtitleWorkKey != null && placementWorkKey(parent) !== subtitleWorkKey);
+    })
+    .map(([path]) => path);
+  if (invalidAttachments.length) {
+    return { code: 'subtitle_attachment_invalid', paths: invalidAttachments };
+  }
+  const episodePlacements = Object.values(state.placements).filter(isEpisodePlacement);
+  if (episodePlacements.some((p) => p.workType === 'series' && p.season == null)) {
     return { code: 'tv_season_required' };
   }
-  if (state.works.length > 1) {
+  const knownSeasons = new Map(
+    state.works.map((work) => [workKeyOf(work.workType, work.workId), work.season]),
+  );
+  if (episodePlacements.some((placement) => {
+    const key = placementWorkKey(placement);
+    const season = key ? knownSeasons.get(key) : null;
+    if (season == null) return false;
+    return season === 0
+      ? placement.season !== 0
+      : placement.season !== season && placement.season !== 0;
+  })) {
+    return { code: 'tv_season_mismatch' };
+  }
+  if (state.isBatch && state.works.length > 1) {
     const assigned = new Set(
-      placements.map((p) => workKeyOf(p.workType, p.workId)),
+      episodePlacements
+        .filter((p) => p.workType != null && p.workId != null)
+        .map((p) => workKeyOf(p.workType!, p.workId!)),
     );
     const workKeys = state.works
       .filter((w) => !(w.workType === 'series' && w.season === 0))

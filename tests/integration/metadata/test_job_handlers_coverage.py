@@ -390,6 +390,7 @@ async def test_magnet_sweep_reclaims_stale_and_enqueues(db_session, monkeypatch)
         if resource_id == fresh_null.id:
             raise RuntimeError("queue down")
         enqueued.append(resource_id)
+        return True
 
     monkeypatch.setattr("app.services.magnet_resolve.enqueue_resolution", _enqueue)
     result = await jh._handle_magnet_resolve_sweep({})
@@ -409,4 +410,8 @@ async def test_magnet_sweep_nothing_to_do(db_session, monkeypatch):
         "app.services.magnet_resolve.enqueue_resolution", AsyncMock()
     )
     result = await jh._handle_magnet_resolve_sweep({})
-    assert result == {"status": "done", "enqueued": 0, "reclaimed": 0}
+    assert result == {
+        "status": "done", "enqueued": 0, "http_enqueued": 0,
+        "reconcile_enqueued": 0, "reclaimed": 0, "http_reclaimed": 0,
+        "reconcile_reclaimed": 0,
+    }

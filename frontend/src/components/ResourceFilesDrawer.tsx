@@ -8,9 +8,8 @@ import type { ResourceFilesResponse } from '../types';
 
 const { Text, Link } = Typography;
 
-// Poll cadence while a magnet resolution is queued/running (cap ~40 polls).
+// Poll gently for as long as the drawer is open and resolution is active.
 const MAGNET_POLL_INTERVAL_MS = 5000;
-const MAGNET_POLL_MAX = 40;
 
 /** Client-side tracker line validation: scheme allowlist + parseable host. */
 function isValidTrackerLine(line: string): boolean {
@@ -39,7 +38,6 @@ export function ResourceFilesView({ resourceId }: { resourceId: string }) {
 
   useEffect(() => {
     let active = true;
-    let polls = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     setLoading(true);
     setFailed(false);
@@ -62,8 +60,7 @@ export function ResourceFilesView({ resourceId }: { resourceId: string }) {
               (magnet.status == null ||
                 magnet.status === 'pending' ||
                 magnet.status === 'running');
-            if (waiting && polls < MAGNET_POLL_MAX) {
-              polls += 1;
+            if (waiting) {
               timer = setTimeout(tick, MAGNET_POLL_INTERVAL_MS);
             }
           } else {

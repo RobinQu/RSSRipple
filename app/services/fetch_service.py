@@ -106,6 +106,27 @@ def _work_metadata_lock(key: str) -> asyncio.Lock:
 def _simple_title_clean(raw: str) -> str | None:
     return extract_release_title(raw)
 
+
+def _backfill_subtitle_group_from_title(resource: FileResource) -> bool:
+    from app.services.subtitle_groups import (
+        join_legacy_subtitle_group,
+        subtitle_groups_for_resource,
+    )
+
+    if subtitle_groups_for_resource(resource):
+        return False
+    groups = normalize_parsed_fields(resource.title_raw, {}).get("subtitle_groups")
+    if not groups:
+        return False
+    resource.subtitle_groups = groups
+    resource.subtitle_group = join_legacy_subtitle_group(groups)
+    resource.subtitle_groups_source = "heuristic"
+    from app.services.channel_metadata_defaults import clear_channel_default
+
+    clear_channel_default(resource, "subtitle_group")
+    return True
+
+
 # Columns that are set explicitly in the FileResource(...) constructor.
 _EXPLICIT_RESOURCE_COLS = frozenset({
     "id", "channel_id", "guid", "title_raw",
@@ -272,8 +293,9 @@ async def _process_resource_metadata_once(
     from app.models.series import TVSeries
     from app.services.metadata_agent import get_agent
     from app.services.metadata_service import download_and_cache_poster
+    from app.services.resource_listing import fetch_resource_torrent, schedule_listing_reconcile
     from app.services.task_queue import ExecutionOwnershipLostError, require_execution_ownership
-    from app.services.torrent_inspect import ensure_torrent_cached, maybe_inspect_torrent
+    from app.services.torrent_inspect import maybe_inspect_torrent
 
     await require_execution_ownership()
     async with async_session_factory() as task_db:
@@ -288,14 +310,21 @@ async def _process_resource_metadata_once(
             channel = await task_db.get(Channel, channel_id)
             if resource is None or channel is None:
                 return
-            # Cache the .torrent for every resource (http(s) direct links
-            # only) so later file-listing lookups never re-download.
-            await ensure_torrent_cached(resource)
+            # The claim and terminal fetch state are committed independently of
+            # metadata, so a later LLM failure cannot erase retry observability.
+            torrent_listing = await fetch_resource_torrent(
+                task_db, resource, force=force_refresh
+            )
+            if torrent_listing.files:
+                await schedule_listing_reconcile(task_db, resource.id)
             await require_execution_ownership()
-            # magnet: links have no .torrent to fetch — kick off background
-            # metadata resolution (libtorrent, metadata-only) so the torrent
-            # cache / Channel A inspection can work later. Never blocks fetch.
-            if (resource.torrent_url or "").startswith("magnet:"):
+            magnet_uri = resource.magnet_url or resource.torrent_url or ""
+            primary_is_magnet = (resource.torrent_url or "").startswith("magnet:")
+            http_failed = (
+                (resource.torrent_url or "").startswith(("http://", "https://"))
+                and not torrent_listing.files
+            )
+            if magnet_uri.startswith("magnet:") and (primary_is_magnet or http_failed):
                 try:
                     from app.services import magnet_resolve
 
@@ -322,6 +351,7 @@ async def _process_resource_metadata_once(
 
                     resource.resolution = parsed_resolution
                     clear_channel_default(resource, "resolution")
+            _backfill_subtitle_group_from_title(resource)
             work_key = normalize_title(resource.search_title or extract_search_title(resource))
             async with _work_metadata_lock(work_key):
                 await require_execution_ownership()
@@ -407,6 +437,9 @@ async def _process_resource_metadata_once(
                     bind_single_work_assignments,
                 )
                 await bind_single_work_assignments(task_db, resource)
+                from app.services.declared_season_links import link_declared_seasons
+
+                await link_declared_seasons(task_db, resource)
                 # Bangumi series-graph expansion (B1): a franchise /
                 # multi_season pack linked to a Bangumi base entry unfolds
                 # its sibling seasons / movies / specials via the
@@ -1044,7 +1077,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
         fm_title_cn = parsed.pop("title_cn", None) or None
         fm_title_en = parsed.pop("title_en", None) or None
 
-        torrent_url_auto, _ = _extract_download_urls(entry)
+        torrent_url_auto, magnet_url = _extract_download_urls(entry)
         # Prefer auto-detected download URL (enclosures/magnets) over field-mapped,
         # because field_mapping may point to a non-download URL (e.g. detail page <link>).
         torrent_url = torrent_url_auto or fm_torrent_url
@@ -1060,6 +1093,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
             guid=guid,
             title_raw=title,
             torrent_url=torrent_url,
+            magnet_url=magnet_url,
             detail_url=detail_url,
             published_at=published_at_val,
             parsed_at=utcnow(),
@@ -1110,9 +1144,11 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
         compilation_work = extract_compilation_work_title(title)
         if compilation_work:
             resource.is_batch = True
-            # The title layer cannot subdivide a compilation pack; default to
-            # "season" — torrent analysis may refine it (e.g. to franchise).
-            resource.batch_scope = "season"
+            # A compilation label alone cannot subdivide the pack. Preserve
+            # explicit multi-season coverage found by the title pre-parser;
+            # torrent analysis may still refine an otherwise unknown scope.
+            if resource.batch_scope != "multi_season" and not resource.batch_seasons:
+                resource.batch_scope = "season"
             resource.search_title = compilation_work
         # Subtitle language pre-fill. Store an empty list (rather than None)
         # once parsed, so downstream code can distinguish "never parsed" from

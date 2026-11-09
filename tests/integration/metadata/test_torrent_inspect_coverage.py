@@ -521,7 +521,14 @@ def _stub_pipeline(monkeypatch, files, path="/tmp/rid-cov.torrent"):
     async def _fake_fetch(url, rid):
         return path
 
+    async def _fake_listing_fetch(db, resource):
+        resource.torrent_file = path
+        return SimpleNamespace(files=files)
+
     monkeypatch.setattr(ti, "fetch_torrent_file", _fake_fetch)
+    monkeypatch.setattr(
+        "app.services.resource_listing.fetch_resource_torrent", _fake_listing_fetch
+    )
     monkeypatch.setattr(ti, "parse_torrent_files", lambda p: files)
 
 

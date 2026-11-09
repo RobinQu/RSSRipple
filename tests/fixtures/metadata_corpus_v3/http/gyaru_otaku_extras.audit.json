@@ -1,0 +1,14 @@
+{
+  "count_changes": {},
+  "derived_sha256": "b79716b69f5a2ee768e82537da42b345975e95ac73d05f807565065d471d73cf",
+  "reason": "Deterministic extra classification removes NCOP/NCED before the recorded batch LLM call. Only that request body/key changes; its original response, every other request and every count are preserved.",
+  "removed_request_keys": [],
+  "request_replacements": [
+    {
+      "new": "88cab4bd19e981ef3cd557e32619647e85219cb8e69d3f14675d5bdc76da6fa7",
+      "old": "e8a65a39ce32d919ac1b5435552c4e7753ead28fb0eb29a07c38777c5261fba4",
+      "response_sha256": "9bc0418e4f8dafbc3740c2873332341d16df0620d5598bf883250d0b7d173b37"
+    }
+  ],
+  "source_sha256": "3782d996e00c64cac7a7058b143f62eb0c9ffb302c886575596cafbaabff003f"
+}

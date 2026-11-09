@@ -127,3 +127,28 @@ def test_real_metadata_replaces_subtitle_group_default():
     assert resource.subtitle_groups == ["Real"]
     assert resource.subtitle_groups_source == "llm"
     assert resource.channel_default_fields == []
+
+
+def test_real_subtitle_groups_array_wins_over_missing_or_stale_scalar():
+    resource = _resource(
+        subtitle_group=None,
+        subtitle_groups=["LoliHouse"],
+        subtitle_groups_source="manual",
+    )
+    changed = reconcile_channel_metadata_defaults(
+        resource, {"subtitle_group": "Default"}
+    )
+    assert not changed
+    assert resource.subtitle_group is None
+    assert resource.subtitle_groups == ["LoliHouse"]
+    assert resource.subtitle_groups_source == "manual"
+    assert resource.channel_default_fields == []
+    assert inspect_resource_confirmation(
+        resource, ["subtitle_group"]
+    ).missing_fields == ()
+
+    resource.subtitle_group = "stale-legacy-value"
+    reconcile_channel_metadata_defaults(resource, {"subtitle_group": "Default"})
+    assert resource.subtitle_group == "stale-legacy-value"
+    assert resource.subtitle_groups == ["LoliHouse"]
+    assert resource.channel_default_fields == []

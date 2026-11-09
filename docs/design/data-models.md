@@ -121,9 +121,23 @@ class FileResource(Base):
     subtitle_langs: list[str] | None     # e.g. ["zh-CN", "zh-TW", "ja", "en"]
     container: str | None                # 容器格式 (MKV, MP4)
     file_size: int | None                # 文件大小（bytes）
-    torrent_url: str                     # 下载链接（magnet:?xt=... 或 .torrent URL）
-    torrent_file: str | None             # 通道 A 缓存的 .torrent 本地相对路径（TORRENT_CACHE_DIR
-                                         # 下 <resource_id>.torrent；字节不落库，任务创建时本地推送）
+    torrent_url: str                     # 主下载链接（优先 .torrent HTTP(S) URL；无直链时为 magnet）
+    magnet_url: str | None               # RSS 同时提供 HTTP 与 magnet 时保留的备用 magnet；解析/重试优先使用它
+    torrent_fetch_status: str | None     # HTTP .torrent 获取状态：NULL/running/done/failed
+    torrent_fetch_error: str | None      # 最近一次分类错误（永久错误不安排自动重试）
+    torrent_fetch_attempts: int          # 已领取次数，NOT NULL DEFAULT 0
+    torrent_fetch_attempt_id: str | None # 当前 HTTP 获取 UUID；条件写入 fencing 旧 worker
+    torrent_fetch_updated_at / torrent_fetch_next_attempt_at: datetime | None
+                                         # 最近状态时间 / 可重试失败的下次到期时间
+    listing_reconcile_status: str | None # 清单应用与作品图收敛状态：NULL/pending/running/done/failed
+    listing_reconcile_error: str | None  # 最近对账错误
+    listing_reconcile_attempts: int      # 已对账领取次数，NOT NULL DEFAULT 0
+    listing_reconcile_attempt_id: str | None
+                                         # 当前对账 UUID；成功/失败按 attempt CAS 写回
+    listing_reconcile_updated_at / listing_reconcile_next_attempt_at: datetime | None
+                                         # 最近对账时间 / 失败重试到期时间
+    torrent_file: str | None             # 缓存的 .torrent 本地路径（TORRENT_CACHE_DIR 下内容哈希或
+                                         # attempt 隔离的文件名；字节不落库，任务创建时本地推送）
     detail_url: str | None               # 详情页链接
     published_at: datetime | None        # RSS 发布时间
     # 合集（多集打包）标识 —— 由 pre-parser、torrent 内容检测与 MetadataAgent 联合判定
@@ -175,12 +189,19 @@ resource_file_assignments              # 文件级映射：torrent 清单条目 
                                        # 36B 预留）——全 CJK 超长路径会被 ValueError 拒绝，
                                        # 不会撞上 PG btree 单行 ~2704B 上限
     file_size: int | None              # 冗余快照
-    series_id/movie_id: str|None       # 双空=未指派（确定性层先于作品链接运行）
+    file_role: str                     # episode|subtitle|extra|excluded；NOT NULL DEFAULT episode
+    attached_to_path: str | None       # 仅 subtitle：同资源内父正片的 file_path；NULL=尚未唯一解析
+    series_id/movie_id: str|None       # 绑定作品时互斥；episode 必填，excluded 必须双空，
+                                       # subtitle/extra 允许双空（字幕可由父正片或唯一作品继承）
     work_title_hint: str | None        # 绑定具体作品前的簇标题提示（目录聚类/LLM 建议）
-    season / episode_start / episode_end: int|None   # TV 专属；单集文件 start==end
+    season / episode_start / episode_end: int|None
+                                       # 仅 episode 可有集号区间，单集 start==end；subtitle/excluded
+                                       # 不可有 season，extra 仅允许 NULL/0；TV 正片季号须符合季作品身份
     source: str                        # 同上；manual 永不被自动覆盖
     created_at / updated_at
 ```
+
+角色化清单仍按 `(resource_id,file_path)` 唯一。`attached_to_path` 非空时必须指向同一清单中的 episode 正片；字幕显式绑作品时须与父正片同作品。非 episode 不参与正片集数区间/覆盖度计算；excluded 文件即便扩展名像视频也不计入预期正片。完整约束由 `AssociationFileAssignment` 与 `resource_association` 在人工保存时共同校验。
 
 序列化：`GET/PATCH/PUT` 单资源端点返回 `FileResourceDetailResponse`（在基础 schema 上附 `work_links[]` + `file_assignments[]`，需 `_DETAIL_LOAD_OPTIONS` selectinload）；列表端点保持精简基础 schema。
 
@@ -201,8 +222,8 @@ Dashboard 待确认扫描索引：`Index(confirmation_ignored_at, created_at, id
 **合集资源识别**：`is_batch=true` 标识多集打包资源（Season Pack / 全集 / `S01E01~13` / `[01-12 合集]` 等）。判定分三层：
 
 1. **Pre-parser**（`app/services/resource_parser.detect_batch`）：抓取时用正则识别典型 pattern，直接写入 `is_batch / episode_start / episode_end`。覆盖的范围形态：`SxxEyy~zz`、方括号内纯数字范围 `[01-12]`（后缀关键词可选）、**括号内尾部范围**（括号含标题文字但以范围结尾，如 `[青春猪头少年不会梦到圣诞服女郎 01-13]`）、**季标记上下文中的裸范围**（`S01 | 01-24`、`第2季 13-24`，季标记后 80 字符内；占有量词防 `S04 - 05` 单集回溯误判）、裸范围+强制关键词（`01-12 合集`）、`第01-第12话`；连接符含全角 `～`/`〜`，范围尾部容忍 `+SPx11` 类特典后缀。无边界关键词：Season Pack / Batch / BD-BOX / 全集|全季|合集|完整|完结 / Complete Series / **`TV fin`**（必须带 TV 前缀；裸 `Fin` 也是单集最终话用法，刻意不作关键词）/ 整理搬运 等。**整碟包规则**：标题含显式季标记（`S0x`/`Season N`/`Nst|nd|rd|th Season`/`第N季` 含中文数字）且解析不出任何集号且含整碟 token（`BD`/`BDRip`/`BDMV`/`BDRemux`/`Blu-ray`/`BD-BOX`，词边界）→ 判合集（`葬送的芙莉莲 第二季 (BD ...)` 形态）。sanity 过滤：`end-start>200` 或 `end>999` 判误报（挡 `[2020-2021]` 年份对）。命中时同时**清空 `resource.episode`**（field_mapping 可能把年份/分辨率/标题数字解析成单集号）并设 `batch_scope="season"`（标题层默认单季包，torrent 分析可修正）。
-2. **Torrent 内容检测（通道 A，`app/services/torrent_inspect.maybe_inspect_torrent`）**：metadata 匹配前，对 `is_batch=false` 且 `torrent_url` 为 http(s) 直链的资源下载 .torrent 落盘（`TORRENT_CACHE_DIR`，记 `torrent_file`），bencode 解析文件清单 → `analyze_torrent_files` 纯函数按视频文件过滤、路径分量集号提取、顶层目录聚类判出 scope：`single`（≤1 视频文件，不改判）/`season`（单季多集，填 episode_start/end）/`multi_season`（≥2 季标记，清空 season 与 episode_start/end，并把覆盖季集合持久化到 `batch_seasons`）/`franchise`（≥2 作品簇，同写 `batch_seasons`，触发 `franchise_service.link_franchise_pack`；父 WorkCollection 仅由清洗后的资源标题确定并立即创建/复用，资源先挂 collection 且清除单作品 FK，TV/OVA/Film 等子目录成员解析只作尽力富化，失败/超时不能阻止父合集成立）/`unknown`（不改判）。文件映射富化同时在标题未解析出字幕组时尝试读取视频文件尾缀 `...-GROUP.ext`/`...[GROUP].ext`；仅唯一一致且非技术词的结果回填 `subtitle_group`。magnet 与下载/解析失败静默跳过。下载后 RPC 修正（通道 B）保留同一富化能力。
-   **文件关联富化 pass（所有作品形态）**：① 确定性写回——按统一 `analyze_torrent_files` 的 `file_parses` 为单集 TV、单部电影及各类合集 upsert `resource_file_assignments`（source=auto，簇目录名作 `work_title_hint`）；作品链接完成后 `bind_single_work_assignments` 把单一作品绑定到这些行，TV 同时补季号/特别篇 S00，并修复单季资源中旧 auto 行的错误作品/季指向；出现多个正季证据时不压成单季，manual/LLM 不动。合集另重算 `season_ranges`。覆盖度计算把明确命名的 NCOP/NCED 无集号视频视为 extras，其他无集号或未指派视频仍使覆盖度未知。② LLM 精判只对合集门控（`app/services/batch_content_analysis.py`：scope=franchise，或 is_batch 且未解析集号占比 ≥0.5 且视频数 ≥2 且配置了 LLM key）——区分纯电影包与混合包、把电影簇经频道源 `process_title_only` → Movie 落库并绑定 links+assignments（source=llm）；失败/无 key 静默降级。Magnet 在抓取期无法取得清单时，由下载完成通知生成前用下载器清单运行同一确定性分析补齐。
+2. **统一 Torrent 清单检测（`resource_listing` + `torrent_inspect`）**：metadata 匹配前优先使用有效 cache；HTTP 直链经持久 `torrent_fetch_*` 状态获取，RSS 另有 `magnet_url` 时 HTTP 失败可回退 magnet。纯 magnet、下载器任务与历史通知也可提供清单，全部经 `analyze_torrent_files` 纯函数按角色、路径分量集号和顶层目录聚类判出 scope：`single`（不改判）/`season`（单季多集，填 episode_start/end）/`multi_season`（≥2 个非零季，清空 season 与 episode_start/end，并持久化 `batch_seasons`）/`franchise`（≥2 作品簇，触发 `franchise_service.link_franchise_pack`）/`unknown`（不改判）。已有合集、multi_season/franchise/movies 不因 single/unknown 或后续单作品绑定而降级。文件映射富化可从唯一一致的视频尾缀回填字幕组。获取失败不阻断 metadata，但 HTTP 错误分类、CAS、退避及迟到清单的持久 reconcile 按 business-logic.md 执行；下载后 RPC 清单同样由该统一管线消费。
+   **文件关联富化 pass（所有作品形态，含非合集）**：① 确定性写回——按统一 `analyze_torrent_files` 的 `file_parses` upsert `resource_file_assignments`（source=auto，簇目录名作 `work_title_hint`），并赋予 `file_role=episode/subtitle/extra/excluded`；字幕仅在唯一合法目标时写 `attached_to_path`。作品链接完成后 `bind_single_work_assignments` 把兼容的单一作品绑定到正片行，TV 同时补季号/特别篇 S00，并修复单季资源中旧 auto 行的错误作品/季指向；出现多个正季证据时不压成单季，multi_season/franchise 的 links/指派不平铺，manual/LLM 不动。合集另重算 `season_ranges`；multi_season 在已确认同一合集时可按 `batch_seasons` 补链唯一既有季作品，不猜标题或创建作品。覆盖度只由 episode 正片贡献，extra/excluded 不占集数；未解析正片仍使覆盖度未知。② LLM 精判只对合集门控（`app/services/batch_content_analysis.py`：scope=franchise，或 is_batch 且未解析集号占比 ≥0.5 且视频数 ≥2 且配置了 LLM key）——区分纯电影包与混合包、把电影簇经频道源 `process_title_only` → Movie 落库并绑定 links+assignments（source=llm）；失败/无 key 在普通富化中降级，在持久 reconcile 中按失败状态重试。
 3. **MetadataAgent**（LLM）：finalize schema 输出 `is_batch / inferred_episode_start / inferred_episode_end` 与可选 `batch_scope`（白名单 season|multi_season|franchise|movies，表外值丢弃）；LLM 输出的非空值覆盖 pre-parser 结果（`is_batch` 单向 OR 合并，只会补 True 不会改 False）；`batch_scope` 仅当现有值为 NULL/"season" 时写入（torrent 分析的 multi_season/franchise/movies 不被降级），LLM 未输出时默认 `"season"`。
 
 合集资源约束：`episode` 字段固定为空（避免与"单集集数"语义混淆）；`episode_start/end` 尽力而为，标题未标明时保留为空。**合集去重按内容覆盖度**（`agent_service._batch_coverage_key`）：电影包→`movie_id`；单季包→`("season", series_id)`——季作品身份即覆盖度（legacy 未拆分系列级行过渡态仍用解析季号 `("season", season)`）；跨季包→`("multi_season", links 关联季作品 id 集合)`（legacy 带 FK 行回退 `batch_seasons` 季集合）。仅当覆盖度已知且完全相同的多个版本才进入与单集一致的冲突解决（ask → PendingDecision；auto → LLM pick → 启发式），跨运行则按同 agent + 同覆盖度的已占用任务判重跳过；这里除活动态/`completed` 外，也包括 organize `move` 后的 `cancelled + completed_at 非空` 历史任务，从未完成即取消的任务不占用。覆盖度不同（S1 包 vs S2 包）的合集不去重、各自派发。**覆盖度未知（season 包无季号、multi_season 无 batch_seasons 且无关联季作品 links）不再派发**——它进入所属 Channel 的文件资源待确认，不创建 Agent PendingDecision；人工修订补齐后定向重跑。franchise 包作品 FK 全清，不进入派发。

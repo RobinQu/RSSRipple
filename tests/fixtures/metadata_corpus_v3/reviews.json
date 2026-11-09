@@ -1,6 +1,6 @@
 {
   "925b29ca-9712-4aa2-9960-fce4715f245d": {
-    "evidence_note": "Frozen Bangumi 590393 verifies one 12-episode season. Torrent filenames 01-12 are main episodes; HIDE AND SEEK, Isshounakako, NCOP and NCED are non-episode bonus videos, so season=0 with null episode bounds is the reviewed mapping.",
+    "evidence_note": "Frozen Bangumi 590393 verifies one 12-episode season. Torrent filenames 01-12 are main episodes; HIDE AND SEEK and Isshounakako retain reviewed season-0 special placements, while deterministic NCOP/NCED paths are file_role=extra and therefore outside this episode-placement golden.",
     "expected": {
       "assignments": [
         {
@@ -98,20 +98,6 @@
           "episode_end": null,
           "episode_start": null,
           "file_path": "[Tsukigakirei] Otaku ni Yasashii Gal wa Inai - Isshounakako [BDRip 1080P HEVC-10bit FLAC].mkv",
-          "season": 0,
-          "work": "series:bangumi:bangumi:590393:s1"
-        },
-        {
-          "episode_end": null,
-          "episode_start": null,
-          "file_path": "[Tsukigakirei] Otaku ni Yasashii Gal wa Inai - NCED [BDRip 1080P HEVC-10bit FLAC].mkv",
-          "season": 0,
-          "work": "series:bangumi:bangumi:590393:s1"
-        },
-        {
-          "episode_end": null,
-          "episode_start": null,
-          "file_path": "[Tsukigakirei] Otaku ni Yasashii Gal wa Inai - NCOP [BDRip 1080P HEVC-10bit FLAC].mkv",
           "season": 0,
           "work": "series:bangumi:bangumi:590393:s1"
         }
@@ -1266,7 +1252,7 @@
     "status": "confirmed"
   },
   "dd1e78fa-e5bf-43c3-a7ef-c63c75b7d901": {
-    "evidence_note": "Frozen Bangumi 458684 title/detail verifies Season 2 and 12 episodes; all six torrent filenames independently establish episodes 04-09. Vol.2~3 is volume packaging, not episode 02-03.",
+    "evidence_note": "Frozen Bangumi 458684 title/detail verifies Season 2 and 12 episodes; all six torrent filenames independently establish episodes 04-09. Vol.2~3 is volume packaging, not episode 02-03. The unique links-only Season 2 work also derives batch_seasons=[2] as the coverage cache.",
     "expected": {
       "assignments": [
         {
@@ -1313,7 +1299,9 @@
         }
       ],
       "batch_scope": "season",
-      "batch_seasons": null,
+      "batch_seasons": [
+        2
+      ],
       "collection": "collection:title:关于邻家的天使大人不知不觉把我惯成了废人这档子事",
       "confirmation": {
         "kinds": [],
@@ -1364,7 +1352,7 @@
     "status": "confirmed"
   },
   "ec2770ff-cb57-40d8-bd86-7248626bf484": {
-    "evidence_note": "Frozen Bangumi 70705 verifies the two-episode work. The BDMV torrent exposes stream files but no trustworthy episode mapping; no m2ts may be guessed, so assignments stay empty and coverage confirmation remains required.",
+    "evidence_note": "Frozen Bangumi 70705 verifies the two-episode work. The BDMV torrent exposes stream files but no trustworthy episode mapping; no m2ts may be guessed, non-media manifest entries are explicitly excluded, and both episode bounds and coverage confirmation remain required for this season pack.",
     "expected": {
       "assignments": [],
       "batch_scope": "season",
@@ -1372,9 +1360,13 @@
       "collection": "collection:title:TO -2001夜物语",
       "confirmation": {
         "kinds": [
-          "batch_coverage_unknown"
+          "batch_coverage_unknown",
+          "required_fields_missing"
         ],
-        "missing_fields": []
+        "missing_fields": [
+          "episode_start",
+          "episode_end"
+        ]
       },
       "episode": null,
       "episode_end": null,

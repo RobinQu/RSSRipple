@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -21,9 +22,11 @@ from app.job_handlers import (
     _handle_daily_cleanup,
     _handle_daily_dedup,
     _handle_download_notifications,
+    _handle_fetch_torrent,
     _handle_fts_drain,
     _handle_fts_reconcile,
     _handle_magnet_resolve_sweep,
+    _handle_reconcile_resource_listing,
     _handle_refresh_channel_works,
     _handle_refresh_resource_organize,
     _handle_refresh_works_metadata,
@@ -126,6 +129,19 @@ async def test_analyze_batch_files_full_flow(db_engine):
     )
 
     report = _make_report()
+    report.file_entries = [
+        *[{
+            **parsed, "file_role": "episode",
+        } for parsed in report.file_parses],
+        {
+            "path": "S01/Show - 01.chs.ass", "size": 5,
+            "file_role": "subtitle", "season": None, "episode": None,
+        },
+        {
+            "path": "Show/fonts.zip", "size": 10,
+            "file_role": "excluded", "season": None, "episode": None,
+        },
+    ]
 
     async def fake_stream(*args, **kwargs):
         yield "delta", "thinking"
@@ -183,6 +199,14 @@ async def test_analyze_batch_files_full_flow(db_engine):
     assert result["listing_source"] == "torrent_cache"
     assert result["suggestion"]["deterministic"]["scope_hint"] == "season"
     assert result["suggestion"]["works"]
+    files = {
+        item["path"]: item
+        for item in result["suggestion"]["deterministic"]["files"]
+    }
+    assert files["S01/Show - 01.chs.ass"]["file_role"] == "subtitle"
+    assert files["S01/Show - 01.chs.ass"]["attached_to_path"] == "S01/Show - 01.mkv"
+    assert files["Show/fonts.zip"]["file_role"] == "excluded"
+    assert files["S01/Show - 01.mkv"]["file_role"] == "episode"
     assert "output" in result
 
 
@@ -405,6 +429,24 @@ async def test_resolve_magnet_torrent_handler(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_fetch_torrent_handler(monkeypatch):
+    retry = AsyncMock(return_value={"fetched": True, "error": None})
+    monkeypatch.setattr("app.services.resource_listing.retry_resource_torrent", retry)
+    result = await _handle_fetch_torrent({"resource_id": "rid"})
+    assert result == {"fetched": True, "error": None}
+    retry.assert_awaited_once_with("rid")
+
+
+@pytest.mark.asyncio
+async def test_reconcile_listing_handler(monkeypatch):
+    reconcile = AsyncMock(return_value=SimpleNamespace(error=None))
+    monkeypatch.setattr("app.services.resource_listing.reconcile_resource", reconcile)
+    result = await _handle_reconcile_resource_listing({"resource_id": "rid"})
+    assert result == {"reconciled": True, "error": None}
+    reconcile.assert_awaited_once_with("rid")
+
+
+@pytest.mark.asyncio
 async def test_magnet_resolve_sweep_enqueues_and_reclaims(db_engine, monkeypatch):
     """A stale pending row is reclaimed; a fresh NULL row is enqueued."""
     from sqlalchemy import select
@@ -422,7 +464,7 @@ async def test_magnet_resolve_sweep_enqueues_and_reclaims(db_engine, monkeypatch
         magnet_resolve_status=None,
     )
 
-    enqueue = AsyncMock()
+    enqueue = AsyncMock(return_value=True)
     monkeypatch.setattr("app.services.magnet_resolve.enqueue_resolution", enqueue)
 
     result = await _handle_magnet_resolve_sweep({})
@@ -497,7 +539,7 @@ async def test_magnet_resolve_sweep_enqueue_error_swallowed(db_engine, monkeypat
     def _side(resource_id):
         if resource_id == r1.id:
             raise RuntimeError("bad row")
-        return None
+        return True
 
     enqueue = AsyncMock(side_effect=_side)
     monkeypatch.setattr("app.services.magnet_resolve.enqueue_resolution", enqueue)
@@ -506,6 +548,165 @@ async def test_magnet_resolve_sweep_enqueue_error_swallowed(db_engine, monkeypat
 
     assert result["enqueued"] == 1
     assert result["reclaimed"] == 0
+
+
+@pytest.mark.asyncio
+async def test_magnet_sweep_supports_alternate_url_and_due_http_only(db_engine, monkeypatch):
+    from app.utils.time import utcnow
+
+    alternate, _ = await _make_resource(
+        torrent_url="https://example.com/a.torrent", magnet_url="magnet:?xt=urn:btih:abc",
+    )
+    due, _ = await _make_resource(
+        torrent_url="https://example.com/due.torrent", torrent_fetch_status="failed",
+        torrent_fetch_next_attempt_at=utcnow() - timedelta(seconds=1),
+    )
+    await _make_resource(
+        torrent_url="https://example.com/future.torrent", torrent_fetch_status="failed",
+        torrent_fetch_next_attempt_at=utcnow() + timedelta(hours=1),
+    )
+    await _make_resource(
+        torrent_url="https://example.com/permanent.torrent", torrent_fetch_status="failed",
+        torrent_fetch_next_attempt_at=None,
+    )
+    magnet_enqueue = AsyncMock(return_value=True)
+    queue = MagicMock()
+    queue.enqueue = AsyncMock(return_value={})
+    monkeypatch.setattr("app.services.magnet_resolve.enqueue_resolution", magnet_enqueue)
+    monkeypatch.setattr("app.services.task_queue.task_queue", queue)
+
+    result = await _handle_magnet_resolve_sweep({})
+
+    magnet_enqueue.assert_awaited_once_with(alternate.id)
+    queue.enqueue.assert_awaited_once_with(
+        "fetch_torrent", f"torrent-fetch:{due.id}", {"resource_id": due.id}
+    )
+    assert result["enqueued"] == 1 and result["http_enqueued"] == 1
+
+
+@pytest.mark.asyncio
+async def test_magnet_sweep_bounds_due_http_retries_to_50(db_engine, monkeypatch):
+    from app.database import async_session_factory
+    from app.utils.time import utcnow
+
+    first, _ = await _make_resource(
+        torrent_url="https://example.com/due-0.torrent", torrent_fetch_status="failed",
+        torrent_fetch_next_attempt_at=utcnow() - timedelta(seconds=1),
+    )
+    async with async_session_factory() as session:
+        for index in range(1, 55):
+            session.add(FileResource(
+                id=_uuid(), channel_id=first.channel_id, guid=_uuid(), title_raw="due",
+                torrent_url=f"https://example.com/due-{index}.torrent",
+                torrent_fetch_status="failed",
+                torrent_fetch_next_attempt_at=utcnow() - timedelta(seconds=1),
+            ))
+        await session.commit()
+    queue = MagicMock()
+    queue.enqueue = AsyncMock(return_value={})
+    monkeypatch.setattr("app.services.task_queue.task_queue", queue)
+    monkeypatch.setattr("app.services.magnet_resolve.enqueue_resolution", AsyncMock())
+
+    result = await _handle_magnet_resolve_sweep({})
+
+    assert result["http_enqueued"] == 50
+    assert queue.enqueue.await_count == 50
+
+
+@pytest.mark.asyncio
+async def test_sweep_recovers_stale_listing_reconcile(db_engine, monkeypatch):
+    from app.database import async_session_factory
+    from app.utils.time import utcnow
+
+    resource, _ = await _make_resource(
+        listing_reconcile_status="running", listing_reconcile_attempt_id=str(uuid.uuid4()),
+        listing_reconcile_updated_at=utcnow() - timedelta(hours=2),
+    )
+    queue = MagicMock()
+    queue.enqueue = AsyncMock(return_value={})
+    monkeypatch.setattr("app.services.task_queue.task_queue", queue)
+    monkeypatch.setattr("app.services.magnet_resolve.enqueue_resolution", AsyncMock(return_value=False))
+
+    result = await _handle_magnet_resolve_sweep({})
+
+    assert result["reconcile_reclaimed"] == 1
+    assert result["reconcile_enqueued"] == 1
+    queue.enqueue.assert_awaited_once_with(
+        "reconcile_resource_listing", f"listing-reconcile:{resource.id}",
+        {"resource_id": resource.id},
+    )
+    async with async_session_factory() as observer:
+        saved = await observer.get(FileResource, resource.id)
+        assert saved.listing_reconcile_status == "pending"
+        assert saved.listing_reconcile_attempt_id is None
+
+
+@pytest.mark.asyncio
+async def test_sweep_counts_only_actual_new_jobs(db_engine, monkeypatch):
+    await _make_resource(torrent_url="magnet:?xt=urn:btih:dedup")
+    queue = MagicMock()
+    queue.enqueue = AsyncMock(return_value=None)
+    monkeypatch.setattr("app.services.task_queue.task_queue", queue)
+    monkeypatch.setattr("app.services.magnet_resolve.enqueue_resolution", AsyncMock(return_value=False))
+
+    result = await _handle_magnet_resolve_sweep({})
+
+    assert result["enqueued"] == 0
+    assert result["http_enqueued"] == 0
+    assert result["reconcile_enqueued"] == 0
+
+
+@pytest.mark.asyncio
+async def test_sweep_reclaims_stale_http_and_enqueues_same_round(db_engine, monkeypatch):
+    from app.database import async_session_factory
+    from app.utils.time import utcnow
+
+    resource, _ = await _make_resource(
+        torrent_url="https://example.com/stale.torrent", torrent_fetch_status="running",
+        torrent_fetch_attempt_id=str(uuid.uuid4()),
+        torrent_fetch_updated_at=utcnow() - timedelta(minutes=10),
+    )
+    queue = MagicMock()
+    queue.enqueue = AsyncMock(return_value={})
+    monkeypatch.setattr("app.services.task_queue.task_queue", queue)
+    monkeypatch.setattr("app.services.magnet_resolve.enqueue_resolution", AsyncMock(return_value=False))
+
+    result = await _handle_magnet_resolve_sweep({})
+
+    assert result["http_reclaimed"] == 1 and result["http_enqueued"] == 1
+    queue.enqueue.assert_awaited_once_with(
+        "fetch_torrent", f"torrent-fetch:{resource.id}", {"resource_id": resource.id}
+    )
+    async with async_session_factory() as observer:
+        saved = await observer.get(FileResource, resource.id)
+        assert saved.torrent_fetch_status == "failed"
+        assert saved.torrent_fetch_attempt_id is None
+        assert saved.torrent_fetch_next_attempt_at is not None
+
+
+@pytest.mark.asyncio
+async def test_magnet_sweep_keyset_passes_50_cached_or_dedup_rows(db_engine, monkeypatch):
+    from app.database import async_session_factory
+
+    seed, _ = await _make_resource(torrent_url="https://example.com/not-magnet")
+    ids = [f"00000000-0000-0000-0000-{index:012d}" for index in range(1, 52)]
+    target_id = ids[-1]
+    async with async_session_factory() as session:
+        for index, resource_id in enumerate(ids):
+            session.add(FileResource(
+                id=resource_id, channel_id=seed.channel_id, guid=_uuid(), title_raw="magnet",
+                torrent_url=f"magnet:?xt=urn:btih:{index}",
+                torrent_file=None if resource_id == target_id else "/tmp/already-cached.torrent",
+            ))
+        await session.commit()
+    enqueue = AsyncMock(side_effect=lambda resource_id: resource_id == target_id)
+    monkeypatch.setattr("app.services.magnet_resolve.enqueue_resolution", enqueue)
+
+    result = await _handle_magnet_resolve_sweep({})
+
+    assert result["enqueued"] == 1
+    assert enqueue.await_count == 51
+    enqueue.assert_any_await(target_id)
 
 
 # ---------------------------------------------------------------------------
@@ -760,7 +961,7 @@ def test_register_all_handlers():
         "refresh_channel_works", "backfill_metadata", "analyze_batch_files",
         "sync_progress", "daily_cleanup", "daily_dedup", "check_downloaders",
         "fts_drain", "fts_reconcile", "download_notifications",
-        "refresh_resource_organize", "resolve_magnet_torrent",
-        "magnet_resolve_sweep", "reprocess_resource_metadata",
+        "refresh_resource_organize", "resolve_magnet_torrent", "fetch_torrent",
+        "reconcile_resource_listing", "magnet_resolve_sweep", "reprocess_resource_metadata",
     }
     assert registered == expected

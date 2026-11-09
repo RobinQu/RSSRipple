@@ -18,7 +18,7 @@
 
 已知残留（expected 如实断言或豁免并在此注明）：Battle Stage 3 未绑定（冻结 wigolo 证据只有无关 wikipedia 命中，found=False 是对证据的正确裁决）；Movie Battle Digest 绑到 wikipedia 的 Legend 三部曲汇总条目（冻结证据中只有该身份可用）；104569/44758 的 `episode_seasons` 未断言——自愈季号纠正（s1→s6 / s1→s0）现由 `_sync_work_episode_seasons` 把 Episode 行同步重标到目标季（目标季同集号冲突行删除），不再遗留旧季标记，但该审计字段仍未纳入金标断言；`batch_seasons=[1..5]` 为 torrent 目录序派生缓存（franchise scope 不从作品身份重推导）；Fourth Stage Battle Digest 单文件按冻结 LLM judge 裁决绑 3816:s4。
 
-备选第三场景 `[整理搬运] 头文字D…`（case `20010314-…`，156 文件：95 视频 + 59 zip/文本非视频，含漫画/CD/字幕/字体）已有 torrent 证据、review pending；非视频文件不进入 assignments 的处理与 156 文件的独立审核成本较高，留待后续轮次立项。
+备选第三场景 `[整理搬运] 头文字D…`（case `20010314-…`，156 文件：95 视频 + 59 zip/文本非视频，含漫画/CD/字幕/字体）已有 torrent 证据、review pending；完整角色清单现已把非视频保存为 extra/excluded，但 156 文件的作品与角色独立审核成本较高，留待后续轮次立项。现有历史语义金标继续只断言 episode/S0  placements，字幕 attachment、NCOP/NCED 和显式排除由专门的角色回归测试覆盖。
 
 ## 日常离线验证
 
@@ -56,7 +56,7 @@ HTTP 在 httpx 同步/异步传输层回放，未录制请求、录制次数变�
 
 `tests/integration/metadata_corpus/test_deepsearch_corpus.py` 新增 51 项默认离线用例：完整性/真实资源 UUID 关联、48 次真实回答的字段/引用契约，以及实际 AniList 命中与越界候选的生产 fallback 边界。6 个已知引文契约失败保留为**负向回归**，不是把错误回答标成语义金标。测试封锁外连；不调用真实 LLM，不将旧模型回答当作新 prompt 的质量验证。`deepsearch-audit.json` 随原有报告上传，仅报告库存和已知失败数，执行成败看 JUnit。
 
-当前整个 corpus 子目录为 **2,967 项**（以 pytest 实时收集为准，含 torrent 清单、DeepSearch、回放机制、数据集完整性与 7 个语义场景）。完整作品/合集语义金标为 10 个独立资源；其余 2,948 条 pending 的审核状态不变。
+当前整个 corpus 子目录为 **2,970 项**（以 pytest 实时收集为准，含 torrent 清单、DeepSearch、回放机制、数据集完整性与 7 个语义场景）。完整作品/合集语义金标为 10 个独立资源；其余 2,948 条 pending 的审核状态不变。
 
 ## 扩充与审核
 

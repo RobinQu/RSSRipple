@@ -6,6 +6,7 @@ import { useDownloadTaskPrefs } from '../hooks/useDownloadTaskPrefs';
 import {
   Typography,
   Card,
+  Checkbox,
   Descriptions,
   Button,
   Space,
@@ -25,8 +26,10 @@ import {
   RefreshCw,
   ArrowDown,
   ArrowUp,
+  Trash2,
 } from 'lucide-react';
 import { downloadersApi } from '../api/downloaders';
+import { tasksApi } from '../api/tasks';
 import type { DownloaderInstance, DownloadTask, FileResource, TorrentInfo } from '../types';
 import { formatBytes, formatDate, formatSpeed, formatEta, timeAgo } from '../utils/format';
 import StatusBadge from '../components/StatusBadge';
@@ -72,7 +75,7 @@ const DEFAULT_TORRENT_COLUMNS: string[] = [...TORRENT_COLUMN_POOL];
 export default function DownloaderDetail() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
 
   const [dl, setDl] = useState<DownloaderInstance | null>(null);
   useDocumentTitle(dl?.name ?? t('downloaders.title'));
@@ -321,6 +324,58 @@ export default function DownloaderDetail() {
     ...visibleTorrentColumns.map((k) => torrentColumnDefs[k]),
   ];
 
+  const handleDeleteTask = (taskId: string) => {
+    let deleteData = false;
+    modal.confirm({
+      title: t('agents.deleteTaskConfirm'),
+      content: (
+        <div>
+          <div>{t('agents.deleteTaskWarning')}</div>
+          <Checkbox
+            style={{ marginTop: 8 }}
+            onChange={(e) => {
+              deleteData = e.target.checked;
+            }}
+          >
+            {t('agents.deleteTaskData')}
+          </Checkbox>
+        </div>
+      ),
+      okText: t('common.delete'),
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        const res = await tasksApi.delete(taskId, deleteData);
+        if (!res.success) {
+          message.error(res.error?.message || t('agents.taskActionFailed'));
+          return;
+        }
+        await Promise.all([fetchTasks(), fetchTorrents()]);
+      },
+    });
+  };
+
+  const taskExtraColumns: TableColumnsType<DownloadTask> = [
+    {
+      title: t('common.actions'),
+      key: 'actions',
+      width: 64,
+      align: 'right',
+      fixed: 'right',
+      render: (_, record) => (
+        <Space size={0} onClick={(e) => e.stopPropagation()}>
+          <Button
+            type="text"
+            size="small"
+            danger
+            icon={<Trash2 size={14} />}
+            aria-label={t('common.delete')}
+            onClick={() => handleDeleteTask(record.id)}
+          />
+        </Space>
+      ),
+    },
+  ];
+
   if (loadingDl) return <Spin />;
   if (!dl) return <Text type="danger">{t('downloaders.notFound')}</Text>;
 
@@ -382,6 +437,7 @@ export default function DownloaderDetail() {
                     setTaskStatus(v);
                     setTaskPage(1);
                   }}
+                  extraColumns={taskExtraColumns}
                   onRowClick={(task) => {
                     if (task.file_resource) setSelectedResource(task.file_resource);
                   }}
