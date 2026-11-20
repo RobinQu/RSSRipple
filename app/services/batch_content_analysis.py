@@ -82,6 +82,22 @@ _STAGE_QUALIFIER_RE = re.compile(
 )
 
 
+def _season_extra_rules_apply(report: TorrentReport) -> bool:
+    """Append extra-file rules only for unparsed videos outside work clusters.
+
+    A season-scope pack can contain a nested work directory (a bundled movie,
+    for example) whose main video carries no episode number. That file is a
+    member of another work, not an extra, so asking the model to choose
+    between "extra" and "unknown role" would misdirect it. Unknown files at
+    the torrent root are the ones the extra-file rule actually targets.
+    """
+    return any(
+        fp.get("episode") is None
+        and "/" not in (fp.get("path") or "").replace("\\", "/")
+        for fp in report.file_parses
+    )
+
+
 def llm_refinement_needed(
     report: TorrentReport,
     batch_scope: str | None,
@@ -1061,7 +1077,9 @@ async def refine_batch_content(
         return False
     title = resource.search_title or resource.title_cn or resource.title_raw
     extra_options = (
-        {"include_extra_rules": True} if report.scope == "season" else {}
+        {"include_extra_rules": True}
+        if report.scope == "season" and _season_extra_rules_apply(report)
+        else {}
     )
     data = await analyze_listing(
         title,

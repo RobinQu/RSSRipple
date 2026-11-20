@@ -244,6 +244,27 @@ def test_llm_refinement_needed_gates(monkeypatch):
     ) is False
 
 
+def test_season_extra_rules_skip_nested_work_videos():
+    def report(*files):
+        return TorrentReport(
+            scope="season", is_batch=True,
+            file_parses=[
+                {"path": path, "size": 1, "episode": episode}
+                for path, episode in files
+            ],
+        )
+
+    # Unknown root-level videos are the extras the rule targets.
+    assert _bca._season_extra_rules_apply(
+        report(("Show - 01.mkv", 1), ("Show - HIDE AND SEEK.mkv", None))
+    ) is True
+    # A nested movie cluster is another work, not an extra.
+    assert _bca._season_extra_rules_apply(
+        report(("Show - 01.mkv", 1), ("Show Movie/Show Movie.mkv", None))
+    ) is False
+    assert _bca._season_extra_rules_apply(report(("Show - 01.mkv", 1))) is False
+
+
 def test_build_listing_text_and_parse_llm_json():
     text = _bca._build_listing_text([
         {"name": "a.mkv", "size": 10 * 1024 * 1024},
