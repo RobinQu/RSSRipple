@@ -2,20 +2,37 @@ name: Docker Publish
 
 # Builds and publishes a multi-arch (amd64 + arm64) Docker image to ghcr.io
 # in the repository's own namespace on every push to main and on version tags.
+#
+# Quality is split into independently rerunnable jobs (lint / unit+API /
+# offline metadata corpus) so a failure is scoped to one concern. The image
+# is only built when all three pass.
 on:
   push:
     branches:
       - main
     tags:
       - 'v*'
+  # Retry a transient failure (registry EOF, flaky runner) without pushing an
+  # empty commit.
+  workflow_dispatch:
+
+# A newer push to the same ref must win: cancel the older run instead of
+# letting two multi-arch builds race to publish :latest.
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
+  # Keep CI on the same interpreter as the published image (Dockerfile uses
+  # python:3.12-slim). Pinning also avoids uv resolving a brand-new CPython
+  # that libtorrent has no wheels for.
+  PYTHON_VERSION: '3.12'
 
 jobs:
-  # Fast quality gate so we never publish an image from broken code.
-  test:
+  lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -24,7 +41,8 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
-          python-version: '3.13'
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
 
       - name: Install dependencies
         run: uv sync --frozen --all-groups
@@ -32,13 +50,61 @@ jobs:
       - name: Run ruff
         run: uv run ruff check .
 
+  unit-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-groups
+
       - name: Run unit and API tests
-        run: uv run pytest tests/unit tests/api -v --tb=short
+        run: uv run pytest tests/unit tests/api -q --tb=short
+
+  metadata-corpus:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-groups
 
       - name: Offline production metadata acceptance
+        id: corpus
         env:
           CORPUS_REPORT_DIR: /tmp/metadata-corpus
-        run: uv run pytest tests/integration/metadata_corpus -q --junitxml=/tmp/metadata-corpus/integration.xml
+        run: |
+          mkdir -p /tmp/metadata-corpus
+          uv run pytest tests/integration/metadata_corpus -q --junitxml=/tmp/metadata-corpus/integration.xml
+
+      - name: Explain corpus replay failure
+        if: steps.corpus.outcome == 'failure'
+        run: |
+          echo "::error title=Metadata corpus replay failed::A prompt/request fingerprint changed or recorded evidence was not fully consumed. Re-record and review the affected cassette (docs/testing/metadata-corpus.md); never weaken the replay."
+          {
+            echo "### Metadata corpus replay failed"
+            echo ""
+            echo "A prompt/request fingerprint changed, or recorded evidence was not fully consumed."
+            echo "Re-record the affected scenario, review it, and commit the new cassette; see \`docs/testing/metadata-corpus.md\`."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload corpus acceptance reports
         if: always()
@@ -48,8 +114,9 @@ jobs:
           path: /tmp/metadata-corpus/
 
   build-and-push:
-    needs: test
+    needs: [lint, unit-api, metadata-corpus]
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: write

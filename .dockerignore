@@ -1,0 +1,42 @@
+# Keep the Docker build context small and reproducible. The image only needs
+# pyproject.toml/uv.lock, README.md, app/, tests/, scripts/ and the frontend
+# source (package files + src + config). Everything else is local state.
+.git
+.github
+.agents
+.codex
+.venv
+venv
+env
+__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+.coverage.*
+coverage.json
+htmlcov
+mutants
+tmp
+data
+abs
+docs
+# Archived corpus versions are read-only host artifacts; the runtime image and
+# the test-runner (which bind-mounts ./tests) only need the current v3 corpus.
+tests/fixtures/metadata_corpus_v1
+tests/fixtures/metadata_corpus_v2
+frontend/node_modules
+frontend/dist
+frontend/.vite
+**/node_modules
+**/.DS_Store
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.log
+.env
+.env.*
+!.env.example

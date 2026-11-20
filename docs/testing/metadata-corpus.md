@@ -43,7 +43,7 @@ PostgreSQL 必须名为 `metadata_corpus_test`，每轮创建/删除随机 schem
 
 - 单节点：临时 Turso，与 HTTP app 数据库隔离，覆盖率并入现有 test-runner 统计。
 - 分布式：独立 tmpfs `corpus-postgres` 服务，数据库名 `metadata_corpus_test`，不读写 app 的 `rssripple_test` 库。这里只验证 PostgreSQL 上的进程内重建，不冒充 Redis/worker 全链路验收。
-- Fast Gate 与 Docker Publish 的已有测试 job 也执行这组离线验收；不再维护独立的 `metadata-corpus.yml` 工作流。
+- Fast Gate 与 Docker Publish 的 `metadata-corpus` job 也执行这组离线验收；不再维护独立的 `metadata-corpus.yml` 工作流。Publish 的该 job 与其他门禁拆分运行，失败时 step summary 会提示重新录制与审核 cassette。
 - Compose 输出到宿主机 `data/metadata-corpus/`：整个集成套件的 `integration.xml`、实时生成的 `audit.json`、逐场景 `scenario-<hash>.json`（含语义差异或执行异常）。Strict Gate 无论测试成败都上传该目录。Fast/Publish 使用 `/tmp/metadata-corpus/` 并上传。
 
 本地可通过 `CORPUS_REPORT_DIR=/tmp/my-corpus-reports` 指定报告目录；未指定时使用 pytest 临时目录。测试不会回写只读 fixture 中的 audit。收集期异常可能仅有 JUnit 报告；审核状态必须与测试结果分开阅读，不能以用例数量代替已核验资源数量。
