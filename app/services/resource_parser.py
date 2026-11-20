@@ -446,6 +446,7 @@ def extract_compilation_work_title(raw: str | None) -> str | None:
     """
     if not raw:
         return None
+    raw = re.sub(r"[\u200b-\u200d\ufeff]", "", raw).strip()
     m = _COMPILATION_TAG_RE.match(raw)
     if not m:
         return None
@@ -753,7 +754,19 @@ def extract_release_title(title_raw: str | None) -> str | None:
         text = decoded
     text = re.sub(r"[\u200b-\u200d\ufeff]", "", text).strip()
     text = _VIDEO_EXTENSION_RE.sub("", text)
-    text = _LEADING_BRACKETS_RE.sub("", text).strip()
+    text = re.sub(r"_(?:TVSP|TV)$", "", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"^\s*\d+\s*(?:yrs?|years?)\s+ago\s*-\s*", "", text,
+        flags=re.IGNORECASE,
+    )
+    bracketed_compilation = re.match(r"^\s*合集\s*(?=[\[【])", text)
+    text = re.sub(r"^\s*合集\s*(?=[\[【])", "", text)
+    if bracketed_compilation:
+        blocks = re.findall(r"[\[【]([^\]】]+)[\]】]", text)
+        text = blocks[1] if len(blocks) > 1 else _LEADING_BRACKETS_RE.sub("", text)
+    else:
+        text = _LEADING_BRACKETS_RE.sub("", text)
+    text = text.strip()
     text = re.split(r"\s*/\s*", text, maxsplit=1)[0]
     text = text.split("|", 1)[0]
     if not _CJK_RE.search(text):
@@ -819,8 +832,10 @@ def extract_episode_fallback(title_raw: str) -> tuple[int | None, int | None]:
 #   "Show - 01.mkv"            -> 1   (dash form)
 #   "Show 第03話.mkv"          -> 3   (kanji form)
 _PATH_SPLIT_RE = re.compile(r"[/\\]+")
+_PREFIX_EPISODE_RE = re.compile(r"(?<![A-Za-z])EP(\d{1,4})(?![A-Za-z])", re.IGNORECASE)
 _DASH_EPISODE_RE = re.compile(r"\s-\s(\d{1,3})(?:v\d+)?(?=[\s.\[\(（【]|$)")
 _KANJI_EPISODE_RE = re.compile(r"第\s*(\d{1,3})\s*[话話集]")
+_BARE_EPISODE_RE = re.compile(r"(?<![A-Za-z])(\d{1,3})(?:\s*v\d+)?(?=\s*\()")
 # Bare leading number in the FILENAME ("BD-folder convention": "S01/01 Title.mkv").
 # Anchored at the name start so stray tech numbers deeper in the name
 # ("... BDRip 1080p.mkv") never match; the trailing guard rejects resolution
@@ -896,6 +911,10 @@ def extract_season_episode_from_path(path: str) -> tuple[int | None, int | None]
     if special:
         return 0, int(special.group(1))
     if episode is None:
+        m = _PREFIX_EPISODE_RE.search(filename)
+        if m:
+            episode = int(m.group(1))
+    if episode is None:
         m = _SEMICOLON_EP_RE.search(filename)
         if m:
             episode = int(m.group(1))
@@ -909,6 +928,10 @@ def extract_season_episode_from_path(path: str) -> tuple[int | None, int | None]
             episode = int(m.group(1))
     if episode is None:
         m = _KANJI_EPISODE_RE.search(filename)
+        if m:
+            episode = int(m.group(1))
+    if episode is None:
+        m = _BARE_EPISODE_RE.search(filename)
         if m:
             episode = int(m.group(1))
     if episode is None:
@@ -1062,5 +1085,23 @@ def normalize_parsed_fields(title_raw: str | None, parsed: dict) -> dict:
         year = extract_title_year(title_raw)
         if year is not None:
             out["title_year"] = year
+
+    episode = out.get("episode")
+    if isinstance(episode, int) and not _SXXEXX_RE.search(title_raw):
+        is_year = episode == out.get("title_year")
+        is_resolution = bool(re.search(
+            rf"(?<!\d){episode}\s*[pP](?!\w)", title_raw,
+        ))
+        age_prefix = re.match(
+            r"^\s*(\d+)\s*(?:yrs?|years?)\s+ago\b", title_raw,
+            flags=re.IGNORECASE,
+        )
+        is_age = age_prefix is not None and episode == int(age_prefix.group(1))
+        if is_year or is_resolution or is_age:
+            out["episode"] = None
+            if out.get("absolute_episode") == episode:
+                out["absolute_episode"] = None
+                if out.get("episode_confidence") in ("ambiguous", "raw"):
+                    out["episode_confidence"] = None
 
     return out

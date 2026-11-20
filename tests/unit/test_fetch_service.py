@@ -1671,10 +1671,11 @@ async def test_compilation_title_marks_batch_and_sets_search_title(
         select(FileResource).where(FileResource.guid == "gcomp")
     )).scalar_one()
     assert row.is_batch is True
+    assert row.batch_scope == "franchise"
     assert row.search_title == "猫眼三姐妹"
 
 
-async def test_compilation_preserves_detected_multi_season_coverage(
+async def test_compilation_ignores_detected_multi_season_coverage_for_dispatch(
     db_session, channel, fake_queue,
 ):
     entries = [_entry(
@@ -1695,7 +1696,7 @@ async def test_compilation_preserves_detected_multi_season_coverage(
     row = (await db_session.execute(
         select(FileResource).where(FileResource.guid == "gcomp-multi")
     )).scalar_one()
-    assert row.batch_scope == "multi_season"
+    assert row.batch_scope == "franchise"
     assert row.batch_seasons == [1, 2, 3]
 
 
@@ -2200,3 +2201,38 @@ class TestFetchIntegrityError:
              patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
             with pytest.raises(IntegrityError):
                 await fs.fetch_channel_resources(channel, db_session)
+
+
+async def test_reconcile_uses_collection_counts_when_season_is_known(db_session, channel):
+    from app.models.series import TVSeries
+    from app.models.work_collection import WorkCollection
+    from app.services.publication_migration import bootstrap_publications
+
+    collection = WorkCollection(id=_uuid(), title_cn="Hotel")
+    db_session.add(collection)
+    await db_session.flush()
+    first = TVSeries(
+        id=_uuid(), title_cn="Hotel", season_number=1,
+        number_of_episodes=13, collection_id=collection.id,
+    )
+    second = TVSeries(
+        id=_uuid(), title_cn="Hotel", season_number=2,
+        number_of_episodes=13, collection_id=collection.id,
+    )
+    target = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="hotel-absolute-18",
+        title_raw="[G] Hotel S02 - 18", torrent_url="magnet:?xt=urn:btih:hotel18",
+        series_id=second.id, season=2, episode=18, absolute_episode=18,
+        episode_confidence="ambiguous",
+    )
+    db_session.add_all([first, second, target])
+    await db_session.flush()
+    await bootstrap_publications(db_session, writers_stopped=True)
+    await db_session.commit()
+
+    changed = await fs.reconcile_stale_raw_episodes(db_session, return_resource_ids=True)
+
+    assert changed == [target.id]
+    assert target.series_id == second.id
+    assert (target.season, target.episode, target.absolute_episode) == (2, 5, 18)
+    assert target.episode_confidence == "reconciled"

@@ -373,6 +373,12 @@ def test_extract_compilation_work_title(title, expected):
     assert extract_compilation_work_title(title) == expected
 
 
+def test_compilation_tag_ignores_leading_zero_width_characters():
+    assert extract_compilation_work_title(
+        "\u200b\u200c[整理搬运] 肯普法 (けんぷファー)：TV动画+Special+漫画"
+    ) == "肯普法"
+
+
 def test_detect_batch_flags_compilation_tag():
     # [整理搬运] archive torrents are flagged as batches (no explicit range).
     assert detect_batch("[整理搬运] 猫眼三姐妹／猫之眼：TV动画+剧场版") == (True, None, None)
@@ -1125,6 +1131,8 @@ def test_extract_season_episode_empty_paths():
         ("Show S01/[01] Title.mkv", (1, 1)),
         ("Show S01/Show 第03話.mkv", (1, 3)),
         ("Show S01/01 Title.mkv", (1, 1)),
+        ("Kaze.Kaoru.EP074.1080p.NHKP.WEB-DL.AAC2.0.H.264-MagicStar.mkv", (None, 74)),
+        ("[HnG] Genshi Shonen Ryu 01 v2 (DVD) [4527AABC].mkv", (None, 1)),
     ],
 )
 def test_extract_season_episode_from_path_branches(path, expected):
@@ -1144,3 +1152,30 @@ def test_normalize_normalizes_existing_subtitle_groups_list():
         "Show - 01", {"subtitle_groups": ["CHS", "chs"], "title_cn": "Show"}
     )
     assert out["subtitle_groups"] == ["CHS"]
+
+
+def test_normalize_rejects_year_and_resolution_as_episode():
+    year = normalize_parsed_fields(
+        "Neoranga (1998) S1 [1080p H265]", {"episode": 1998},
+    )
+    resolution = normalize_parsed_fields(
+        "Show (BDRip 1080p HEVC FLAC)", {"episode": 1080},
+    )
+    assert year["episode"] is None
+    assert year["title_year"] == 1998
+    assert resolution["episode"] is None
+    age = normalize_parsed_fields(
+        "43yrs ago - [1983-1984] Mrs. Pepper Pot_TV", {"episode": 43},
+    )
+    assert age["episode"] is None
+
+
+def test_extract_release_title_drops_age_and_compilation_noise():
+    from app.services.resource_parser import extract_release_title
+
+    assert extract_release_title(
+        "43yrs ago - [1983-1984] Mrs. Pepper Pot_湯匙伯母歷險記_TV"
+    ) == "Mrs. Pepper Pot_湯匙伯母歷險記"
+    assert extract_release_title(
+        "合集[爱の夏字幕组][银河奥特曼S][BDrip][HEVC Main10P FLAC MKV]"
+    ) == "银河奥特曼S"

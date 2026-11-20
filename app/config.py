@@ -178,6 +178,12 @@ class Settings(BaseSettings):
     # Env var: REFRESH_JOB_TIME_BUDGET_SECONDS.
     refresh_job_time_budget_seconds: int = 1800
 
+    # Automatic external-dependency retry budgets and persisted error retention.
+    metadata_transient_max_attempts: int = 5
+    torrent_fetch_max_attempts: int = 5
+    listing_reconcile_max_attempts: int = 5
+    app_log_retention_days: int = 7
+
     # App
     app_name: str = "RSSRipple"
     debug: bool = False

@@ -207,6 +207,8 @@ resource_file_assignments              # 文件级映射：torrent 清单条目 
 
 `FileResource.confirmation_ignored_at`：仅表示用户在 Dashboard 单个或批量永久忽略「文件资源元数据确认」的 UTC 时间。后台重解析不再写入或清除此列；人工忽略不会因任务成功、失败或重试消失。资源仍可在频道页检索和修订。临时隐藏由独立 `ResourceReparseRequest` 决定：请求存在且 `error_message IS NULL` 时暂不显示待确认；队列投递故障时显示待确认，人工忽略仍优先。
 
+`AppLog`（`app_logs`）承载外部依赖自动重试耗尽后的应用异常：UUID 主键；`category ∈ {metadata,torrent,magnet,listing}`；`severity/message`；可空 `resource_id/channel_id`（均 ON DELETE CASCADE）；`attempts`；`status ∈ {failed,retrying,resolved}`；`retry_count/last_retried_at/resolved_at`；`created_at/updated_at`。同一资源与类别只更新当前 failed/retrying 记录，成功后写 resolved。Dashboard 排除 transient 元数据失败及存在 failed/retrying 日志的资源，不把外部故障当作人工元数据确认。每日清理按 `updated_at` 删除超过 `APP_LOG_RETENTION_DAYS`（默认 7 天）的记录。`(resource_id,category,status)` 与 `(updated_at,id)` 索引支撑队列过滤和保留清理。
+
 Dashboard 待确认扫描索引：`Index(confirmation_ignored_at, created_at, id)`，同时支撑未忽略资源过滤及稳定倒序分页扫描。
 
 热 FK 查找索引（P1-D5，双库 EXPLAIN 验证；存量库由轻迁移补同名列索引）：`Index(series_id)`、`Index(movie_id)`、`Index(audio_work_id)`、`Index(collection_id)`。

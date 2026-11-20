@@ -573,6 +573,12 @@ async def _cleanup_expired() -> None:
         for n in old_notifications:
             await db.delete(n)
 
+        from app.services.app_logs import cleanup_app_logs
+
+        deleted_logs = await cleanup_app_logs(db)
+        if deleted_logs:
+            logger.info("Cleaned up %d expired application logs", deleted_logs)
+
         if stale:
             logger.info("Expired %d stale pending decisions", len(stale))
         if deleted_count:

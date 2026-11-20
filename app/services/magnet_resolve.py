@@ -514,7 +514,12 @@ async def _set_status(
             .where(*predicates)
             .values(magnet_resolve_updated_at=utcnow(), **values)
         )
-        return result.rowcount > 0
+        accepted = result.rowcount > 0
+        if accepted and values.get("magnet_resolve_status") == "done":
+            from app.services.app_logs import resolve_external_logs
+
+            await resolve_external_logs(db, resource_id, ["magnet"])
+        return accepted
 
 
 async def _attempt_loop(resource_id: str, attempt_id: str) -> None:
@@ -581,6 +586,13 @@ async def _attempt_loop(resource_id: str, attempt_id: str) -> None:
                 ))
                 if not updated.rowcount:
                     return
+                if exhausted:
+                    from app.services.app_logs import record_external_failure
+
+                    await record_external_failure(
+                        db, category="magnet", message=e, resource_id=resource_id,
+                        channel_id=resource.channel_id, attempts=attempts,
+                    )
             logger.info(
                 "[magnet] attempt %d/%d failed for %s: %s",
                 attempts, max_attempts, resource_id, e,

@@ -278,6 +278,7 @@ app.add_middleware(RequestIdMiddleware)
 from app.api.v1 import (  # noqa: E402
     agents,
     api_keys,
+    app_logs,
     audio_works,
     auth,
     channels,
@@ -300,6 +301,7 @@ from app.api.v1 import (  # noqa: E402
 )
 
 app.include_router(dashboard.router, prefix="/api/v1", tags=["dashboard"])
+app.include_router(app_logs.router, prefix="/api/v1", tags=["app-logs"])
 app.include_router(channels.router, prefix="/api/v1", tags=["channels"])
 app.include_router(agents.router, prefix="/api/v1", tags=["agents"])
 app.include_router(downloaders.router, prefix="/api/v1", tags=["downloaders"])

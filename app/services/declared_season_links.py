@@ -25,7 +25,7 @@ async def _confirmed_collection_id(
     )).all()
     work_ids.update(link.series_id for link in links if link.series_id)
     if not work_ids:
-        return None
+        return resource.collection_id
     works = (await db.scalars(
         select(TVSeries).where(TVSeries.id.in_(work_ids))
     )).all()
@@ -40,10 +40,11 @@ async def _confirmed_collection_id(
 async def link_declared_seasons(db: AsyncSession, resource: FileResource) -> int:
     """Add auto links for unambiguous, existing works in declared seasons.
 
-    The resource's existing flat/base work and work links must confirm one
-    collection. No titles are matched and no works are created. Existing link
-    rows, including manual ones, are left untouched; the flat FK remains
-    available to the initial and later single-work file-binding passes.
+    A flat/base work and work links must confirm one collection, or a
+    collection-owned links-free resource may supply its own collection_id.
+    No titles are matched and no works are created. Existing link rows,
+    including manual ones, are left untouched; the flat FK remains available
+    to the initial and later single-work file-binding passes.
     """
     if (
         not resource.is_batch

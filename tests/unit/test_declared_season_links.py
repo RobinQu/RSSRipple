@@ -267,3 +267,27 @@ async def test_late_listing_reconcile_links_declared_seasons_and_keeps_s1_files(
         ResourceFileAssignment.file_path == "Hayate/S01/Hayate S01E01.mkv",
     ))
     assert first_file is not None and first_file.series_id == first_id
+
+
+async def test_links_declared_seasons_from_collection_owned_resource(
+    db_session, sample_channel,
+):
+    collection = WorkCollection(id=_uuid(), title_cn="Westworld")
+    db_session.add(collection)
+    await db_session.flush()
+    works = [
+        TVSeries(
+            id=_uuid(), title_cn=f"Westworld S{season}",
+            collection_id=collection.id, season_number=season,
+        )
+        for season in (1, 2, 3, 4)
+    ]
+    resource = _resource(sample_channel.id, None, [1, 2, 3, 4])
+    resource.collection_id = collection.id
+    db_session.add_all([*works, resource])
+    await db_session.flush()
+
+    assert await link_declared_seasons(db_session, resource) == 4
+    links = await _links(db_session, resource.id)
+    assert {link.series_id for link in links} == {work.id for work in works}
+    assert all(link.source == "auto" for link in links)

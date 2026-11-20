@@ -39,7 +39,8 @@
   - `DEFAULT_FETCH_INTERVAL`：频道默认抓取间隔（秒，默认 `1800`）。
   - `TRANSMISSION_TIMEOUT`：Transmission RPC 超时。
   - `MAX_RETRY_COUNT`：失败下载最大重试次数（默认 `3`）。
-  - `REFRESH_JOB_TIME_BUDGET_SECONDS`：单个作品刷新后台 job 的整体墙钟预算（默认 `1800`，`0` 禁用）；预算耗尽即停止处理剩余条目并汇总为部分完成。单条刷新另有 120s 超时（代码常量），批量刷新请求 `items` 上限 100。
+  - `REFRESH_JOB_TIME_BUDGET_SECONDS`：单个作品刷新后台 job 的整体墙钟预算（默认 `1800`，`0` 禁用）；预算耗尽即停止处理剩余条目并汇总为部分完成。单条刷新另有 120s 超时（代码常量），批量刷新请求 `items` 上限 100。频道周期刷新在 `app_settings` 持久化轮换游标，下一轮继续未处理作品。
+  - `METADATA_TRANSIENT_MAX_ATTEMPTS` / `TORRENT_FETCH_MAX_ATTEMPTS` / `LISTING_RECONCILE_MAX_ATTEMPTS`：对应外部依赖自动尝试总次数，默认均为 `5`；耗尽写应用日志，之后由设置页手动开启新一轮。`APP_LOG_RETENTION_DAYS`：应用日志保留天数，默认 `7`，按最近更新时间每日清理。
   - `TASK_EXPIRE_DAYS`：已完成任务自动清理天数（默认 `30`）。
   - `DEV_MODE`：为 `true` 时内部错误响应含堆栈（默认 `false`）。
   - `NOTIFY_ENABLED`：下载完成通知总开关/熔断（默认 `true`）。webhook 按 Agent 在 UI 多注册（Agent 详情 → 通知记录 Tab）；投递为纯出站（无回调 token，无消费者回调端点），单次 POST 超时 180s（代码常量）。

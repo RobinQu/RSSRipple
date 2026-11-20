@@ -28,6 +28,9 @@ export interface SystemSettingsUpdate {
   tmdb_api_key?: string | null;
   tmdb_enabled?: boolean | null;
   bangumi_api_key?: string | null;
+  wigolo_base_url?: string | null;
+  wigolo_api_token?: string | null;
+  web_fallback_enabled?: boolean | null;
   wikipedia_enabled?: boolean | null;
 }
 

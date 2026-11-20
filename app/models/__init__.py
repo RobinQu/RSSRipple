@@ -9,6 +9,7 @@ from app.models.agent_suggestion import AgentSuggestion
 from app.models.agent_webhook import AgentWebhook
 from app.models.agent_work import AgentWork
 from app.models.api_key import ApiKey
+from app.models.app_log import AppLog
 from app.models.app_setting import AppSetting
 from app.models.audio_work import AudioWork
 from app.models.auth_rate_limit import AuthRateLimitBucket
@@ -47,6 +48,7 @@ from app.models.work_collection import WorkCollection
 from app.models.work_external_id import WorkExternalId
 
 __all__ = [
+    "AppLog",
     "AgentRunLease",
     "ResourceReparseRequest",
     "AuthRateLimitBucket",

@@ -587,6 +587,50 @@ class TestDashboardUntrackedTorrents:
         # one is listed but not counted).
         assert data["active_download_count"] == 4
 
+
+    async def test_external_metadata_failure_is_not_a_confirmation(self, client, db_session_factory):
+        from app.models.channel import Channel
+        from app.models.file_resource import FileResource
+
+        async with db_session_factory() as db:
+            channel = Channel(
+                id=_uuid(), name="external-logs", url="https://example.com/external.xml",
+                field_mapping=TEST_FIELD_MAPPING,
+            )
+            db.add(channel)
+            await db.flush()
+            transient = FileResource(
+                id=_uuid(), channel_id=channel.id, guid="transient",
+                title_raw="Transient", torrent_url="https://example.com/t.torrent",
+                metadata_failure_type="transient", metadata_attempts=5,
+            )
+            not_found = FileResource(
+                id=_uuid(), channel_id=channel.id, guid="not-found",
+                title_raw="Not found", torrent_url="https://example.com/n.torrent",
+                metadata_failure_type="not_found", metadata_attempts=2,
+            )
+            failed_torrent = FileResource(
+                id=_uuid(), channel_id=channel.id, guid="failed-torrent",
+                title_raw="Failed torrent", torrent_url="https://example.com/f.torrent",
+            )
+            db.add_all([transient, not_found, failed_torrent])
+            await db.flush()
+            from app.models.app_log import AppLog
+
+            db.add(AppLog(
+                category="torrent", message="timeout", resource_id=failed_torrent.id,
+                channel_id=channel.id, status="failed", attempts=5,
+            ))
+            await db.commit()
+
+        response = await client.get("/api/v1/dashboard/overview?confirmation_page_size=100")
+        assert response.status_code == 200
+        items = response.json()["data"]["pending_confirmations"]
+        titles = {item["resource"]["title_raw"] for item in items}
+        assert "Not found" in titles
+        assert "Transient" not in titles
+        assert "Failed torrent" not in titles
+
     async def test_unreachable_downloader_does_not_break_dashboard(
         self, client, mock_transmission, setup_with_task_and_decision
     ):

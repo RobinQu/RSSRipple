@@ -41,6 +41,7 @@ import app.models  # noqa: E402, F401
 from app.api.v1 import (  # noqa: E402
     agents,
     api_keys,
+    app_logs,
     audio_works,
     auth,
     channels,
@@ -118,6 +119,7 @@ def _build_test_app(session_factory: async_sessionmaker, with_auth: bool = False
 
     for router in (
         dashboard.router,
+        app_logs.router,
         channels.router,
         agents.router,
         downloaders.router,

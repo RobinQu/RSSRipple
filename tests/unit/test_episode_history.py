@@ -342,3 +342,31 @@ async def test_heal_sibling_episodes_scopes_to_work_and_channel(
     assert healed == []
     assert other_work.episode_confidence == "ambiguous"
     assert other_channel.episode_confidence == "ambiguous"
+
+
+async def test_manual_per_season_group_history_clears_false_absolute(
+    db_session, sample_channel,
+):
+    from app.services.episode_history import apply_per_season_history_default
+
+    series = TVSeries(id=_id(), title_cn="小书痴", season_number=4, number_of_episodes=12)
+    manual_rows = [
+        _resource(
+            sample_channel.id, series.id, f"[G] Show S04 - {number}",
+            subtitle_group="G", subtitle_groups=["G"], season=4, episode=number,
+            episode_confidence="manual",
+        )
+        for number in (20, 21)
+    ]
+    target = _resource(
+        sample_channel.id, series.id, "[G] Show S04 - 22",
+        subtitle_group="G", subtitle_groups=["G"], season=4, episode=22,
+        absolute_episode=22, episode_confidence="ambiguous",
+    )
+    db_session.add_all([series, *manual_rows, target])
+    await db_session.commit()
+
+    assert await apply_per_season_history_default(db_session, target) is True
+    assert target.episode == 22
+    assert target.absolute_episode is None
+    assert target.episode_confidence == "reconciled"

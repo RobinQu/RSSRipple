@@ -518,6 +518,7 @@ async def _handle_refresh_channel_works(payload: dict) -> dict:
     from app.models.channel import Channel
     from app.services.metadata_service import select_channel_works_for_refresh
     from app.services.metadata_sources import resolve_metadata_source
+    from app.services.settings_service import get_setting, set_setting
 
     await _refresh_runtime_config()
     channel_id = payload.get("channel_id")
@@ -536,6 +537,14 @@ async def _handle_refresh_channel_works(payload: dict) -> dict:
             session, channel_id,
             full_scope=bool(channel.metadata_refresh_full_scope),
         )
+        cursor_key = f"metadata_refresh_cursor:{channel_id}"
+        cursor = await get_setting(session, cursor_key)
+        items = sorted(items, key=lambda item: (item["content_type"], item["id"]))
+        item_keys = [f"{item['content_type']}:{item['id']}" for item in items]
+        start = item_keys.index(cursor) + 1 if cursor in item_keys else 0
+        items = items[start:] + items[:start]
+        if not items:
+            await set_setting(session, cursor_key, None)
 
     logger.info(
         "[channel_refresh] channel %s source=%s scope=%s works=%d",
@@ -548,6 +557,16 @@ async def _handle_refresh_channel_works(payload: dict) -> dict:
         trusted_sites=channel.metadata_fallback_sources,
         strategy="sync_non_manual" if channel.metadata_refresh_full_scope else "fill_missing",
     )
+    processed_items = [
+        item for item, result in zip(items, results)
+        if result.get("skipped") is not True
+    ]
+    async with committed_session() as session:
+        next_cursor = None
+        if any(result.get("skipped") is True for result in results) and processed_items:
+            last = processed_items[-1]
+            next_cursor = f"{last['content_type']}:{last['id']}"
+        await set_setting(session, cursor_key, next_cursor)
     return {
         "status": "done",
         **_refresh_batch_summary(results, len(items)),

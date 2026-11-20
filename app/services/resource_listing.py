@@ -143,7 +143,12 @@ async def record_torrent_fetch_success(
         )
         .execution_options(synchronize_session=False)
     )
-    return bool(result.rowcount)
+    accepted = bool(result.rowcount)
+    if accepted:
+        from app.services.app_logs import resolve_external_logs
+
+        await resolve_external_logs(db, resource_id, ["torrent"])
+    return accepted
 
 
 async def record_torrent_fetch_failure(
@@ -169,8 +174,11 @@ async def record_torrent_fetch_failure(
     )
     if attempts is None:
         return False
+    from app.config import settings
+
+    exhausted = not retryable or attempts >= settings.torrent_fetch_max_attempts
     next_attempt_at = None
-    if retryable:
+    if not exhausted:
         delay = min(
             _FETCH_RETRY_MAX_SECONDS,
             _FETCH_RETRY_BASE_SECONDS * 2 ** min(max(attempts - 1, 0), 6),
@@ -191,7 +199,18 @@ async def record_torrent_fetch_failure(
         )
         .execution_options(synchronize_session=False)
     )
-    return bool(result.rowcount)
+    recorded = bool(result.rowcount)
+    if recorded and exhausted:
+        from app.services.app_logs import record_external_failure
+
+        channel_id = await db.scalar(
+            select(FileResource.channel_id).where(FileResource.id == resource_id)
+        )
+        await record_external_failure(
+            db, category="torrent", message=error, resource_id=resource_id,
+            channel_id=channel_id, attempts=attempts,
+        )
+    return recorded
 
 
 async def fetch_resource_torrent(
@@ -541,10 +560,16 @@ async def _record_listing_reconcile_failure(
         )
         if attempts is None:
             return False
-        delay = min(
-            _RECONCILE_RETRY_MAX_SECONDS,
-            _RECONCILE_RETRY_BASE_SECONDS * 2 ** min(max(attempts - 1, 0), 6),
-        )
+        from app.config import settings
+
+        exhausted = attempts >= settings.listing_reconcile_max_attempts
+        next_attempt_at = None
+        if not exhausted:
+            delay = min(
+                _RECONCILE_RETRY_MAX_SECONDS,
+                _RECONCILE_RETRY_BASE_SECONDS * 2 ** min(max(attempts - 1, 0), 6),
+            )
+            next_attempt_at = now + timedelta(seconds=delay)
         result = await db.execute(
             update(FileResource)
             .where(
@@ -556,11 +581,22 @@ async def _record_listing_reconcile_failure(
                 listing_reconcile_status="failed",
                 listing_reconcile_error=_error_text(error),
                 listing_reconcile_updated_at=now,
-                listing_reconcile_next_attempt_at=now + timedelta(seconds=delay),
+                listing_reconcile_next_attempt_at=next_attempt_at,
             )
             .execution_options(synchronize_session=False)
         )
-        return bool(result.rowcount)
+        recorded = bool(result.rowcount)
+        if recorded and exhausted:
+            from app.services.app_logs import record_external_failure
+
+            channel_id = await db.scalar(
+                select(FileResource.channel_id).where(FileResource.id == resource_id)
+            )
+            await record_external_failure(
+                db, category="listing", message=error, resource_id=resource_id,
+                channel_id=channel_id, attempts=attempts,
+            )
+        return recorded
 
 
 async def reconcile_resource(
@@ -628,6 +664,9 @@ async def reconcile_resource(
             )
             if not owned.rowcount:
                 raise RuntimeError("listing reconcile attempt was replaced")
+            from app.services.app_logs import resolve_external_logs
+
+            await resolve_external_logs(db, resource_id, ["listing"])
     except Exception as error:  # noqa: BLE001 - durable state owns the retry
         logger.warning("[listing] reconcile failed for %s: %s", resource_id, error, exc_info=True)
         if attempt_id is not None:

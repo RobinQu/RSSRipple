@@ -362,6 +362,8 @@ Turso 重建 file_resources 时，其他表上的这些触发器在父表 DROP/R
 
 升级不猜测旧 confirmation_ignored_at 的来源。迁移后可用以下只读查询分页导出人工复核清单（两库同一 SQL）；先从空字符串游标开始，将最后一个 id 作为下一页 :after_id，禁止用日期直接批量清理：
 
+外部依赖异常新增 `app_logs` 表，同样由模型注册后的 `create_all` 在 PostgreSQL/Turso 幂等建立，无历史异常回填要求；既有资源/频道删除会级联删除其日志。`(resource_id,category,status)` 与 `(updated_at,id)` 索引同时创建，不重建既有业务表。旧版本不读取该表；回滚代码可保留表结构，但会失去新日志状态机和 Dashboard 外部异常分流。
+
 ```sql
 SELECT r.id, r.channel_id, r.title_raw, r.confirmation_ignored_at,
        q.id AS pending_request_id, q.error_message AS delivery_error

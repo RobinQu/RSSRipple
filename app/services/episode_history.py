@@ -182,6 +182,93 @@ async def apply_season_history_default(
     return True
 
 
+async def apply_per_season_history_default(
+    db: AsyncSession,
+    resource: Any,
+    *,
+    history_rows: list[FileResource] | None = None,
+) -> bool:
+    """Clear a false absolute marker using human-vetted per-season history.
+
+    Manual episode corrections commonly store ``absolute_episode=NULL``. They
+    cannot establish an absolute-numbering convention, but they are strong
+    evidence for the opposite convention. An exact same-episode manual row is
+    sufficient. Within one release group, two distinct manual episodes whose
+    raw titles still parse to the corrected values also establish the rule.
+    """
+    if (
+        not getattr(resource, "series_id", None)
+        or getattr(resource, "is_batch", False)
+        or getattr(resource, "episode_confidence", None) != "ambiguous"
+        or getattr(resource, "season", None) is None
+        or getattr(resource, "episode", None) is None
+        or getattr(resource, "absolute_episode", None) != resource.episode
+    ):
+        return False
+    if history_rows is None:
+        history_rows = list((await db.execute(
+            select(FileResource)
+            .where(
+                FileResource.series_id == resource.series_id,
+                FileResource.channel_id == resource.channel_id,
+                FileResource.id != resource.id,
+                FileResource.is_batch.is_(False),
+                FileResource.season == resource.season,
+                FileResource.episode.isnot(None),
+                FileResource.absolute_episode.is_(None),
+                FileResource.episode_confidence == "manual",
+            )
+            .order_by(FileResource.created_at.desc())
+            .limit(_FAR_SCAN_LIMIT)
+        )).scalars().all())
+    else:
+        history_rows = [
+            row for row in history_rows
+            if row.id != resource.id
+            and row.series_id == resource.series_id
+            and row.channel_id == resource.channel_id
+            and not row.is_batch
+            and row.season == resource.season
+            and row.episode is not None
+            and row.absolute_episode is None
+            and row.episode_confidence == "manual"
+        ][:_FAR_SCAN_LIMIT]
+    exact = [row for row in history_rows if row.episode == resource.episode]
+    accepted = bool(exact)
+    if not accepted:
+        from app.services.resource_parser import extract_season_episode_from_path
+
+        target_group = _group_key(
+            getattr(resource, "subtitle_groups", None)
+            or getattr(resource, "subtitle_group", None)
+        )
+        target_season, target_episode = extract_season_episode_from_path(resource.title_raw)
+        if (
+            target_episode != resource.episode
+            or target_season not in (None, resource.season)
+        ):
+            return False
+        same_group = [
+            row for row in history_rows
+            if target_group
+            and _group_key(row.subtitle_groups or row.subtitle_group) == target_group
+            and (lambda parsed: (
+                parsed[1] == row.episode
+                and parsed[0] in (None, row.season)
+            ))(extract_season_episode_from_path(row.title_raw))
+        ]
+        accepted = len({row.episode for row in same_group}) >= 2
+    if not accepted:
+        return False
+    resource.absolute_episode = None
+    resource.episode_confidence = "reconciled"
+    logger.info(
+        "[episode_history] cleared false absolute marker on resource %s using per-season manual history",
+        getattr(resource, "id", "?"),
+    )
+    return True
+
+
 async def apply_episode_history_reconcile(
     db: AsyncSession,
     resource: Any,

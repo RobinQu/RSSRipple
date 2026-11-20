@@ -8,12 +8,13 @@ import useUrlTab from '../hooks/useUrlTab';
 import ApiKeysCard from '../components/ApiKeysCard';
 import QueuePanel from '../components/QueuePanel';
 import VolumesPanel from '../components/VolumesPanel';
+import AppLogsPanel from '../components/AppLogsPanel';
 
 const { Title, Text } = Typography;
 
 // Secret keys never come back from the server as plaintext; we track them
 // locally and only submit when the user edits (or clears) them.
-const SECRET_KEYS = ['llm_api_key', 'tmdb_api_key', 'bangumi_api_key'] as const;
+const SECRET_KEYS = ['llm_api_key', 'tmdb_api_key', 'bangumi_api_key', 'wigolo_api_token'] as const;
 type SecretKey = (typeof SECRET_KEYS)[number];
 
 function isSecretKey(key: string): key is SecretKey {
@@ -24,7 +25,7 @@ export default function SettingsPage() {
   const { t } = useTranslation();
   useDocumentTitle(t('settings.title'));
   const { message } = App.useApp();
-  const [tab, setTab] = useUrlTab('deps', ['deps', 'volumes', 'apiKeys', 'queue'] as const);
+  const [tab, setTab] = useUrlTab('deps', ['deps', 'volumes', 'apiKeys', 'queue', 'logs'] as const);
 
   const [data, setData] = useState<SystemSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -250,9 +251,47 @@ export default function SettingsPage() {
             t={t}
           />
 
-          {/* Jina / Exa groups removed: neither source takes part in the
-              channel metadata search anymore (two-source wikipedia/tmdb
-              architecture); their keys remain env-only. */}
+          {/* Wigolo */}
+          <div style={{ padding: '12px 0', borderTop: '1px solid var(--rr-border-soft)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <Text strong>{t('settings.sources.wigolo')}</Text>
+              <Space size="small">
+                <Text type="secondary" style={{ fontSize: 12 }}>{t('settings.sources.enable')}</Text>
+                <Switch
+                  checked={Boolean(values.web_fallback_enabled)}
+                  onChange={(v) => setNonSecret('web_fallback_enabled', v)}
+                />
+              </Space>
+            </div>
+            <Text type="secondary" style={{ display: 'block', marginBottom: 12, fontSize: 12 }}>
+              {t('settings.sources.wigoloHint')}
+            </Text>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <div style={labelStyle}><Text strong>{t('settings.sources.wigoloBaseUrl')}</Text></div>
+                <Input
+                  value={String(values.wigolo_base_url ?? '')}
+                  onChange={(e) => setNonSecret('wigolo_base_url', e.target.value)}
+                  placeholder={t('settings.sources.wigoloBaseUrlPlaceholder')}
+                />
+              </div>
+              <div>
+                <div style={labelStyle}>
+                  <Text strong>{t('settings.sources.wigoloApiToken')}</Text>
+                  {configuredTag('wigolo_api_token')}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Input.Password
+                    value={secrets.wigolo_api_token ?? ''}
+                    onChange={(e) => setSecret('wigolo_api_token', e.target.value)}
+                    placeholder={t('settings.secretPlaceholder')}
+                    style={{ flex: 1 }}
+                  />
+                  <Button onClick={() => clearSecret('wigolo_api_token')}>{t('settings.clear')}</Button>
+                </div>
+              </div>
+            </div>
+          </div>
 
           {/* Bangumi (secret-only; no enable switch — the source is used by
               the metadata fallback chain and anime detection) */}
@@ -329,12 +368,13 @@ export default function SettingsPage() {
 
       <Tabs
         activeKey={tab}
-        onChange={(k) => setTab(k as 'deps' | 'volumes' | 'apiKeys' | 'queue')}
+        onChange={(k) => setTab(k as 'deps' | 'volumes' | 'apiKeys' | 'queue' | 'logs')}
         items={[
           { key: 'deps', label: t('settings.tabDeps'), children: depsTab },
           { key: 'volumes', label: t('settings.tabVolumes'), children: volumesTab },
           { key: 'apiKeys', label: t('settings.tabApiKeys'), children: <ApiKeysCard /> },
           { key: 'queue', label: t('settings.tabQueue'), children: <QueuePanel /> },
+          { key: 'logs', label: t('settings.tabLogs'), children: <AppLogsPanel /> },
         ]}
       />
     </div>

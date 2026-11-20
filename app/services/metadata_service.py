@@ -108,7 +108,7 @@ def mark_manually_edited(work: Any, fields: dict) -> None:
     work.manually_edited_fields = merged
 
 
-def _record_unmatched_attempt(resource: Any, failure_type: str) -> None:
+def _record_unmatched_attempt(resource: Any, failure_type: str, error: object = None) -> None:
     """Stamp retry-state columns when a resource ends a pass still unmatched.
 
     Mirrors ``metadata_agent._record_metadata_attempt`` for the non-agent
@@ -120,6 +120,8 @@ def _record_unmatched_attempt(resource: Any, failure_type: str) -> None:
     resource.metadata_attempts = int(getattr(resource, "metadata_attempts", 0) or 0) + 1
     resource.last_metadata_attempt_at = utcnow()
     resource.metadata_failure_type = failure_type
+    if error is not None:
+        resource._metadata_last_error = str(error)
 
 
 async def apply_channel_default_is_anime(
@@ -2189,6 +2191,7 @@ async def reconcile_linked_series_resource(
     series: TVSeries | None = None,
     entity: dict | None = None,
     repair_season_identity: bool = True,
+    reconcile_single_season: bool = True,
 ) -> None:
     """Post-link season/episode reconciliation for a TV-linked resource (P3).
 
@@ -2220,14 +2223,48 @@ async def reconcile_linked_series_resource(
         series = await _repoint_explicit_season_work(
             db, resource, series, entity=entity
         )
-    from app.services.episode_history import apply_episode_history_reconcile
+    from app.services.episode_history import (
+        apply_episode_history_reconcile,
+        apply_per_season_history_default,
+    )
 
     resolved = False
     if getattr(resource, "channel_id", None) and getattr(resource, "id", None):
         # History needs channel + id context; attribute-light stand-ins skip it.
-        resolved = await apply_episode_history_reconcile(
-            db, resource, seasons_map=seasons_map_for_work(series)
+        resolved = await apply_per_season_history_default(db, resource)
+        if not resolved:
+            resolved = await apply_episode_history_reconcile(
+                db, resource, seasons_map=seasons_map_for_work(series)
+            )
+    absolute = getattr(resource, "absolute_episode", None)
+    if (
+        not resolved
+        and absolute is not None
+        and series.collection_id
+        and getattr(resource, "episode_confidence", None) == "ambiguous"
+    ):
+        located = await locate_absolute_episode_in_collection(
+            db, series.collection_id, absolute
         )
+        if located is not None:
+            member, episode = located
+            title_seasons = {
+                value for value in (
+                    season_from_title(title)
+                    for title in (
+                        getattr(resource, "title_raw", None),
+                        getattr(resource, "title_cn", None),
+                        getattr(resource, "title_en", None),
+                    )
+                ) if value is not None
+            }
+            if len(title_seasons) <= 1 and title_seasons in (set(), {member.season_number}):
+                resource.series_id = member.id
+                resource.season = member.season_number
+                resource.episode = episode
+                resource.episode_confidence = "reconciled"
+                series = member
+                resolved = True
     if (
         not resolved
         and getattr(resource, "season", None) is None
@@ -2245,7 +2282,7 @@ async def reconcile_linked_series_resource(
             resource.episode_confidence = "reconciled"
             series = member
             resolved = True
-    if not resolved:
+    if not resolved and reconcile_single_season:
         seasons_map = seasons_map_for_work(series)
         if seasons_map:
             apply_episode_reconcile(resource, seasons_map)
@@ -2844,7 +2881,7 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
         results = await search_metadata_via_llm(search_title, data_source_type)
     except Exception as e:
         logger.warning("[metadata] LLM search failed for %r: %s", search_title[:60], e)
-        _record_unmatched_attempt(resource, "transient")
+        _record_unmatched_attempt(resource, "transient", e)
         return
 
     if not results:
@@ -2895,7 +2932,7 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
         await classify_is_anime_post_link(db, channel, resource)
     except Exception as e:
         logger.warning("[metadata] Failed to link via LLM for %r: %s", search_title[:60], e)
-        _record_unmatched_attempt(resource, "transient")
+        _record_unmatched_attempt(resource, "transient", e)
 
 
 async def manual_search_metadata(

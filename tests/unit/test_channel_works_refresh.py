@@ -306,3 +306,35 @@ async def test_run_channel_works_refresh_enqueues_with_stable_key(monkeypatch):
     fake.enqueue.assert_awaited_once()
     assert fake.enqueue.call_args.args[0] == "refresh_channel_works"
     assert fake.enqueue.call_args.args[1] == "channel-refresh:ch-1"
+
+
+@pytest.mark.asyncio
+async def test_handler_rotates_after_time_budget(monkeypatch, db_session, seeded):
+    from app.models.app_setting import AppSetting
+    from app.services.metadata_service import select_channel_works_for_refresh
+
+    _patch_handler_env(monkeypatch, db_session)
+    items = await select_channel_works_for_refresh(db_session, seeded.ch.id)
+    items = sorted(items, key=lambda item: (item["content_type"], item["id"]))
+    first = items[0]
+    cursor = f"{first['content_type']}:{first['id']}"
+    db_session.add(AppSetting(key=f"metadata_refresh_cursor:{seeded.ch.id}", value=cursor))
+    await db_session.flush()
+
+    async def batch(rows, *_args, **_kwargs):
+        assert [row["id"] for row in rows] == [item["id"] for item in items[1:] + items[:1]]
+        return [
+            {"id": rows[0]["id"], "content_type": rows[0]["content_type"], "found": True},
+            *[
+                {"id": row["id"], "content_type": row["content_type"], "found": False,
+                 "skipped": True, "error": "job_time_budget_exceeded"}
+                for row in rows[1:]
+            ],
+        ]
+
+    monkeypatch.setattr("app.job_handlers._refresh_works_batch", batch)
+    await _handle_refresh_channel_works({"channel_id": seeded.ch.id})
+
+    cursor_row = await db_session.get(AppSetting, f"metadata_refresh_cursor:{seeded.ch.id}")
+    expected = items[1]
+    assert cursor_row.value == f"{expected['content_type']}:{expected['id']}"

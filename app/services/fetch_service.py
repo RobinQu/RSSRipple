@@ -107,6 +107,20 @@ def _simple_title_clean(raw: str) -> str | None:
     return extract_release_title(raw)
 
 
+def _metadata_failure_message(resource, metadata_result=None) -> str:
+    root = (
+        getattr(metadata_result, "search_error", None)
+        or getattr(metadata_result, "reason", None)
+        or getattr(resource, "_metadata_last_error", None)
+        or "metadata search failed after automatic retries"
+    )
+    source_errors = getattr(metadata_result, "source_errors", None) or {}
+    details = "; ".join(
+        f"{source}: {error}" for source, error in sorted(source_errors.items())
+    )
+    return f"{root} | sources: {details}" if details else str(root)
+
+
 def _backfill_subtitle_group_from_title(resource: FileResource) -> bool:
     from app.services.subtitle_groups import (
         join_legacy_subtitle_group,
@@ -157,6 +171,10 @@ def _is_retry_eligible(resource: FileResource, now) -> bool:
         return True
     age = now - last
     if ftype == "transient":
+        from app.config import settings
+
+        if attempts >= settings.metadata_transient_max_attempts:
+            return False
         backoff_hours = min(
             TRANSIENT_BACKOFF_BASE_HOURS * (2 ** (attempts - 1)),
             TRANSIENT_BACKOFF_MAX_HOURS,
@@ -300,6 +318,7 @@ async def _process_resource_metadata_once(
     await require_execution_ownership()
     async with async_session_factory() as task_db:
         metadata_committed = False
+        metadata_result = None
         try:
             result = await task_db.execute(
                 select(FileResource)
@@ -369,7 +388,7 @@ async def _process_resource_metadata_once(
                 if channel.metadata_agent_enabled:
                     try:
                         async with task_db.begin_nested():
-                            await get_agent().process(
+                            metadata_result = await get_agent().process(
                                 resource, channel, task_db, force_refresh=force_refresh
                             )
                     except ExecutionOwnershipLostError:
@@ -538,6 +557,25 @@ async def _process_resource_metadata_once(
                 await require_execution_ownership()
                 await task_db.commit()
                 metadata_committed = True
+                from app.config import settings
+                from app.services.app_logs import (
+                    record_external_failure,
+                    resolve_external_logs,
+                )
+
+                if (
+                    resource.metadata_failure_type == "transient"
+                    and resource.metadata_attempts >= settings.metadata_transient_max_attempts
+                ):
+                    await record_external_failure(
+                        task_db, category="metadata",
+                        message=_metadata_failure_message(resource, metadata_result),
+                        resource_id=resource.id, channel_id=resource.channel_id,
+                        attempts=resource.metadata_attempts,
+                    )
+                elif resource.metadata_failure_type != "transient":
+                    await resolve_external_logs(task_db, resource.id, ["metadata"])
+                await task_db.commit()
 
             # Poster download for newly-linked entities (kept in the same
             # task session so a network call never blocks other writers).
@@ -861,6 +899,7 @@ async def reconcile_stale_raw_episodes(
             )
         )
     ).scalars().all()
+    series_by_id = {s.id: s for s in series_rows}
     maps = {s.id: seasons_map_for_work(s) for s in series_rows}
     history_ranges: dict[tuple[str, str], tuple[int, int]] = {}
     for resource in resources:
@@ -898,6 +937,23 @@ async def reconcile_stale_raw_episodes(
             db, r, seasons_map=smap, history_rows=history_rows
         ):
             changed_ids.append(r.id)
+            continue
+        if r.episode_confidence == "ambiguous":
+            from app.services.metadata_service import reconcile_linked_series_resource
+
+            before = (
+                r.series_id, r.season, r.episode,
+                r.absolute_episode, r.episode_confidence,
+            )
+            await reconcile_linked_series_resource(
+                db, r, series=series_by_id.get(r.series_id),
+                reconcile_single_season=False,
+            )
+            if before != (
+                r.series_id, r.season, r.episode,
+                r.absolute_episode, r.episode_confidence,
+            ):
+                changed_ids.append(r.id)
             continue
         if r.episode_confidence not in (None, "raw"):
             continue
@@ -1144,11 +1200,12 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
         compilation_work = extract_compilation_work_title(title)
         if compilation_work:
             resource.is_batch = True
-            # A compilation label alone cannot subdivide the pack. Preserve
-            # explicit multi-season coverage found by the title pre-parser;
-            # torrent analysis may still refine an otherwise unknown scope.
-            if resource.batch_scope != "multi_season" and not resource.batch_seasons:
-                resource.batch_scope = "season"
+            # Compilation/archive releases mix TV, films and non-episode
+            # material. They are collection-owned and never dispatch as a
+            # season pack, even when the description enumerates TV seasons.
+            resource.batch_scope = "franchise"
+            resource.episode_start = None
+            resource.episode_end = None
             resource.search_title = compilation_work
         # Subtitle language pre-fill. Store an empty list (rather than None)
         # once parsed, so downstream code can distinguish "never parsed" from

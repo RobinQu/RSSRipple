@@ -93,6 +93,13 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 | GET | `/queue/jobs` | 任务明细列表（内存过滤/排序/分页）。Query：`status`、`job_type`（均可选精确匹配）、`page`（默认 1）、`page_size`（默认 50，最大 100）。排序：running → queued → 终态按 `queued_at` 降序（缺 `queued_at` 的排在各组最后）。条目为任务状态字典 `{job_id, job_type, key, status, result, error, queued_at, started_at, finished_at, attempt, max_attempts, backoff_seconds, next_retry_at}`（重试观测字段：`attempt` 为已执行次数，`next_retry_at` 仅退避等待中为非空）；分页信息走统一 `meta` |
 | GET | `/queue/scheduler` | 调度器快照。调度器未初始化（`APP_ROLE=web` 或 `SCHEDULER_ENABLED=false`）时返回 `{enabled: false, jobs: []}`（200，非 500）；否则 `{enabled: true, jobs: [{id, trigger, next_run_time}]}`，`next_run_time` 为 ISO 8601 字符串或 null |
 
+### Application Logs（外部依赖异常）
+
+| Method | Path | 说明 |
+|--------|------|------|
+| GET | `/app-logs` | 应用异常分页列表。Query：`category`（metadata/torrent/magnet/listing）、`status`（failed/retrying/resolved）、`page`（默认 1）、`page_size`（默认 20，最大 100）。按 `updated_at` 倒序；`message` 保留底层 search_error/reason/source_errors 或依赖异常文本；`resource_title` 为清洗标题。嵌套 `resource` 含原始标题、清洗标题、GUID、详情链接、关联作品与 FK、季集/绝对集号、合集形态及 metadata/torrent/magnet/listing 状态和错误；另有尝试次数、重试状态和时间字段，统一 `meta` 分页 |
+| POST | `/app-logs/{id}/retry` | 重置该依赖的自动尝试预算并复用既有持久任务重试；成功 `{retry:{status:"pending",log_id}}`。日志不存在 404，已在 retrying 或相同持久请求已存在 409，资源/类别不可重试 422 |
+
 `GET /queue/overview` 的 `data` 结构示例：
 ```json
 {

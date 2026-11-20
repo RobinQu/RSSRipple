@@ -153,8 +153,16 @@ async def _apply_to_resource(
             resource.episode = resource.episode or meta.episode
         if meta.season is not None:
             resource.season = resource.season or meta.season
+    from app.services.resource_parser import extract_compilation_work_title
+
+    compilation_work = extract_compilation_work_title(getattr(resource, "title_raw", None))
+    if compilation_work:
+        resource.is_batch = True
+        resource.batch_scope = "franchise"
+        resource.episode_start = None
+        resource.episode_end = None
     # Batch info — LLM output overrides pre-parser only when non-null.
-    if meta.is_batch:
+    elif meta.is_batch:
         resource.is_batch = True
         # Default to a single-season pack when the LLM gave no scope; a
         # later torrent content analysis may correct this to multi_season /
