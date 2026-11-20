@@ -323,18 +323,46 @@ def applicable_required_fields(
     )
 
 
+def ordered_work_links(resource: Any) -> list[Any]:
+    """Deterministic order for links-carried works.
+
+    ``created_at`` ties are common (a wizard save bulk-creates every season
+    work in one transaction), so database ordering alone is unstable and two
+    code paths can pick different "first" works for the same pack. Sort by
+    kind, then regular-season order (unknown seasons last), then id so the
+    required-field representative matches the edit wizard's target.
+    """
+    links = list(loaded_relation(resource, "work_links") or [])
+
+    def _key(link: Any) -> tuple[int, int, str]:
+        if getattr(link, "series_id", None):
+            season = getattr(
+                loaded_relation(link, "series"), "season_number", None
+            )
+            kind = 0
+        else:
+            season = None
+            kind = 1
+        return (
+            kind,
+            season if season is not None else 10**9,
+            str(getattr(link, "id", "") or ""),
+        )
+
+    return sorted(links, key=_key)
+
+
 def _linked_work(resource: Any) -> tuple[str | None, Any | None]:
     """First work reachable through the multi-work link table.
 
     Terminal multi-season packs clear the flat work FKs and carry their works
     in ``resource_work_links``. Only already-loaded relationships are
     consulted (async sessions cannot lazy-load); an unloaded link table
-    yields ``(None, None)``.
+    yields ``(None, None)``. Ordering is deterministic (see
+    :func:`ordered_work_links`) so the representative work is the same in
+    every caller — notably the Channel confirmation and the edit wizard.
     """
-    links = loaded_relation(resource, "work_links")
-    if not links:
-        return None, None
-    for link in links:
+    for link in ordered_work_links(resource):
         if getattr(link, "series_id", None):
             return "series", loaded_relation(link, "series")
         if getattr(link, "movie_id", None):
@@ -498,6 +526,7 @@ __all__ = [
     "applicable_required_fields",
     "missing_required_fields",
     "normalize_required_fields",
+    "ordered_work_links",
     "resource_shape",
     "required_keys_for_shape",
     "validate_filter_against_allowed",

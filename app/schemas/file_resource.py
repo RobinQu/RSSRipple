@@ -260,11 +260,19 @@ class ResourceParseCorrectionRequest(BaseModel):
 
 
 class AssociationWorkRef(BaseModel):
-    """One work of a resource's association set (PUT /resources/{id}/associations)."""
+    """One work of a resource's association set (PUT /resources/{id}/associations).
+
+    ``season`` is the wizard's per-work season evidence. For an external
+    series candidate it is forwarded as the upsert ``season_hint`` so a
+    series-level candidate (one hit covering every season) materializes the
+    requested season work instead of being parked as season-indeterminate.
+    Existing works keep their own ``season_number`` and ignore this field.
+    """
 
     work_type: Literal["series", "movie"]
     work_id: str | None = None
     client_key: str | None = None
+    season: int | None = None
     candidate: MetadataCandidate | None = None
 
     @model_validator(mode="after")

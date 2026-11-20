@@ -26,6 +26,7 @@ from app.schemas.common import success_response
 from app.schemas.dashboard import DashboardTodoIgnoreRequest
 from app.schemas.file_resource import FileResourceResponse
 from app.services.decision_service import maybe_reset_agent_run_status
+from app.services.required_fields import ordered_work_links
 from app.services.resource_confirmation import (
     LEGACY_CONFIRMATION_REASON_PREFIXES,
     ResourceConfirmation,
@@ -62,7 +63,7 @@ def _serialize_confirmation(
                 resource.collection.title_cn or resource.collection.title_en
             )
     else:
-        for link in resource.work_links or []:
+        for link in ordered_work_links(resource):
             entity = (
                 link.series if link.series_id
                 else link.movie if link.movie_id

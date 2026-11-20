@@ -72,6 +72,25 @@ def _association_error_step(message: str) -> str | None:
     return None
 
 
+def _sort_work_links_payload(payload: dict, resource: FileResource) -> None:
+    """Order serialized links like :func:`ordered_work_links`.
+
+    The edit wizard picks its work-metadata target from ``work_links[0]``; the
+    Channel confirmation uses the same ordered helper. Keeping the serialized
+    order aligned prevents "missing field" errors for a work the wizard never
+    exposes (created_at ties used to make the two picks disagree).
+    """
+    from app.services.required_fields import ordered_work_links
+
+    links = payload.get("work_links")
+    if not links:
+        return
+    order = {
+        link.id: index for index, link in enumerate(ordered_work_links(resource))
+    }
+    links.sort(key=lambda item: order.get(item.get("id"), len(order)))
+
+
 async def _latest_task_status_by_resource(
     db: AsyncSession, resources: list[FileResource]
 ) -> dict[str, str]:
@@ -605,6 +624,7 @@ async def get_resource(resource_id: str, db: AsyncSession = Depends(get_db)):
             content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Resource not found"}},
         )
     payload = FileResourceDetailResponse.model_validate(resource).model_dump()
+    _sort_work_links_payload(payload, resource)
     channel = await db.get(Channel, resource.channel_id)
     if channel is not None:
         from app.services.resource_confirmation import inspect_resource_confirmation
@@ -815,7 +835,9 @@ async def correct_episode(
         .where(FileResource.id == resource_id)
         .options(*_DETAIL_LOAD_OPTIONS)
     )).scalar_one()
-    return success_response(FileResourceDetailResponse.model_validate(resource).model_dump())
+    payload = FileResourceDetailResponse.model_validate(resource).model_dump()
+    _sort_work_links_payload(payload, resource)
+    return success_response(payload)
 
 
 async def _resolve_resource_files(
@@ -1090,6 +1112,7 @@ async def update_resource_associations(
         .options(*_DETAIL_LOAD_OPTIONS)
     )).scalar_one()
     payload = FileResourceDetailResponse.model_validate(resource).model_dump()
+    _sort_work_links_payload(payload, resource)
     payload["warnings"] = result.warnings
     return success_response(payload)
 
@@ -1376,4 +1399,6 @@ async def correct_parse_fields(
         .where(FileResource.id == resource_id)
         .options(*_DETAIL_LOAD_OPTIONS)
     )).scalar_one()
-    return success_response(FileResourceDetailResponse.model_validate(resource).model_dump())
+    payload = FileResourceDetailResponse.model_validate(resource).model_dump()
+    _sort_work_links_payload(payload, resource)
+    return success_response(payload)

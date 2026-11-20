@@ -17,6 +17,7 @@ from app.services.required_fields import (
     allowed_agent_filter_fields,
     missing_required_fields,
     normalize_required_fields,
+    ordered_work_links,
     required_keys_for_shape,
     validate_filter_against_allowed,
     validate_required_fields,
@@ -197,6 +198,55 @@ def test_links_year_aggregates_latest_across_works():
         ]}
     )
     assert missing_required_fields(resource_nodate, ["year"]) == ["year"]
+
+
+def test_ordered_work_links_is_deterministic_and_season_ordered():
+    """created_at ties must not let the Channel confirmation and edit wizard
+    pick different representative works (the original "missing is_anime but
+    no field in Full Edit" bug). The lowest regular season is authoritative;
+    its value satisfies the pack's work-scoped required fields."""
+
+    def _link(link_id: str, season: int, is_anime):
+        return SimpleNamespace(
+            id=link_id,
+            series_id=f"s{season}",
+            movie_id=None,
+            series=SimpleNamespace(
+                season_number=season,
+                is_anime=is_anime,
+                start_date=None,
+                rating=None,
+                genre=None,
+                collection=None,
+            ),
+        )
+
+    links = [
+        _link("a", 4, False),
+        _link("b", 1, None),
+        _link("c", 2, None),
+        _link("d", 3, None),
+    ]
+    resource = SimpleNamespace(
+        series_id=None,
+        movie_id=None,
+        audio_work_id=None,
+        collection_id=None,
+        series=None,
+        is_batch=True,
+        batch_scope="multi_season",
+        search_title="title",
+        title_cn=None,
+        title_en=None,
+        work_links=links,
+    )
+
+    ordered = ordered_work_links(resource)
+    assert [link.series.season_number for link in ordered] == [1, 2, 3, 4]
+    # Lowest season carries no is_anime yet -> the pack is missing it.
+    assert "is_anime" in missing_required_fields(resource, ["is_anime"])
+    ordered[0].series.is_anime = False
+    assert "is_anime" not in missing_required_fields(resource, ["is_anime"])
 
 
 def test_sections_order_work_type_first_then_semantic():

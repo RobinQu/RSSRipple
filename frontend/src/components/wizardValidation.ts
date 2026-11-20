@@ -13,6 +13,9 @@ export interface WizardWorkLike {
   workType: string;
   workId: string;
   season?: number | null;
+  /** True for an online candidate: its season is not part of any existing
+   * work identity, so the wizard must collect it before saving. */
+  isCandidate?: boolean;
 }
 
 export function pickWorkMatch<T>(
@@ -171,6 +174,13 @@ export function validateStep(
     return fields.length ? { code: 'work_fields_required', fields } : null;
   }
   if (step !== 1 || state.audioLinked) return null;
+  // An online series candidate only becomes a real season work server-side;
+  // without a per-work season the upsert cannot pick one (and must not guess).
+  if (state.works.some(
+    (work) => work.workType === 'series' && work.isCandidate && work.season == null,
+  )) {
+    return { code: 'tv_season_required' };
+  }
   const invalidAttachments = Object.entries(state.placements)
     .filter(([, placement]) => {
       if (placement.fileRole !== 'subtitle' || !placement.attachedToPath) return false;

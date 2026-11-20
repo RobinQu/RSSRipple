@@ -197,6 +197,19 @@ assert.deepEqual(validateStep(1, {
   placements: { 'a.mkv': { workType: 'series', workId: 's1', season: null } },
 }), { code: 'tv_season_required' });
 
+// An online series candidate needs its own per-work season (it is forwarded to
+// the server as the upsert season hint); a mapping season alone is not enough.
+assert.deepEqual(validateStep(1, {
+  isBatch: true, audioLinked: false,
+  works: [{ ...S1, isCandidate: true, season: null }],
+  placements: { 'a.mkv': { workType: 'series', workId: 's1', season: 1 } },
+}), { code: 'tv_season_required' });
+assert.equal(validateStep(1, {
+  isBatch: true, audioLinked: false,
+  works: [{ ...S1, isCandidate: true, season: 2 }],
+  placements: { 'a.mkv': { workType: 'series', workId: 's1', season: 2 } },
+}), null);
+
 // Movie placements need no season; single-work packs skip the completeness
 // check (the server only enforces it for >1 work).
 assert.equal(validateStep(1, {

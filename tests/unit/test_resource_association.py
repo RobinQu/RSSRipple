@@ -150,7 +150,7 @@ async def test_candidate_series_materializes_and_maps_assignments(db_session):
     )
     resource = await _seed_resource(db_session)
 
-    async def _fake_upsert(db, data):
+    async def _fake_upsert(db, data, season_hint=None):
         return series
 
     with patch(
@@ -184,6 +184,130 @@ async def test_candidate_series_none_season_raises(db_session):
         )
         with pytest.raises(AssociationValidationError, match="季号"):
             await apply_association_update(db_session, resource, body)
+
+
+async def test_candidate_series_forwards_wizard_season_hint(db_session):
+    """A series-level online candidate carries the wizard's per-work season;
+    the upsert must receive it as ``season_hint`` so the right season work is
+    materialized instead of being parked as season-indeterminate."""
+    s1 = await _seed_series(db_session, "西部世界", season_number=1)
+    s2 = await _seed_series(db_session, "西部世界", season_number=2)
+    resource = await _seed_resource(db_session)
+    candidate = _external_candidate("tv", title_cn="西部世界", title_en="Westworld")
+    refs = [
+        AssociationWorkRef(
+            work_type="series", candidate=candidate, client_key=f"ck{n}", season=n,
+        )
+        for n in (1, 2)
+    ]
+    by_season = {1: s1, 2: s2}
+
+    async def _upsert(db, data, season_hint=None):
+        assert season_hint is not None
+        return by_season[season_hint]
+
+    upsert = AsyncMock(side_effect=_upsert)
+
+    with patch(
+        "app.services.metadata_service.create_or_update_series_from_external",
+        new=upsert,
+    ):
+        body = ResourceAssociationUpdateRequest(
+            is_batch=True,
+            works=refs,
+            assignments=[
+                _asg("S01E01.mkv", s1, season=1, episode_start=1, episode_end=1),
+                _asg("S02E01.mkv", s2, season=2, episode_start=1, episode_end=1),
+            ],
+        )
+        await apply_association_update(db_session, resource, body)
+        await db_session.flush()
+
+    assert [call.kwargs.get("season_hint") for call in upsert.await_args_list] == [1, 2]
+    assert [ref.work_id for ref in refs] == [s1.id, s2.id]
+    assert {row.series_id for row in resource.file_assignments} == {s1.id, s2.id}
+    assert {link.series_id for link in resource.work_links} == {s1.id, s2.id}
+    assert resource.batch_scope == "multi_season"
+
+
+async def test_candidate_series_infers_season_from_assignments(db_session):
+    """Older clients omit ``works[].season`` and only set it on episode
+    assignments; the unambiguous assignment season is used as the upsert hint.
+    This is the Westworld four-season pack payload shape."""
+    s1 = await _seed_series(db_session, "西部世界", season_number=1)
+    s2 = await _seed_series(db_session, "西部世界", season_number=2)
+    resource = await _seed_resource(db_session)
+    candidate = _external_candidate("tv", title_cn="西部世界", title_en="Westworld")
+    refs = [
+        AssociationWorkRef(
+            work_type="series", candidate=candidate, client_key=f"ck{n}",
+        )
+        for n in (1, 2)
+    ]
+    by_season = {1: s1, 2: s2}
+
+    async def _upsert(db, data, season_hint=None):
+        assert season_hint is not None
+        return by_season[season_hint]
+
+    upsert = AsyncMock(side_effect=_upsert)
+
+    def _candidate_asg(path: str, key: str, season: int):
+        return AssociationFileAssignment(
+            file_path=path, work_type="series", work_id=key, season=season,
+            episode_start=1, episode_end=1,
+        )
+
+    with patch(
+        "app.services.metadata_service.create_or_update_series_from_external",
+        new=upsert,
+    ):
+        body = ResourceAssociationUpdateRequest(
+            is_batch=True,
+            works=refs,
+            assignments=[
+                _candidate_asg("S01E01.mkv", "ck1", 1),
+                _candidate_asg("S02E01.mkv", "ck2", 2),
+            ],
+        )
+        await apply_association_update(db_session, resource, body)
+        await db_session.flush()
+
+    assert [call.kwargs.get("season_hint") for call in upsert.await_args_list] == [1, 2]
+    assert [ref.work_id for ref in refs] == [s1.id, s2.id]
+    assert {row.series_id for row in resource.file_assignments} == {s1.id, s2.id}
+
+
+async def test_candidate_series_conflicting_assignment_seasons_still_raise(db_session):
+    """Mixed assignment seasons are not evidence for one season work."""
+    candidate = _external_candidate("tv")
+    ref = AssociationWorkRef(
+        work_type="series", candidate=candidate, client_key="ck1",
+    )
+    resource = await _seed_resource(db_session)
+
+    with patch(
+        "app.services.metadata_service.create_or_update_series_from_external",
+        new=AsyncMock(return_value=None),
+    ) as upsert:
+        body = ResourceAssociationUpdateRequest(
+            is_batch=True,
+            works=[ref],
+            assignments=[
+                AssociationFileAssignment(
+                    file_path="S01E01.mkv", work_type="series", work_id="ck1",
+                    season=1, episode_start=1, episode_end=1,
+                ),
+                AssociationFileAssignment(
+                    file_path="S02E01.mkv", work_type="series", work_id="ck1",
+                    season=2, episode_start=1, episode_end=1,
+                ),
+            ],
+        )
+        with pytest.raises(AssociationValidationError, match="季号"):
+            await apply_association_update(db_session, resource, body)
+
+    assert upsert.await_args.kwargs == {}
 
 
 async def test_candidate_movie_materializes(db_session):

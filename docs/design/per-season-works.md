@@ -243,7 +243,7 @@
 
 ### 显式季号不确定的 upsert 门禁
 
-`create_or_update_series_from_external(..., season_ambiguous=True)` 在无法由 season_hint、季身份、标题季标记或已验证单季证据确定季号时，仅保留合集身份，返回 None，由 repository 挂合集待确认。该标记防止模型越界季号被清除后，经旧默认 S1/单成员兜底重新落季作品；重复执行和缓存重放不可绕过。调用方已有可靠解析季号时可正常链接。
+`create_or_update_series_from_external(..., season_ambiguous=True)` 在无法由 season_hint、季身份、标题季标记或已验证单季证据确定季号时（关联向导的在线剧集候选把用户设置的逐作品 `season` 作为 `season_hint` 传入，同一系列级候选可按季多次加入），仅保留合集身份，返回 None，由 repository 挂合集待确认。该标记防止模型越界季号被清除后，经旧默认 S1/单成员兜底重新落季作品；重复执行和缓存重放不可绕过。调用方已有可靠解析季号时可正常链接。
 
 
 ### 季作品合集的创建、删除与解绑

@@ -27,7 +27,7 @@
 ## Filter DSL（详见 filter-dsl.md）
 
 - `filter_config` / `filter_overrides` 均为 BoolCondition 根节点的 JSON DSL 树；字符串比较忽略大小写；`filter_overrides` 与全局 `filter_config` 按 AND 合并。
-- 作品年份字段 `series.year`/`movie.year`（由 `TVSeries.start_date`/`Movie.release_date` 派生）：links-carried 合集包（FK 全清）回退聚合全部已加载关联作品的**最晚**年份（`get_field_value` links 聚合；频道必填 `year` 键同口径跨 links 取最晚，无日期作品忽略、全部无日期仍为空，其余作品字段仍取首个 link 作品）；特典等缺日期作品经 `_collection_fallback_start_date` 兜底后，特典包自然得到主季年份。
+- 作品年份字段 `series.year`/`movie.year`（由 `TVSeries.start_date`/`Movie.release_date` 派生）：links-carried 合集包（FK 全清）回退聚合全部已加载关联作品的**最晚**年份（`get_field_value` links 聚合；频道必填 `year` 键同口径跨 links 取最晚，无日期作品忽略、全部无日期仍为空，其余作品字段仍取首个 link 作品；首个按 series 优先、season_number 升序、id 决胜，保证确认与向导一致）；特典等缺日期作品经 `_collection_fallback_start_date` 兜底后，特典包自然得到主季年份。
 - 空值语义：`eq/contains/fuzzy/regex/gt/...` 不通过；`ne` 通过。空值匹配必须用 `is_empty`/`is_not_empty`（所有字段类型可用、不需要 value）；取值操作符的 `value` 禁止为空，保存时 422（`eq ""` 会静默过滤掉全部资源）。
 - bool 字段新增 `series.is_anime` / `movie.is_anime`（eq/ne + is_empty/is_not_empty，三态取值见数据模型）；bool 空值语义已修正为与上述规则一致：NULL 时 `eq` 不通过、`ne` 通过（此前 NULL 被当 False；`is_batch` 为 NOT NULL 不受影响），区分「确认非动漫」与「未判定」必须用 `is_empty`/`is_not_empty`。
 - 作品类型字段 `content_type`（枚举字符串，UI 限 `tv/movie/audio`）：值由资源互斥作品 FK 派生（series_id→tv、movie_id→movie、audio_work_id→audio，三者皆空→空值/未识别；links-only multi_season 包 FK 全清，DSL 求值为空值，但其必填字段展示/门禁经 `resource_work_links` 派生媒介）；只读 FK id，无需 eager-load 作品关系。前端字段下拉按**语义分组**（发布信息/集数信息/标题信息/作品类型/剧集作品/电影作品），`series.collection`/`movie.collection` 亦纳入对应作品分组。

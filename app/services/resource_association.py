@@ -80,6 +80,24 @@ class AssociationUpdateResult:
     warnings: list[str] = field(default_factory=list)
 
 
+def _season_hint_from_assignments(client_key: str, assignments: list) -> int | None:
+    """Unambiguous season evidence for one external candidate.
+
+    The wizard lets the user set the season per work; older clients only send
+    it on each episode assignment (``work_id`` is the candidate client key).
+    A single distinct episode season is explicit evidence, not a guess — mixed
+    seasons stay unresolved so the caller raises the season-required error.
+    """
+    seasons = {
+        assignment.season
+        for assignment in assignments
+        if assignment.work_id == client_key
+        and assignment.file_role == "episode"
+        and assignment.season is not None
+    }
+    return next(iter(seasons)) if len(seasons) == 1 else None
+
+
 async def _resolve_works(
     db: AsyncSession, body: ResourceAssociationUpdateRequest
 ) -> dict[tuple[str, str], TVSeries | Movie]:
@@ -102,7 +120,24 @@ async def _resolve_works(
             if ref.work_type == "series":
                 from app.services.metadata_service import create_or_update_series_from_external
 
-                obj = await create_or_update_series_from_external(db, data)
+                # A series-level candidate (one search hit for the whole
+                # franchise) needs a per-work season to materialize the right
+                # season work; without it the upsert parks the ids on the
+                # collection and returns None. Prefer the explicit wizard
+                # season, then fall back to the unambiguous season carried by
+                # this candidate's episode assignments (same evidence, older
+                # clients / API callers that omit ``works[].season``).
+                season_hint = ref.season
+                if season_hint is None and ref.client_key:
+                    season_hint = _season_hint_from_assignments(
+                        ref.client_key, body.assignments
+                    )
+                if season_hint is not None:
+                    obj = await create_or_update_series_from_external(
+                        db, data, season_hint=season_hint
+                    )
+                else:
+                    obj = await create_or_update_series_from_external(db, data)
                 if obj is None:
                     raise AssociationValidationError(
                         "无法确定该剧集候选的季号，请先关联合集下的具体季作品"

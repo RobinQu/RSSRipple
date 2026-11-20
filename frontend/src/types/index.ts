@@ -290,6 +290,10 @@ export interface AssociationWorkRef {
   work_type: WorkRefType;
   work_id: string;
   client_key?: string;
+  /** Per-work season evidence. Forwarded as the upsert season hint for an
+   * online series candidate so a series-level hit materializes the right
+   * season work instead of parking as season-indeterminate. */
+  season?: number | null;
   candidate?: MetadataCandidate;
 }
 

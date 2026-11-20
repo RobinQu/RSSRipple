@@ -1164,6 +1164,7 @@ export function useResourceEditWizard({
       workType: w.work_type as string,
       workId: w.work_id,
       season: workSeasons[workKeyOf(w.work_type, w.work_id)] ?? null,
+      isCandidate: !!w.candidate,
     })),
     placements,
     missingWorkFields: missingWorkMetadataFields(
@@ -1232,7 +1233,19 @@ export function useResourceEditWizard({
     if (!detail) return null;
     const payload: AssociationUpdatePayload = {
       is_batch: isBatch,
-      works,
+      // Carry the wizard's per-work season for online candidates. Existing
+      // works already encode it in their identity; for a series-level candidate
+      // this is the only season evidence, so the server can materialize the
+      // right season work instead of failing with "cannot determine the
+      // candidate's season".
+      works: works.map((w) =>
+        w.work_type === 'series' && w.candidate
+          ? {
+              ...w,
+              season: workSeasons[workKeyOf(w.work_type, w.work_id)] ?? null,
+            }
+          : w,
+      ),
       assignments: audioLinked
         ? []
         : Object.entries(placements)
