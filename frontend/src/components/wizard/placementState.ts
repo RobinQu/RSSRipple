@@ -28,6 +28,17 @@ export function placementsFromAssignments(
   return placements;
 }
 
+/** A file counts as mapped only when it targets a work, or is explicitly
+ * excluded. Workless auto rows (orphaned after a work delete, or parsed
+ * before any work was bound) keep their parse evidence but must stay in the
+ * candidate pool so the user can bind them again instead of their becoming
+ * dead, unselectable "assigned" rows. */
+export function isMappedPlacement(placement: Placement | undefined): boolean {
+  if (!placement) return false;
+  if (placement.fileRole === 'excluded') return true;
+  return placementWorkKey(placement) != null;
+}
+
 export function seasonForWork(
   workSeason: number | null | undefined,
   parsedSeason: number | null | undefined,

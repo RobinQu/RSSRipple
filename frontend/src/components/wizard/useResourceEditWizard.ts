@@ -46,6 +46,7 @@ import {
   attachSubtitleToEpisode,
   changePlacementRole,
   defaultRoleWork,
+  isMappedPlacement,
   placementsFromAssignments,
   reconcileSubtitleAttachments,
   seasonForWork,
@@ -419,9 +420,11 @@ export function useResourceEditWizard({
     return map;
   }, [suggestion]);
 
-  // Candidate list = files not yet mapped to any work.
+  // Candidate list = files not yet mapped to a work. Workless assignment
+  // rows (parse evidence with a cleared/deferred work target) stay here so
+  // they remain selectable and can be joined to a work.
   const poolFiles = useMemo(
-    () => files.filter((f) => !placements[f.name]),
+    () => files.filter((f) => !isMappedPlacement(placements[f.name])),
     [files, placements],
   );
 
@@ -460,7 +463,7 @@ export function useResourceEditWizard({
         groups.set(key, g);
       }
       g.allPaths.push(f.name);
-      if (placements[f.name]) g.assigned.push(f.name);
+      if (isMappedPlacement(placements[f.name])) g.assigned.push(f.name);
       else g.pool.push(f);
     }
     const hinted = [...groups.values()].filter((g) => g.title);
@@ -484,7 +487,7 @@ export function useResourceEditWizard({
         if (idx != null) rows.push({ kind: 'file', file: f, idx });
       }
       for (const path of g.assigned) {
-        if (placements[path]) rows.push({ kind: 'assigned', path });
+        if (isMappedPlacement(placements[path])) rows.push({ kind: 'assigned', path });
       }
     }
     return rows;
@@ -781,7 +784,12 @@ export function useResourceEditWizard({
       const next = { ...prev };
       for (const path of checkedFiles) {
         const parsed = detParses[path];
-        const season = seasonForJoin(selectedWorkKey, parsed?.season);
+        const existing = placements[path];
+        const existingEpisode = existing && isEpisodePlacement(existing) ? existing : null;
+        const season = seasonForJoin(
+          selectedWorkKey,
+          parsed?.season ?? existingEpisode?.season ?? null,
+        );
         if (wt === 'series' && season == null) {
           missing.push(path);
           continue;
@@ -793,8 +801,8 @@ export function useResourceEditWizard({
           fileRole: 'episode',
           attachedToPath: null,
           season,
-          epStart: ep,
-          epEnd: ep,
+          epStart: ep ?? existingEpisode?.epStart ?? null,
+          epEnd: ep ?? existingEpisode?.epEnd ?? null,
         };
       }
       return next;
@@ -832,9 +840,14 @@ export function useResourceEditWizard({
           continue;
         }
         const parsed = detParses[path];
+        const existingEpisode = existing && isEpisodePlacement(existing) ? existing : null;
         const s =
           ref.work_type === 'series'
-            ? seasonForJoin(targetKey, parsed?.season, meta?.season)
+            ? seasonForJoin(
+                targetKey,
+                parsed?.season ?? existingEpisode?.season ?? null,
+                meta?.season,
+              )
             : null;
         if (ref.work_type === 'series' && s == null) {
           missing.push(path);
@@ -847,8 +860,8 @@ export function useResourceEditWizard({
           fileRole: 'episode',
           attachedToPath: null,
           season: s,
-          epStart: ep,
-          epEnd: ep,
+          epStart: ep ?? existingEpisode?.epStart ?? null,
+          epEnd: ep ?? existingEpisode?.epEnd ?? null,
         };
         applied += 1;
       }
@@ -1013,11 +1026,11 @@ export function useResourceEditWizard({
     if (soleSeries) {
       const workKey = workKeyOf(soleSeries.work_type, soleSeries.work_id);
       for (const f of sug.deterministic.files) {
-        if (!shouldApplySuggestedEpisode(next[f.path], f.file_role) || next[f.path]) continue;
+        if (!shouldApplySuggestedEpisode(next[f.path], f.file_role) || isMappedPlacement(next[f.path])) continue;
         const workSeason = workSeasons[workKey];
         if (workSeason != null && workSeason !== 0 && f.season != null && f.season !== 0 && f.season !== workSeason) continue;
         const season = seasonForWork(workSeason, f.season);
-        if (next[f.path] || season == null) continue;
+        if (isMappedPlacement(next[f.path]) || season == null) continue;
         next[f.path] = {
           workType: 'series', workId: soleSeries.work_id,
           fileRole: 'episode', attachedToPath: null,
@@ -1128,7 +1141,7 @@ export function useResourceEditWizard({
     if (
       next === 1 &&
       !suggestion &&
-      Object.keys(placements).length === 0 &&
+      !Object.values(placements).some((placement) => isMappedPlacement(placement)) &&
       isBatch &&
       files.length > 0 &&
       !audioLinked
@@ -1222,18 +1235,24 @@ export function useResourceEditWizard({
       works,
       assignments: audioLinked
         ? []
-        : Object.entries(placements).map(([file_path, p]) => ({
-            file_path,
-            file_role: p.fileRole,
-            attached_to_path: p.fileRole === 'subtitle' ? p.attachedToPath : null,
-            ...(p.workType && p.workId
-              ? { work_type: p.workType, work_id: p.workId }
-              : {}),
-            file_size: files.find((f) => f.name === file_path)?.size ?? null,
-            season: p.fileRole === 'episode' || p.fileRole === 'extra' ? p.season : null,
-            episode_start: p.fileRole === 'episode' ? p.epStart : null,
-            episode_end: p.fileRole === 'episode' ? p.epEnd : null,
-          })),
+        : Object.entries(placements)
+            // Episode rows without a work target are stale parse evidence the
+            // API cannot persist (episode requires work_type/work_id); omit
+            // them so an unrelated save does not fail with a 422. Bound picks
+            // are rebuilt by joinChecked/applyClusterToWork.
+            .filter(([, p]) => p.fileRole !== 'episode' || (p.workType != null && p.workId != null))
+            .map(([file_path, p]) => ({
+              file_path,
+              file_role: p.fileRole,
+              attached_to_path: p.fileRole === 'subtitle' ? p.attachedToPath : null,
+              ...(p.workType && p.workId
+                ? { work_type: p.workType, work_id: p.workId }
+                : {}),
+              file_size: files.find((f) => f.name === file_path)?.size ?? null,
+              season: p.fileRole === 'episode' || p.fileRole === 'extra' ? p.season : null,
+              episode_start: p.fileRole === 'episode' ? p.epStart : null,
+              episode_end: p.fileRole === 'episode' ? p.epEnd : null,
+            })),
       ...(isBatch ? { collection_id: collectionId } : {}),
     };
     if (!isBatch && !audioLinked) {

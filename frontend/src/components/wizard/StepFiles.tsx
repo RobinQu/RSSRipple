@@ -585,6 +585,7 @@ export default function StepFiles({
                       </div>
                     );
                   }
+                  const existingPlacement = placements[row.file.name];
                   return (
                     <PoolFileRow
                       key={row.file.name}
@@ -592,7 +593,15 @@ export default function StepFiles({
                       size={row.file.size}
                       idx={row.idx}
                       checked={checkedFiles.includes(row.file.name)}
-                      parsed={detParses[row.file.name]}
+                      parsed={
+                        detParses[row.file.name] ??
+                        (existingPlacement?.fileRole === 'episode'
+                          ? {
+                              season: existingPlacement.season,
+                              episode: existingPlacement.epStart,
+                            }
+                          : undefined)
+                      }
                       indented={clusterGroups.length > 1 || clusterGroups[0]?.title != null}
                       actions={(
                         <FileRoleControls

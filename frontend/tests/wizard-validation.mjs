@@ -20,6 +20,7 @@ import {
   changePlacementRole,
   defaultRoleWork,
   eligibleSubtitleParents,
+  isMappedPlacement,
   placementsFromAssignments,
   reconcileSubtitleAttachments,
   seasonForWork,
@@ -72,6 +73,30 @@ const loadedPlacements = placementsFromAssignments([{
 }]);
 assert.equal(loadedPlacements['sp.mkv'].season, 0);
 assert.equal(loadedPlacements['sp.mkv'].epStart, 1);
+
+// Workless assignment rows (parse evidence only, e.g. after a work delete or
+// before any work was bound) stay candidates so they can be selected again;
+// only a work target or an explicit exclusion counts as mapped.
+assert.equal(isMappedPlacement(undefined), false);
+assert.equal(isMappedPlacement(makePlacement()), true);
+assert.equal(
+  isMappedPlacement(makePlacement({
+    workType: null, workId: null, fileRole: 'episode', season: 1, epStart: 1, epEnd: 1,
+  })),
+  false,
+);
+assert.equal(
+  isMappedPlacement(makePlacement({
+    workType: null, workId: null, fileRole: 'subtitle', season: null, epStart: null, epEnd: null,
+  })),
+  false,
+);
+assert.equal(
+  isMappedPlacement(makePlacement({
+    workType: null, workId: null, fileRole: 'excluded', season: null, epStart: null, epEnd: null,
+  })),
+  true,
+);
 
 // Existing extras are true no-ops, preserving both season 0 and null.
 for (const season of [0, null]) {
