@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, Float, ForeignKey, Index, Integer, String
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Index, Integer, String, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -42,6 +42,9 @@ class DownloadTask(Base):
         String(36), ForeignKey("downloader_instances.id", ondelete="RESTRICT"), nullable=False
     )
     download_dir: Mapped[str] = mapped_column(String(1024), nullable=False)
+    auto_delete_on_completion: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=true(), nullable=False
+    )
     transmission_torrent_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(
         Enum(

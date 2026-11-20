@@ -20,6 +20,32 @@ class TestDownloadersCRUD:
         assert res.status_code == 201
         assert res.json()["data"]["name"] == "DL"
         assert res.json()["data"]["download_dir"] == "/downloads/rssripple"
+        assert res.json()["data"]["auto_delete_on_completion"] is True
+
+    async def test_auto_delete_on_completion_create_and_update(self, client):
+        res = await client.post("/api/v1/downloaders", json={
+            "name": "PT", "type": "transmission",
+            "url": "http://127.0.0.1:9092/transmission/rpc",
+            "download_dir": "/downloads/pt",
+            "auto_delete_on_completion": False,
+        })
+        assert res.status_code == 201
+        assert res.json()["data"]["auto_delete_on_completion"] is False
+        downloader_id = res.json()["data"]["id"]
+
+        res = await client.put(
+            f"/api/v1/downloaders/{downloader_id}",
+            json={"auto_delete_on_completion": True},
+        )
+        assert res.status_code == 200
+        assert res.json()["data"]["auto_delete_on_completion"] is True
+        res = await client.get(f"/api/v1/downloaders/{downloader_id}")
+        assert res.json()["data"]["auto_delete_on_completion"] is True
+        res = await client.put(
+            f"/api/v1/downloaders/{downloader_id}",
+            json={"auto_delete_on_completion": None},
+        )
+        assert res.status_code == 422
 
     async def test_create_downloader_rejects_relative_download_dir(self, client):
         res = await client.post("/api/v1/downloaders", json={

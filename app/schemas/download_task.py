@@ -14,6 +14,7 @@ class DownloadTaskResponse(BaseModel):
     file_resource_id: str
     downloader_id: str | None = None
     download_dir: str | None = None
+    auto_delete_on_completion: bool
     transmission_torrent_id: int | None = None
     status: str
     progress: float
@@ -36,6 +37,7 @@ class ManualTaskCreate(BaseModel):
 
     resource_id: str
     downloader_id: str
+    auto_delete_on_completion: bool | None = None
 
 
 class TaskActionResponse(BaseModel):

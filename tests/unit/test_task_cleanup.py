@@ -28,6 +28,7 @@ async def _make_task(
     transmission_torrent_id: int | None = 42,
     downloader_id: str | None = None,
     status: str = "completed",
+    auto_delete_on_completion: bool = True,
 ) -> DownloadTask:
     from app.models.channel import Channel
 
@@ -52,6 +53,7 @@ async def _make_task(
         download_dir="/downloads/rssripple",
         transmission_torrent_id=transmission_torrent_id,
         status=status,
+        auto_delete_on_completion=auto_delete_on_completion,
     )
     db_session.add(task)
     await db_session.commit()
@@ -91,6 +93,28 @@ async def test_delete_task_after_organize_removes_torrent_keep_data(
     assert ok is True
     assert task.status == "cancelled"
     wrapper.remove_torrent.assert_awaited_once_with(42, delete_data=False)
+
+
+@pytest.mark.asyncio
+async def test_auto_delete_disabled_preserves_task_but_manual_delete_still_removes(
+    db_session, sample_downloader
+):
+    task = await _make_task(
+        db_session, downloader_id=sample_downloader.id,
+        auto_delete_on_completion=False,
+    )
+    wrapper = MagicMock()
+    wrapper.remove_torrent = AsyncMock(return_value=True)
+    with patch("app.clients.transmission.TransmissionWrapper", return_value=wrapper):
+        assert await tc.delete_task_after_organize(
+            db_session, task.id, respect_auto_delete=True
+        ) is True
+        assert task.status == "completed"
+        wrapper.remove_torrent.assert_not_awaited()
+
+        assert await tc.delete_task_after_organize(db_session, task.id) is True
+        assert task.status == "cancelled"
+        wrapper.remove_torrent.assert_awaited_once_with(42, delete_data=False)
 
 
 @pytest.mark.asyncio

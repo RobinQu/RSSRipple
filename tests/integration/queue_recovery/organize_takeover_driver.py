@@ -33,13 +33,13 @@ async def child():
     finished = asyncio.Event()
     original = organize_service.delete_task_after_organize
 
-    async def hold_cleanup(db, task_id):
+    async def hold_cleanup(db, task_id, **kwargs):
         (root / "cleanup-called").write_text(task_id)
         print(json.dumps({"lease_key": queue._consumer_key}), flush=True)
         async with asyncio.timeout(50):
             while not (root / "release").exists():
                 await asyncio.sleep(0.02)
-        return await original(db, task_id)
+        return await original(db, task_id, **kwargs)
 
     organize_service.delete_task_after_organize = hold_cleanup
 

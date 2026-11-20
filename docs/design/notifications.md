@@ -10,7 +10,7 @@ RSSRipple 的语义到"订阅 + 下载 + 通知"为止。文件整理（重命�
 RSSRipple（任意主机）                                外部消费者（如 vault-organizer，挂存储）
 ┌────────────────────────────────────┐            ┌──────────────────────────────┐
 │ task → completed                    │            │ 接收 POST webhook（2xx）      │
-│   ↓ 停种 + DownloadNotification     │  webhook   │   ↓ 自主规划 + 幂等执行         │
+│   ↓ 按需停种 + DownloadNotification     │  webhook   │   ↓ 自主规划 + 幂等执行         │
 │     （Agent 队列，payload 快照）     │  fan-out   │   ↓ Plex 刷新                 │
 │   ↓ ensure_deliveries（每通知 ×      │──────────→│   ↓ 用任务 API 清理            │
 │     每启用 webhook 各一条 delivery） │  （每 webhook│   （GET /tasks、pause、DELETE） │
@@ -169,7 +169,7 @@ pending --(2xx / mock)--> done
 
 单一投递路径：scheduler 每分钟 `_process_download_notifications` tick ——
 
-1. **入队（enqueue）**：为 completed 且无通知的任务**停种（best-effort `pause_torrent`）+ 补建通知**（`download_task_id` 唯一约束 + SAVEPOINT 竞争回读，幂等）。**仅当其 Agent 至少有一个启用 webhook、或存在任一启用的 OrganizeRule 时才补建**——内置 organize 也是通知快照的消费者（常开，存在启用规则即激活），需要通知驱动变更计划；两者皆无的 Agent 不生成通知，避免堆积无用记录（手动"重新生成"不受此限）。无 webhook 仅 organize 的通知不产生任何 delivery（聚合展示状态恒为 pending，随保留期正常清理）。
+1. **入队（enqueue）**：为 completed 且无通知的任务**按需停种（best-effort `pause_torrent`）+ 补建通知**；任务关闭 `auto_delete_on_completion` 且不存在启用 OrganizeRule 时不停种，避免纯 webhook 通知造成无人恢复的暂停（`download_task_id` 唯一约束 + SAVEPOINT 竞争回读，幂等）。**仅当其 Agent 至少有一个启用 webhook、或存在任一启用的 OrganizeRule 时才补建**——内置 organize 也是通知快照的消费者（常开，存在启用规则即激活），需要通知驱动变更计划；两者皆无的 Agent 不生成通知，避免堆积无用记录（手动"重新生成"不受此限）。无 webhook 仅 organize 的通知不产生任何 delivery（聚合展示状态恒为 pending，随保留期正常清理）。
 
 通知快照包含版本化 `file_associations={version,status,items}`。每个 item 冻结 `file_path/file_size/file_role/attached_to_path/work_type/work_id/season/episode_start/episode_end/source`；`file_role ∈ episode|subtitle|extra|excluded`，历史空角色按 episode 解读。只有 episode 是主视频并参与作品/季/集覆盖；extra 与 excluded 可空作品且不成为主视频，excluded 即使为常规视频也从预期正片覆盖中排除。字幕可在快照构建时从唯一同名/同作品正片继承作品并补 `attached_to_path`，但不得猜测歧义目标。`complete` 要求全部 episode 已绑作品、清单内预期正片均已覆盖，且全部 subtitle 都有唯一、同作品、已绑作品的 episode attachment；未绑 extra/excluded 不妨碍 complete，未解析字幕使状态为 partial。`partial`/`unavailable` 禁止隐式猜测；字段完全不存在才代表历史快照，可走统一确定性分析回退。`works` 以 `series|movie:<UUID>` 为键冻结所有关联作品的完整命名/分类/季集元数据，旧的单数 `work` 保留兼容单作品消费者。
 
@@ -197,7 +197,7 @@ pending --(2xx / mock)--> done
 | `POST /agents/{id}/webhooks` | 前端 | 注册 webhook `{url, mock?, enabled?}` → **201**；非 mock 必须 http(s) url（422）；注册后立即 fan-out 积压（`ensure_deliveries`） |
 | `PUT /agents/{id}/webhooks/{wid}` | 前端 | 更新 `{url?, mock?, enabled?}`（部分更新）；更新后同样立即 fan-out（重新启用即恢复投递积压） |
 | `DELETE /agents/{id}/webhooks/{wid}` | 前端 | 删除 webhook（其 delivery 历史随 FK CASCADE 删除；通知行保留） |
-| `POST /agents/{id}/notifications/regenerate` | 前端 | `{since: datetime \| null}`；对该 Agent 全部 completed 任务（`since` 按 `completed_at` 过滤，null=从最早开始）**重跑完整生成链路**（停种 + 拉取文件清单 + 构建快照）：无通知的补建，已有的原地重建 payload（保留行与 `notification_id`）并将其非 pending delivery 复位为立即到期 pending 随新快照重投；当次链路拿不到 torrent 文件清单（RPC 失败/种子已删/无种子）时保留旧快照不降级；返回 `{created, regenerated}`；fan-out 与投递走正常循环天然限速 |
+| `POST /agents/{id}/notifications/regenerate` | 前端 | `{since: datetime \| null}`；对该 Agent 全部 completed 任务（`since` 按 `completed_at` 过滤，null=从最早开始）**重跑完整生成链路**（按需停种 + 拉取文件清单 + 构建快照；纯通知且保留 torrent 时不停种）：无通知的补建，已有的原地重建 payload（保留行与 `notification_id`）并将其非 pending delivery 复位为立即到期 pending 随新快照重投；当次链路拿不到 torrent 文件清单（RPC 失败/种子已删/无种子）时保留旧快照不降级；返回 `{created, regenerated}`；fan-out 与投递走正常循环天然限速 |
 | `POST /notifications/{id}/retry` | 前端 | 单条重试：body `{mode: "failed" \| "all"}` → `{reset: n}`。`failed` = 仅重置 failed delivery；`all` = 重置全部非 pending delivery（done + failed）。重置为 pending 且立即到期 |
 | `POST /notifications/retry` | 前端 | 批量重试：body `{mode, since?, agent_id?}` → `{reset: n}`。`since` 按 `notification.created_at >= since` 过滤；`agent_id` 限定 Agent；缺省 = 全库范围 |
 
@@ -213,7 +213,7 @@ pending --(2xx / mock)--> done
 
 ## 与其他机制的交互
 
-- **torrent 生命周期**：completed → 创建通知时停种（best-effort）。此后 RSSRipple 不再动种子；停删由消费者按需通过任务 API 驱动。
+- **torrent 生命周期**：completed → 创建通知时按需停种（best-effort）；关闭自动删除且无启用整理规则时保持做种。内置 hardlink/copy 整理后恢复做种，move 且开启自动删除时移除 torrent；外部消费者的停删仍由任务 API 显式驱动。
 - **`_cleanup_expired`（每日）**：删除过期 completed 任务时跳过其通知存在**任一非 `done` delivery** 的任务（投递重试循环仍需要通知 payload 引用的任务行）；创建时间早于 `NOTIFY_RETENTION_DAYS`（默认 30 天）的通知整行删除（delivery 随 ORM 级联一并清理）。
 - **下载器客户端接口**：`get_torrent_files(torrent_id) -> {name, files: [{name, size}]}` 是统一接口的一部分，TransmissionWrapper 与 MockDownloaderWrapper 均实现。
 

@@ -15,6 +15,7 @@ import {
   Alert,
   Collapse,
   Divider,
+  Switch,
 } from 'antd';
 import { Folder, FolderOpen, Zap, ChevronDown } from 'lucide-react';
 import { downloadersApi } from '../api/downloaders';
@@ -66,6 +67,7 @@ export default function DownloaderForm() {
           name: res.data.name,
           url: res.data.url,
           download_dir: res.data.download_dir || DEFAULT_DOWNLOAD_DIR,
+          auto_delete_on_completion: res.data.auto_delete_on_completion,
           username: res.data.username ?? '',
           password: '',
           volume_id: res.data.volume_id ?? undefined,
@@ -124,6 +126,7 @@ export default function DownloaderForm() {
     username?: string;
     password?: string;
     download_dir?: string;
+    auto_delete_on_completion?: boolean;
     volume_id?: string;
     volume_subpath?: string;
   }) => {
@@ -134,6 +137,7 @@ export default function DownloaderForm() {
       type: activeType,
       url: values.url || (activeType === 'mock' ? 'mock://local' : ''),
       download_dir: values.download_dir || (activeType === 'mock' ? '/tmp/mock-downloads' : ''),
+      auto_delete_on_completion: values.auto_delete_on_completion ?? true,
       username: values.username || undefined,
       password: values.password || undefined,
       // Volume binding: both null = daemon and process see identical paths.
@@ -172,7 +176,11 @@ export default function DownloaderForm() {
           form={form}
           layout="vertical"
           onFinish={handleSubmit}
-          initialValues={{ type: 'transmission', download_dir: DEFAULT_DOWNLOAD_DIR }}
+          initialValues={{
+            type: 'transmission',
+            download_dir: DEFAULT_DOWNLOAD_DIR,
+            auto_delete_on_completion: true,
+          }}
         >
           <Form.Item name="type" label={t('downloaders.type')}>
             <Select
@@ -221,6 +229,15 @@ export default function DownloaderForm() {
               prefix={<Folder size={14} />}
               placeholder={isMock ? '/tmp/mock-downloads' : DEFAULT_DOWNLOAD_DIR}
             />
+          </Form.Item>
+
+          <Form.Item
+            name="auto_delete_on_completion"
+            label={t('downloaders.autoDeleteOnCompletion')}
+            extra={t('downloaders.autoDeleteExtra')}
+            valuePropName="checked"
+          >
+            <Switch />
           </Form.Item>
 
           {/* Optional settings, folded away so the common path stays short. */}

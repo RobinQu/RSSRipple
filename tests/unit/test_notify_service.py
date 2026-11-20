@@ -544,6 +544,21 @@ async def test_create_notification_snapshots_and_pauses(db_session, seed):
     assert seed.resource.listing_reconcile_status == "pending"
 
 
+async def test_create_notification_without_organize_keeps_preserved_torrent_running(
+    db_session, seed
+):
+    seed.task.auto_delete_on_completion = False
+    await db_session.commit()
+
+    _, created = await create_notification_for_task(db_session, seed.task)
+
+    assert created is True
+    from app.clients.mock_downloader import _store
+
+    state = _store(seed.downloader.id).torrents[seed.task.transmission_torrent_id]
+    assert state.paused is False
+
+
 async def test_create_notification_idempotent(db_session, seed):
     first, created1 = await create_notification_for_task(db_session, seed.task)
     await db_session.commit()

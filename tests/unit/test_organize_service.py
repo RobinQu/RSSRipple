@@ -758,6 +758,27 @@ async def test_execute_plan_full_flow(db_session, tmp_path):
     assert task.status == "cancelled"
 
 
+async def test_execute_plan_move_preserves_task_when_auto_delete_disabled(
+    db_session, tmp_path, monkeypatch
+):
+    plan, _ = await _planned_series_plan(db_session, tmp_path, file_op="move")
+    task = await db_session.get(
+        DownloadTask, plan.payload["task"]["download_task_id"]
+    )
+    task.transmission_torrent_id = 42
+    task.auto_delete_on_completion = False
+    await db_session.commit()
+    wrapper = _mock_downloader_client(monkeypatch)
+
+    plan = await execute_plan(db_session, plan.id)
+
+    assert plan.status == "done"
+    await db_session.refresh(task)
+    assert task.status == "completed"
+    wrapper.remove_torrent.assert_not_awaited()
+    wrapper.resume_torrent.assert_not_awaited()
+
+
 async def test_execute_plan_precheck_conflict_fails(db_session, tmp_path):
     plan, dl_dir = await _planned_series_plan(db_session, tmp_path)
     [op] = (
@@ -1630,7 +1651,7 @@ async def test_schedule_auto_execute_runs(db_session, monkeypatch):
     monkeypatch.setattr(organize_service, "execute_plan", executed)
     captured = {}
 
-    def fake_create_task(coro):
+    def fake_create_task(coro, *, context=None):
         captured["coro"] = coro
         return Mock()
 
@@ -1668,7 +1689,7 @@ async def test_schedule_auto_execute_failure_logged(db_session, monkeypatch, cap
     )
     captured = {}
 
-    def fake_create_task(coro):
+    def fake_create_task(coro, *, context=None):
         captured["coro"] = coro
         return Mock()
 

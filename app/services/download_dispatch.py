@@ -49,7 +49,11 @@ async def reserve_dispatch(bind, key, parameters, *, job_identity=None):
             ).on_conflict_do_nothing(index_elements=["operation_key"])
         )
         row = await db.scalar(select(DownloadDispatch).where(DownloadDispatch.operation_key == key))
-        if row.parameters != parameters:
+        # Reservations created before the auto-delete option are equivalent to
+        # the historical true default and must survive an in-place upgrade.
+        stored_parameters = {"auto_delete_on_completion": True, **(row.parameters or {})}
+        requested_parameters = {"auto_delete_on_completion": True, **parameters}
+        if stored_parameters != requested_parameters:
             raise ValueError("Queued download parameters changed; a new dispatch operation is required")
         return DispatchReservation(key, row.task_id, row.settled)
 

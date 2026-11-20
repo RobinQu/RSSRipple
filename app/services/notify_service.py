@@ -338,6 +338,8 @@ async def _build_snapshot(
 
     Pausing remains a best-effort notification operation so the consumer can
     move completed files; it is not a prerequisite for obtaining a listing.
+    Tasks preserving their torrent skip the pause when no built-in organize
+    rule needs a subsequent file operation.
     """
     from app.services.resource_listing import (
         apply_resource_listing,
@@ -350,7 +352,14 @@ async def _build_snapshot(
     agent = await db.get(Agent, task.agent_id) if task.agent_id else None
     resource = await _load_resource(db, task.file_resource_id)
 
-    if task.transmission_torrent_id is not None and task.downloader_id:
+    should_pause = True
+    if not task.auto_delete_on_completion:
+        from app.models.organize_rule import OrganizeRule
+
+        should_pause = await db.scalar(
+            select(OrganizeRule.id).where(OrganizeRule.enabled.is_(True)).limit(1)
+        ) is not None
+    if should_pause and task.transmission_torrent_id is not None and task.downloader_id:
         downloader = await db.get(DownloaderInstance, task.downloader_id)
         if downloader is not None:
             from app.clients.downloader import get_downloader_client

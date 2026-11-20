@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, UniqueConstraint, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -35,6 +35,9 @@ class DownloaderInstance(Base):
     username: Mapped[str | None] = mapped_column(String(255), nullable=True)
     password: Mapped[str | None] = mapped_column(String(255), nullable=True)
     download_dir: Mapped[str] = mapped_column(String(1024), nullable=False)
+    auto_delete_on_completion: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=true(), nullable=False
+    )
     # 已废弃（P1 未发布即被 R1 取代）：daemon 视角 → 本进程视角的自由文本
     # 前缀字典，由 ``volume_id`` / ``volume_subpath`` 卷绑定取代。列保留为
     # 惰性孤儿，代码不再读取。

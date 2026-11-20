@@ -27,6 +27,21 @@ async def test_reservation_reuses_identity_and_rejects_parameter_drift(db_sessio
     assert operation_key(("agent:x", "job"), "resource", "other-agent") != key
 
 
+async def test_legacy_reservation_without_auto_delete_uses_historical_default(db_session):
+    key = operation_key(("agent:x", "legacy-job"), "resource", "agent")
+    legacy = {"download_dir": "/downloads", "payload_digest": "captured"}
+    reservation = await reserve_dispatch(db_session.bind, key, legacy)
+
+    replay = await reserve_dispatch(
+        db_session.bind, key, {**legacy, "auto_delete_on_completion": True}
+    )
+    assert replay.task_id == reservation.task_id
+    with pytest.raises(ValueError, match="parameters changed"):
+        await reserve_dispatch(
+            db_session.bind, key, {**legacy, "auto_delete_on_completion": False}
+        )
+
+
 async def test_result_reuses_task_and_does_not_recreate_deleted_task(db_session):
     channel = Channel(name="synthetic", type="rss_feed", url="https://example.invalid", field_mapping={})
     downloader = DownloaderInstance(name="synthetic", type="mock", url="http://example.invalid", download_dir="/downloads")

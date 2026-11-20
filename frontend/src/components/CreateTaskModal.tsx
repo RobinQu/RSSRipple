@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Modal, Select, App, Tag, Empty, Typography } from 'antd';
+import { Modal, Select, App, Tag, Empty, Typography, Switch } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { tasksApi } from '../api/tasks';
 import { downloadersApi } from '../api/downloaders';
@@ -20,11 +20,13 @@ export default function CreateTaskModal({ resourceId, open, onClose, onCreated }
   const [downloaders, setDownloaders] = useState<DownloaderInstance[]>([]);
   const [loading, setLoading] = useState(false);
   const [downloaderId, setDownloaderId] = useState<string | null>(null);
+  const [autoDeleteOnCompletion, setAutoDeleteOnCompletion] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setDownloaderId(null);
+    setAutoDeleteOnCompletion(true);
     setLoading(true);
     downloadersApi
       .list(1, 100)
@@ -33,6 +35,12 @@ export default function CreateTaskModal({ resourceId, open, onClose, onCreated }
       })
       .finally(() => setLoading(false));
   }, [open]);
+
+  const handleDownloaderChange = (id: string) => {
+    setDownloaderId(id);
+    const downloader = downloaders.find((d) => d.id === id);
+    setAutoDeleteOnCompletion(downloader?.auto_delete_on_completion ?? true);
+  };
 
   const handleOk = async () => {
     if (!resourceId || !downloaderId) {
@@ -44,6 +52,7 @@ export default function CreateTaskModal({ resourceId, open, onClose, onCreated }
       const res = await tasksApi.create({
         resource_id: resourceId,
         downloader_id: downloaderId,
+        auto_delete_on_completion: autoDeleteOnCompletion,
       });
       if (res.success) {
         message.success(t('tasks.createSuccess'));
@@ -68,7 +77,7 @@ export default function CreateTaskModal({ resourceId, open, onClose, onCreated }
       okButtonProps={{ disabled: !downloaderId }}
       confirmLoading={submitting}
       destroyOnClose
-      width={420}
+      width={480}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <Text type="secondary" style={{ fontSize: 12 }}>
@@ -76,7 +85,7 @@ export default function CreateTaskModal({ resourceId, open, onClose, onCreated }
         </Text>
         <Select
           value={downloaderId}
-          onChange={(v) => setDownloaderId(v)}
+          onChange={handleDownloaderChange}
           loading={loading}
           placeholder={t('tasks.selectDownloaderPlaceholder')}
           notFoundContent={<Empty description={t('tasks.noDownloaders')} />}
@@ -97,6 +106,17 @@ export default function CreateTaskModal({ resourceId, open, onClose, onCreated }
             ),
           }))}
         />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+          <Switch
+            checked={autoDeleteOnCompletion}
+            onChange={setAutoDeleteOnCompletion}
+            disabled={!downloaderId}
+          />
+          <Text>{t('tasks.autoDeleteOnCompletion')}</Text>
+        </div>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          {t('tasks.autoDeleteExtra')}
+        </Text>
       </div>
     </Modal>
   );

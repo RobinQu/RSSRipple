@@ -766,6 +766,12 @@ _LIGHT_COLUMN_ADDITIONS: tuple[tuple[str, str, str | tuple[str, str]], ...] = (
     # ADD failure must abort startup, see the mandatory set in the
     # application loop below).
     ("webhook_deliveries", "attempt_token", "VARCHAR(36)"),
+    # Preserve the historical automatic post-organize removal behavior for
+    # existing downloaders/tasks; manual creation can override the default.
+    ("downloader_instances", "auto_delete_on_completion",
+     ("BOOLEAN NOT NULL DEFAULT 1", "BOOLEAN NOT NULL DEFAULT TRUE")),
+    ("download_tasks", "auto_delete_on_completion",
+     ("BOOLEAN NOT NULL DEFAULT 1", "BOOLEAN NOT NULL DEFAULT TRUE")),
 )
 
 

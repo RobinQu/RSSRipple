@@ -540,7 +540,7 @@ process_resources(agent, resources, db)
 
 提交阶段失败（downloader 缺失、路径解析失败、Transmission RPC 失败——即任务从未被 daemon 接受、`transmission_torrent_id` 为空的 error 行）不无限累积：同一 `(file_resource_id, agent_id, downloader_id)` 已有存活提交错误行时折叠更新该行（最新 `error_message`、`retry_count` 记重复次数），不再新建；曾到达 daemon 的 error 行（torrent id 非空）视为下载历史，永不折叠。
 
-`dispatch_download` 的"创建任务 + 提交下载器"主体已抽取为 `create_and_submit_task(resource, downloader, db, agent_id, download_dir)`，供手动创建复用。手动创建下载任务（`POST /tasks`）完全绕过 Agent：用户从资源列表/资源详情选择 Downloader，后端直接以 `agent_id=None`、`download_dir=downloader.download_dir`（根目录，不加子目录）调用同一 `create_and_submit_task` 提交；不做去重检查（手动创建是显式用户意图，允许重复任务）。
+`dispatch_download` 的"创建任务 + 提交下载器"主体已抽取为 `create_and_submit_task(resource, downloader, db, agent_id, download_dir, auto_delete_on_completion)`，供手动创建复用。创建时把 `auto_delete_on_completion` 的有效值冻结到 DownloadTask 并纳入队列幂等参数：Agent 任务继承 Downloader 默认，手动任务可显式覆盖；后续修改下载器默认值不影响在途任务。手动创建下载任务（`POST /tasks`）完全绕过 Agent：用户从资源列表/资源详情选择 Downloader，后端直接以 `agent_id=None`、`download_dir=downloader.download_dir`（根目录，不加子目录）调用同一 `create_and_submit_task` 提交；不做去重检查（手动创建是显式用户意图，允许重复任务）。
 
 ### 手动 metadata 搜索与修正流程
 

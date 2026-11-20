@@ -4,9 +4,10 @@
 
 - ``move``：:func:`delete_task_after_organize` —— 与
   ``DELETE /api/v1/tasks/{id}?delete_data=false`` 同一逻辑的内部调用版本
-  （不走 HTTP 回环）：移除下载器中的 torrent（保留数据——文件已由整理流程
-  移走或原地保留），任务行置为 ``cancelled``。任务不存在视为已删除，幂等
-  成功；下载器 RPC 失败只回报 False，由调用方记日志，不改写计划状态。
+  （不走 HTTP 回环）：任务开启自动删除时移除下载器中的 torrent（保留数据——
+  文件已由整理流程移走或原地保留），任务行置为 ``cancelled``；关闭时保留
+  torrent 和 completed 状态。任务不存在视为已删除，幂等成功；下载器 RPC
+  失败只回报 False，由调用方记日志，不改写计划状态。
 - ``hardlink`` / ``copy``：:func:`resume_task_after_organize` —— 保种，
   不删任务；快照生成时 best-effort 停过的做种经 RPC 恢复（与
   ``POST /api/v1/tasks/{id}/resume`` 同一个 ``resume_torrent`` RPC；对已
@@ -26,15 +27,21 @@ from app.models.downloader import DownloaderInstance
 logger = logging.getLogger(__name__)
 
 
-async def delete_task_after_organize(db, download_task_id: str) -> bool:
+async def delete_task_after_organize(
+    db, download_task_id: str, *, respect_auto_delete: bool = False
+) -> bool:
     """清理下载任务（delete_data=false 语义）。返回是否完全成功。
 
+    自动整理清理传 ``respect_auto_delete=True``；任务关闭自动删除时保留
+    torrent 与 completed 状态。人工删除保持默认，不受该设置影响。
     404（任务已删）= 幂等成功；RPC 失败 = False（任务仍置 cancelled 并记录
     error_message，残留 paused 条目人工删除即可）。
     """
     task = await db.get(DownloadTask, download_task_id)
     if task is None:
         return True  # 已删除，幂等成功
+    if respect_auto_delete and not task.auto_delete_on_completion:
+        return True
     ok = True
     if task.transmission_torrent_id and task.downloader_id:
         downloader = await db.get(DownloaderInstance, task.downloader_id)

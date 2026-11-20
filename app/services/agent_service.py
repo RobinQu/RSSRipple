@@ -105,7 +105,11 @@ async def _find_latest_submission_error(
 
 
 def _fold_dispatch_error(
-    existing: DownloadTask, *, error_message: str, download_dir: str
+    existing: DownloadTask,
+    *,
+    error_message: str,
+    download_dir: str,
+    auto_delete_on_completion: bool,
 ) -> DownloadTask:
     """Refresh a surviving submission-error row in place.
 
@@ -116,6 +120,7 @@ def _fold_dispatch_error(
     """
     existing.error_message = error_message[:2000]
     existing.download_dir = download_dir
+    existing.auto_delete_on_completion = auto_delete_on_completion
     existing.retry_count += 1
     return existing
 
@@ -128,6 +133,7 @@ async def _record_dispatch_error(
     downloader_id: str | None,
     download_dir: str,
     error_message: str,
+    auto_delete_on_completion: bool = True,
 ) -> DownloadTask:
     """Persist a submission-stage dispatch failure without unbounded row growth.
 
@@ -150,7 +156,12 @@ async def _record_dispatch_error(
         db, resource_id=resource_id, agent_id=agent_id, downloader_id=downloader_id
     )
     if existing is not None:
-        _fold_dispatch_error(existing, error_message=error_message, download_dir=download_dir)
+        _fold_dispatch_error(
+            existing,
+            error_message=error_message,
+            download_dir=download_dir,
+            auto_delete_on_completion=auto_delete_on_completion,
+        )
         await db.flush()
         return existing
     task = DownloadTask(
@@ -158,6 +169,7 @@ async def _record_dispatch_error(
         file_resource_id=resource_id,
         downloader_id=downloader_id,
         download_dir=download_dir,
+        auto_delete_on_completion=auto_delete_on_completion,
         status="error",
         error_message=error_message[:2000],
         max_retries=settings.max_retry_count,
@@ -327,6 +339,7 @@ async def create_and_submit_task(
     db: AsyncSession,
     agent_id: str | None = None,
     download_dir: str = "",
+    auto_delete_on_completion: bool | None = None,
 ) -> DownloadTask:
     """Create a DownloadTask and attempt to add it to the downloader.
 
@@ -334,6 +347,11 @@ async def create_and_submit_task(
     """
     from app.services.task_queue import current_job_identity
 
+    effective_auto_delete = (
+        downloader.auto_delete_on_completion
+        if auto_delete_on_completion is None
+        else auto_delete_on_completion
+    )
     await require_agent_execution_ownership()
     identity = current_job_identity()
     reservation = None
@@ -344,6 +362,7 @@ async def create_and_submit_task(
         parameters = {
             "resource_id": resource.id, "agent_id": agent_id,
             "downloader_id": downloader.id, "download_dir": download_dir,
+            "auto_delete_on_completion": effective_auto_delete,
             "payload_digest": payload_digest(payload),
         }
         reservation = await reserve_dispatch(
@@ -361,6 +380,7 @@ async def create_and_submit_task(
         file_resource_id=resource.id,
         downloader_id=downloader.id,
         download_dir=download_dir,
+        auto_delete_on_completion=effective_auto_delete,
         status="pending",
         max_retries=settings.max_retry_count,
     )
@@ -404,6 +424,7 @@ async def create_and_submit_task(
                 existing_error,
                 error_message=task.error_message or "",
                 download_dir=task.download_dir,
+                auto_delete_on_completion=effective_auto_delete,
             )
             if reservation is None:
                 db.expunge(task)  # pending, never flushed
@@ -417,6 +438,7 @@ async def create_and_submit_task(
         return await persist_dispatch_result(db, reservation, {
             "agent_id": agent_id, "file_resource_id": resource.id,
             "downloader_id": downloader.id, "download_dir": download_dir,
+            "auto_delete_on_completion": effective_auto_delete,
             "status": task.status, "max_retries": task.max_retries,
             "transmission_torrent_id": task.transmission_torrent_id,
             "confirmed_at": task.confirmed_at, "error_message": task.error_message,
@@ -453,6 +475,7 @@ async def dispatch_download(
             downloader_id=agent.downloader_id,
             download_dir=downloader.download_dir,
             error_message=str(e),
+            auto_delete_on_completion=downloader.auto_delete_on_completion,
         )
 
     if consumption_snapshot is not None:

@@ -138,6 +138,7 @@ def _explicit_multi_season_pack(channel_id, works, *, batch_seasons=None, guid=N
 
 class TestDispatchDownload:
     async def test_success_sets_downloading(self, db_session, channel, downloader):
+        downloader.auto_delete_on_completion = False
         agent = Agent(
             id=_uuid(), name="a", channel_id=channel.id,
             downloader_id=downloader.id, status="active",
@@ -162,6 +163,7 @@ class TestDispatchDownload:
         assert task.transmission_torrent_id == 7
         assert task.agent_id == agent.id
         assert task.download_dir == "/downloads/rssripple/Anime/2026"
+        assert task.auto_delete_on_completion is False
         add_torrent.assert_awaited_once_with(
             res.torrent_url,
             download_dir="/downloads/rssripple/Anime/2026",

@@ -279,6 +279,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
   "username": "user",
   "password": "pass",
   "download_dir": "/volume1/downloads/rssripple",
+  "auto_delete_on_completion": true,
   "volume_id": "b7f1…",
   "volume_subpath": "downloads/rssripple"
 }
@@ -291,6 +292,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 - 创建/编辑时做路径格式校验；`POST /downloaders/{id}/test` 必须调用 Transmission `free_space(download_dir)`，返回目录可识别性与剩余空间。
 - 真实写入能力、子目录存在性、磁盘不足等仍以 `torrent_add(download_dir=...)` 的结果为最终准据。
 - 若多个 Agent 共用一个 Downloader，建议通过 Agent 的 `download_subdir` 分流目录。
+- `auto_delete_on_completion`（Create/Update/Response，默认 true）：新任务默认在 move 整理成功后移除下载器种子记录但不删除数据；false 用于保种。只影响之后创建的任务，不回写既有任务。
 
 ### Storage Volumes
 
@@ -335,8 +337,8 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 
 `POST /tasks` 手动创建下载任务：
 
-- 请求体：`{ "resource_id": "uuid", "downloader_id": "uuid" }`。
-- 成功返回 **201**，`data` 为 `DownloadTaskResponse`；提交下载器成功时 `status="downloading"` 且带 `transmission_torrent_id`/`confirmed_at`，失败时任务仍创建但 `status="error"` 并带 `error_message`。
+- 请求体：`{ "resource_id": "uuid", "downloader_id": "uuid", "auto_delete_on_completion": false }`；最后字段可省略或为 null（继承下载器默认），显式布尔值仅覆盖本次任务。
+- 成功返回 **201**，`data` 为 `DownloadTaskResponse`（含任务冻结的 `auto_delete_on_completion`）；提交下载器成功时 `status="downloading"` 且带 `transmission_torrent_id`/`confirmed_at`，失败时任务仍创建但 `status="error"` 并带 `error_message`。
 - 错误码：`NOT_FOUND`（404，resource 或 downloader 不存在）、`VALIDATION_ERROR`（422，请求体缺字段）。
 - 手动任务的 `agent_id` 固定为 `null`；`download_dir` 直接使用 Downloader 根目录（不加子目录）；不做去重检查（手动创建是显式用户意图，允许重复）。
 

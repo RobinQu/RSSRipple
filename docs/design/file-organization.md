@@ -275,10 +275,10 @@ class OrganizeAuditEntry(Base):
 6. 执行完成后按命中规则的 `file_op` 分流清理：
    | file_op | 文件语义 | 执行后清理 |
    |---|---|---|
-   | `move` | 移动（EXDEV 退化为 copy+校验+删源） | 任务清理：调内部任务删除 service 函数（与 `DELETE /tasks/{id}?delete_data=false` 同一实现，不再走 HTTP 回环）+ 源目录空目录清理 |
+   | `move` | 移动（EXDEV 退化为 copy+校验+删源） | 任务 `auto_delete_on_completion=true` 时调内部任务删除 service 函数（与 `DELETE /tasks/{id}?delete_data=false` 同一实现，不再走 HTTP 回环）；false 时保留 torrent 和 completed 状态；均执行源目录空目录清理 |
    | `hardlink` | `os.link`，源文件保留；EXDEV/EPERM → op failed + 明确 error_message，**不静默退化为 copy**（静默复制会偷偷翻倍存储并违背保种意图） | 保种：不删任务、不清源目录；恢复快照时停过的做种（`resume_torrent` RPC，与 `POST /tasks/{id}/resume` 同一 RPC，幂等） |
    | `copy` | 独占临时文件复制 + 完整内容校验 + 原子不覆盖发布，源文件保留 | 同 hardlink（保种 + 恢复做种） |
-   - 清理/恢复均为 best-effort，失败只记日志不改写计划状态。
+   - 清理/恢复均为 best-effort，失败只记日志不改写计划状态。自动删除开关只约束整理后的自动动作，不影响人工删除或取消计划时的显式删除；自动删除始终 `delete_data=false`。PT 持续做种应关闭自动删除并使用 hardlink/copy；move 会改变源文件位置，不能承诺原 torrent 持续做种。
    - **媒体服务器刷新**（三种 file_op 一致）：经 `Library → MediaServerInstance` 寻址（天然支持多服务器/多类型），按 adapter 分 type——Plex 优先**按触及目录 partial refresh**（`GET /library/sections/{section_key}/refresh?path=...`），失败或不适用退整库刷新；Emby/Jellyfin 走对应 refresh 端点。服务器停用/未配置/刷新失败一律 best-effort：只记日志，不改写计划状态。
 
 **未执行计划的刷新（replan）**：pending/failed 计划的语义是「按当前规则与库绑定待执行」，因此两类时机都会触发重建（共用 `_rebuild_plan`：人工指定的 library/category 沿用，其余按当前规则 first-match 重路由、op 目标重渲染；done/running/cancelled 不动）：
@@ -416,5 +416,7 @@ pending/failed 计划在执行前发现配置版本过期或旧 file_op 缺失�
 配置变更提交后的附带重规划使用独立数据库会话；刷新或回滚不得使配置 API 响应会话的已加载对象失效。
 
 队列上下文中的执行在取得计划锁及进程执行锁后检查队列所有权，文件路径预检结束、预留执行版本前再次检查；已失权的 worker 不得启动新的文件移动。人工入口没有队列上下文时保持原行为。已启动执行仍由计划文件锁、revision/owner_token 及取消收尾协议保护，不能因 Redis 租约失效提前释放文件锁。检查到文件操作启动之间仍有窗口，不宣称 Redis 与文件系统原子提交。
+
+自动执行与配置变更重规划在对应计划/配置提交后创建后台任务，使用独立执行上下文，不继承 `download_notifications` 等调用方的队列租约；其并发所有权仍由上述计划锁、CAS 和 `owner_token` 约束。直接在队列处理器中 `await execute_plan` 的调用不属于此类后台任务，仍执行上述队列所有权检查。
 
 文件结果提交后，进程内执行锁释放，但外层计划文件锁持续覆盖任务清理、恢复做种及媒体刷新。已开始的执行在队列失权后仍须完成该受保护的收尾；不能仅因 Redis 租约结束允许另一执行重入同计划。定向回归用真实文件 move、清理挂起和第二数据库会话验证该顺序，仍需独立 worker 与真实 Redis 的组合验收。

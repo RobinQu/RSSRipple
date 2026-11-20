@@ -203,11 +203,13 @@ class TestManualTaskCreate:
             "/api/v1/tasks",
             method="post",
             json={"resource_id": _task_env["resources"][0]["id"],
-                  "downloader_id": _task_env["downloader_id"]},
+                  "downloader_id": _task_env["downloader_id"],
+                  "auto_delete_on_completion": False},
         )
         assert r.status_code == 201, f"manual create failed: {r.text}"
         task = r.json()["data"]
         assert task["status"] == "downloading"
+        assert task["auto_delete_on_completion"] is False
         assert task["transmission_torrent_id"] is not None
         assert task["agent_id"] is None
         # Cleanup.

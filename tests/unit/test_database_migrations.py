@@ -647,6 +647,75 @@ async def test_light_migrations_column_additions_alter():
             assert "episode_confidence" in {row[1] for row in cols}
 
 
+async def test_light_migrations_auto_delete_defaults_preserve_legacy_behavior():
+    from app.models.channel import Channel
+    from app.models.download_task import DownloadTask
+    from app.models.downloader import DownloaderInstance
+    from app.models.file_resource import FileResource
+
+    async with _raw_turso_engine() as engine:
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with factory() as db:
+            db.add_all([
+                Channel(
+                    id="c1", name="c1", type="rss_feed",
+                    url="http://example.invalid", field_mapping={},
+                    metadata_agent_enabled=False,
+                ),
+                DownloaderInstance(
+                    id="dl1", name="dl1", type="transmission",
+                    url="http://example.invalid/rpc", download_dir="/downloads",
+                ),
+                FileResource(
+                    id="fr1", channel_id="c1", guid="g1", title_raw="raw",
+                    torrent_url="magnet:?xt=legacy",
+                ),
+                DownloadTask(
+                    id="task1", file_resource_id="fr1", downloader_id="dl1",
+                    download_dir="/downloads", status="completed",
+                ),
+            ])
+            await db.commit()
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "ALTER TABLE downloader_instances DROP COLUMN auto_delete_on_completion"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE download_tasks DROP COLUMN auto_delete_on_completion"
+            ))
+        for _ in range(2):
+            async with engine.begin() as conn:
+                await _apply_light_migrations(conn)
+        async with engine.connect() as conn:
+            assert await conn.scalar(text(
+                "SELECT auto_delete_on_completion FROM downloader_instances WHERE id = 'dl1'"
+            )) == 1
+            assert await conn.scalar(text(
+                "SELECT auto_delete_on_completion FROM download_tasks WHERE id = 'task1'"
+            )) == 1
+        async with factory() as db:
+            db.add_all([
+                DownloaderInstance(
+                    id="dl2", name="dl2", type="transmission",
+                    url="http://example.invalid/rpc2", download_dir="/downloads",
+                ),
+                DownloadTask(
+                    id="task2", file_resource_id="fr1", downloader_id="dl1",
+                    download_dir="/downloads", status="completed",
+                ),
+            ])
+            await db.commit()
+            assert (await db.get(DownloaderInstance, "dl2")).auto_delete_on_completion is True
+            assert (await db.get(DownloadTask, "task2")).auto_delete_on_completion is True
+        async with engine.connect() as conn:
+            for table in ("downloader_instances", "download_tasks"):
+                columns = (await conn.execute(text(
+                    f"PRAGMA table_info({table})"
+                ))).fetchall()
+                default = {row[1]: row[4] for row in columns}["auto_delete_on_completion"]
+                assert default == "1"
+
+
 async def test_light_migrations_file_roles_legacy_rows():
     """旧指派行升级为 episode；字幕绑定列可空且迁移幂等。"""
     async with _raw_turso_engine() as engine:
@@ -1407,6 +1476,32 @@ async def test_light_migrations_torrent_listing_columns_postgres(pg_env):
         assert columns["torrent_fetch_updated_at"].data_type == "timestamp without time zone"
         assert columns["torrent_fetch_next_attempt_at"].data_type == "timestamp without time zone"
         assert columns["torrent_fetch_attempts"].column_default == "0"
+
+
+async def test_light_migrations_auto_delete_columns_postgres(pg_env):
+    from app.database import create_tables
+
+    await create_tables()
+    async with pg_env.begin() as conn:
+        await conn.execute(text(
+            "ALTER TABLE downloader_instances DROP COLUMN auto_delete_on_completion"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE download_tasks DROP COLUMN auto_delete_on_completion"
+        ))
+    for _ in range(2):
+        async with pg_env.begin() as conn:
+            await _apply_light_migrations(conn)
+    async with pg_env.connect() as conn:
+        rows = await conn.execute(text(
+            "SELECT table_name, column_default FROM information_schema.columns "
+            "WHERE column_name = 'auto_delete_on_completion'"
+        ))
+        defaults = {row.table_name: row.column_default for row in rows}
+        assert defaults == {
+            "downloader_instances": "true",
+            "download_tasks": "true",
+        }
 
 
 async def test_light_migrations_postgres_legacy_shapes(pg_env):

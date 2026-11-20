@@ -649,7 +649,9 @@
     "volumeSubpathExtra": "相对路径；选中存储卷时才可填写",
     "volumeSubpathInvalid": "必须是相对路径，且不能包含空、. 或 .. 路径段",
     "volumeSection": "存储卷绑定",
-    "authSection": "认证"
+    "authSection": "认证",
+    "autoDeleteOnCompletion": "完成后自动删除",
+    "autoDeleteExtra": "整理完成后自动移除下载器中的种子记录，不删除已下载数据。PT 站点需持续做种时请关闭，并使用硬链接或复制整理。"
   },
   "volumes": {
     "title": "存储卷",
@@ -691,7 +693,9 @@
     "selectDownloaderPlaceholder": "请选择下载器实例",
     "noDownloaders": "暂无可用下载器",
     "createSuccess": "下载任务已创建",
-    "createFailed": "创建下载任务失败"
+    "createFailed": "创建下载任务失败",
+    "autoDeleteOnCompletion": "完成后自动删除",
+    "autoDeleteExtra": "本次任务可覆盖下载器默认设置；仅移除种子记录，不删除数据。PT 持续做种请关闭，并使用硬链接或复制整理。"
   },
   "series": {
     "title": "剧集",
@@ -1320,10 +1324,6 @@
     "tabVolumes": "存储卷",
     "tabApiKeys": "API 密钥",
     "tabQueue": "任务队列",
-    "llm": {
-      "title": "LLM API",
-      "desc": "用于 RSS 字段分析与元数据推理的 OpenAI 兼容接口。",
-      "apiKey": "API Key",
     "tabLogs": "应用日志",
     "logs": {
       "title": "外部依赖异常日志",
@@ -1361,6 +1361,10 @@
       "status_retrying": "重试中",
       "status_resolved": "已恢复"
     },
+    "llm": {
+      "title": "LLM API",
+      "desc": "用于 RSS 字段分析与元数据推理的 OpenAI 兼容接口。",
+      "apiKey": "API Key",
       "model": "模型",
       "baseUrl": "Base URL",
       "enableThinking": "启用思考",

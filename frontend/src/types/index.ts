@@ -826,6 +826,7 @@ export interface DownloadTask {
   file_resource_id: string;
   downloader_id: string;
   download_dir: string | null;
+  auto_delete_on_completion: boolean;
   transmission_torrent_id: number | null;
   status: TaskStatus;
   progress: number;
@@ -948,6 +949,7 @@ export interface DownloaderInstance {
   username: string | null;
   password: string | null;
   download_dir: string;
+  auto_delete_on_completion: boolean;
   /** Volume binding (R1): daemon-view download_dir root ==
       volume.mount_path + volume_subpath; both null = identical views. */
   volume_id: string | null;

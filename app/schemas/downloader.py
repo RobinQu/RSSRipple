@@ -22,6 +22,7 @@ class DownloaderCreate(BaseModel):
     username: str | None = None
     password: str | None = None
     download_dir: str | None = None
+    auto_delete_on_completion: bool = True
     # 卷绑定（R1）：daemon 视角 download_dir 根 == volume.mount_path +
     # volume_subpath；两者皆 null = 两视角一致（恒等）。
     volume_id: str | None = None
@@ -53,6 +54,7 @@ class DownloaderUpdate(BaseModel):
     username: str | None = None
     password: str | None = None
     download_dir: str | None = None
+    auto_delete_on_completion: bool = True
     volume_id: str | None = None
     volume_subpath: str | None = None
 
@@ -73,6 +75,7 @@ class DownloaderResponse(BaseModel):
     url: str
     username: str | None = None
     download_dir: str
+    auto_delete_on_completion: bool
     volume_id: str | None = None
     volume_subpath: str | None = None
     status: str

@@ -119,8 +119,10 @@ _STAGING_SWEEP_INTERVAL_SECONDS = 3600.0
 
 
 def _spawn_background(coro) -> asyncio.Task:
-    """create_task + 模块级强引用，done 回调移除。"""
-    task = asyncio.create_task(coro)
+    """以独立队列上下文创建后台任务，并持强引用到完成。"""
+    from app.services.task_queue import independent_execution_context
+
+    task = asyncio.create_task(coro, context=independent_execution_context())
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
     return task
@@ -968,7 +970,9 @@ async def _execute_plan_owned(db, plan_id: str) -> OrganizePlan:
         if download_task_id:
             try:
                 if file_op == "move":
-                    ok = await delete_task_after_organize(db, download_task_id)
+                    ok = await delete_task_after_organize(
+                        db, download_task_id, respect_auto_delete=True
+                    )
                     action = "任务清理"
                 else:
                     # hardlink/copy 保种：不删任务、不清源目录，恢复快照时停

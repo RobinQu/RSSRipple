@@ -50,6 +50,10 @@ SELECT name, applied_at FROM schema_migrations ORDER BY applied_at, name;
 
 旧 Turso 库为硬化 `required_metadata_fields NOT NULL` 而重建 `channels` 父表时，若 `required_metadata_defaults` 尚未由前置加列步骤写入，重建必须显式补入该 nullable 列，不能因复制旧表列集而丢失；既有必填字段回填、外键执法挂起及失败回滚语义不变。本变更无 down path，回退依靠备份。
 
+### 下载完成自动删除列
+
+轻迁移为 `downloader_instances` 与 `download_tasks` 增加非空布尔 `auto_delete_on_completion`，Turso 默认 `1`、PostgreSQL 默认 `TRUE`。历史行保持既有自动清理行为；新任务在创建时冻结有效值，之后修改下载器默认不回写在途任务。
+
 ## 1. SQLite → Turso（`scripts/migrate_to_turso.py`）
 
 ```bash
@@ -358,11 +362,11 @@ Turso 重建 file_resources 时，其他表上的这些触发器在父表 DROP/R
 
 统一迁移服务通过 Base.metadata.create_all 创建 resource_reparse_requests 及唯一资源 FK、next_attempt_at 索引。先迁移后启动新应用；不重建 file_resources，不改写 confirmation_ignored_at 历史数据，因为旧列混用人工忽略与后台临时隐藏，无法安全推断归属。旧队列载荷没有 request_id 时仍可处理，但不清理该列。正式集成已覆盖实际 create_tables 双库重复升级、存量标记保留、唯一/FK 约束及请求事务回滚。应用版本回滚及历史标记只读盘点仍须专项验收；事务回滚不代表部署版本回滚已验证。
 
+外部依赖异常新增 `app_logs` 表，同样由模型注册后的 `create_all` 在 PostgreSQL/Turso 幂等建立，无历史异常回填要求；既有资源/频道删除会级联删除其日志。`(resource_id,category,status)` 与 `(updated_at,id)` 索引同时创建，不重建既有业务表。旧版本不读取该表；回滚代码可保留表结构，但会失去新日志状态机和 Dashboard 外部异常分流。
+
 #### 历史忽略标记盘点与回退前提
 
 升级不猜测旧 confirmation_ignored_at 的来源。迁移后可用以下只读查询分页导出人工复核清单（两库同一 SQL）；先从空字符串游标开始，将最后一个 id 作为下一页 :after_id，禁止用日期直接批量清理：
-
-外部依赖异常新增 `app_logs` 表，同样由模型注册后的 `create_all` 在 PostgreSQL/Turso 幂等建立，无历史异常回填要求；既有资源/频道删除会级联删除其日志。`(resource_id,category,status)` 与 `(updated_at,id)` 索引同时创建，不重建既有业务表。旧版本不读取该表；回滚代码可保留表结构，但会失去新日志状态机和 Dashboard 外部异常分流。
 
 ```sql
 SELECT r.id, r.channel_id, r.title_raw, r.confirmation_ignored_at,
