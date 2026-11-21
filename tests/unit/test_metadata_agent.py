@@ -882,6 +882,7 @@ async def test_process_force_refresh_keeps_collection_association(db_session, sa
 
     from app.models.file_resource import FileResource
     from app.models.work_collection import WorkCollection
+    from app.utils.time import utcnow
 
     coll = WorkCollection(id=str(uuid.uuid4()), title_cn="西部世界")
     db_session.add(coll)
@@ -891,6 +892,7 @@ async def test_process_force_refresh_keeps_collection_association(db_session, sa
         torrent_url="magnet:?xt=urn:btih:westworld", is_batch=True,
         batch_scope="multi_season", collection_id=coll.id,
         metadata_attempts=8, metadata_failure_type="not_found",
+        metadata_matched_at=utcnow(),
     )
     db_session.add(resource)
     await db_session.commit()
@@ -909,6 +911,34 @@ async def test_process_force_refresh_keeps_collection_association(db_session, sa
     assert resource.collection_id == coll.id
     assert resource.metadata_failure_type is None
     assert resource.metadata_attempts == 9
+
+
+async def test_process_fresh_collection_hint_still_runs_matching(db_session, sample_channel):
+    """A deterministic collection hint from torrent inspection must not skip
+    the resource's first metadata pass (it still needs work details)."""
+    import uuid
+
+    from app.models.file_resource import FileResource
+    from app.models.work_collection import WorkCollection
+
+    coll = WorkCollection(id=str(uuid.uuid4()), title_cn="合集")
+    db_session.add(coll)
+    resource = FileResource(
+        id=str(uuid.uuid4()), channel_id=sample_channel.id, guid="fresh-hint",
+        title_raw="Show S01 COMPLETE", search_title="Show", is_batch=True,
+        batch_scope="season", collection_id=coll.id,
+        torrent_url="magnet:?xt=urn:btih:fresh-hint",
+    )
+    db_session.add(resource)
+    await db_session.commit()
+
+    agent = _patched_agent()
+    agent._get_cache.return_value = None
+    agent._run_react.return_value = _react_return(found=True)
+
+    await agent.process(resource, sample_channel, db_session)
+
+    agent._run_react.assert_called_once()
 
 
 async def test_process_short_circuit_matches_season_suffixed_title(db_session, sample_channel):
