@@ -9,6 +9,7 @@ are reset around every test.
 from __future__ import annotations
 
 import asyncio
+import time
 
 import httpx
 import pytest
@@ -106,7 +107,10 @@ def _patch_async_client(monkeypatch, handler):
 
 
 def test_cache_expired_entry_is_dropped():
-    msa._cache["tmdb:old"] = (0.0, [{"x": 1}])  # monotonic ts 0 ⇒ long expired
+    # Anchor to the current monotonic clock: a literal 0.0 only counts as
+    # expired when the process uptime exceeds the TTL (fresh CI runners may
+    # have a much smaller monotonic base).
+    msa._cache["tmdb:old"] = (time.monotonic() - msa._CACHE_TTL - 1, [{"x": 1}])
     assert msa._cache_get("tmdb", "old") is None
     assert "tmdb:old" not in msa._cache
 
