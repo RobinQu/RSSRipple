@@ -814,6 +814,7 @@
     "metadata": "元数据",
     "series": "剧集",
     "movie": "电影",
+    "multiWorkPack": "多作品合集",
     "noMetadata": "尚未关联元数据",
     "manualFix": "手动修正",
     "parsedFields": "解析字段",

@@ -897,7 +897,8 @@ async def get_resource_metadata(resource_id: str, db: AsyncSession = Depends(get
             selectinload(FileResource.movie).selectinload(_Movie.collection),
             selectinload(FileResource.audio_work),
             selectinload(FileResource.collection),
-            selectinload(FileResource.work_links),
+            selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series),
+            selectinload(FileResource.work_links).selectinload(ResourceWorkLink.movie),
         ],
     )
     if not resource:
@@ -938,6 +939,44 @@ async def get_resource_metadata(resource_id: str, db: AsyncSession = Depends(get
     elif resource.audio_work:
         from app.schemas.audio_work import AudioWorkResponse
         linked = {"type": "audio", "entity": AudioWorkResponse.model_validate(resource.audio_work).model_dump()}
+    elif resource.collection:
+        # Collection-only / multi-work packs carry their association here
+        # rather than in a flat series/movie FK. Surface the collection so the
+        # drawer can render its metadata instead of "not linked".
+        from app.schemas.work_collection import WorkCollectionResponse
+        linked = {
+            "type": "collection",
+            "entity": WorkCollectionResponse.model_validate(resource.collection).model_dump(),
+        }
+    elif resource.work_links:
+        # Links-only packs (cross-collection franchise) have no collection
+        # pointer; expose the associated works so metadata is still visible.
+        entities = []
+        for link in resource.work_links:
+            work = link.series or link.movie
+            if work is None:
+                continue
+            work_type = "series" if link.series_id else "movie"
+            entities.append({
+                "type": work_type,
+                "id": work.id,
+                "title": (
+                    getattr(work, "original_title", None)
+                    or getattr(work, "title_cn", None)
+                    or getattr(work, "title_en", None)
+                    or work.id
+                ),
+                "poster_url": getattr(work, "poster_url", None),
+                "season_number": getattr(work, "season_number", None),
+            })
+        if entities:
+            entities.sort(
+                key=lambda item: (
+                    item["season_number"] if item["season_number"] is not None else 99,
+                    item["title"],
+                )
+            )
+            linked = {"type": "works", "entities": entities}
 
     return success_response({
         "resource_id": resource.id,

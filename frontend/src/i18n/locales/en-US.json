@@ -814,6 +814,7 @@
     "metadata": "Metadata",
     "series": "Series",
     "movie": "Movie",
+    "multiWorkPack": "Multi-work pack",
     "noMetadata": "Not yet linked to metadata",
     "manualFix": "Manual Fix",
     "parsedFields": "Parsed Fields",

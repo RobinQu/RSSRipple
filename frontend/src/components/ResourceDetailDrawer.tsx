@@ -21,6 +21,7 @@ import { resourcesApi } from '../api/channels';
 import { formatBytes, formatDate } from '../utils/format';
 import { copyToClipboard } from '../utils/clipboard';
 import { batchScopeLabel } from '../utils/batch';
+import { seasonLabel } from '../utils/season';
 import ResourceCorrectionModal from './ResourceCorrectionModal';
 import CreateTaskModal from './CreateTaskModal';
 import { ResourceFilesView } from './ResourceFilesDrawer';
@@ -33,8 +34,16 @@ import type {
 
 const { Text, Paragraph } = Typography;
 
-interface LinkedMeta {
+interface LinkedWorkRef {
   type: 'series' | 'movie';
+  id: string;
+  title: string;
+  poster_url: string | null;
+  season_number: number | null;
+}
+
+interface LinkedMeta {
+  type: 'series' | 'movie' | 'collection' | 'works';
   title: string;
   poster_url?: string | null;
   year?: number | null;
@@ -42,6 +51,7 @@ interface LinkedMeta {
   genres?: string[];
   rating?: number | null;
   description?: string | null;
+  works?: LinkedWorkRef[];
 }
 
 /** Build the display extras for a linked work entity (series or movie):
@@ -175,6 +185,29 @@ export default function ResourceDetailDrawer({
             title,
             poster_url: d.movie.poster_url,
             ...workMetaExtras(d.movie, title),
+          });
+        } else if (d.linked?.type === 'collection') {
+          const collection = d.linked.entity;
+          setMeta({
+            type: 'collection',
+            title:
+              collection.title_cn || collection.title_en || t('resource.collectionLabel'),
+            poster_url: collection.poster_url,
+            description: collection.description,
+          });
+        } else if (d.linked?.type === 'works') {
+          const works = (d.linked.entities ?? []).map((work) => ({
+            type: work.type,
+            id: work.id,
+            title: work.title || work.id,
+            poster_url: work.poster_url,
+            season_number: work.season_number,
+          }));
+          setMeta({
+            type: 'works',
+            title: t('resource.multiWorkPack'),
+            poster_url: works[0]?.poster_url ?? null,
+            works,
           });
         } else {
           setMeta(null);
@@ -477,8 +510,24 @@ export default function ResourceDetailDrawer({
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <Space size={6} style={{ marginBottom: 6 }} wrap>
                       <Text strong style={{ color: 'var(--rr-text)' }}>{meta.title}</Text>
-                      <Tag color={meta.type === 'series' ? 'blue' : 'green'}>
-                        {meta.type === 'series' ? t('resource.series') : t('resource.movie')}
+                      <Tag
+                        color={
+                          meta.type === 'series'
+                            ? 'blue'
+                            : meta.type === 'movie'
+                              ? 'green'
+                              : meta.type === 'collection'
+                                ? 'purple'
+                                : 'orange'
+                        }
+                      >
+                        {meta.type === 'series'
+                          ? t('resource.series')
+                          : meta.type === 'movie'
+                            ? t('resource.movie')
+                            : meta.type === 'collection'
+                              ? t('resource.collectionLabel')
+                              : t('resource.multiWorkPack')}
                       </Tag>
                       {meta.year != null && <Tag>{meta.year}</Tag>}
                       {meta.rating != null && <Tag color="gold">★ {meta.rating}</Tag>}
@@ -493,6 +542,23 @@ export default function ResourceDetailDrawer({
                         }}
                       >
                         {meta.secondary_titles!.join(' / ')}
+                      </div>
+                    )}
+                    {(meta.works?.length ?? 0) > 0 && (
+                      <div style={{ marginBottom: 6 }}>
+                        {meta.works!.map((work) => {
+                          const season = seasonLabel(t, work.season_number);
+                          return (
+                            <div key={`${work.type}:${work.id}`} style={{ fontSize: 12 }}>
+                              <Link
+                                to={work.type === 'series' ? `/series/${work.id}` : `/movies/${work.id}`}
+                              >
+                                {season ? `${season} · ` : ''}
+                                {work.title}
+                              </Link>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                     {(meta.genres?.length ?? 0) > 0 && (

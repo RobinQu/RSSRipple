@@ -19,6 +19,7 @@ import type {
   ResourceFilesResponse,
   ResourceFilterCondition,
   TVSeries,
+  WorkCollection,
 } from '../types';
 
 export interface PreviewFeedData {
@@ -221,10 +222,22 @@ export const resourcesApi = {
       movie_id?: string | null;
       series?: { id: string; title_cn?: string | null; title_en?: string | null; original_title?: string | null; poster_url?: string | null };
       movie?: { id: string; title_cn?: string | null; title_en?: string | null; original_title?: string | null; poster_url?: string | null };
-      linked?: {
-        type: 'series' | 'movie';
-        entity: TVSeries | Movie;
-      } | null;
+      linked?:
+        | { type: 'series'; entity: TVSeries }
+        | { type: 'movie'; entity: Movie }
+        | { type: 'audio'; entity: Record<string, unknown> }
+        | { type: 'collection'; entity: WorkCollection }
+        | {
+            type: 'works';
+            entities: Array<{
+              type: 'series' | 'movie';
+              id: string;
+              title: string | null;
+              poster_url: string | null;
+              season_number: number | null;
+            }>;
+          }
+        | null;
       metadata_matched_at?: string | null;
     }>(`/resources/${id}/metadata`),
   correctEpisode: (

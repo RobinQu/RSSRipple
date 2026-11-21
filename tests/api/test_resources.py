@@ -2611,6 +2611,56 @@ class TestResourceMetadataAudioMovie:
         assert audio.json()["data"]["linked"]["type"] == "audio"
         assert audio.json()["data"]["audio_work_id"] == aid
 
+    async def test_metadata_linked_collection_and_work_links(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        from app.models.resource_work_link import ResourceWorkLink
+        from app.models.series import TVSeries
+        from app.models.work_collection import WorkCollection
+
+        cid, sid = _uuid(), _uuid()
+        async with db_session_factory() as s:
+            s.add(WorkCollection(id=cid, title_cn="西部世界", poster_url="/posters/w.jpg"))
+            s.add(TVSeries(id=sid, title_cn="西部世界", title_en="Westworld", season_number=1))
+            await s.commit()
+        crid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            collection_id=cid, is_batch=True, batch_scope="multi_season",
+            metadata_matched_at=datetime.now(UTC),
+        )
+        lrid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            is_batch=True, batch_scope="multi_season",
+            metadata_matched_at=datetime.now(UTC),
+        )
+        async with db_session_factory() as s:
+            s.add(ResourceWorkLink(resource_id=lrid, series_id=sid, source="manual"))
+            await s.commit()
+        monkeypatch.setattr(
+            "app.api.v1.resources.fetch_and_link_metadata", AsyncMock()
+        )
+
+        collection = await client.get(f"/api/v1/resources/{crid}/metadata")
+        assert collection.status_code == 200
+        body = collection.json()["data"]
+        assert body["linked"]["type"] == "collection"
+        assert body["linked"]["entity"]["id"] == cid
+        assert body["linked"]["entity"]["title_cn"] == "西部世界"
+
+        links = await client.get(f"/api/v1/resources/{lrid}/metadata")
+        assert links.status_code == 200
+        body = links.json()["data"]
+        assert body["linked"]["type"] == "works"
+        assert body["linked"]["entities"] == [
+            {
+                "type": "series",
+                "id": sid,
+                "title": "西部世界",
+                "poster_url": None,
+                "season_number": 1,
+            }
+        ]
+
     async def test_metadata_match_error_500(
         self, client, sample_channel, db_session_factory, monkeypatch,
     ):
