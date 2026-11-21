@@ -85,6 +85,8 @@ async def upsert_collection_from_tmdb(
     db: AsyncSession, coll: dict
 ) -> WorkCollection:
     """Idempotent upsert of a WorkCollection from TMDB collection data."""
+    from app.services.metadata_service import download_and_cache_poster
+
     external_id = str(coll["id"])
     existing = (await db.execute(
         select(WorkCollection).where(
@@ -93,18 +95,24 @@ async def upsert_collection_from_tmdb(
         )
     )).scalars().first()
     poster_path = coll.get("poster_path")
-    poster_url = f"{TMDB_IMAGE_BASE}{poster_path}" if poster_path else None
+    remote_poster = f"{TMDB_IMAGE_BASE}{poster_path}" if poster_path else None
     if existing is not None:
         if coll.get("name") and existing.title_cn != coll["name"]:
             existing.title_cn = coll["name"]
-        if poster_url and not existing.poster_url:
-            existing.poster_url = poster_url
+        if (
+            remote_poster
+            and "poster_url" not in (existing.manually_edited_fields or [])
+            and not (existing.poster_url or "").startswith("/posters/")
+        ):
+            local_poster = await download_and_cache_poster(remote_poster)
+            existing.poster_url = local_poster or remote_poster
         return existing
+    local_poster = await download_and_cache_poster(remote_poster)
     collection = WorkCollection(
         title_cn=coll.get("name") or f"TMDB Collection {external_id}",
         external_id=external_id,
         external_source=TMDB_COLLECTION_SOURCE,
-        poster_url=poster_url,
+        poster_url=local_poster or remote_poster,
     )
     db.add(collection)
     await db.flush()

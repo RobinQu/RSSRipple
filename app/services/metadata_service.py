@@ -1337,6 +1337,22 @@ def _merge_collection_aliases(collection: WorkCollection, data: dict) -> None:
     collection.aliases = new_aliases or None
 
 
+async def _apply_collection_poster(collection: WorkCollection, data: dict) -> None:
+    """Cache a matched entity's remote poster onto an existing collection.
+
+    Collections are display-only grouping rows. Keep the same failure policy
+    as work posters: fall back to the remote URL and let the backfill/sweep
+    retry. Never overwrite a user-edited or already-local poster.
+    """
+    if field_manually_edited(collection, "poster_url"):
+        return
+    remote_poster = data.get("poster_url")
+    if not remote_poster or (collection.poster_url or "").startswith("/posters/"):
+        return
+    local_url = await download_and_cache_poster(remote_poster)
+    collection.poster_url = local_url or remote_poster
+
+
 async def _create_series_collection(
     db: AsyncSession, data: dict, *, preserve_full_title: bool = False
 ) -> WorkCollection:
@@ -1366,13 +1382,15 @@ async def _create_series_collection(
     ):
         if t and t not in aliases:
             aliases.append(t)
+    remote_poster = data.get("poster_url")
+    local_poster = await download_and_cache_poster(remote_poster)
     collection = WorkCollection(
         title_cn=(base_cn or base_en or data.get("original_title") or "未命名系列")[:512],
         title_en=base_en,
         aliases=aliases or None,
         external_id=None,
         external_source="series_group",
-        poster_url=data.get("poster_url"),
+        poster_url=local_poster or remote_poster,
         description=data.get("description"),
     )
     db.add(collection)
@@ -1670,6 +1688,7 @@ async def _resolve_collection_member(
             raise MetadataTargetMismatchError("Metadata identity conflicts with selected season work")
         season = selected.season_number
     _merge_collection_aliases(collection, data)
+    await _apply_collection_poster(collection, data)
     work: TVSeries | None = None
     if season is None:
         await _bag_entity_ids_by_granularity(
@@ -1915,6 +1934,7 @@ async def create_or_update_series_from_external(
         if collection is None:
             collection = await _create_series_collection(db, data)
         _merge_collection_aliases(collection, data)
+        await _apply_collection_poster(collection, data)
         await _bag_entity_ids_by_granularity(
             db, work=None, collection=collection, data=data,
             series_level_id=series_level_id,
@@ -1985,6 +2005,7 @@ async def create_or_update_series_from_external(
             collection = await db.get(WorkCollection, next(iter(coll_ids)))
             if collection is not None:
                 _merge_collection_aliases(collection, data)
+                await _apply_collection_poster(collection, data)
                 await _bag_entity_ids_by_granularity(
                     db, work=None, collection=collection, data=data,
                     series_level_id=series_level_id,

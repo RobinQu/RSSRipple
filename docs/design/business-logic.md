@@ -107,7 +107,8 @@ fetch_channel_resources(channel, db)
   │     ├─ f. fetch_and_link_metadata(resource, channel)  # 详见 Metadata 匹配流程
   │     ├─ g. 若 LLM 返回 poster_url 且为 http(s) URL → 下载到 POSTER_CACHE_DIR
   │     │     文件名: {sha256(url)[:16]}.{ext}，保存路径相对于 POSTER_CACHE_DIR
-  │     │     更新 series.poster_url = /posters/xxx.jpg
+  │     │     更新 series/movie/audio/collection.poster_url = /posters/xxx.jpg
+  │     │     下载失败保留远端 URL，由存量回填脚本与每日 sweep 重试
   │     └─ h. db 批量提交
   │
   │     # 并发说明：e–h 的 metadata 处理按资源在独立短会话中并发执行（上限

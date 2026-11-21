@@ -632,6 +632,38 @@ async def _cleanup_expired() -> None:
     except Exception as e:
         logger.warning("Torrent cache sweep failed: %s", e)
 
+    # Remote poster backfill: rows created before local poster caching (or
+    # whose download failed) keep an HTTP(S) URL. Cache a bounded batch each
+    # day in its own transaction; failures leave the remote URL for the next
+    # run and never abort cleanup.
+    from app.config import settings
+
+    if settings.poster_cache_dir:
+        from app.services.poster_backfill import (
+            DEFAULT_DAILY_LIMIT_PER_MODEL,
+            cache_remote_posters,
+        )
+
+        await require_execution_ownership()
+        try:
+            async with committed_session() as poster_db:
+                poster_report = await cache_remote_posters(
+                    poster_db,
+                    limit_per_model=DEFAULT_DAILY_LIMIT_PER_MODEL,
+                )
+            cached_total = sum(item["cached"] for item in poster_report.values())
+            failed_total = sum(item["failed"] for item in poster_report.values())
+            if cached_total or failed_total:
+                logger.info(
+                    "Poster cache sweep: cached %d, failed %d",
+                    cached_total,
+                    failed_total,
+                )
+        except ExecutionOwnershipLostError:
+            raise
+        except Exception as e:
+            logger.warning("Poster cache sweep failed: %s", e)
+
 
 async def _check_downloader_connections() -> None:
     """Hourly connectivity check for all downloaders."""

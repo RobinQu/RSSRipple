@@ -1775,6 +1775,56 @@ async def test_merge_collection_aliases_manual_edit_skipped(db_session):
     assert coll.aliases is None
 
 
+async def test_create_series_collection_caches_remote_poster(db_session):
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value="/posters/coll.jpg",
+    ):
+        coll = await ms._create_series_collection(
+            db_session, {"title_cn": "合集", "poster_url": "https://x/coll.jpg"},
+        )
+    assert coll.poster_url == "/posters/coll.jpg"
+
+
+async def test_create_series_collection_keeps_remote_on_cache_failure(db_session):
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        coll = await ms._create_series_collection(
+            db_session, {"title_cn": "合集", "poster_url": "https://x/coll.jpg"},
+        )
+    assert coll.poster_url == "https://x/coll.jpg"
+
+
+async def test_apply_collection_poster_caches_and_respects_boundaries(db_session):
+    remote = WorkCollection(
+        id=_uuid(), title_cn="远端", external_source="series_group",
+        poster_url="https://x/coll.jpg",
+    )
+    local = WorkCollection(
+        id=_uuid(), title_cn="本地", external_source="series_group",
+        poster_url="/posters/local.jpg",
+    )
+    manual = WorkCollection(
+        id=_uuid(), title_cn="手工", external_source="series_group",
+        poster_url="https://x/manual.jpg", manually_edited_fields=["poster_url"],
+    )
+    db_session.add_all([remote, local, manual])
+    await db_session.flush()
+    download = AsyncMock(return_value="/posters/coll.jpg")
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster", download,
+    ):
+        await ms._apply_collection_poster(remote, {"poster_url": "https://x/coll.jpg"})
+        await ms._apply_collection_poster(local, {"poster_url": "https://x/coll.jpg"})
+        await ms._apply_collection_poster(manual, {"poster_url": "https://x/coll.jpg"})
+    assert remote.poster_url == "/posters/coll.jpg"
+    assert local.poster_url == "/posters/local.jpg"
+    assert manual.poster_url == "https://x/manual.jpg"
+    assert download.await_count == 1
+
+
 # ---------------------------------------------------------------------------
 # Coverage boost: find_series/movie_by_external_id
 # ---------------------------------------------------------------------------

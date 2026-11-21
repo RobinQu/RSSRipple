@@ -87,7 +87,10 @@ async def test_link_creates_collection_and_sets_fk(db_session):
     await db_session.flush()
 
     cfg, http = _tmdb_on(_PAYLOAD_WITH_COLLECTION)
-    with cfg, http:
+    with cfg, http, patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        AsyncMock(return_value="/posters/coll.jpg"),
+    ):
         collection = await link_movie_collection(db_session, movie)
 
     assert collection is not None
@@ -97,10 +100,26 @@ async def test_link_creates_collection_and_sets_fk(db_session):
     # tmdb:<digits> form (that would collide with the movie id space).
     assert collection.external_source == "tmdb_collection"
     assert collection.external_id == "131295"
-    assert collection.poster_url == "https://image.tmdb.org/t/p/w500/coll.jpg"
+    assert collection.poster_url == "/posters/coll.jpg"
     # TMDB movie details carry no overview/en-title — stay NULL.
     assert collection.title_en is None
     assert collection.description is None
+
+
+async def test_link_keeps_remote_poster_when_cache_fails(db_session):
+    movie = _movie("tmdb:1327")
+    db_session.add(movie)
+    await db_session.flush()
+
+    cfg, http = _tmdb_on(_PAYLOAD_WITH_COLLECTION)
+    with cfg, http, patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        AsyncMock(return_value=None),
+    ):
+        collection = await link_movie_collection(db_session, movie)
+
+    assert collection is not None
+    assert collection.poster_url == "https://image.tmdb.org/t/p/w500/coll.jpg"
 
 
 async def test_link_upsert_is_idempotent(db_session):
@@ -347,13 +366,46 @@ async def test_upsert_updates_existing_name_and_poster(db_session):
     db_session.add(existing)
     await db_session.flush()
 
-    coll = await upsert_collection_from_tmdb(
-        db_session,
-        {"id": 131295, "name": "新名", "poster_path": "/new.jpg"},
-    )
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        AsyncMock(return_value="/posters/new.jpg"),
+    ):
+        coll = await upsert_collection_from_tmdb(
+            db_session,
+            {"id": 131295, "name": "新名", "poster_path": "/new.jpg"},
+        )
     assert coll.id == existing.id
     assert coll.title_cn == "新名"
-    assert coll.poster_url == "https://image.tmdb.org/t/p/w500/new.jpg"
+    assert coll.poster_url == "/posters/new.jpg"
+
+
+async def test_upsert_keeps_manual_or_local_poster(db_session):
+    manual = WorkCollection(
+        id=_uuid(), title_cn="手工", external_source="tmdb_collection",
+        external_id="1", poster_url="https://example.com/manual.jpg",
+        manually_edited_fields=["poster_url"],
+    )
+    local = WorkCollection(
+        id=_uuid(), title_cn="本地", external_source="tmdb_collection",
+        external_id="2", poster_url="/posters/local.jpg",
+    )
+    db_session.add_all([manual, local])
+    await db_session.flush()
+
+    download = AsyncMock(return_value="/posters/should-not-be-used.jpg")
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster", download,
+    ):
+        await upsert_collection_from_tmdb(
+            db_session, {"id": 1, "name": "手工", "poster_path": "/m.jpg"},
+        )
+        await upsert_collection_from_tmdb(
+            db_session, {"id": 2, "name": "本地", "poster_path": "/l.jpg"},
+        )
+
+    assert manual.poster_url == "https://example.com/manual.jpg"
+    assert local.poster_url == "/posters/local.jpg"
+    download.assert_not_awaited()
 
 
 async def test_try_absorb_shell_collection_noop_cases(db_session):

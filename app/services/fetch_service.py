@@ -598,6 +598,18 @@ async def _process_resource_metadata_once(
                     local = await download_and_cache_poster(movie.poster_url)
                     if local:
                         movie.poster_url = local
+            if resource.collection_id:
+                from app.models.work_collection import WorkCollection
+
+                collection = await task_db.get(WorkCollection, resource.collection_id)
+                if (
+                    collection
+                    and collection.poster_url
+                    and collection.poster_url.startswith("http")
+                ):
+                    local = await download_and_cache_poster(collection.poster_url)
+                    if local:
+                        collection.poster_url = local
             await require_execution_ownership()
             await task_db.commit()
         except Exception as e:

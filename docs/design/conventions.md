@@ -2,7 +2,7 @@
 
 - **资源出站 HTTP**：外部资源派生的 torrent/poster 默认仅访问公网 HTTP(S)，实际建连时校验并固定 DNS 地址，重定向每跳重验，不使用环境代理绕过此边界。RSS URL 与磁力缓存镜像是管理员指定的初始 origin，可访问其内网服务；该授权仅覆盖相同 scheme/host/port，不继承给其他私网重定向目标。RSS 不再接受文件路径或 file URI，离线夹具须通过本地 HTTP 服务回放。Basic auth 仅用于管理员初始端点，同源重定向保留、跨源不转发；镜像响应仍必须通过 infohash 校验。
 
-- **出站私网例外**：`OUTBOUND_PRIVATE_ORIGINS` 为 JSON 字符串数组，默认 `[]`；只接受完整 HTTP(S) origin，例如 `["https://assets.internal:8443"]`，禁止通配、用户信息、路径、查询或片段。显式默认端口归一化并去重。例外只匹配 scheme/host/port；不同端口和重定向目标须各自获授权。该部署配置影响受控资源及 LLM 客户端，不能作为不可信请求参数开放。
+- **出站私网例外**：`OUTBOUND_PRIVATE_ORIGINS` 为 JSON 字符串数组，默认 `[]`；只接受完整 HTTP(S) origin，例如 `["https://assets.internal:8443"]`，禁止通配、用户信息、路径、查询或片段。显式默认端口归一化并去重。例外只匹配 scheme/host/port；不同端口和重定向目标须各自获授权。该部署配置影响受控资源及 LLM 客户端，不能作为不可信请求参数开放。使用 Clash/Mihomo fake-IP（`198.18.0.0/15`）等返回非公网地址的 DNS 时，需把实际海报/图片 host（如 `https://image.tmdb.org`、`https://lain.bgm.tv`、`https://upload.wikimedia.org`）加入该例外，否则受控下载会以 “resolves to a non-public address” 拒绝。
 - **受控连接兼容性**：RSS、镜像、torrent/poster、Wiki REST summary 与 OpenAI/OpenRouter/LangChain 客户端禁用环境代理，避免代理侧解析绕过目的地检查；保留系统 CA 及 OpenSSL 的 `SSL_CERT_FILE`/`SSL_CERT_DIR`。同步/异步 DNS 共用最多 4 个解析线程与 8 个未完成查询；超时返回后系统查询仍占槽直至结束，不累积无界线程。HTTPX/httpcore 固定为已验证的 0.28.1/1.0.9，升级需重验 transport 适配、DNS、重定向与 TLS 矩阵。
 - **LLM 与 RPC 端点**：管理员配置的 LLM 初始 origin 允许私网访问，普通和流式 SDK 请求使用相同目的地策略。短生命周期 SDK 使用上下文释放连接；MetadataAgent 模型使用零空闲连接池，允许配置重置前的在途请求结束。Transmission 只允许同源重定向，保留 409 session-id 协商；HTTP 跳 HTTPS 时须直接配置最终 HTTPS 地址。
 
@@ -62,7 +62,7 @@ Turso 文件由单一进程独占：先 `docker compose -f docker-compose.standa
 URI 包含管理员长期密钥，只用于手动导入认证器，不转发到日志系统或共享终端录制。此改动停止今后的自动日志暴露，不自动轮换旧密钥或清除历史日志；已有泄露需由运维另行处理。
   - `DEBUG` / `LOG_LEVEL`（默认 `INFO`）：调试开关与日志级别。
   - Wikipedia Search 通过免费 `wikipedia` Python 库实现，无需额外 API key。
-- **海报服务**：FastAPI 挂载 StaticFiles 到 `/posters`，物理目录为 `POSTER_CACHE_DIR`。缓存文件名 `{sha256(url)[:16]}.{ext}`，扩展名由下载内容的魔数嗅探决定（jpg/png/webp/gif/svg，`download_and_cache_poster` 内 `_sniff_image_ext`），**不取 URL 后缀**——URL 后缀不可靠（如 Wikimedia 在无扩展路径下返回 SVG），内容与扩展名不符会被浏览器按静态 MIME 拒绝渲染；无法识别的内容不缓存、返回 None。
+- **海报服务**：FastAPI 挂载 StaticFiles 到 `/posters`，物理目录为 `POSTER_CACHE_DIR`。缓存文件名 `{sha256(url)[:16]}.{ext}`，扩展名由下载内容的魔数嗅探决定（jpg/png/webp/gif/svg，`download_and_cache_poster` 内 `_sniff_image_ext`），**不取 URL 后缀**——URL 后缀不可靠（如 Wikimedia 在无扩展路径下返回 SVG），内容与扩展名不符会被浏览器按静态 MIME 拒绝渲染；无法识别的内容不缓存、返回 None。作品与合集（`series_group` / `tmdb_collection`）海报在 upsert 时均尝试本地缓存；失败保留远端 URL，由 `scripts/poster_backfill.py`（dry-run 默认，`--apply` 执行）和每日 cleanup 中的有上限 sweep 重试。人工编辑 `poster_url` 的行不被自动覆盖。
 - **日志**：结构化 JSON 日志，含 `request_id`、`channel_id`、`agent_id`、`task_id` 等上下文字段。
 - **幂等性**：Channel 抓取以 guid 去重；手动触发的 run/fetch 以分布式锁保证同一资源不会重复入队；Transmission add_torrent 以 torrent 哈希幂等（RPC 本身支持）。
 

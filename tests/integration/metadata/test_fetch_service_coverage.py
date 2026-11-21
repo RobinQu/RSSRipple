@@ -388,6 +388,38 @@ async def test_process_metadata_caches_movie_poster(
     assert movie.poster_url == "/posters/movie.jpg"
 
 
+async def test_process_metadata_caches_collection_poster(
+    db_session, monkeypatch, _patch_torrent_and_franchise
+):
+
+    from app.models.work_collection import WorkCollection
+
+    channel = await _make_channel(db_session)
+    collection = WorkCollection(
+        id=_uuid(), title_cn="合集", external_source="series_group",
+        poster_url="https://img.example/c.jpg",
+    )
+    db_session.add(collection)
+    res = _make_resource(
+        channel.id, series_id=None, movie_id=None, collection_id=collection.id,
+        is_batch=False, episode=None, season=None,
+    )
+    db_session.add(res)
+    await db_session.flush()
+    from app.services.publication_migration import bootstrap_publications
+
+    await bootstrap_publications(db_session, writers_stopped=True)
+    await db_session.commit()
+    monkeypatch.setattr(fs, "fetch_and_link_metadata", AsyncMock())
+    monkeypatch.setattr(
+        "app.services.metadata_service.download_and_cache_poster",
+        AsyncMock(return_value="/posters/collection.jpg"),
+    )
+    await fs._process_resource_metadata(res.id, channel.id, MetadataConcurrency(1))
+    await db_session.refresh(collection)
+    assert collection.poster_url == "/posters/collection.jpg"
+
+
 async def test_process_metadata_rollback_failure_is_swallowed(
     db_session, monkeypatch, caplog
 ):

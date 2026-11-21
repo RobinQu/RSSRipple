@@ -458,7 +458,7 @@ class WorkCollection(Base):
                                          # 不用 canonicalize_external_id
                                          # （其 TMDB 规则会把 tmdb-collection:131295 改写为
                                          # tmdb:131295，与电影 id 空间冲突）
-    poster_url: str | None               # TMDB 远程图片 URL（phase 1 不做本地缓存）
+    poster_url: str | None               # 海报本地缓存路径 /posters/{hash}.{ext}；远端 URL 由回填/sweep 治愈
     description: str | None              # 简介（TMDB 电影详情不含，保持 NULL，可手动编辑）
     created_at: datetime
     updated_at: datetime

@@ -66,7 +66,9 @@ class WorkCollection(Base):
     manually_edited_fields: Mapped[list | None] = mapped_column(json_column(), nullable=True)
     external_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     external_source: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    # Remote TMDB image URL (no local caching in phase 1).
+    # Poster URL. Remote URLs are downloaded into POSTER_CACHE_DIR at upsert
+    # time; legacy/fallback remote values are healed by the poster backfill
+    # sweep.
     poster_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     # TMDB collection details don't carry an overview on the movie endpoint;
     # stays NULL until a user edits it.

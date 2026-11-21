@@ -753,6 +753,26 @@ async def test_cleanup_expired_reports_and_handles_cleanup_failure(
         await sch._cleanup_expired()  # must not raise
 
 
+@pytest.mark.asyncio
+async def test_cleanup_expired_runs_poster_cache_sweep(
+    db_session, _seed, monkeypatch
+):
+    factory = _ctx_factory(db_session)
+    import app.database as dbmod
+    monkeypatch.setattr(dbmod, "async_session_factory", factory)
+
+    sweep = AsyncMock(return_value={
+        "tv": {"scanned": 1, "eligible": 1, "cached": 1, "failed": 0, "skipped": 0},
+    })
+    with patch("app.services.poster_backfill.cache_remote_posters", sweep):
+        await sch._cleanup_expired()
+    sweep.assert_awaited_once()
+
+    failing = AsyncMock(side_effect=RuntimeError("poster host down"))
+    with patch("app.services.poster_backfill.cache_remote_posters", failing):
+        await sch._cleanup_expired()  # must not raise
+
+
 # ---------------------------------------------------------------------------
 # _dedup_metadata
 # ---------------------------------------------------------------------------

@@ -74,7 +74,7 @@ services:
       - QUEUE_BACKEND=redis
       - REDIS_URL=redis://redis:6379/0
       - LOG_LEVEL=DEBUG
-      - OUTBOUND_PRIVATE_ORIGINS=["http://v2.uploadbt.com","http://www.kisssub.org"]
+      - OUTBOUND_PRIVATE_ORIGINS=${OUTBOUND_PRIVATE_ORIGINS:-["http://v2.uploadbt.com","http://www.kisssub.org"]}
       - POSTER_CACHE_DIR=/app/data/posters
       # Pure web role: HTTP + enqueue only; scheduling/queue consumption
       # runs in the worker service below.
@@ -135,7 +135,7 @@ services:
       - QUEUE_BACKEND=redis
       - REDIS_URL=redis://redis:6379/0
       - LOG_LEVEL=DEBUG
-      - OUTBOUND_PRIVATE_ORIGINS=["http://v2.uploadbt.com","http://www.kisssub.org"]
+      - OUTBOUND_PRIVATE_ORIGINS=${OUTBOUND_PRIVATE_ORIGINS:-["http://v2.uploadbt.com","http://www.kisssub.org"]}
       - POSTER_CACHE_DIR=/app/data/posters
       - APP_ROLE=worker
       # Startup DDL runs once in the `migrate` service above.
