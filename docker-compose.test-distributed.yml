@@ -98,6 +98,17 @@ services:
       # Static bootstrap key for the auth gate (AUTH_ENABLED defaults to
       # true); integration tests send it as X-API-Key.
       - API_KEY=test-integration-key
+      # The local test-server resolves to a container-private address; allow
+      # exactly that origin so torrent/poster fetches exercise the real paths.
+      - OUTBOUND_PRIVATE_ORIGINS=["http://test-server:8080"]
+      - UV_HTTP_TIMEOUT=120
+    volumes:
+      - coverage-data:/app/coverage
+      - ./.coveragerc:/app/.coveragerc:ro
+    command:
+      - "sh"
+      - "-c"
+      - "exec uv run --no-project --with coverage coverage run --rcfile=/app/.coveragerc --data-file=/app/coverage/.coverage.app1 -m uvicorn app.main:app --host 0.0.0.0 --port 9001"
     depends_on:
       postgres:
         condition: service_healthy
@@ -133,7 +144,16 @@ services:
       # Static bootstrap key for the auth gate (AUTH_ENABLED defaults to
       # true); integration tests send it as X-API-Key.
       - API_KEY=test-integration-key
-    command: ["uv", "run", "--no-project", "python", "-m", "app.worker"]
+      # See app-1: allow the container-private test-server origin explicitly.
+      - OUTBOUND_PRIVATE_ORIGINS=["http://test-server:8080"]
+      - UV_HTTP_TIMEOUT=120
+    volumes:
+      - coverage-data:/app/coverage
+      - ./.coveragerc:/app/.coveragerc:ro
+    command:
+      - "sh"
+      - "-c"
+      - "exec uv run --no-project --with coverage coverage run --rcfile=/app/.coveragerc --data-file=/app/coverage/.coverage.app2 -m app.worker"
     depends_on:
       postgres:
         condition: service_healthy
@@ -161,15 +181,19 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://rssripple:rssripple@postgres:5432/rssripple_test
       - TEST_SERVER_URL=http://test-server:8080
+      - OUTBOUND_PRIVATE_ORIGINS=["http://test-server:8080"]
       - RSSRIPPLE_URL=http://app-1:9001
       - CORPUS_TEST_DATABASE_URL=postgresql+asyncpg://corpus:corpus@corpus-postgres:5432/metadata_corpus_test
       - CORPUS_REPORT_DIR=/app/data/metadata-corpus
       # REDIS_APP_URL intentionally unset: app-2 is a worker without HTTP, so
       # test_task_queue.py falls back to the single web URL (see header).
+      - UV_HTTP_TIMEOUT=120
     volumes:
       - ./.env:/app/.env:ro
       - ./tests:/app/tests:ro
       - ./data/metadata-corpus:/app/data/metadata-corpus
+      - coverage-data:/app/coverage
+      - ./.coveragerc:/app/.coveragerc:ro
     depends_on:
       corpus-postgres:
         condition: service_healthy
@@ -182,7 +206,29 @@ services:
     command:
       - "sh"
       - "-c"
-      - "uv sync --frozen && uv run pytest tests/integration/ --ignore=tests/integration/eval --ignore=tests/integration/external --ignore=tests/integration/http/test_fetch_with_real_feed.py --junitxml=/app/data/metadata-corpus/integration.xml -n ${INTEGRATION_TEST_WORKERS:-4} --dist loadgroup -v --tb=short"
+      - "uv sync --frozen && COVERAGE_FILE=/app/coverage/.coverage.test-runner uv run pytest tests/integration/ --ignore=tests/integration/eval --ignore=tests/integration/external --ignore=tests/integration/http/test_fetch_with_real_feed.py --junitxml=/app/data/metadata-corpus/integration.xml --cov=app --cov-config=/app/.coveragerc --cov-report= -n ${INTEGRATION_TEST_WORKERS:-4} --dist loadgroup -v --tb=short"
+
+  # ── Integration coverage report ──────────────────────────────────────────
+  # Combines app-1, app-2, test-runner data, plus the metadata-dedup script.
+  # Usage (after the test-runner service has finished):
+  #   docker compose -p rssripple-itest-dist -f docker-compose.test-distributed.yml kill -s SIGINT app-1 app-2
+  #   docker compose -p rssripple-itest-dist -f docker-compose.test-distributed.yml stop app-1 app-2
+  #   docker compose -p rssripple-itest-dist -f docker-compose.test-distributed.yml run --rm --no-deps coverage-report
+  coverage-report:
+    build: .
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://rssripple:rssripple@postgres:5432/rssripple_test
+      - UV_HTTP_TIMEOUT=120
+    volumes:
+      - coverage-data:/app/coverage
+      - ./.coveragerc:/app/.coveragerc:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      - "sh"
+      - "-c"
+      - "export POSTER_CACHE_DIR=/app/data/posters; uv run --no-project --with coverage coverage run --rcfile=/app/.coveragerc --data-file=/app/coverage/.coverage.scripts -m app.scripts.dedup_metadata || true; FILES=''; for f in /app/coverage/.coverage.app1 /app/coverage/.coverage.app2 /app/coverage/.coverage.test-runner* /app/coverage/.coverage.scripts; do [ -f \"$$f\" ] && FILES=\"$$FILES $$f\"; done; [ -n \"$$FILES\" ] || { echo 'no coverage data files'; exit 1; }; uv run --no-project --with coverage coverage combine --rcfile=/app/.coveragerc $$FILES && uv run --no-project --with coverage coverage report --rcfile=/app/.coveragerc --show-missing --fail-under=85"
 
   # ── Transmission (torrent lifecycle tests only) ────────────────────────────
   transmission:
@@ -209,3 +255,4 @@ volumes:
   transmission-test-config:
   test-downloads:
   test-watch:
+  coverage-data:

@@ -8,7 +8,7 @@ test-runner 使用 pytest-cov 的 xdist 集成收集 worker 覆盖率。测试 a
 
 最终 isolated 全量为 **5585 passed / 38 skipped / 20 failed**，pytest 1201.81 秒、wall 1223.37 秒；较 2026-10-07 的 3998 项 / 2747.4 秒基线，在 5643 项规模下约提速 2.25 倍，覆盖率为 **88%**（≥85%）。本轮 JUnit 中 `http/` 累计 1163.93 秒且单组串行，已成为关键路径；继续大幅提速需要隔离 HTTP 栈后分片，单纯增加 worker 收益有限。失败包括既有 `llm_temperature` fixture 缺字段 12 项、dedup 候选重验证 3 项、时间升级重复频道 URL 3 项，以及两项 HTTP 用例：decisions/batch 在全量运行出现数据库锁 500，干净栈单测复跑通过；associations 全量为 500，干净栈复跑仍因 `series creation prerequisite failed` / 空 `series_id` 失败，后者根因尚未定性。skip 中 2 项 live magnet、2 项无独立 Redis app、31 项重复频道 URL fixture、3 项任务 fixture 不满足前置条件，均不计为通过。
 
-分布式入口同日回归为 **5062 passed / 568 skipped / 13 failed**，pytest 663.53 秒、wall 691.73 秒。13 项失败为同一 `llm_temperature` fixture 问题 12 项及 associations 500 一项，未新增失败类型；decisions/batch 本轮通过。568 项 skip 主要来自分布式入口未配置的独立 PostgreSQL 管理库、queue-recovery 服务与 app-llm，另有 31 项重复频道 URL；这些环境未覆盖的用例不计为通过。该入口不生成四份合并覆盖率，不能用 isolated 的 88% 代替其覆盖证据。
+分布式入口同日回归为 **5062 passed / 568 skipped / 13 failed**，pytest 663.53 秒、wall 691.73 秒。13 项失败为同一 `llm_temperature` fixture 问题 12 项及 associations 500 一项，未新增失败类型；decisions/batch 本轮通过。568 项 skip 主要来自分布式入口未配置的独立 PostgreSQL 管理库、queue-recovery 服务与 app-llm，另有 31 项重复频道 URL；这些环境未覆盖的用例不计为通过。该入口现已由 `coverage-report` 合并 app-1（uvicorn）、app-2（worker）、test-runner 与 dedup 脚本四份数据，并以 `--fail-under=85` 作为门禁；最新执行结果为 **5085 passed / 573 skipped / 0 failed**，覆盖率 **85%**（≥85%）。
 
 ## V34 AgentRun 租约候选
 

@@ -121,6 +121,16 @@ jobs:
       - name: Run distributed integration tests
         run: docker compose -f docker-compose.test-distributed.yml run --rm test-runner
 
+      - name: Distributed coverage (fail under 85%)
+        run: |
+          # coverage.py only flushes on a clean interpreter exit. SIGINT lets
+          # uvicorn (app-1) and the worker (app-2) run graceful shutdown/atexit
+          # before the report combines app-1 + app-2 + test-runner + dedup data.
+          docker compose -f docker-compose.test-distributed.yml kill -s SIGINT app-1 app-2
+          sleep 5
+          docker compose -f docker-compose.test-distributed.yml stop app-1 app-2
+          docker compose -f docker-compose.test-distributed.yml run --rm --no-deps coverage-report
+
       - name: Cleanup
         if: always()
         run: docker compose -f docker-compose.test-distributed.yml down --remove-orphans -v

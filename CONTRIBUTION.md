@@ -154,6 +154,15 @@ docker compose -p rssripple-itest -f docker-compose.test.yml run --rm test-runne
 docker compose -p rssripple-itest-dist -f docker-compose.test-distributed.yml run --build --rm test-runner
 ```
 
+分布式套件同样采集覆盖率（app-1/app-2 在 coverage 下运行）。测试结束后先 SIGINT 让两个进程落盘，再合并 app-1 + app-2 + test-runner + dedup 脚本四份数据并校验 `app/` ≥ 85%：
+
+```bash
+docker compose -p rssripple-itest-dist -f docker-compose.test-distributed.yml kill -s SIGINT app-1 app-2
+sleep 5
+docker compose -p rssripple-itest-dist -f docker-compose.test-distributed.yml stop app-1 app-2
+docker compose -p rssripple-itest-dist -f docker-compose.test-distributed.yml run --rm --no-deps coverage-report
+```
+
 需要持久网络客户端的测试（E2E、种子生命周期）在两个 profile 中都被排除；Redis 专用的队列测试在单节点模式下自动跳过。浏览器端 E2E（Midscene.js）的运行方式见 [docs/testing/midscene-e2e.md](docs/testing/midscene-e2e.md)。
 
 **变异测试**（mutmut，Phase 1 试点）— 只变异确定性叶子模块（`pyproject.toml` 的 `[tool.mutmut] only_mutate`），用它们的快速单测建立基线：

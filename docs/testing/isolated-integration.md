@@ -46,7 +46,7 @@ docker compose -p "$gate_project" -f docker-compose.integration-isolated.yml dow
 
 2026-10-25 最终执行：5585 passed / 38 skipped / 20 failed，pytest 1201.81 秒、wall 1223.37 秒，覆盖率 88%。相较 2026-10-07 的 2747.4 秒完整基线约提速 2.25 倍。20 项失败和 31 项重复 URL skip 的具体归因见 integration-inventory.md；失败与 skip 均不计为通过，不能将本轮记为全绿门禁。
 
-分布式入口同日回归为 5062 passed / 568 skipped / 13 failed，pytest 663.53 秒、wall 691.73 秒；失败类型未新增，但独立 PostgreSQL 管理库、queue-recovery 和 app-llm 相关用例大量跳过，且该入口不生成四份合并覆盖率，不能视为与 isolated 等价的完整验收。
+分布式入口同日回归为 5062 passed / 568 skipped / 13 failed，pytest 663.53 秒、wall 691.73 秒；失败类型未新增，但独立 PostgreSQL 管理库、queue-recovery 和 app-llm 相关用例大量跳过，且该入口不生成四份合并覆盖率，不能视为与 isolated 等价的完整验收。（2026-11-21 起分布式入口已追加 `coverage-report`，合并 app-1/app-2/test-runner/dedup 四份数据并校验 ≥85%，见 [branching.md](../design/branching.md)。）
 
 分布式 Redis 和多 worker 故障恢复需另跑 [频道调度专项](scheduler-integration.md)，本套件使用 memory 队列不能替代该证据。P0 与后续批次的必要性、来源和验收记录见 [VALIDATION.md](../plans/p0-and-backlog/VALIDATION.md)。
 
