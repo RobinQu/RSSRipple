@@ -432,11 +432,18 @@ def run_execution(
     本就不会空）。
     """
     outcome = ExecutionOutcome()
-    file_ops = [op for op in ops if op.op_type in ("move", "keep")]
-    dir_ops = [op for op in ops if op.op_type == "movedir"]
+    # A legacy move plan replayed as hardlink/copy (keep-seeding clamp) must
+    # not execute its movedir ops: preserving the source directory is the
+    # whole point of the downgrade. Drop them before every validation stage so
+    # conflict checks cannot reject a directory we will not touch.
+    effective_ops = (
+        ops if file_op == "move" else [op for op in ops if op.op_type != "movedir"]
+    )
+    file_ops = [op for op in effective_ops if op.op_type in ("move", "keep")]
+    dir_ops = [op for op in effective_ops if op.op_type == "movedir"]
 
     # 前置门禁：任一违例整体放弃，不触碰任何文件
-    violations = precheck(ops, file_op=file_op)
+    violations = precheck(effective_ops, file_op=file_op)
     if violations:
         outcome.error = f"前置门禁未通过（文件系统与计划快照不一致）：{'；'.join(violations[:3])}"
         outcome.audits.append(

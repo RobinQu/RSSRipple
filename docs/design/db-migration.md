@@ -50,9 +50,9 @@ SELECT name, applied_at FROM schema_migrations ORDER BY applied_at, name;
 
 旧 Turso 库为硬化 `required_metadata_fields NOT NULL` 而重建 `channels` 父表时，若 `required_metadata_defaults` 尚未由前置加列步骤写入，重建必须显式补入该 nullable 列，不能因复制旧表列集而丢失；既有必填字段回填、外键执法挂起及失败回滚语义不变。本变更无 down path，回退依靠备份。
 
-### 下载完成自动删除列
+### 长期做种列（替代下载完成自动删除）
 
-轻迁移为 `downloader_instances` 与 `download_tasks` 增加非空布尔 `auto_delete_on_completion`，Turso 默认 `1`、PostgreSQL 默认 `TRUE`。历史行保持既有自动清理行为；新任务在创建时冻结有效值，之后修改下载器默认不回写在途任务。
+轻迁移为 `downloader_instances` 与 `download_tasks` 增加非空布尔 `keep_seeding`，Turso 默认 `0`、PostgreSQL 默认 `FALSE`。升级库若仍存在旧列 `auto_delete_on_completion`，由一次性哨兵迁移执行反向回填：`keep_seeding = NOT auto_delete_on_completion`（旧 `auto_delete=false` 即 PT 保种 → `keep_seeding=true`）；哨兵（`app_settings.keep_seeding_backfill_v1`）防止之后用户修改被旧列覆盖。旧两列保留为惰性孤儿，不再读写。新任务在创建时冻结有效值，之后修改下载器默认不回写在途任务；队列 `download_dispatches.parameters` 的历史旧键在读取时按反向语义归一化，保证升级前在途派发可恢复。
 
 ## 1. SQLite → Turso（`scripts/migrate_to_turso.py`）
 

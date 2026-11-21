@@ -623,6 +623,34 @@ async def test_classify_uncategorized_then_execute(db_session, tmp_path):
     assert "classify" in actions
 
 
+async def test_classify_keep_seeding_defaults_to_hardlink_and_rejects_move(
+    db_session, tmp_path
+):
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "ep04.mkv", 300)
+    lib = await _make_library(db_session, tmp_path / "lib")
+    await _make_rule(
+        db_session, lib.id, TV_TEMPLATE,
+        filter={"field": "series.is_anime", "operator": "eq", "value": False},
+    )
+    notification = await _seed(
+        db_session, _series_payload(str(dl_dir), files=[{"name": "ep04.mkv"}])
+    )
+    task = await db_session.get(
+        DownloadTask, notification.payload["task"]["download_task_id"]
+    )
+    task.keep_seeding = True
+    await db_session.commit()
+    await plan_for_notifications(db_session, [notification])
+    [plan] = await _plans(db_session)
+
+    with pytest.raises(OrganizeError, match="只允许 hardlink 或 copy"):
+        await classify_plan(db_session, plan.id, lib.id, file_op="move")
+
+    plan = await classify_plan(db_session, plan.id, lib.id)
+    assert plan.file_op == "hardlink"
+
+
 async def test_classify_loads_volume_when_library_is_already_in_identity_map(
     db_session, tmp_path,
 ):
@@ -683,6 +711,36 @@ async def _planned_series_plan(db_session, tmp_path, **rule_kw):
     await plan_for_notifications(db_session, [notification])
     [plan] = await _plans(db_session)
     return plan, dl_dir
+
+
+async def test_planning_keep_seeding_clamps_move_rule_to_hardlink(
+    db_session, tmp_path
+):
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "Show.S01" / "ep04.mkv", 300)
+    lib = await _make_library(db_session, tmp_path / "lib")
+    await _make_rule(db_session, lib.id, TV_TEMPLATE, file_op="move")
+    notification = await _seed(
+        db_session,
+        _series_payload(str(dl_dir), torrent_name="Show.S01",
+                        files=[{"name": "ep04.mkv"}]),
+    )
+    task = await db_session.get(
+        DownloadTask, notification.payload["task"]["download_task_id"]
+    )
+    task.keep_seeding = True
+    await db_session.commit()
+
+    await plan_for_notifications(db_session, [notification])
+
+    [plan] = await _plans(db_session)
+    assert plan.file_op == "hardlink"
+    ops = (
+        await db_session.execute(
+            select(OrganizePlanOp).where(OrganizePlanOp.plan_id == plan.id)
+        )
+    ).scalars().all()
+    assert all(op.op_type in ("move", "keep") for op in ops)
 
 
 @pytest.mark.parametrize("cancel_inner_owner", [False, True])
@@ -758,7 +816,7 @@ async def test_execute_plan_full_flow(db_session, tmp_path):
     assert task.status == "cancelled"
 
 
-async def test_execute_plan_move_preserves_task_when_auto_delete_disabled(
+async def test_execute_plan_keep_seeding_clamps_legacy_move_to_hardlink(
     db_session, tmp_path, monkeypatch
 ):
     plan, _ = await _planned_series_plan(db_session, tmp_path, file_op="move")
@@ -766,13 +824,22 @@ async def test_execute_plan_move_preserves_task_when_auto_delete_disabled(
         DownloadTask, plan.payload["task"]["download_task_id"]
     )
     task.transmission_torrent_id = 42
-    task.auto_delete_on_completion = False
+    task.keep_seeding = True
     await db_session.commit()
     wrapper = _mock_downloader_client(monkeypatch)
 
     plan = await execute_plan(db_session, plan.id)
 
     assert plan.status == "done"
+    assert plan.file_op == "hardlink"
+    [op] = (
+        await db_session.execute(
+            select(OrganizePlanOp).where(OrganizePlanOp.plan_id == plan.id)
+        )
+    ).scalars().all()
+    assert Path(op.src).exists()  # preserved for seeding
+    assert Path(op.dst).exists()
+    assert os.path.samefile(op.src, op.dst)
     await db_session.refresh(task)
     assert task.status == "completed"
     wrapper.remove_torrent.assert_not_awaited()

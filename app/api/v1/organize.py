@@ -366,6 +366,7 @@ async def preview_organize_rule(
     payload = await _load_preview_payload(db, body)
     if isinstance(payload, JSONResponse):
         return payload
+    keep_seeding = await organize_service._resolve_keep_seeding(db, payload)
 
     category = body.category
     if body.rule is not None:
@@ -391,6 +392,9 @@ async def preview_organize_rule(
                 auto_execute=False,
             )
         ]
+        rules = organize_service._restrict_rules_for_keep_seeding(
+            rules, keep_seeding=keep_seeding
+        )
         libraries = {library.id: organize_service._library_ns(library)}
     else:
         rows = (
@@ -400,7 +404,10 @@ async def preview_organize_rule(
                 )
             )
         ).scalars().all()
-        rules = [organize_service._rule_ns(r) for r in rows]
+        rules = organize_service._restrict_rules_for_keep_seeding(
+            [organize_service._rule_ns(r) for r in rows],
+            keep_seeding=keep_seeding,
+        )
         libs = (
             await db.execute(
                 select(Library).options(selectinload(Library.volume))
@@ -432,6 +439,8 @@ async def preview_organize_rule(
             category=result.category,
             needs_category=result.needs_category,
             uncategorized=result.uncategorized,
+            file_op=result.rule.file_op if result.rule else None,
+            keep_seeding=keep_seeding,
             ops=[
                 OrganizePreviewOp(
                     op_type=op.op_type, src=op.src, dst=op.dst,
@@ -617,6 +626,7 @@ def _plan_list_item(plan: OrganizePlan) -> dict:
         updated_at=plan.updated_at,
         ops_summary=summary,
         ops_preview=[OrganizePlanOpOut.model_validate(o) for o in ops[:3]],
+        keep_seeding=bool((plan.payload or {}).get("task", {}).get("keep_seeding", False)),
         pending_reason=_pending_reason(plan),
     )
     return item.model_dump()
@@ -763,7 +773,7 @@ async def classify_plan_endpoint(
         return _error(404, "NOT_FOUND", "Library not found")
     try:
         plan = await organize_service.classify_plan(
-            db, plan.id, body.library_id, body.category
+            db, plan.id, body.library_id, body.category, body.file_op
         )
     except organize_service.OrganizeError as e:
         return _error(422, "VALIDATION_ERROR", str(e))

@@ -67,7 +67,7 @@ export default function DownloaderForm() {
           name: res.data.name,
           url: res.data.url,
           download_dir: res.data.download_dir || DEFAULT_DOWNLOAD_DIR,
-          auto_delete_on_completion: res.data.auto_delete_on_completion,
+          keep_seeding: res.data.keep_seeding,
           username: res.data.username ?? '',
           password: '',
           volume_id: res.data.volume_id ?? undefined,
@@ -126,7 +126,7 @@ export default function DownloaderForm() {
     username?: string;
     password?: string;
     download_dir?: string;
-    auto_delete_on_completion?: boolean;
+    keep_seeding?: boolean;
     volume_id?: string;
     volume_subpath?: string;
   }) => {
@@ -137,7 +137,7 @@ export default function DownloaderForm() {
       type: activeType,
       url: values.url || (activeType === 'mock' ? 'mock://local' : ''),
       download_dir: values.download_dir || (activeType === 'mock' ? '/tmp/mock-downloads' : ''),
-      auto_delete_on_completion: values.auto_delete_on_completion ?? true,
+      keep_seeding: values.keep_seeding ?? false,
       username: values.username || undefined,
       password: values.password || undefined,
       // Volume binding: both null = daemon and process see identical paths.
@@ -179,7 +179,7 @@ export default function DownloaderForm() {
           initialValues={{
             type: 'transmission',
             download_dir: DEFAULT_DOWNLOAD_DIR,
-            auto_delete_on_completion: true,
+            keep_seeding: false,
           }}
         >
           <Form.Item name="type" label={t('downloaders.type')}>
@@ -232,9 +232,9 @@ export default function DownloaderForm() {
           </Form.Item>
 
           <Form.Item
-            name="auto_delete_on_completion"
-            label={t('downloaders.autoDeleteOnCompletion')}
-            extra={t('downloaders.autoDeleteExtra')}
+            name="keep_seeding"
+            label={t('downloaders.keepSeedingOnCompletion')}
+            extra={t('downloaders.keepSeedingExtra')}
             valuePropName="checked"
           >
             <Switch />

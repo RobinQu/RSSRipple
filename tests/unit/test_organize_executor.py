@@ -349,6 +349,29 @@ def test_run_execution_hardlink_skips_cleanup_and_src_check(tmp_path):
     assert "cleanup" not in actions
 
 
+def test_run_execution_hardlink_ignores_legacy_movedir_ops(tmp_path):
+    """A move plan replayed as hardlink must not move/recycle its source dir."""
+    torrent_dir = tmp_path / "dl" / "Show"
+    src = _mkfile(torrent_dir / "ep01.mkv", 100)
+    keep = _mkfile(torrent_dir / "note.txt", 10)
+    dst = tmp_path / "lib" / "Show" / "ep01.mkv"
+    recycle = tmp_path / "recycle" / "Show"
+    outcome = run_execution(
+        [
+            _move(src, dst, 100),
+            ExecOp(op_type="keep", src=str(keep), dst=None, size=10),
+            ExecOp(op_type="movedir", src=str(torrent_dir), dst=str(recycle), size=0),
+        ],
+        file_op="hardlink",
+        cleanup_root=str(torrent_dir),
+        preserve=str(tmp_path / "dl"),
+    )
+    assert outcome.ok
+    assert src.exists() and os.path.samefile(src, dst)
+    assert torrent_dir.exists() and not recycle.exists()
+    assert "movedir" not in [a["action"] for a in outcome.audits]
+
+
 # ---------------------------------------------------------------- copy
 
 

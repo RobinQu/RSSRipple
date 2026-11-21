@@ -8,7 +8,7 @@ export interface DownloaderCreate {
   username?: string;
   password?: string;
   download_dir: string;
-  auto_delete_on_completion: boolean;
+  keep_seeding: boolean;
   volume_id?: string | null;
   volume_subpath?: string | null;
 }
@@ -20,7 +20,7 @@ export interface DownloaderUpdate {
   username?: string;
   password?: string;
   download_dir?: string;
-  auto_delete_on_completion?: boolean;
+  keep_seeding?: boolean;
   volume_id?: string | null;
   volume_subpath?: string | null;
 }

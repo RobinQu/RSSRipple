@@ -83,6 +83,7 @@ export default function OrganizePlanDrawer({
   const [acting, setActing] = useState(false);
   const [classifyLibraryId, setClassifyLibraryId] = useState<string | undefined>();
   const [classifyCategory, setClassifyCategory] = useState('');
+  const [classifyFileOp, setClassifyFileOp] = useState<'hardlink' | 'copy'>('hardlink');
   const [associationEditorOpen, setAssociationEditorOpen] = useState(false);
 
   const fetchDetail = useCallback(async () => {
@@ -97,6 +98,7 @@ export default function OrganizePlanDrawer({
     setDetail(null);
     setClassifyLibraryId(undefined);
     setClassifyCategory('');
+    setClassifyFileOp('hardlink');
     fetchDetail();
   }, [fetchDetail]);
 
@@ -105,6 +107,7 @@ export default function OrganizePlanDrawer({
     setClassifyLibraryId(detail.library_id ?? undefined);
     const work = detail.payload.work as { genre?: string[] | null } | undefined;
     setClassifyCategory(detail.category ?? work?.genre?.[0] ?? '');
+    setClassifyFileOp(detail.file_op === 'copy' ? 'copy' : 'hardlink');
   }, [detail]);
 
   // Execution runs in the background (202): re-poll shortly after triggering
@@ -164,6 +167,7 @@ export default function OrganizePlanDrawer({
     const r = await organizeApi.classifyPlan(detail.id, {
       library_id: classifyLibraryId,
       category: classifyCategory.trim() || null,
+      ...(detail.keep_seeding ? { file_op: classifyFileOp } : {}),
     });
     setActing(false);
     if (r.success) {
@@ -219,6 +223,9 @@ export default function OrganizePlanDrawer({
                 )}
                 {detail.pending_reason === 'unbound' && (
                   <Tag color="volcano">{t('organize.unboundTag')}</Tag>
+                )}
+                {detail.keep_seeding && (
+                  <Tag color="green">{t('organize.keepSeedingTag')}</Tag>
                 )}
               </Space>
             </Descriptions.Item>
@@ -292,6 +299,17 @@ export default function OrganizePlanDrawer({
                   value={classifyCategory}
                   onChange={(e) => setClassifyCategory(e.target.value)}
                 />
+                {detail.keep_seeding && (
+                  <Select
+                    style={{ minWidth: 150 }}
+                    value={classifyFileOp}
+                    onChange={setClassifyFileOp}
+                    options={[
+                      { value: 'hardlink', label: t('libraries.fileOp_hardlink') },
+                      { value: 'copy', label: t('libraries.fileOp_copy') },
+                    ]}
+                  />
+                )}
                 <Button onClick={handleClassify} loading={acting} disabled={!classifyLibraryId}>
                   {t('organize.classifySubmit')}
                 </Button>

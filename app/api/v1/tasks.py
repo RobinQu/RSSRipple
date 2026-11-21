@@ -208,7 +208,7 @@ async def create_task(body: ManualTaskCreate, db: AsyncSession = Depends(get_db)
         db,
         agent_id=None,
         download_dir=downloader.download_dir,
-        auto_delete_on_completion=body.auto_delete_on_completion,
+        keep_seeding=body.keep_seeding,
     )
     await db.commit()
     return success_response(DownloadTaskResponse.model_validate(task).model_dump())

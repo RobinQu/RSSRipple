@@ -279,7 +279,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
   "username": "user",
   "password": "pass",
   "download_dir": "/volume1/downloads/rssripple",
-  "auto_delete_on_completion": true,
+  "keep_seeding": false,
   "volume_id": "b7f1…",
   "volume_subpath": "downloads/rssripple"
 }
@@ -292,7 +292,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 - 创建/编辑时做路径格式校验；`POST /downloaders/{id}/test` 必须调用 Transmission `free_space(download_dir)`，返回目录可识别性与剩余空间。
 - 真实写入能力、子目录存在性、磁盘不足等仍以 `torrent_add(download_dir=...)` 的结果为最终准据。
 - 若多个 Agent 共用一个 Downloader，建议通过 Agent 的 `download_subdir` 分流目录。
-- `auto_delete_on_completion`（Create/Update/Response，默认 true）：新任务默认在 move 整理成功后移除下载器种子记录但不删除数据；false 用于保种。只影响之后创建的任务，不回写既有任务。
+- `keep_seeding`（Create/Update/Response，默认 false）：新任务默认长期做种模式。true = PT 保种：完成后不停种、不自动删种，整理仅允许 hardlink/copy（命中 move 规则自动按 hardlink 执行），任务行不参与日常过期清理；只影响之后创建的任务，不回写既有任务。旧字段 `auto_delete_on_completion` 仍作为 deprecated 反向别名接受（`keep_seeding = not auto_delete`），两者同时出现且矛盾 → 422；Response 同时保留旧别名字段供平滑迁移。
 
 ### Storage Volumes
 
@@ -337,8 +337,8 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 
 `POST /tasks` 手动创建下载任务：
 
-- 请求体：`{ "resource_id": "uuid", "downloader_id": "uuid", "auto_delete_on_completion": false }`；最后字段可省略或为 null（继承下载器默认），显式布尔值仅覆盖本次任务。
-- 成功返回 **201**，`data` 为 `DownloadTaskResponse`（含任务冻结的 `auto_delete_on_completion`）；提交下载器成功时 `status="downloading"` 且带 `transmission_torrent_id`/`confirmed_at`，失败时任务仍创建但 `status="error"` 并带 `error_message`。
+- 请求体：`{ "resource_id": "uuid", "downloader_id": "uuid", "keep_seeding": true }`；最后字段可省略或为 null（继承下载器默认），显式布尔值仅覆盖本次任务。旧字段 `auto_delete_on_completion` 作为 deprecated 反向别名接受。
+- 成功返回 **201**，`data` 为 `DownloadTaskResponse`（含任务冻结的 `keep_seeding`，并保留 deprecated 反向别名 `auto_delete_on_completion`）；提交下载器成功时 `status="downloading"` 且带 `transmission_torrent_id`/`confirmed_at`，失败时任务仍创建但 `status="error"` 并带 `error_message`。
 - 错误码：`NOT_FOUND`（404，resource 或 downloader 不存在）、`VALIDATION_ERROR`（422，请求体缺字段）。
 - 手动任务的 `agent_id` 固定为 `null`；`download_dir` 直接使用 Downloader 根目录（不加子目录）；不做去重检查（手动创建是显式用户意图，允许重复）。
 
@@ -414,7 +414,7 @@ Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更
 | GET | `/organize-rules/{id}` | 详情 |
 | PUT | `/organize-rules/{id}` | 部分更新（含 priority 调整；filter/模板/library 同上校验） |
 | DELETE | `/organize-rules/{id}` | 删除；已有计划的 `rule_id` SET NULL 保留历史 |
-| POST | `/organize-rules/preview` | dry-run 预览：body `{notification_id 或 resource_id（二选一，422/404）, rule?: <规则草稿>, category?}`；按草稿（缺省=当前规则列表 first-match）渲染，返回 `{matched_rule, library, category, needs_category, uncategorized, ops:[{op_type, src, dst, size, reason}]}`；resource_id 形态 best-effort 经下载器 RPC 取文件清单（只读不停种）；规划失败（PlanError）→ 422 带原因；**不落库不动磁盘** |
+| POST | `/organize-rules/preview` | dry-run 预览：body `{notification_id 或 resource_id（二选一，422/404）, rule?: <规则草稿>, category?}`；按草稿（缺省=当前规则列表 first-match）渲染，返回 `{matched_rule, library, category, needs_category, uncategorized, file_op, keep_seeding, ops:[{op_type, src, dst, size, reason}]}`（`file_op` 为实际生效值；保种任务的 move 草稿/规则预览为 hardlink）；resource_id 形态 best-effort 经下载器 RPC 取文件清单（只读不停种）；规划失败（PlanError）→ 422 带原因；**不落库不动磁盘** |
 
 ##### Plans / Audit
 
@@ -424,7 +424,7 @@ Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更
 | GET | `/organize/plans/{id}` | 详情：完整 payload 快照 + ops 数组 + audit_entries 时间线（同带 `pending_reason`） |
 | POST | `/organize/plans/{id}/execute` | 后台执行（**202** + 当前状态）；pending/failed 及崩溃遗留 running 可执行，共享锁域内任一进程正在执行的计划 → **409 `ALREADY_RUNNING`**，done/cancelled / 待分类 / 缺 category / 待绑定 → **409 `INVALID_STATE`** |
 | POST | `/organize/plans/execute-batch` | 批量执行 `{plan_ids: [...]}` → `{results: [{plan_id, status}]}`；锁内逐个，单个失败不影响其余 |
-| POST | `/organize/plans/{id}/classify` | 待分类计划人工指定 `{library_id, category?}`：重渲染全部 op 的 dst 并复位 pending；非 pending/failed → 409；library 不存在 → 404；重渲染失败（如模板含 `{category}` 但未指定）→ 422 |
+| POST | `/organize/plans/{id}/classify` | 待分类计划人工指定 `{library_id, category?, file_op?}`：重渲染全部 op 的 dst 并复位 pending；保种计划只接受 `hardlink`/`copy`（缺省 hardlink），传入 move → 422；普通计划缺省沿用命中规则/`move`。非 pending/failed → 409；library 不存在 → 404；重渲染失败（如模板含 `{category}` 但未指定）→ 422 |
 | POST | `/organize/plans/{id}/cancel` | 取消 pending/failed 及崩溃遗留 running 计划 → cancelled（记 audit）；共享锁域内任一进程正在执行的计划 → **409 `ALREADY_RUNNING`**；done/cancelled → **409 `INVALID_STATE`**。可选 body `{delete_task, delete_data}`：`delete_task=true` 同时删除关联下载任务（移除下载器 torrent、任务行置 cancelled，保留磁盘数据，与 `DELETE /tasks/{id}?delete_data=false` 共用 `task_cleanup` 实现）；`delete_data=true` 蕴含删除任务并连同磁盘数据一起删除；清理失败不阻断取消，结果随响应 `task_cleaned` 返回（未请求删除时为 null） |
 | GET | `/organize/audit` | 审计条目分页（`plan_id` 过滤；最新在前） |
 

@@ -20,17 +20,44 @@ class TestDownloadersCRUD:
         assert res.status_code == 201
         assert res.json()["data"]["name"] == "DL"
         assert res.json()["data"]["download_dir"] == "/downloads/rssripple"
+        assert res.json()["data"]["keep_seeding"] is False
         assert res.json()["data"]["auto_delete_on_completion"] is True
 
-    async def test_auto_delete_on_completion_create_and_update(self, client):
+    async def test_keep_seeding_create_and_update(self, client):
         res = await client.post("/api/v1/downloaders", json={
             "name": "PT", "type": "transmission",
             "url": "http://127.0.0.1:9092/transmission/rpc",
             "download_dir": "/downloads/pt",
+            "keep_seeding": True,
+        })
+        assert res.status_code == 201
+        assert res.json()["data"]["keep_seeding"] is True
+        assert res.json()["data"]["auto_delete_on_completion"] is False
+        downloader_id = res.json()["data"]["id"]
+
+        res = await client.put(
+            f"/api/v1/downloaders/{downloader_id}",
+            json={"keep_seeding": False},
+        )
+        assert res.status_code == 200
+        assert res.json()["data"]["keep_seeding"] is False
+        res = await client.get(f"/api/v1/downloaders/{downloader_id}")
+        assert res.json()["data"]["keep_seeding"] is False
+        res = await client.put(
+            f"/api/v1/downloaders/{downloader_id}",
+            json={"keep_seeding": None},
+        )
+        assert res.status_code == 422
+
+    async def test_retired_auto_delete_field_maps_inversely(self, client):
+        res = await client.post("/api/v1/downloaders", json={
+            "name": "PT-legacy", "type": "transmission",
+            "url": "http://127.0.0.1:9093/transmission/rpc",
+            "download_dir": "/downloads/pt-legacy",
             "auto_delete_on_completion": False,
         })
         assert res.status_code == 201
-        assert res.json()["data"]["auto_delete_on_completion"] is False
+        assert res.json()["data"]["keep_seeding"] is True
         downloader_id = res.json()["data"]["id"]
 
         res = await client.put(
@@ -38,9 +65,13 @@ class TestDownloadersCRUD:
             json={"auto_delete_on_completion": True},
         )
         assert res.status_code == 200
-        assert res.json()["data"]["auto_delete_on_completion"] is True
-        res = await client.get(f"/api/v1/downloaders/{downloader_id}")
-        assert res.json()["data"]["auto_delete_on_completion"] is True
+        assert res.json()["data"]["keep_seeding"] is False
+
+        res = await client.put(
+            f"/api/v1/downloaders/{downloader_id}",
+            json={"keep_seeding": True, "auto_delete_on_completion": True},
+        )
+        assert res.status_code == 422
         res = await client.put(
             f"/api/v1/downloaders/{downloader_id}",
             json={"auto_delete_on_completion": None},

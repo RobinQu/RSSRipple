@@ -68,7 +68,7 @@
 - 频道源为三数据源架构 `wikipedia | tmdb | bangumi`（默认 `wikipedia`）；三主源未命中走有序网络搜索回退（仅补身份/链接，内容以主源为准）。
 - 冲突解决优选链：`Agent.pick_preferences`（只排序不过滤）→ `_generate_llm_pick` → 启发式评分。
 - 调度涵盖频道抓取、频道作品刷新、下载进度同步、每日清理与元数据去重、metadata 回填、通知 tick、magnet 解析；内置 organize 是通知流水线的消费者。
-- 下载完成通知：payload 为创建时冻结的完整快照（`version: 2`）；多 webhook fan-out；纯出站无回调，消费者清理走任务 API。
+- 下载完成通知：payload 为创建时冻结的完整快照（`version: 2`，含 `task.keep_seeding`）；多 webhook fan-out；纯出站无回调，消费者清理走任务 API。`keep_seeding=true` 的 PT 任务完成时不停种、不自动删种，整理仅允许 hardlink/copy（move 自动按 hardlink），任务不参与日常过期清理。
 
 ### 前端（详见 frontend.md / sitemap.md）
 

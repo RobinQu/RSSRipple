@@ -15,7 +15,7 @@ export const tasksApi = {
   create: (body: {
     resource_id: string;
     downloader_id: string;
-    auto_delete_on_completion?: boolean;
+    keep_seeding?: boolean;
   }) => api.post<DownloadTask>('/tasks', body),
   pause: (id: string) =>
     api.post<{ id: string; status: string }>(`/tasks/${id}/pause`),

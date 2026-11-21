@@ -556,6 +556,7 @@ async def _cleanup_expired() -> None:
                 DownloadTask.status == "completed",
                 DownloadTask.completed_at.isnot(None),
                 DownloadTask.completed_at < cutoff,
+                DownloadTask.keep_seeding.is_(False),
                 DownloadTask.id.notin_(open_notifications),
             ))
             expired_tasks = (await db.execute(tasks_stmt)).scalars().all()

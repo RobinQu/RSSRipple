@@ -665,8 +665,8 @@
     "volumeSubpathInvalid": "Must be a relative path without empty, '.' or '..' segments",
     "volumeSection": "Storage Volume Binding",
     "authSection": "Authentication",
-    "autoDeleteOnCompletion": "Auto-delete after completion",
-    "autoDeleteExtra": "Remove the torrent from the downloader after organizing, without deleting downloaded data. For PT seeding, turn this off and use hardlink or copy organizing."
+    "keepSeedingOnCompletion": "Keep seeding",
+    "keepSeedingExtra": "Keep the torrent and continue seeding after completion. Organize allows hardlink or copy only; move rules are automatically applied as hardlink."
   },
   "volumes": {
     "title": "Storage Volumes",
@@ -709,8 +709,8 @@
     "noDownloaders": "No downloaders available",
     "createSuccess": "Download task created",
     "createFailed": "Failed to create download task",
-    "autoDeleteOnCompletion": "Auto-delete after completion",
-    "autoDeleteExtra": "Override the downloader default for this task. This removes only the torrent record, not its data. For PT seeding, turn this off and use hardlink or copy organizing."
+    "keepSeedingOnCompletion": "Keep seeding",
+    "keepSeedingExtra": "Override the downloader default for this task. Enabled tasks keep seeding after completion; organize allows hardlink or copy only."
   },
   "series": {
     "title": "Series",
@@ -1633,6 +1633,7 @@
     "libraryFilter": "Filter by library",
     "uncategorizedTag": "Uncategorized",
     "unboundTag": "Unbound",
+    "keepSeedingTag": "Keep seeding",
     "needsCategory": "Category required",
     "rule": "Rule",
     "library": "Library",

@@ -47,7 +47,11 @@ export const organizeApi = {
       '/organize/plans/execute-batch',
       { plan_ids: planIds },
     ),
-  classifyPlan: (id: string, body: { library_id: string; category?: string | null }) =>
+  classifyPlan: (id: string, body: {
+    library_id: string;
+    category?: string | null;
+    file_op?: 'hardlink' | 'copy';
+  }) =>
     api.post<OrganizePlanListItem>(`/organize/plans/${id}/classify`, body),
   cancelPlan: (id: string, opts?: { delete_task?: boolean; delete_data?: boolean }) =>
     api.post<{ id: string; status: string; task_cleaned: boolean | null }>(

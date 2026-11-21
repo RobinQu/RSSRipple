@@ -535,6 +535,7 @@ async def test_create_notification_snapshots_and_pauses(db_session, seed):
     assert n.payload["files"] == [
         {"name": "Test.Series.S01", "size": 1_000_000_000}
     ]
+    assert n.payload["task"]["keep_seeding"] is False
     # Torrent was stopped (mock state reflects the pause).
     from app.clients.mock_downloader import _store
 
@@ -544,10 +545,36 @@ async def test_create_notification_snapshots_and_pauses(db_session, seed):
     assert seed.resource.listing_reconcile_status == "pending"
 
 
-async def test_create_notification_without_organize_keeps_preserved_torrent_running(
+async def test_create_notification_keep_seeding_never_pauses(
     db_session, seed
 ):
-    seed.task.auto_delete_on_completion = False
+    seed.task.keep_seeding = True
+    await db_session.commit()
+
+    n, created = await create_notification_for_task(db_session, seed.task)
+
+    assert created is True
+    assert n.payload["task"]["keep_seeding"] is True
+    from app.clients.mock_downloader import _store
+
+    state = _store(seed.downloader.id).torrents[seed.task.transmission_torrent_id]
+    assert state.paused is False
+
+
+async def test_keep_seeding_is_not_paused_by_enabled_move_rule(db_session, seed):
+    from app.models.library import Library
+    from app.models.organize_rule import OrganizeRule
+
+    seed.task.keep_seeding = True
+    library = Library(id=_uuid(), name="TV", kind="tv")
+    db_session.add_all([
+        library,
+        OrganizeRule(
+            id=_uuid(), name="tv-move", priority=100, enabled=True, filter=None,
+            library_id=library.id, path_template="{title}/S{season:02d}",
+            file_op="move", auto_execute=False,
+        ),
+    ])
     await db_session.commit()
 
     _, created = await create_notification_for_task(db_session, seed.task)
@@ -1247,6 +1274,24 @@ async def test_cleanup_expired_protects_tasks_with_open_deliveries(
         )
     ).scalar_one_or_none()
     assert remaining is None
+
+
+async def test_cleanup_expired_keeps_keep_seeding_tasks(db_session, seed):
+    """Long-term seeding tasks are exempt from completed-task expiry."""
+    from app.services.scheduler import _cleanup_expired
+
+    seed.task.keep_seeding = True
+    seed.task.completed_at = utcnow() - timedelta(days=60)
+    await db_session.commit()
+
+    await _cleanup_expired()
+
+    remaining = (
+        await db_session.execute(
+            select(DownloadTask).where(DownloadTask.id == seed.task.id)
+        )
+    ).scalar_one_or_none()
+    assert remaining is not None
 
 
 # ---------------------------------------------------------------------------

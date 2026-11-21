@@ -4,14 +4,16 @@
 
 - ``move``：:func:`delete_task_after_organize` —— 与
   ``DELETE /api/v1/tasks/{id}?delete_data=false`` 同一逻辑的内部调用版本
-  （不走 HTTP 回环）：任务开启自动删除时移除下载器中的 torrent（保留数据——
-  文件已由整理流程移走或原地保留），任务行置为 ``cancelled``；关闭时保留
-  torrent 和 completed 状态。任务不存在视为已删除，幂等成功；下载器 RPC
-  失败只回报 False，由调用方记日志，不改写计划状态。
+  （不走 HTTP 回环）：普通任务移除下载器中的 torrent（保留数据——文件已由
+  整理流程移走或原地保留），任务行置为 ``cancelled``；保种任务
+  （``keep_seeding=true``）保留 torrent 和 completed 状态。任务不存在视为
+  已删除，幂等成功；下载器 RPC 失败只回报 False，由调用方记日志，不改写
+  计划状态。
 - ``hardlink`` / ``copy``：:func:`resume_task_after_organize` —— 保种，
-  不删任务；快照生成时 best-effort 停过的做种经 RPC 恢复（与
+  不删任务；普通任务若在快照生成时 best-effort 停过种，经 RPC 恢复（与
   ``POST /api/v1/tasks/{id}/resume`` 同一个 ``resume_torrent`` RPC；对已
-  在运行的 torrent 是幂等 no-op）。RPC 失败同样只回报 False。
+  在运行的 torrent 是幂等 no-op）。``keep_seeding=true`` 任务从未停种，
+  跳过恢复以免覆盖用户手动暂停。RPC 失败同样只回报 False。
 - :func:`delete_task_with_data` —— ``delete_data=true`` 语义（torrent 与
   磁盘数据一并删除），供取消变更计划等人工入口选用，非执行后自动动作。
 """
@@ -28,19 +30,19 @@ logger = logging.getLogger(__name__)
 
 
 async def delete_task_after_organize(
-    db, download_task_id: str, *, respect_auto_delete: bool = False
+    db, download_task_id: str, *, respect_keep_seeding: bool = False
 ) -> bool:
     """清理下载任务（delete_data=false 语义）。返回是否完全成功。
 
-    自动整理清理传 ``respect_auto_delete=True``；任务关闭自动删除时保留
-    torrent 与 completed 状态。人工删除保持默认，不受该设置影响。
+    自动整理清理传 ``respect_keep_seeding=True``；保种任务保留 torrent 与
+    completed 状态。人工删除保持默认，不受该设置影响。
     404（任务已删）= 幂等成功；RPC 失败 = False（任务仍置 cancelled 并记录
     error_message，残留 paused 条目人工删除即可）。
     """
     task = await db.get(DownloadTask, download_task_id)
     if task is None:
         return True  # 已删除，幂等成功
-    if respect_auto_delete and not task.auto_delete_on_completion:
+    if respect_keep_seeding and bool(getattr(task, "keep_seeding", False)):
         return True
     ok = True
     if task.transmission_torrent_id and task.downloader_id:
@@ -107,6 +109,8 @@ async def resume_task_after_organize(db, download_task_id: str) -> bool:
     task = await db.get(DownloadTask, download_task_id)
     if task is None:
         return True  # 已删除，幂等成功
+    if bool(getattr(task, "keep_seeding", False)):
+        return True  # 保种任务从未因通知停种；不要覆盖用户手动暂停
     if not task.transmission_torrent_id or not task.downloader_id:
         return True  # 无 torrent 可恢复
     downloader = await db.get(DownloaderInstance, task.downloader_id)

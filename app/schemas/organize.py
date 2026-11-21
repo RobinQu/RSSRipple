@@ -155,6 +155,9 @@ class OrganizePreviewResponse(BaseModel):
     category: str | None = None
     needs_category: bool = False
     uncategorized: bool = False
+    # Effective operation, including keep-seeding move→hardlink clamping.
+    file_op: str | None = None
+    keep_seeding: bool = False
     ops: list[OrganizePreviewOp] = []
 
 
@@ -195,6 +198,9 @@ class OrganizePlanListItem(BaseModel):
     # op list comes from the detail endpoint. Capped at 3 to keep the
     # paginated list light (batch plans can have dozens of ops).
     ops_preview: list[OrganizePlanOpOut] = []
+    # True = the task is kept for long-term seeding (move was clamped to
+    # hardlink during planning/execution).
+    keep_seeding: bool = False
     # pending 派生原因（R2）：library 未定 / 模板 {category} 未定 →
     # "unclassified"；目标库未绑定卷 → "unbound"；非 pending 或可执行 → None。
     pending_reason: Literal["unclassified", "unbound"] | None = None
@@ -222,6 +228,9 @@ class OrganizeExecuteBatchRequest(BaseModel):
 class OrganizeClassifyRequest(BaseModel):
     library_id: str
     category: str | None = None
+    # Keep-seeding plans accept hardlink/copy only; omitted defaults to
+    # hardlink for them (or the matched rule's operation for normal plans).
+    file_op: Literal["move", "hardlink", "copy"] | None = None
 
 
 class OrganizeCancelRequest(BaseModel):

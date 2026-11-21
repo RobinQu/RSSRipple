@@ -164,12 +164,13 @@ pending --(2xx / mock)--> done
 - `torrent_name` + `files` 经共享清单解析器取得：通知生成优先有效 torrent cache，再读**当前任务**的下载器 RPC（`get_torrent_files`），不重新发起 HTTP，也不借用其他任务/旧通知的快照。没有清单时降级为不带 `files` 入队，消费者退回扫描 `download_dir`；通用 `GET /resources/{id}/files` 则会继续遍历全部相关任务与历史通知，见 api-endpoints.md。
 - 电影无 `season_number`/`number_of_episodes`/`episodes`（null）；`collection` 为 WorkCollection 显示名或 null。
 - `task.download_task_id` 是消费者后续操作任务的句柄（见"下游清理"）。
+- `task.keep_seeding`：任务冻结的长期做种标记（缺失=false）。为 true 时消费者不得移动/删除源文件，应使用 hardlink/copy 或先显式调用任务 pause/delete API。
 
 ## 投递与退避
 
 单一投递路径：scheduler 每分钟 `_process_download_notifications` tick ——
 
-1. **入队（enqueue）**：为 completed 且无通知的任务**按需停种（best-effort `pause_torrent`）+ 补建通知**；任务关闭 `auto_delete_on_completion` 且不存在启用 OrganizeRule 时不停种，避免纯 webhook 通知造成无人恢复的暂停（`download_task_id` 唯一约束 + SAVEPOINT 竞争回读，幂等）。**仅当其 Agent 至少有一个启用 webhook、或存在任一启用的 OrganizeRule 时才补建**——内置 organize 也是通知快照的消费者（常开，存在启用规则即激活），需要通知驱动变更计划；两者皆无的 Agent 不生成通知，避免堆积无用记录（手动"重新生成"不受此限）。无 webhook 仅 organize 的通知不产生任何 delivery（聚合展示状态恒为 pending，随保留期正常清理）。
+1. **入队（enqueue）**：为 completed 且无通知的任务**按需停种（best-effort `pause_torrent`）+ 补建通知**；`keep_seeding=true` 的任务**永不停种**（无论是否存在启用 OrganizeRule），正常任务维持既有停种语义（`download_task_id` 唯一约束 + SAVEPOINT 竞争回读，幂等）。**仅当其 Agent 至少有一个启用 webhook、或存在任一启用的 OrganizeRule 时才补建**——内置 organize 也是通知快照的消费者（常开，存在启用规则即激活），需要通知驱动变更计划；两者皆无的 Agent 不生成通知，避免堆积无用记录（手动"重新生成"不受此限）。无 webhook 仅 organize 的通知不产生任何 delivery（聚合展示状态恒为 pending，随保留期正常清理）。
 
 通知快照包含版本化 `file_associations={version,status,items}`。每个 item 冻结 `file_path/file_size/file_role/attached_to_path/work_type/work_id/season/episode_start/episode_end/source`；`file_role ∈ episode|subtitle|extra|excluded`，历史空角色按 episode 解读。只有 episode 是主视频并参与作品/季/集覆盖；extra 与 excluded 可空作品且不成为主视频，excluded 即使为常规视频也从预期正片覆盖中排除。字幕可在快照构建时从唯一同名/同作品正片继承作品并补 `attached_to_path`，但不得猜测歧义目标。`complete` 要求全部 episode 已绑作品、清单内预期正片均已覆盖，且全部 subtitle 都有唯一、同作品、已绑作品的 episode attachment；未绑 extra/excluded 不妨碍 complete，未解析字幕使状态为 partial。`partial`/`unavailable` 禁止隐式猜测；字段完全不存在才代表历史快照，可走统一确定性分析回退。`works` 以 `series|movie:<UUID>` 为键冻结所有关联作品的完整命名/分类/季集元数据，旧的单数 `work` 保留兼容单作品消费者。
 
@@ -213,7 +214,7 @@ pending --(2xx / mock)--> done
 
 ## 与其他机制的交互
 
-- **torrent 生命周期**：completed → 创建通知时按需停种（best-effort）；关闭自动删除且无启用整理规则时保持做种。内置 hardlink/copy 整理后恢复做种，move 且开启自动删除时移除 torrent；外部消费者的停删仍由任务 API 显式驱动。
+- **torrent 生命周期**：completed → 正常任务创建通知时按需停种（best-effort）；`keep_seeding=true` 任务保持做种且不被通知停种。保种任务只允许 hardlink/copy 整理（move 规则自动降级 hardlink），完成后不自动删种；普通任务 move 成功时移除 torrent。外部消费者的停删仍由任务 API 显式驱动。
 - **`_cleanup_expired`（每日）**：删除过期 completed 任务时跳过其通知存在**任一非 `done` delivery** 的任务（投递重试循环仍需要通知 payload 引用的任务行）；创建时间早于 `NOTIFY_RETENTION_DAYS`（默认 30 天）的通知整行删除（delivery 随 ORM 级联一并清理）。
 - **下载器客户端接口**：`get_torrent_files(torrent_id) -> {name, files: [{name, size}]}` 是统一接口的一部分，TransmissionWrapper 与 MockDownloaderWrapper 均实现。
 

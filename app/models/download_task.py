@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Index, Integer, String, true
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Index, Integer, String, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -42,8 +42,10 @@ class DownloadTask(Base):
         String(36), ForeignKey("downloader_instances.id", ondelete="RESTRICT"), nullable=False
     )
     download_dir: Mapped[str] = mapped_column(String(1024), nullable=False)
-    auto_delete_on_completion: Mapped[bool] = mapped_column(
-        Boolean, default=True, server_default=true(), nullable=False
+    # 创建时冻结的长期做种开关（PT）：不自动停种/删种；整理只允许
+    # hardlink/copy（命中 move 规则按 hardlink 执行）。
+    keep_seeding: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), nullable=False
     )
     transmission_torrent_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(

@@ -27,18 +27,21 @@ async def test_reservation_reuses_identity_and_rejects_parameter_drift(db_sessio
     assert operation_key(("agent:x", "job"), "resource", "other-agent") != key
 
 
-async def test_legacy_reservation_without_auto_delete_uses_historical_default(db_session):
+async def test_legacy_auto_delete_reservation_maps_to_keep_seeding(db_session):
     key = operation_key(("agent:x", "legacy-job"), "resource", "agent")
-    legacy = {"download_dir": "/downloads", "payload_digest": "captured"}
+    legacy = {
+        "download_dir": "/downloads", "payload_digest": "captured",
+        "auto_delete_on_completion": False,
+    }
     reservation = await reserve_dispatch(db_session.bind, key, legacy)
 
     replay = await reserve_dispatch(
-        db_session.bind, key, {**legacy, "auto_delete_on_completion": True}
+        db_session.bind, key, {**legacy, "keep_seeding": True}
     )
     assert replay.task_id == reservation.task_id
     with pytest.raises(ValueError, match="parameters changed"):
         await reserve_dispatch(
-            db_session.bind, key, {**legacy, "auto_delete_on_completion": False}
+            db_session.bind, key, {**legacy, "keep_seeding": False}
         )
 
 

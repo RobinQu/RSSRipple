@@ -255,6 +255,7 @@ def build_payload(
             "download_task_id": task.id,
             "download_dir": task.download_dir,
             "torrent_name": (torrent_info or {}).get("name"),
+            "keep_seeding": bool(getattr(task, "keep_seeding", False)),
         },
         "resource": {
             "id": getattr(resource, "id", None) if resource else None,
@@ -336,10 +337,9 @@ async def _build_snapshot(
 ) -> tuple[dict, bool]:
     """Build a frozen payload through the shared listing/apply pipeline.
 
-    Pausing remains a best-effort notification operation so the consumer can
-    move completed files; it is not a prerequisite for obtaining a listing.
-    Tasks preserving their torrent skip the pause when no built-in organize
-    rule needs a subsequent file operation.
+    Pausing remains a best-effort notification operation for normal tasks so
+    the consumer can move completed files; it is not a prerequisite for
+    obtaining a listing. Keep-seeding tasks are never paused here.
     """
     from app.services.resource_listing import (
         apply_resource_listing,
@@ -352,13 +352,11 @@ async def _build_snapshot(
     agent = await db.get(Agent, task.agent_id) if task.agent_id else None
     resource = await _load_resource(db, task.file_resource_id)
 
-    should_pause = True
-    if not task.auto_delete_on_completion:
-        from app.models.organize_rule import OrganizeRule
-
-        should_pause = await db.scalar(
-            select(OrganizeRule.id).where(OrganizeRule.enabled.is_(True)).limit(1)
-        ) is not None
+    # A keep-seeding task must never be paused by notification generation.
+    # Normal tasks retain the historical pause so external consumers can move
+    # completed files; keep-seeding tasks are organized with hardlink/copy
+    # only, which needs no pause.
+    should_pause = not bool(getattr(task, "keep_seeding", False))
     if should_pause and task.transmission_torrent_id is not None and task.downloader_id:
         downloader = await db.get(DownloaderInstance, task.downloader_id)
         if downloader is not None:

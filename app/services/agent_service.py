@@ -109,7 +109,7 @@ def _fold_dispatch_error(
     *,
     error_message: str,
     download_dir: str,
-    auto_delete_on_completion: bool,
+    keep_seeding: bool,
 ) -> DownloadTask:
     """Refresh a surviving submission-error row in place.
 
@@ -120,7 +120,7 @@ def _fold_dispatch_error(
     """
     existing.error_message = error_message[:2000]
     existing.download_dir = download_dir
-    existing.auto_delete_on_completion = auto_delete_on_completion
+    existing.keep_seeding = keep_seeding
     existing.retry_count += 1
     return existing
 
@@ -133,7 +133,7 @@ async def _record_dispatch_error(
     downloader_id: str | None,
     download_dir: str,
     error_message: str,
-    auto_delete_on_completion: bool = True,
+    keep_seeding: bool = False,
 ) -> DownloadTask:
     """Persist a submission-stage dispatch failure without unbounded row growth.
 
@@ -160,7 +160,7 @@ async def _record_dispatch_error(
             existing,
             error_message=error_message,
             download_dir=download_dir,
-            auto_delete_on_completion=auto_delete_on_completion,
+            keep_seeding=keep_seeding,
         )
         await db.flush()
         return existing
@@ -169,7 +169,7 @@ async def _record_dispatch_error(
         file_resource_id=resource_id,
         downloader_id=downloader_id,
         download_dir=download_dir,
-        auto_delete_on_completion=auto_delete_on_completion,
+        keep_seeding=keep_seeding,
         status="error",
         error_message=error_message[:2000],
         max_retries=settings.max_retry_count,
@@ -339,7 +339,7 @@ async def create_and_submit_task(
     db: AsyncSession,
     agent_id: str | None = None,
     download_dir: str = "",
-    auto_delete_on_completion: bool | None = None,
+    keep_seeding: bool | None = None,
 ) -> DownloadTask:
     """Create a DownloadTask and attempt to add it to the downloader.
 
@@ -347,10 +347,10 @@ async def create_and_submit_task(
     """
     from app.services.task_queue import current_job_identity
 
-    effective_auto_delete = (
-        downloader.auto_delete_on_completion
-        if auto_delete_on_completion is None
-        else auto_delete_on_completion
+    effective_keep_seeding = (
+        downloader.keep_seeding
+        if keep_seeding is None
+        else keep_seeding
     )
     await require_agent_execution_ownership()
     identity = current_job_identity()
@@ -362,7 +362,7 @@ async def create_and_submit_task(
         parameters = {
             "resource_id": resource.id, "agent_id": agent_id,
             "downloader_id": downloader.id, "download_dir": download_dir,
-            "auto_delete_on_completion": effective_auto_delete,
+            "keep_seeding": effective_keep_seeding,
             "payload_digest": payload_digest(payload),
         }
         reservation = await reserve_dispatch(
@@ -380,7 +380,7 @@ async def create_and_submit_task(
         file_resource_id=resource.id,
         downloader_id=downloader.id,
         download_dir=download_dir,
-        auto_delete_on_completion=effective_auto_delete,
+        keep_seeding=effective_keep_seeding,
         status="pending",
         max_retries=settings.max_retry_count,
     )
@@ -424,7 +424,7 @@ async def create_and_submit_task(
                 existing_error,
                 error_message=task.error_message or "",
                 download_dir=task.download_dir,
-                auto_delete_on_completion=effective_auto_delete,
+                keep_seeding=effective_keep_seeding,
             )
             if reservation is None:
                 db.expunge(task)  # pending, never flushed
@@ -438,7 +438,7 @@ async def create_and_submit_task(
         return await persist_dispatch_result(db, reservation, {
             "agent_id": agent_id, "file_resource_id": resource.id,
             "downloader_id": downloader.id, "download_dir": download_dir,
-            "auto_delete_on_completion": effective_auto_delete,
+            "keep_seeding": effective_keep_seeding,
             "status": task.status, "max_retries": task.max_retries,
             "transmission_torrent_id": task.transmission_torrent_id,
             "confirmed_at": task.confirmed_at, "error_message": task.error_message,
@@ -475,7 +475,7 @@ async def dispatch_download(
             downloader_id=agent.downloader_id,
             download_dir=downloader.download_dir,
             error_message=str(e),
-            auto_delete_on_completion=downloader.auto_delete_on_completion,
+            keep_seeding=downloader.keep_seeding,
         )
 
     if consumption_snapshot is not None:

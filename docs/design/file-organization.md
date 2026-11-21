@@ -270,15 +270,15 @@ class OrganizeAuditEntry(Base):
 1. 整理**常开、无环境变量开关**：只要存在 enabled 规则即对本 tick 的通知做规划；无 enabled 规则时整步跳过（对通知流水线零影响）。
 2. consume 本 tick 新建/重建的通知，外加**兜底补扫**：每 tick 限量（50）选取没有任何计划行的存量通知一并规划——规划被意外异常中断（非 PlanError）不留任何行，靠补扫在后续 tick 重试；落库走 SAVEPOINT 吸收并发竞争。
 3. **规划被确定性拒绝落 failed 计划行**（缺集/缺季号/文件定位不到/模板缺数据/冲突预检不过等 PlanError）：计划行 `status=failed`、无 ops、`error_message` 记原因——拒绝在变更计划界面可见、可人工处置（重试/取消/分类），这是 vault-organizer「webhook 500 → 退避重投」语义在内置语境的等价物。payload 未变的 failed 计划不随 tick 重复规划（快照一致短路仅限 pending）；被显式触及时（通知 regenerate、配置变更 `replan_open_plans`）即便快照未变也重建——failed 多因磁盘状态等外部条件，快照不变也值得重试。
-4. 无规则匹配 → 落「待分类」pending 计划（`library_id=null`）；命中规则的 Library 待绑定 → 落「待绑定」pending 计划。
+4. 无规则匹配 → 落「待分类」pending 计划（`library_id=null`）；命中规则的 Library 待绑定 → 落「待绑定」pending 计划。**保种任务**（任务冻结 `keep_seeding=true`）的规则列表在规划前把 `file_op=move` 钳制为 `hardlink`，因此计划与执行都不会移动种子源文件；人工分类同样只接受 hardlink/copy（缺省 hardlink）。
 5. `auto_execute=true` 的规则：计划落库后立即经同一代码路径后台执行（两阶段持久化不变）。
 6. 执行完成后按命中规则的 `file_op` 分流清理：
    | file_op | 文件语义 | 执行后清理 |
    |---|---|---|
-   | `move` | 移动（EXDEV 退化为 copy+校验+删源） | 任务 `auto_delete_on_completion=true` 时调内部任务删除 service 函数（与 `DELETE /tasks/{id}?delete_data=false` 同一实现，不再走 HTTP 回环）；false 时保留 torrent 和 completed 状态；均执行源目录空目录清理 |
+   | `move` | 移动（EXDEV 退化为 copy+校验+删源） | 普通任务调内部任务删除 service 函数（与 `DELETE /tasks/{id}?delete_data=false` 同一实现，不再走 HTTP 回环）并移除 torrent；**保种任务（`keep_seeding=true`）禁止 move，规划时自动降级为 hardlink**，不产生 movedir；源目录空目录清理仅 move 执行 |
    | `hardlink` | `os.link`，源文件保留；EXDEV/EPERM → op failed + 明确 error_message，**不静默退化为 copy**（静默复制会偷偷翻倍存储并违背保种意图） | 保种：不删任务、不清源目录；恢复快照时停过的做种（`resume_torrent` RPC，与 `POST /tasks/{id}/resume` 同一 RPC，幂等） |
    | `copy` | 独占临时文件复制 + 完整内容校验 + 原子不覆盖发布，源文件保留 | 同 hardlink（保种 + 恢复做种） |
-   - 清理/恢复均为 best-effort，失败只记日志不改写计划状态。自动删除开关只约束整理后的自动动作，不影响人工删除或取消计划时的显式删除；自动删除始终 `delete_data=false`。PT 持续做种应关闭自动删除并使用 hardlink/copy；move 会改变源文件位置，不能承诺原 torrent 持续做种。
+   - 清理为 best-effort，失败只记日志不改写计划状态。`keep_seeding=true` 任务只允许 hardlink/copy：规划/重建/预览/人工分类都把命中的 move 规则钳制为 hardlink（copy 规则保持 copy），执行器跳过历史遗留 move 计划的 movedir 与源目录清理；hardlink 跨设备失败仍明确报错，绝不静默退化为 copy。正常任务仍可 move 并在成功后删种。自动/人工删除任务仍由显式任务 API 驱动。
    - **媒体服务器刷新**（三种 file_op 一致）：经 `Library → MediaServerInstance` 寻址（天然支持多服务器/多类型），按 adapter 分 type——Plex 优先**按触及目录 partial refresh**（`GET /library/sections/{section_key}/refresh?path=...`），失败或不适用退整库刷新；Emby/Jellyfin 走对应 refresh 端点。服务器停用/未配置/刷新失败一律 best-effort：只记日志，不改写计划状态。
 
 **未执行计划的刷新（replan）**：pending/failed 计划的语义是「按当前规则与库绑定待执行」，因此两类时机都会触发重建（共用 `_rebuild_plan`：人工指定的 library/category 沿用，其余按当前规则 first-match 重路由、op 目标重渲染；done/running/cancelled 不动）：

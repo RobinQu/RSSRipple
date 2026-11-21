@@ -112,6 +112,7 @@ class TestManualTaskCreate:
         assert data["file_resource_id"] == rid
         assert data["downloader_id"] == dl
         assert data["download_dir"] == "/downloads/rssripple"
+        assert data["keep_seeding"] is False
         assert data["auto_delete_on_completion"] is True
         assert data["status"] == "downloading"
         assert data["transmission_torrent_id"] == 42
@@ -120,25 +121,37 @@ class TestManualTaskCreate:
 
     @pytest.mark.parametrize(
         ("downloader_default", "override", "expected"),
-        [(False, None, False), (False, True, True), (True, False, False)],
+        [(True, None, True), (True, False, False), (False, True, True)],
     )
-    async def test_create_auto_delete_inherits_downloader_and_accepts_override(
+    async def test_create_keep_seeding_inherits_downloader_and_accepts_override(
         self, client, setup, db_session_factory, mock_transmission,
         downloader_default, override, expected,
     ):
         ch, dl, aid = setup
         res = await client.put(
             f"/api/v1/downloaders/{dl}",
-            json={"auto_delete_on_completion": downloader_default},
+            json={"keep_seeding": downloader_default},
         )
         assert res.status_code == 200
         rid = await _create_resource(db_session_factory, ch, f"[G] ShowA - {_uuid()}")
         body = {"resource_id": rid, "downloader_id": dl}
         if override is not None:
-            body["auto_delete_on_completion"] = override
+            body["keep_seeding"] = override
         res = await client.post("/api/v1/tasks", json=body)
         assert res.status_code == 201
-        assert res.json()["data"]["auto_delete_on_completion"] is expected
+        assert res.json()["data"]["keep_seeding"] is expected
+
+    async def test_create_accepts_retired_auto_delete_alias(
+        self, client, setup, db_session_factory, mock_transmission,
+    ):
+        ch, dl, aid = setup
+        rid = await _create_resource(db_session_factory, ch, f"[G] Legacy - {_uuid()}")
+        res = await client.post("/api/v1/tasks", json={
+            "resource_id": rid, "downloader_id": dl,
+            "auto_delete_on_completion": False,
+        })
+        assert res.status_code == 201
+        assert res.json()["data"]["keep_seeding"] is True
 
     async def test_create_submit_failure_marks_error(
         self, client, setup, db_session_factory, mock_transmission

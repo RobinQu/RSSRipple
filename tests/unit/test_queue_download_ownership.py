@@ -138,7 +138,7 @@ async def test_download_requires_current_execution(monkeypatch, condition, db_se
         await queue.stop()
 
 
-@pytest.mark.parametrize("changed", ["directory", "payload", "downloader", "auto_delete"])
+@pytest.mark.parametrize("changed", ["directory", "payload", "downloader", "keep_seeding"])
 async def test_same_dispatch_rejects_changed_parameters_before_rpc(monkeypatch, db_session, changed):
     client = fakeredis.aioredis.FakeRedis(decode_responses=True)
     queue = RedisQueue(redis_client=client)
@@ -160,15 +160,15 @@ async def test_same_dispatch_rejects_changed_parameters_before_rpc(monkeypatch, 
             await db_session.commit()
             directory = "/elsewhere" if changed == "directory" else "/downloads"
             selected_downloader = (
-                SimpleNamespace(id="another-downloader", auto_delete_on_completion=True)
+                SimpleNamespace(id="another-downloader", keep_seeding=False)
                 if changed == "downloader" else downloader
             )
             if changed == "payload":
                 resource.torrent_url = "magnet:?xt=replacement"
-            auto_delete = False if changed == "auto_delete" else None
+            keep_seeding = True if changed == "keep_seeding" else None
             await create_and_submit_task(
                 resource, selected_downloader, db_session,
-                download_dir=directory, auto_delete_on_completion=auto_delete,
+                download_dir=directory, keep_seeding=keep_seeding,
             )
         except Exception as exc:
             errors.append(exc)

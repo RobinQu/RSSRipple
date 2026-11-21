@@ -95,7 +95,7 @@ async def create_downloader(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        payload = body.model_dump(exclude={"password"})
+        payload = body.model_dump(exclude={"password", "auto_delete_on_completion"})
     except DownloadPathError as e:
         return JSONResponse(
             status_code=422,
@@ -151,7 +151,7 @@ async def update_downloader(
             },
         )
     try:
-        update_data = body.model_dump(exclude_unset=True)
+        update_data = body.model_dump(exclude_unset=True, exclude={"auto_delete_on_completion"})
     except DownloadPathError as e:
         return JSONResponse(
             status_code=422,

@@ -124,6 +124,9 @@ class NotificationTaskPayload(BaseModel):
     download_task_id: str
     download_dir: str | None = None
     torrent_name: str | None = None
+    # True = the torrent is kept for long-term seeding. Consumers must use
+    # hardlink/copy (or explicitly pause) instead of moving the source files.
+    keep_seeding: bool = False
 
 
 class NotificationResourcePayload(BaseModel):

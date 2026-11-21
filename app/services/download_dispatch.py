@@ -32,6 +32,15 @@ def payload_digest(payload):
     return hashlib.sha256(raw).hexdigest()
 
 
+def _normalize_keep_seeding(parameters: dict | None) -> dict:
+    normalized = dict(parameters or {})
+    if "keep_seeding" not in normalized and "auto_delete_on_completion" in normalized:
+        normalized["keep_seeding"] = not bool(normalized.pop("auto_delete_on_completion"))
+    normalized.pop("auto_delete_on_completion", None)
+    normalized.setdefault("keep_seeding", False)
+    return normalized
+
+
 async def reserve_dispatch(bind, key, parameters, *, job_identity=None):
     """Own a short intent transaction; callers must not hold a write lock.
 
@@ -49,10 +58,11 @@ async def reserve_dispatch(bind, key, parameters, *, job_identity=None):
             ).on_conflict_do_nothing(index_elements=["operation_key"])
         )
         row = await db.scalar(select(DownloadDispatch).where(DownloadDispatch.operation_key == key))
-        # Reservations created before the auto-delete option are equivalent to
-        # the historical true default and must survive an in-place upgrade.
-        stored_parameters = {"auto_delete_on_completion": True, **(row.parameters or {})}
-        requested_parameters = {"auto_delete_on_completion": True, **parameters}
+        # Normalize the retired inverse ``auto_delete_on_completion`` key so
+        # in-flight reservations created before the keep-seeding rename survive
+        # an in-place upgrade. Historical auto-delete=true means keep=false.
+        stored_parameters = _normalize_keep_seeding(row.parameters)
+        requested_parameters = _normalize_keep_seeding(parameters)
         if stored_parameters != requested_parameters:
             raise ValueError("Queued download parameters changed; a new dispatch operation is required")
         return DispatchReservation(key, row.task_id, row.settled)

@@ -20,13 +20,13 @@ export default function CreateTaskModal({ resourceId, open, onClose, onCreated }
   const [downloaders, setDownloaders] = useState<DownloaderInstance[]>([]);
   const [loading, setLoading] = useState(false);
   const [downloaderId, setDownloaderId] = useState<string | null>(null);
-  const [autoDeleteOnCompletion, setAutoDeleteOnCompletion] = useState(true);
+  const [keepSeeding, setKeepSeeding] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setDownloaderId(null);
-    setAutoDeleteOnCompletion(true);
+    setKeepSeeding(false);
     setLoading(true);
     downloadersApi
       .list(1, 100)
@@ -39,7 +39,7 @@ export default function CreateTaskModal({ resourceId, open, onClose, onCreated }
   const handleDownloaderChange = (id: string) => {
     setDownloaderId(id);
     const downloader = downloaders.find((d) => d.id === id);
-    setAutoDeleteOnCompletion(downloader?.auto_delete_on_completion ?? true);
+    setKeepSeeding(downloader?.keep_seeding ?? false);
   };
 
   const handleOk = async () => {
@@ -52,7 +52,7 @@ export default function CreateTaskModal({ resourceId, open, onClose, onCreated }
       const res = await tasksApi.create({
         resource_id: resourceId,
         downloader_id: downloaderId,
-        auto_delete_on_completion: autoDeleteOnCompletion,
+        keep_seeding: keepSeeding,
       });
       if (res.success) {
         message.success(t('tasks.createSuccess'));
@@ -108,14 +108,14 @@ export default function CreateTaskModal({ resourceId, open, onClose, onCreated }
         />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
           <Switch
-            checked={autoDeleteOnCompletion}
-            onChange={setAutoDeleteOnCompletion}
+            checked={keepSeeding}
+            onChange={setKeepSeeding}
             disabled={!downloaderId}
           />
-          <Text>{t('tasks.autoDeleteOnCompletion')}</Text>
+          <Text>{t('tasks.keepSeedingOnCompletion')}</Text>
         </div>
         <Text type="secondary" style={{ fontSize: 12 }}>
-          {t('tasks.autoDeleteExtra')}
+          {t('tasks.keepSeedingExtra')}
         </Text>
       </div>
     </Modal>

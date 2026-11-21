@@ -844,7 +844,7 @@ export interface DownloadTask {
   file_resource_id: string;
   downloader_id: string;
   download_dir: string | null;
-  auto_delete_on_completion: boolean;
+  keep_seeding: boolean;
   transmission_torrent_id: number | null;
   status: TaskStatus;
   progress: number;
@@ -967,7 +967,7 @@ export interface DownloaderInstance {
   username: string | null;
   password: string | null;
   download_dir: string;
-  auto_delete_on_completion: boolean;
+  keep_seeding: boolean;
   /** Volume binding (R1): daemon-view download_dir root ==
       volume.mount_path + volume_subpath; both null = identical views. */
   volume_id: string | null;
@@ -1424,6 +1424,8 @@ export interface OrganizePreviewResponse {
   category: string | null;
   needs_category: boolean;
   uncategorized: boolean;
+  file_op: 'move' | 'hardlink' | 'copy' | null;
+  keep_seeding: boolean;
   ops: OrganizePreviewOp[];
 }
 
@@ -1455,6 +1457,8 @@ export interface OrganizePlanListItem {
   ops_summary: OrganizeOpsSummary;
   /** First few ops (sorted by seq) for inline list preview. */
   ops_preview: OrganizePlanOp[];
+  /** True = long-term seeding; move rules are clamped to hardlink. */
+  keep_seeding: boolean;
   /** Derived reason a plan stays pending: library/category unset →
       'unclassified'; target library has no volume binding → 'unbound'. */
   pending_reason: 'unclassified' | 'unbound' | null;

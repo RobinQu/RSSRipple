@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, computed_field, model_validator
 
 
 class DownloadTaskResponse(BaseModel):
@@ -14,7 +14,7 @@ class DownloadTaskResponse(BaseModel):
     file_resource_id: str
     downloader_id: str | None = None
     download_dir: str | None = None
-    auto_delete_on_completion: bool
+    keep_seeding: bool
     transmission_torrent_id: int | None = None
     status: str
     progress: float
@@ -31,13 +31,26 @@ class DownloadTaskResponse(BaseModel):
     file_resource: Any | None = None
     agent: Any | None = None
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def auto_delete_on_completion(self) -> bool:
+        """Deprecated inverse alias retained for older API clients."""
+        return not self.keep_seeding
+
 
 class ManualTaskCreate(BaseModel):
     """Manual download task creation (bypasses agents)."""
 
     resource_id: str
     downloader_id: str
-    auto_delete_on_completion: bool | None = None
+    keep_seeding: bool | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy_auto_delete(cls, data: Any) -> Any:
+        from app.schemas.downloader import _translate_legacy_keep_seeding
+
+        return _translate_legacy_keep_seeding(data)
 
 
 class TaskActionResponse(BaseModel):

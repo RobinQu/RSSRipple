@@ -665,8 +665,8 @@
     "volumeSubpathInvalid": "必须是相对路径，且不能包含空、. 或 .. 路径段",
     "volumeSection": "存储卷绑定",
     "authSection": "认证",
-    "autoDeleteOnCompletion": "完成后自动删除",
-    "autoDeleteExtra": "整理完成后自动移除下载器中的种子记录，不删除已下载数据。PT 站点需持续做种时请关闭，并使用硬链接或复制整理。"
+    "keepSeedingOnCompletion": "保持长期做种",
+    "keepSeedingExtra": "完成后保留种子并持续做种；整理仅允许硬链接或复制，move 规则会自动按硬链接执行。"
   },
   "volumes": {
     "title": "存储卷",
@@ -709,8 +709,8 @@
     "noDownloaders": "暂无可用下载器",
     "createSuccess": "下载任务已创建",
     "createFailed": "创建下载任务失败",
-    "autoDeleteOnCompletion": "完成后自动删除",
-    "autoDeleteExtra": "本次任务可覆盖下载器默认设置；仅移除种子记录，不删除数据。PT 持续做种请关闭，并使用硬链接或复制整理。"
+    "keepSeedingOnCompletion": "保持长期做种",
+    "keepSeedingExtra": "本次任务可覆盖下载器默认设置；开启后完成后持续做种，整理仅允许硬链接或复制。"
   },
   "series": {
     "title": "剧集",
@@ -1632,6 +1632,7 @@
     "libraryFilter": "按媒体库过滤",
     "uncategorizedTag": "待分类",
     "unboundTag": "待绑定",
+    "keepSeedingTag": "长期做种",
     "needsCategory": "需要指定类别",
     "rule": "规则",
     "library": "目标库",

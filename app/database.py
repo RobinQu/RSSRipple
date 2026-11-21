@@ -766,12 +766,13 @@ _LIGHT_COLUMN_ADDITIONS: tuple[tuple[str, str, str | tuple[str, str]], ...] = (
     # ADD failure must abort startup, see the mandatory set in the
     # application loop below).
     ("webhook_deliveries", "attempt_token", "VARCHAR(36)"),
-    # Preserve the historical automatic post-organize removal behavior for
-    # existing downloaders/tasks; manual creation can override the default.
-    ("downloader_instances", "auto_delete_on_completion",
-     ("BOOLEAN NOT NULL DEFAULT 1", "BOOLEAN NOT NULL DEFAULT TRUE")),
-    ("download_tasks", "auto_delete_on_completion",
-     ("BOOLEAN NOT NULL DEFAULT 1", "BOOLEAN NOT NULL DEFAULT TRUE")),
+    # Long-term seeding (PT) mode. Replaces the retired inverse
+    # ``auto_delete_on_completion`` columns; the upgrade backfill below maps
+    # existing ``auto_delete=false`` rows to ``keep_seeding=true``.
+    ("downloader_instances", "keep_seeding",
+     ("BOOLEAN NOT NULL DEFAULT 0", "BOOLEAN NOT NULL DEFAULT FALSE")),
+    ("download_tasks", "keep_seeding",
+     ("BOOLEAN NOT NULL DEFAULT 0", "BOOLEAN NOT NULL DEFAULT FALSE")),
 )
 
 
@@ -1861,6 +1862,74 @@ async def _apply_light_migrations(conn) -> None:
                     "ADD CONSTRAINT download_tasks_agent_id_fkey "
                     "FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE SET NULL"
                 ))
+
+    # ── keep_seeding backfill (old auto_delete_on_completion) ───────────
+    # The old boolean expressed the inverse intent (auto-delete=true ≙
+    # keep_seeding=false). Upgraded databases still have the retired columns;
+    # migrate their values exactly once. Fresh databases never had the old
+    # columns, so the sentinel is marked without touching rows. The sentinel is
+    # required: re-running the UPDATE after users toggle keep_seeding would
+    # resurrect stale values from the inert old column.
+    async with _best_effort(conn, "keep_seeding backfill"):
+        sentinel = "keep_seeding_backfill_v1"
+        if is_turso:
+            await conn.execute(text(
+                "INSERT OR IGNORE INTO app_settings(key, value) "
+                "VALUES (:key, 'pending')"
+            ), {"key": sentinel})
+        elif is_postgres:
+            await conn.execute(text(
+                "INSERT INTO app_settings(key, value) VALUES (:key, 'pending') "
+                "ON CONFLICT (key) DO NOTHING"
+            ), {"key": sentinel})
+        marker_row = (await conn.execute(text(
+            "SELECT value FROM app_settings WHERE key = :key"
+        ), {"key": sentinel})).scalar_one_or_none()
+        if marker_row == "pending":
+            if is_turso:
+                task_cols = {
+                    row[1] for row in (
+                        await conn.execute(text("PRAGMA table_info(download_tasks)"))
+                    ).fetchall()
+                }
+                downloader_cols = {
+                    row[1] for row in (
+                        await conn.execute(text("PRAGMA table_info(downloader_instances)"))
+                    ).fetchall()
+                }
+            elif is_postgres:
+                task_cols = {
+                    row[0] for row in (
+                        await conn.execute(text(
+                            "SELECT column_name FROM information_schema.columns "
+                            "WHERE table_name = 'download_tasks'"
+                        ))
+                    ).fetchall()
+                }
+                downloader_cols = {
+                    row[0] for row in (
+                        await conn.execute(text(
+                            "SELECT column_name FROM information_schema.columns "
+                            "WHERE table_name = 'downloader_instances'"
+                        ))
+                    ).fetchall()
+                }
+            else:
+                task_cols = downloader_cols = set()
+            true_lit, false_lit = ("1", "0") if is_turso else ("TRUE", "FALSE")
+            if "auto_delete_on_completion" in downloader_cols:
+                await conn.execute(text(
+                    f"UPDATE downloader_instances SET keep_seeding = {true_lit} "
+                    f"WHERE auto_delete_on_completion = {false_lit}"
+                ))
+            if "auto_delete_on_completion" in task_cols:
+                await conn.execute(text(
+                    f"UPDATE download_tasks SET keep_seeding = {true_lit} "
+                    f"WHERE auto_delete_on_completion = {false_lit}"
+                ))
+            await conn.execute(text(
+                "UPDATE app_settings SET value = 'done' WHERE key = :key"
+            ), {"key": sentinel})
 
     # ── agents.last_consumed_at backfill ─────────────────────────────────
     # Existing agents get their watermark set to the channel's current max

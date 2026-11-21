@@ -21,9 +21,11 @@
 - 执行（:func:`execute_plan` / :func:`execute_plans`）：状态门禁 +
   单 ``asyncio.Lock`` 进程内串行（对齐 vault-organizer），阻塞文件 IO 经
   ``asyncio.to_thread``；执行器本体在 :mod:`app.services.organize_executor`。
-  完成后（done）按命中规则的 ``file_op`` 分流清理：``move`` = 内部任务
-  清理（best-effort）；``hardlink``/``copy`` = 保种（不删任务，恢复做种，
-  best-effort）；随后媒体服务器刷新（best-effort，经 Library →
+  完成后（done）按实际生效的 ``file_op`` 分流清理：普通 ``move`` = 内部任务
+  清理并移除种子（best-effort）；``hardlink``/``copy`` = 保种（不删任务，
+  普通任务恢复做种，best-effort）。保种任务（``keep_seeding=true``）在规划/
+  重建/预览/人工分类阶段把 move 钳制为 hardlink，不删种子且不恢复（从未
+  暂停）；随后媒体服务器刷新（best-effort，经 Library →
   MediaServerInstance 寻址）。
 - 人工分类（:func:`classify_plan`）：待分类计划指定 library/category 后
   重渲染全部 op 的 dst（保持 src/size 不变）。
@@ -153,6 +155,44 @@ def _rule_ns(rule: OrganizeRule) -> SimpleNamespace:
         file_op=rule.file_op,
         auto_execute=rule.auto_execute,
     )
+
+
+def _task_keep_seeding(payload: NotificationPayload) -> bool:
+    task = payload.task
+    return bool(task is not None and task.keep_seeding)
+
+
+async def _resolve_keep_seeding(db, payload: NotificationPayload) -> bool:
+    """Resolve the task's frozen keep-seeding mode (live row authoritative)."""
+    task_id = payload.task.download_task_id if payload.task else None
+    if task_id:
+        task = await db.get(DownloadTask, task_id)
+        if task is not None:
+            return bool(task.keep_seeding)
+    return _task_keep_seeding(payload)
+
+
+def _restrict_rules_for_keep_seeding(
+    rules: list[Any], *, keep_seeding: bool
+) -> list[Any]:
+    """Clamp move rules to hardlink for keep-seeding tasks.
+
+    PT tasks must leave the seeded source files in place. Hardlink is the
+    closest preserving operation (no duplicated storage); an explicit ``copy``
+    rule is kept as-is. Cross-device hardlink failures stay fatal and are never
+    silently downgraded to copy.
+    """
+    if not keep_seeding:
+        return rules
+    restricted: list[Any] = []
+    for rule in rules:
+        if getattr(rule, "file_op", None) == "move":
+            cloned = SimpleNamespace(**vars(rule))
+            cloned.file_op = "hardlink"
+            restricted.append(cloned)
+        else:
+            restricted.append(rule)
+    return restricted
 
 
 def _library_ns(lib: Library) -> SimpleNamespace:
@@ -474,6 +514,10 @@ async def _plan_one(
         return await _rebuild_plan(db, existing, notification, rules, libraries, config_revision)
 
     payload = NotificationPayload.model_validate(notification.payload)
+    keep_seeding = await _resolve_keep_seeding(db, payload)
+    planning_rules = _restrict_rules_for_keep_seeding(
+        rules, keep_seeding=keep_seeding
+    )
     pending_cache: tuple[str, str] | None = None
     try:
         if not payload.files:
@@ -485,7 +529,7 @@ async def _plan_one(
                 payload = payload.model_copy(update={"files": manifest})
         downloader = await _resolve_downloader(db, payload)
         result = await asyncio.to_thread(
-            _collect_and_plan, payload, downloader, rules, libraries, None
+            _collect_and_plan, payload, downloader, planning_rules, libraries, None
         )
     except PlanError as e:
         # 规划被确定性拒绝（缺集/缺季号/文件缺失等）：落 failed 计划行
@@ -573,6 +617,10 @@ async def _rebuild_plan(
     """
     expected_revision = plan.revision
     payload = NotificationPayload.model_validate(notification.payload)
+    keep_seeding = await _resolve_keep_seeding(db, payload)
+    planning_rules = _restrict_rules_for_keep_seeding(
+        rules, keep_seeding=keep_seeding
+    )
     pending_cache: tuple[str, str] | None = None
     try:
         if not payload.files:
@@ -583,9 +631,16 @@ async def _rebuild_plan(
         downloader = await _resolve_downloader(db, payload)
         category = plan.category
         if plan.library_id and plan.manual_destination and plan.library_id in libraries:
-            use_rules = [_synthetic_rule(plan.library_id, _preset_template(payload))]
+            synthetic = _synthetic_rule(plan.library_id, _preset_template(payload))
+            if keep_seeding:
+                synthetic.file_op = (
+                    plan.file_op if plan.file_op in ("hardlink", "copy") else "hardlink"
+                )
+            elif plan.file_op in ("move", "hardlink", "copy"):
+                synthetic.file_op = plan.file_op
+            use_rules = [synthetic]
         else:
-            use_rules = rules
+            use_rules = planning_rules
         result = await asyncio.to_thread(
             _collect_and_plan, payload, downloader, use_rules, libraries, category
         )
@@ -865,6 +920,11 @@ async def _execute_plan_owned(db, plan_id: str) -> OrganizePlan:
             raise OrganizeError(f"媒体库路径无效：{library_view.path_error}")
         payload = NotificationPayload.model_validate(plan.payload)
         download_task_id = payload.task.download_task_id if payload.task else None
+        keep_seeding = await _resolve_keep_seeding(db, payload)
+        if keep_seeding and file_op == "move":
+            # Legacy pending move plan for a preserved torrent: keep the
+            # source files and execute the same op graph as a hardlink.
+            file_op = "hardlink"
 
         ops = (
             await db.execute(
@@ -900,12 +960,13 @@ async def _execute_plan_owned(db, plan_id: str) -> OrganizePlan:
             config_revision=None if plan.status == "running" else plan.config_revision,
             states=("pending", "failed", "running"), status="running",
             owner_token=str(uuid.uuid4()), error_message=None,
+            file_op=file_op,
         ):
             raise OrganizeError("计划或整理配置已变更，请刷新后重试")
         execution_revision, execution_owner = plan.revision, plan.owner_token
         _audit(db, plan.id, "execute_started", {
             "revision": execution_revision, "owner_token": execution_owner,
-            "file_op": file_op,
+            "file_op": file_op, "keep_seeding": keep_seeding,
         })
         await db.commit()
 
@@ -971,7 +1032,7 @@ async def _execute_plan_owned(db, plan_id: str) -> OrganizePlan:
             try:
                 if file_op == "move":
                     ok = await delete_task_after_organize(
-                        db, download_task_id, respect_auto_delete=True
+                        db, download_task_id, respect_keep_seeding=True
                     )
                     action = "任务清理"
                 else:
@@ -1032,7 +1093,11 @@ async def execute_plans(db, plan_ids: list[str]) -> list[tuple[str, str]]:
 
 
 async def classify_plan(
-    db, plan_id: str, library_id: str, category: str | None = None
+    db,
+    plan_id: str,
+    library_id: str,
+    category: str | None = None,
+    file_op: str | None = None,
 ) -> OrganizePlan:
     """待分类计划人工指定 library（和/或 category）后重渲染全部 op 的 dst。
 
@@ -1097,8 +1162,16 @@ async def classify_plan(
         except PlanError as e:
             raise OrganizeError(f"无法定位磁盘文件：{e}") from e
     lib_ns = await asyncio.to_thread(_library_ns, library)
+    keep_seeding = await _resolve_keep_seeding(db, payload)
+    if keep_seeding:
+        if file_op is not None and file_op not in ("hardlink", "copy"):
+            raise OrganizeError("保种任务只允许 hardlink 或 copy 整理")
+        if file_op is None:
+            file_op = rule.file_op if rule and rule.file_op in ("hardlink", "copy") else "hardlink"
+    elif file_op is not None and file_op not in ("move", "hardlink", "copy"):
+        raise OrganizeError("无效的整理方式")
     syn_rule = _synthetic_rule(library.id, template)
-    syn_rule.file_op = rule.file_op if rule else "move"
+    syn_rule.file_op = file_op or (rule.file_op if rule else "move")
     # 旧计划的 movedir（合集回收站）op 携带着种子目录信息，重渲染时保留
     # 语义：目标按新库的回收站配置重算；新库未配置回收站则自然消失。
     source_dir = next((op.src for op in ops if op.op_type == "movedir"), None)
@@ -1137,7 +1210,8 @@ async def classify_plan(
     plan.error_message = None
     _audit(
         db, plan.id, "classify",
-        {"library_id": library.id, "category": result.category, "ops": len(result.ops)},
+        {"library_id": library.id, "category": result.category,
+         "file_op": syn_rule.file_op, "ops": len(result.ops)},
     )
     await db.commit()
     await _persist_torrent_cache(pending_cache)

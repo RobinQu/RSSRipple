@@ -647,7 +647,7 @@ async def test_light_migrations_column_additions_alter():
             assert "episode_confidence" in {row[1] for row in cols}
 
 
-async def test_light_migrations_auto_delete_defaults_preserve_legacy_behavior():
+async def test_light_migrations_keep_seeding_backfills_retired_auto_delete():
     from app.models.channel import Channel
     from app.models.download_task import DownloadTask
     from app.models.downloader import DownloaderInstance
@@ -676,23 +676,46 @@ async def test_light_migrations_auto_delete_defaults_preserve_legacy_behavior():
                 ),
             ])
             await db.commit()
+        # Simulate the pre-rename schema: only the inverse old column exists.
         async with engine.begin() as conn:
             await conn.execute(text(
-                "ALTER TABLE downloader_instances DROP COLUMN auto_delete_on_completion"
+                "ALTER TABLE downloader_instances DROP COLUMN keep_seeding"
             ))
             await conn.execute(text(
-                "ALTER TABLE download_tasks DROP COLUMN auto_delete_on_completion"
+                "ALTER TABLE download_tasks DROP COLUMN keep_seeding"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE downloader_instances ADD COLUMN "
+                "auto_delete_on_completion BOOLEAN NOT NULL DEFAULT 1"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE download_tasks ADD COLUMN "
+                "auto_delete_on_completion BOOLEAN NOT NULL DEFAULT 1"
+            ))
+            await conn.execute(text(
+                "UPDATE downloader_instances SET auto_delete_on_completion = 0 "
+                "WHERE id = 'dl1'"
+            ))
+            await conn.execute(text(
+                "UPDATE download_tasks SET auto_delete_on_completion = 0 "
+                "WHERE id = 'task1'"
             ))
         for _ in range(2):
             async with engine.begin() as conn:
                 await _apply_light_migrations(conn)
         async with engine.connect() as conn:
             assert await conn.scalar(text(
-                "SELECT auto_delete_on_completion FROM downloader_instances WHERE id = 'dl1'"
+                "SELECT keep_seeding FROM downloader_instances WHERE id = 'dl1'"
             )) == 1
             assert await conn.scalar(text(
-                "SELECT auto_delete_on_completion FROM download_tasks WHERE id = 'task1'"
+                "SELECT keep_seeding FROM download_tasks WHERE id = 'task1'"
             )) == 1
+            for table in ("downloader_instances", "download_tasks"):
+                columns = (await conn.execute(text(
+                    f"PRAGMA table_info({table})"
+                ))).fetchall()
+                default = {row[1]: row[4] for row in columns}["keep_seeding"]
+                assert default == "0"
         async with factory() as db:
             db.add_all([
                 DownloaderInstance(
@@ -705,15 +728,18 @@ async def test_light_migrations_auto_delete_defaults_preserve_legacy_behavior():
                 ),
             ])
             await db.commit()
-            assert (await db.get(DownloaderInstance, "dl2")).auto_delete_on_completion is True
-            assert (await db.get(DownloadTask, "task2")).auto_delete_on_completion is True
-        async with engine.connect() as conn:
-            for table in ("downloader_instances", "download_tasks"):
-                columns = (await conn.execute(text(
-                    f"PRAGMA table_info({table})"
-                ))).fetchall()
-                default = {row[1]: row[4] for row in columns}["auto_delete_on_completion"]
-                assert default == "1"
+            assert (await db.get(DownloaderInstance, "dl2")).keep_seeding is False
+            assert (await db.get(DownloadTask, "task2")).keep_seeding is False
+        # The sentinel prevents a later user toggle from being overwritten by
+        # the inert old column on the next startup.
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "UPDATE downloader_instances SET keep_seeding = 0 WHERE id = 'dl1'"
+            ))
+            await _apply_light_migrations(conn)
+            assert await conn.scalar(text(
+                "SELECT keep_seeding FROM downloader_instances WHERE id = 'dl1'"
+            )) == 0
 
 
 async def test_light_migrations_file_roles_legacy_rows():
@@ -1478,16 +1504,24 @@ async def test_light_migrations_torrent_listing_columns_postgres(pg_env):
         assert columns["torrent_fetch_attempts"].column_default == "0"
 
 
-async def test_light_migrations_auto_delete_columns_postgres(pg_env):
+async def test_light_migrations_keep_seeding_columns_postgres(pg_env):
     from app.database import create_tables
 
     await create_tables()
     async with pg_env.begin() as conn:
         await conn.execute(text(
-            "ALTER TABLE downloader_instances DROP COLUMN auto_delete_on_completion"
+            "ALTER TABLE downloader_instances DROP COLUMN keep_seeding"
         ))
         await conn.execute(text(
-            "ALTER TABLE download_tasks DROP COLUMN auto_delete_on_completion"
+            "ALTER TABLE download_tasks DROP COLUMN keep_seeding"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE downloader_instances ADD COLUMN "
+            "auto_delete_on_completion BOOLEAN NOT NULL DEFAULT TRUE"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE download_tasks ADD COLUMN "
+            "auto_delete_on_completion BOOLEAN NOT NULL DEFAULT TRUE"
         ))
     for _ in range(2):
         async with pg_env.begin() as conn:
@@ -1495,12 +1529,12 @@ async def test_light_migrations_auto_delete_columns_postgres(pg_env):
     async with pg_env.connect() as conn:
         rows = await conn.execute(text(
             "SELECT table_name, column_default FROM information_schema.columns "
-            "WHERE column_name = 'auto_delete_on_completion'"
+            "WHERE column_name = 'keep_seeding'"
         ))
         defaults = {row.table_name: row.column_default for row in rows}
         assert defaults == {
-            "downloader_instances": "true",
-            "download_tasks": "true",
+            "downloader_instances": "false",
+            "download_tasks": "false",
         }
 
 
