@@ -9,9 +9,11 @@ from app.database import get_db
 from app.models.app_log import AppLog
 from app.models.channel import Channel
 from app.models.file_resource import FileResource
+from app.models.resource_work_link import ResourceWorkLink
 from app.schemas.app_log import AppLogResource, AppLogResponse
 from app.schemas.common import paginated_response, success_response
 from app.services.app_logs import retry_external_failure
+from app.services.required_fields import ordered_work_links
 
 router = APIRouter()
 
@@ -49,6 +51,8 @@ async def list_app_logs(
                 selectinload(FileResource.series),
                 selectinload(FileResource.movie),
                 selectinload(FileResource.collection),
+                selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series),
+                selectinload(FileResource.work_links).selectinload(ResourceWorkLink.movie),
             )
         )).scalars().all()
     } if resource_ids else {}
@@ -65,6 +69,11 @@ async def list_app_logs(
             resource.series or resource.movie or resource.collection
             if resource is not None else None
         )
+        if work is None and resource is not None:
+            for link in ordered_work_links(resource):
+                work = link.series or link.movie
+                if work is not None:
+                    break
         resource_detail = AppLogResource(
             id=resource.id,
             title_raw=resource.title_raw,

@@ -231,6 +231,10 @@ async def reset_channel_metadata_for_source_change(
             FileResource.series_id.is_(None),
             FileResource.movie_id.is_(None),
             FileResource.audio_work_id.is_(None),
+            FileResource.collection_id.is_(None),
+            ~select(ResourceWorkLink.id)
+            .where(ResourceWorkLink.resource_id == FileResource.id)
+            .exists(),
             FileResource.metadata_failure_type.in_(("not_found", "transient")),
         )
     )

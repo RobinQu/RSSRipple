@@ -463,9 +463,16 @@ async def _dashboard_downloads(db: AsyncSession) -> dict:
             joinedload(DownloadTask.agent).joinedload(Agent.channel),
             joinedload(DownloadTask.file_resource).joinedload(FileResource.series),
             joinedload(DownloadTask.file_resource).joinedload(FileResource.movie),
+            joinedload(DownloadTask.file_resource).joinedload(FileResource.collection),
+            joinedload(DownloadTask.file_resource)
+            .joinedload(FileResource.work_links)
+            .joinedload(ResourceWorkLink.series),
+            joinedload(DownloadTask.file_resource)
+            .joinedload(FileResource.work_links)
+            .joinedload(ResourceWorkLink.movie),
         )
     )
-    tasks = tasks_q.scalars().all()
+    tasks = tasks_q.unique().scalars().all()
 
     groups: dict[tuple, dict] = {}
     unknown_key = ("unknown", None)
@@ -505,6 +512,35 @@ async def _dashboard_downloads(db: AsyncSession) -> dict:
                     "type": "movie", "id": resource.movie_id,
                     "title": m.title_cn or m.title_en or m.original_title or "Unknown",
                     "poster_url": m.poster_url,
+                    "tasks": [],
+                }
+            groups[key]["tasks"].append(task_entry)
+        elif resource and resource.collection_id and resource.collection:
+            key = ("collection", resource.collection_id)
+            if key not in groups:
+                c = resource.collection
+                groups[key] = {
+                    "type": "collection", "id": resource.collection_id,
+                    "title": c.title_cn or c.title_en or "Unknown",
+                    "poster_url": c.poster_url,
+                    "tasks": [],
+                }
+            groups[key]["tasks"].append(task_entry)
+        elif resource and resource.work_links:
+            # Links-only pack (cross-collection): keep its tasks together under
+            # a synthetic collection group instead of the unidentified bucket.
+            key = ("collection", f"links:{resource.id}")
+            if key not in groups:
+                links = ordered_work_links(resource)
+                first = next((link for link in links if link.series or link.movie), None)
+                entity = (first.series or first.movie) if first else None
+                groups[key] = {
+                    "type": "collection", "id": None,
+                    "title": (
+                        entity.title_cn or entity.title_en or entity.original_title
+                        if entity is not None else "多作品合集"
+                    ),
+                    "poster_url": entity.poster_url if entity is not None else None,
                     "tasks": [],
                 }
             groups[key]["tasks"].append(task_entry)

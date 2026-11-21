@@ -1249,11 +1249,15 @@ async def test_reset_channel_metadata_for_source_change(db_session, channel, fak
 
     from sqlalchemy import select
 
-    # not_found (in cooldown), transient (in cooldown), already-matched, non_work
+    # not_found (in cooldown), transient (in cooldown), already-matched, non_work,
+    # collection-only and links-only associated packs.
+    from app.models.resource_work_link import ResourceWorkLink
     from app.models.series import TVSeries
+    from app.models.work_collection import WorkCollection
     from app.utils.time import utcnow
-    series = TVSeries(id=_uuid(), title_cn="Matched")
-    db_session.add(series)
+    series = TVSeries(id=_uuid(), title_cn="Matched", season_number=1)
+    collection = WorkCollection(id=_uuid(), title_cn="Pack")
+    db_session.add_all([series, collection])
     await db_session.flush()
     db_session.add(FileResource(
         id=_uuid(), channel_id=channel.id, guid="nf",
@@ -1278,6 +1282,21 @@ async def test_reset_channel_metadata_for_source_change(db_session, channel, fak
         metadata_attempts=1, metadata_failure_type="non_work",
         last_metadata_attempt_at=utcnow() - timedelta(days=400),
     ))
+    db_session.add(FileResource(
+        id=_uuid(), channel_id=channel.id, guid="coll",
+        title_raw="[G] coll", torrent_url="magnet:?xt=urn:btih:coll",
+        collection_id=collection.id, is_batch=True, batch_scope="multi_season",
+        metadata_attempts=1, metadata_failure_type="not_found",
+    ))
+    links_res = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="links",
+        title_raw="[G] links", torrent_url="magnet:?xt=urn:btih:links",
+        is_batch=True, batch_scope="multi_season",
+        metadata_attempts=1, metadata_failure_type="transient",
+    )
+    db_session.add(links_res)
+    await db_session.flush()
+    db_session.add(ResourceWorkLink(resource_id=links_res.id, series_id=series.id, source="manual"))
     await db_session.commit()
 
     reset = await fs.reset_channel_metadata_for_source_change(db_session, channel.id)
@@ -1293,6 +1312,8 @@ async def test_reset_channel_metadata_for_source_change(db_session, channel, fak
     assert rows["tr"].metadata_failure_type is None
     assert rows["mt"].metadata_failure_type is None  # untouched (matched)
     assert rows["nw"].metadata_failure_type == "non_work"  # untouched
+    assert rows["coll"].metadata_failure_type == "not_found"  # associated pack untouched
+    assert rows["links"].metadata_failure_type == "transient"  # links-only pack untouched
 
 
 async def test_reconcile_stale_raw_episodes(db_session, channel):

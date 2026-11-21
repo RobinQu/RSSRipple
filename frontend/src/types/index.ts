@@ -1100,7 +1100,7 @@ export interface FilterTestResponse {
 
 // Dashboard
 export interface DashboardDownloadGroup {
-  type: 'series' | 'movie' | 'unknown' | 'untracked';
+  type: 'series' | 'movie' | 'collection' | 'unknown' | 'untracked';
   id: string | null;
   title: string;
   poster_url: string | null;

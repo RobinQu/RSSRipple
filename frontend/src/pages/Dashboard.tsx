@@ -66,6 +66,7 @@ interface EpisodeDraft {
 const GROUP_TYPE_TAG: Record<string, { color: string; labelKey: string }> = {
   series: { color: 'blue', labelKey: 'dashboard.series' },
   movie: { color: 'green', labelKey: 'dashboard.movie' },
+  collection: { color: 'purple', labelKey: 'channels.groupCollection' },
   untracked: { color: 'orange', labelKey: 'dashboard.untracked' },
 };
 const UNKNOWN_GROUP_TAG = { color: 'default', labelKey: 'dashboard.unidentified' };

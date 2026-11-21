@@ -131,20 +131,30 @@ export default function DownloadTaskTable({
       render: (_, task) => {
         const fr = task.file_resource;
         const work = fr?.series ?? fr?.movie ?? null;
-        const workUrl = fr?.series_id
-          ? `/series/${fr.series_id}`
-          : fr?.movie_id
-            ? `/movies/${fr.movie_id}`
-            : null;
-        const base =
-          (work && (work.original_title || work.title_cn || work.title_en)) ||
-          fr?.title_cn ||
-          fr?.search_title ||
-          fr?.title_raw ||
-          task.file_resource_id.slice(0, 8);
+        // Multi-work / collection-only packs carry no flat work FK. Use the
+        // collection as the work title, not the parsed per-season title.
+        const collectionPack =
+          !!fr && !fr.series_id && !fr.movie_id && !!fr.collection_id && !!fr.collection_name;
+        const workUrl = collectionPack
+          ? `/collections/${fr.collection_id}`
+          : fr?.series_id
+            ? `/series/${fr.series_id}`
+            : fr?.movie_id
+              ? `/movies/${fr.movie_id}`
+              : null;
+        const base = collectionPack
+          ? fr.collection_name!
+          : (work && (work.original_title || work.title_cn || work.title_en)) ||
+            fr?.title_cn ||
+            fr?.search_title ||
+            fr?.title_raw ||
+            task.file_resource_id.slice(0, 8);
         // Per-season works: the base title equals the collection name — the
         // season label is what makes the linked work identifiable.
-        const s = fr?.series_id && work ? seasonLabel(t, work.season_number ?? null) : '';
+        const s =
+          !collectionPack && fr?.series_id && work
+            ? seasonLabel(t, work.season_number ?? null)
+            : '';
         const workTitle = s ? `${base} · ${s}` : base;
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>

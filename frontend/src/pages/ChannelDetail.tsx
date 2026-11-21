@@ -737,12 +737,21 @@ export default function ChannelDetail() {
                       <tbody>
                         {flatResources.map((r) => {
                           const work = r.series ?? r.movie ?? null;
-                          const workUrl = r.series_id
-                            ? `/series/${r.series_id}`
-                            : r.movie_id
-                              ? `/movies/${r.movie_id}`
-                              : null;
+                          // Multi-work / collection-only packs carry no flat
+                          // work FK. Their title is the collection, not the
+                          // per-season title parsed from the release name
+                          // (e.g. "西部世界 第一季" for a S01-S04 pack).
+                          const collectionPack =
+                            !r.series_id && !r.movie_id && !!r.collection_id && !!r.collection_name;
+                          const workUrl = collectionPack
+                            ? `/collections/${r.collection_id}`
+                            : r.series_id
+                              ? `/series/${r.series_id}`
+                              : r.movie_id
+                                ? `/movies/${r.movie_id}`
+                                : null;
                           const workTitle = (() => {
+                            if (collectionPack) return r.collection_name!;
                             const base =
                               (work && (work.original_title || work.title_cn || work.title_en)) ||
                               r.title_cn ||

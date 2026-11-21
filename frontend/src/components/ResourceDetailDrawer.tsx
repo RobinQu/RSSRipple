@@ -456,7 +456,11 @@ export default function ResourceDetailDrawer({
           // Keep the (often very long) resource title on one line so the
           // header never wraps or pushes the close button around.
           <Text ellipsis style={{ display: 'block', maxWidth: '100%' }}>
-            {r ? r.title_cn || r.title_raw : t('resource.detail')}
+            {r
+              ? !r.series_id && !r.movie_id && r.collection_name
+                ? r.collection_name
+                : r.title_cn || r.title_raw
+              : t('resource.detail')}
           </Text>
         }
         open={open}

@@ -214,6 +214,61 @@ class TestDashboardPopulated:
         assert after.json()["data"]["pending_plans_total"] == 0
 
 
+    async def test_dashboard_groups_collection_and_links_only_tasks(
+        self, client, db_session_factory, sample_channel, sample_downloader,
+        sample_series, mock_transmission,
+    ):
+        """Downloads for collection-only / links-only packs are grouped under
+        their collection instead of the unidentified bucket."""
+        from app.models.download_task import DownloadTask
+        from app.models.file_resource import FileResource
+        from app.models.resource_work_link import ResourceWorkLink
+        from app.models.work_collection import WorkCollection
+
+        coll_id = _uuid()
+        async with db_session_factory() as s:
+            s.add(WorkCollection(id=coll_id, title_cn="西部世界"))
+            collection_resource = FileResource(
+                id=_uuid(), channel_id=sample_channel.id, guid="coll-task",
+                title_raw="Westworld S01-S04", torrent_url="magnet:?xt=urn:btih:c1",
+                collection_id=coll_id, is_batch=True, batch_scope="multi_season",
+            )
+            links_resource = FileResource(
+                id=_uuid(), channel_id=sample_channel.id, guid="links-task",
+                title_raw="Westworld S01", torrent_url="magnet:?xt=urn:btih:c2",
+                is_batch=True, batch_scope="multi_season",
+            )
+            s.add_all([collection_resource, links_resource])
+            await s.flush()
+            s.add(ResourceWorkLink(
+                resource_id=links_resource.id, series_id=sample_series.id, source="manual",
+            ))
+            s.add_all([
+                DownloadTask(
+                    id=_uuid(), file_resource_id=collection_resource.id,
+                    downloader_id=sample_downloader.id, download_dir="/downloads/x",
+                    status="downloading",
+                ),
+                DownloadTask(
+                    id=_uuid(), file_resource_id=links_resource.id,
+                    downloader_id=sample_downloader.id, download_dir="/downloads/x",
+                    status="downloading",
+                ),
+            ])
+            await s.commit()
+
+        res = await client.get("/api/v1/dashboard/downloads")
+        assert res.status_code == 200
+        groups = [
+            g for g in res.json()["data"]["active_download_groups"]
+            if g["type"] != "untracked"
+        ]
+        collection = next(g for g in groups if g["title"] == "西部世界")
+        assert collection["type"] == "collection"
+        assert collection["id"] == coll_id
+        links = next(g for g in groups if g["type"] == "collection" and g["id"] is None)
+        assert links["title"] == sample_series.title_cn
+
     async def test_dashboard_pending_confirmations(
         self, client, db_session_factory, sample_channel, sample_series,
     ):
