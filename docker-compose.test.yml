@@ -40,6 +40,9 @@ services:
       # Static bootstrap key for the auth gate (AUTH_ENABLED defaults to
       # true); integration tests send it as X-API-Key.
       - API_KEY=test-integration-key
+      # The local test-server resolves to a container-private address; allow
+      # exactly that origin so torrent/poster fetches exercise the real paths.
+      - OUTBOUND_PRIVATE_ORIGINS=["http://test-server:8080"]
     volumes:
       - ./data:/app/data
       - ./.coveragerc:/app/.coveragerc:ro
@@ -85,6 +88,8 @@ services:
       - MAGNET_RESOLVE_TIMEOUT_SECONDS=5
       - MAGNET_RESOLVE_RETRY_SECONDS=1
       - API_KEY=test-integration-key
+      # See app: allow the container-private test-server origin explicitly.
+      - OUTBOUND_PRIVATE_ORIGINS=["http://test-server:8080"]
       # Bangumi source points at the test-server's mock (test_bangumi_source.py).
       - BANGUMI_API_KEY=mock-bangumi-key
       - BANGUMI_API_BASE=http://test-server:8080/bangumi/v0
@@ -129,6 +134,7 @@ services:
     environment:
       - DATABASE_URL=sqlite+aioturso:///data/rss_ripple_test_turso.db
       - TEST_SERVER_URL=http://test-server:8080
+      - OUTBOUND_PRIVATE_ORIGINS=["http://test-server:8080"]
       - RSSRIPPLE_URL=http://app:9001
       # Second app instance wired to the mock LLM (tests/integration/http/
       # test_llm_mock.py); skipped automatically when unset.

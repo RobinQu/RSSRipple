@@ -161,10 +161,15 @@ class TestRetryEligibility:
         old = self._res(metadata_attempts=1, metadata_failure_type="transient",
                         last_metadata_attempt_at=now - timedelta(hours=2))
         assert fs._is_retry_eligible(old, now) is True
-        # Backoff is capped at TRANSIENT_BACKOFF_MAX_HOURS.
-        many = self._res(metadata_attempts=10, metadata_failure_type="transient",
-                         last_metadata_attempt_at=now - timedelta(hours=30))
-        assert fs._is_retry_eligible(many, now) is True
+        # Backoff is capped at TRANSIENT_BACKOFF_MAX_HOURS while attempts
+        # remain under METADATA_TRANSIENT_MAX_ATTEMPTS (default 5).
+        capped = self._res(metadata_attempts=4, metadata_failure_type="transient",
+                           last_metadata_attempt_at=now - timedelta(hours=30))
+        assert fs._is_retry_eligible(capped, now) is True
+        # Once the transient attempt budget is exhausted, no more retries.
+        exhausted = self._res(metadata_attempts=10, metadata_failure_type="transient",
+                              last_metadata_attempt_at=now - timedelta(hours=30))
+        assert fs._is_retry_eligible(exhausted, now) is False
 
     def test_not_found_retry_window(self):
         now = utcnow()
@@ -665,7 +670,9 @@ async def test_fetch_compilation_title_marks_batch(db_session, monkeypatch):
         select(FileResource).where(FileResource.channel_id == channel.id)
     )).scalar_one()
     assert res.is_batch is True
-    assert res.batch_scope == "season"
+    # Compilation/archive releases are collection-owned franchise packs and
+    # never dispatch as a season pack, even when detect_batch also matched.
+    assert res.batch_scope == "franchise"
     assert res.search_title == "某作品"
 
 

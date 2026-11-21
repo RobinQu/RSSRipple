@@ -143,7 +143,9 @@ async def test_list_response_and_loading_bounds(loading_database, scale, warm):
                             assert row['active_task_count'] == min(2, scale)
                             assert row['downloader_name'] == 'Synthetic downloader'
                             assert set(row['channel']) == set(ChannelResponse.model_fields)
-                            assert set(row['downloader']) == set(DownloaderResponse.model_fields)
+                            assert set(row['downloader']) == set(DownloaderResponse.model_fields) | set(
+                                DownloaderResponse.model_computed_fields
+                            )
                             assert len(row['works']) == 2
                             target_movie = next(w['movie'] for w in row['works'] if w['content_type'] == 'movie')
                             target_series = next(w['series'] for w in row['works'] if w['content_type'] == 'tv')

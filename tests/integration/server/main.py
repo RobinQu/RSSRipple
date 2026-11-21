@@ -29,6 +29,7 @@ from .mock_llm import router as mock_llm_router
 from .mock_plex import router as mock_plex_router
 from .mock_tmdb import router as mock_tmdb_router
 from .rss_server import (
+    _fake_info_hash,
     generate_dmhy_bad_magnet_feed,
     generate_dmhy_feed,
     generate_eztv_feed,
@@ -39,6 +40,7 @@ from .rss_server import (
 )
 from .test_data import (
     SUBTITLE_GROUPS,
+    TV_SHOWS,
     generate_all_test_files,
     generate_anime_releases,
     generate_movie_releases,
@@ -70,6 +72,23 @@ torrent_service.set_tracker_url(TRACKER_URL)
 test_files = generate_all_test_files()
 for name, tf in test_files.items():
     torrent_service.save_test_file(name, tf.content)
+
+# RSS feeds advertise deterministic synthetic info hashes (``_fake_info_hash``)
+# so the same release always gets the same URL. Build a reverse map from every
+# release the feeds can emit back to its test file, so on-demand downloads work
+# instead of 404ing for feed items that are not part of the lean eager set.
+_FAKE_HASH_TO_TESTFILE = {}
+
+
+def _register_feed_releases(releases) -> None:
+    for release in releases:
+        test_file = getattr(release, "file", None)
+        if test_file is not None:
+            _FAKE_HASH_TO_TESTFILE[_fake_info_hash(test_file.name).lower()] = test_file
+
+
+for _si in range(len(TV_SHOWS)):
+    _register_feed_releases(generate_tv_releases(show_index=_si, episode_count=6))
 
 
 # ─── Health ──────────────────────────────────────────────────────────
@@ -284,8 +303,22 @@ async def tracker_scrape(request: Request):
 
 @app.get("/torrents/{info_hash}.torrent")
 async def serve_torrent(info_hash: str):
-    """Serve a .torrent file by info hash."""
+    """Serve a .torrent file by info hash.
+
+    Feed items intentionally advertise deterministic synthetic hashes that do
+    not equal libtorrent's real info hash. When the exact file is missing, map
+    the synthetic hash back to its test file and build the torrent on demand.
+    """
     data = torrent_service.get_torrent_bytes(info_hash.lower())
+    if not data:
+        test_file = _FAKE_HASH_TO_TESTFILE.get(info_hash.lower())
+        if test_file is not None:
+            try:
+                torrent_service.save_test_file(test_file.name, test_file.content)
+                _, torrent_path = torrent_service.create_torrent(test_file.name)
+                data = Path(torrent_path).read_bytes()
+            except Exception:  # noqa: BLE001 — fall through to 404
+                data = None
     if not data:
         return PlainTextResponse("Torrent not found", status_code=404)
     return Response(content=data, media_type="application/x-bittorrent")

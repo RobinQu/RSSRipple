@@ -50,7 +50,14 @@ async def _exercise(pair, monkeypatch, flow):
             resource = await db.get(FileResource, base['id'])
             channel = await db.get(Channel, base['channel_id'])
             meta = ResourceMetadata(clean_title=recorded['title_cn'], content_type='movie', matched_entity=entity)
+            # The recorded row is a compilation/franchise pack. This flow
+            # exercises a plain work-FK transition, so temporarily hide the
+            # compilation tag during write-back and restore the recorded title
+            # before committing (franchise packs never carry a flat work FK).
+            original_title_raw = resource.title_raw
+            resource.title_raw = recorded['title_cn']
             await _apply_to_resource(meta, resource, channel, db)
+            resource.title_raw = original_title_raw
             await db.commit()
         async with engine.connect() as conn:
             row = (await conn.execute(select(FileResource.__table__))).mappings().one()

@@ -21,6 +21,7 @@ Requirements: Docker test environment (app + test-server).
 
 from __future__ import annotations
 
+import json
 import os
 import time
 import uuid
@@ -541,6 +542,65 @@ class TestResourceListing:
 
     def test_channel_404(self):
         assert _api("/api/v1/channels/no-such/resources").status_code == 404
+
+    def test_keyword_search(self, env):
+        sample = env["res_linked"][0]
+        token = sample["subtitle_group"] or sample["title_raw"][:8]
+        rows = _resources(env["ch_linked"], q=token)
+        assert rows, "keyword search returned no resources"
+        assert sample["id"] in {row["id"] for row in rows}
+        assert all(row["channel_id"] == env["ch_linked"] for row in rows)
+
+    def test_field_filters(self, env):
+        rows = _resources(
+            env["ch_linked"],
+            filters=json.dumps([
+                {"field": "resolution", "operator": "eq", "value": "1080p"},
+            ]),
+        )
+        assert rows, "field filter returned no resources"
+        assert all(row["resolution"] == "1080p" for row in rows)
+
+        rows = _resources(
+            env["ch_linked"],
+            filters=json.dumps([
+                {"field": "resolution", "operator": "ne", "value": "480p"},
+                {"field": "episode", "operator": "in", "value": [1, 2, 3, 4, 5, 6]},
+            ]),
+        )
+        assert rows, "combined field filters returned no resources"
+        assert all(
+            row["resolution"] != "480p" and row["episode"] in (1, 2, 3, 4, 5, 6)
+            for row in rows
+        )
+
+        # Keyword and field conditions are intersected.
+        sample = env["res_linked"][0]
+        rows = _resources(
+            env["ch_linked"],
+            q=sample["subtitle_group"] or sample["title_raw"][:8],
+            filters=json.dumps([
+                {"field": "resolution", "operator": "eq", "value": sample["resolution"]},
+            ]),
+        )
+        assert sample["id"] in {row["id"] for row in rows}
+
+    def test_field_filter_validation(self, env):
+        ch = env["ch_linked"]
+        bad_payloads = [
+            "not-json",
+            "{}",
+            json.dumps([{"field": "nope", "operator": "eq", "value": "x"}]),
+            json.dumps([{"field": "resolution", "operator": "gt", "value": "x"}]),
+            json.dumps([{"field": "resolution", "operator": "eq", "value": ""}]),
+            json.dumps([{"field": "resolution", "operator": "in", "value": "1080p"}]),
+            json.dumps([{"field": "episode", "operator": "eq", "value": "abc"}]),
+            json.dumps([{"field": "is_batch", "operator": "eq", "value": "yes"}]),
+            json.dumps([{"field": "resolution", "operator": "eq", "value": "1080p"}] * 21),
+        ]
+        for payload in bad_payloads:
+            r = _api(f"/api/v1/channels/{ch}/resources", params={"filters": payload})
+            assert r.status_code == 422, (payload, r.text)
 
     def test_field_values(self, env):
         ch = env["ch_linked"]
