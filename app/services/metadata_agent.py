@@ -750,11 +750,15 @@ class UnifiedMetadataAgent:
             enforce_franchise_resource_invariant(resource)
             return None
 
-        # Collection-only / multi-work packs are already associated through
-        # ``collection_id`` or ``resource_work_links`` even though they carry
-        # no flat work FK. Re-running work matching would guess a single
-        # season, overwrite the failure state, and still leave the links
-        # untouched. Treat the existing association as a successful result.
+        # A *previously matched* collection-only / multi-work pack is already
+        # associated through ``collection_id`` or ``resource_work_links`` even
+        # though it carries no flat work FK. Re-running work matching would
+        # guess a single season, overwrite the failure state, and still leave
+        # the links untouched. Treat the existing association as successful.
+        # A fresh resource can also carry a deterministic collection hint from
+        # torrent inspection before its first metadata pass; that must still
+        # run matching to enrich the work details.
+        already_matched = getattr(resource, "metadata_matched_at", None) is not None
         if not (
             getattr(resource, "series_id", None)
             or getattr(resource, "movie_id", None)
@@ -762,7 +766,7 @@ class UnifiedMetadataAgent:
         ):
             from app.services.metadata_service import _has_work_association
 
-            if _has_work_association(resource):
+            if (force_refresh or already_matched) and _has_work_association(resource):
                 resource.metadata_matched_at = resource.metadata_matched_at or utcnow()
                 resource.metadata_attempts = int(
                     getattr(resource, "metadata_attempts", 0) or 0
