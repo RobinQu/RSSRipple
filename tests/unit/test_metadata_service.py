@@ -157,6 +157,42 @@ async def test_raw_title_mapping_links_movie(db_session, channel):
     assert res.search_title == "clean"
 
 
+async def test_collection_association_short_circuits_matching(db_session, channel):
+    """A collection-only pack is already associated; never re-run title search."""
+    coll = WorkCollection(id=_uuid(), title_cn="合集")
+    db_session.add(coll)
+    res = _resource(channel.id, collection_id=coll.id, is_batch=True)
+    db_session.add(res)
+    await db_session.flush()
+
+    with patch.object(ms, "match_series_by_title", new_callable=AsyncMock) as match:
+        await ms.fetch_and_link_metadata(db_session, res, channel)
+
+    match.assert_not_awaited()
+    assert res.series_id is None
+    assert res.movie_id is None
+
+
+async def test_work_links_only_association_short_circuits_matching(db_session, channel):
+    """Links-only packs have no flat FK but are still parsed."""
+    from app.models.resource_work_link import ResourceWorkLink
+
+    s = TVSeries(id=_uuid(), title_cn="剧", content_type="tv", season_number=1)
+    db_session.add(s)
+    res = _resource(channel.id, is_batch=True, batch_scope="multi_season")
+    db_session.add(res)
+    await db_session.flush()
+    db_session.add(ResourceWorkLink(resource_id=res.id, series_id=s.id, source="manual"))
+    await db_session.flush()
+
+    await db_session.refresh(res, ["work_links"])
+    assert ms._has_work_association(res) is True
+    with patch.object(ms, "match_series_by_title", new_callable=AsyncMock) as match:
+        await ms.fetch_and_link_metadata(db_session, res, channel)
+    match.assert_not_awaited()
+    assert res.series_id is None
+
+
 # ---------------------------------------------------------------------------
 # Layer 3: local exact / fuzzy match
 # ---------------------------------------------------------------------------

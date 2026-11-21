@@ -15,8 +15,10 @@ import {
   Copy,
   ExternalLink,
   LayoutGrid,
+  Layers,
   List,
   ListTree,
+  Music,
   Pause,
   Play,
   SlidersHorizontal,
@@ -77,12 +79,16 @@ const { Title, Text } = Typography;
 function groupIcon(type: GroupedResource['type']) {
   if (type === 'series') return <Tv size={14} />;
   if (type === 'movie') return <Film size={14} />;
+  if (type === 'audio') return <Music size={14} />;
+  if (type === 'collection') return <Layers size={14} />;
   return <HelpCircle size={14} />;
 }
 
 function groupColor(type: GroupedResource['type']) {
   if (type === 'series') return 'blue';
   if (type === 'movie') return 'green';
+  if (type === 'audio') return 'magenta';
+  if (type === 'collection') return 'purple';
   return 'default';
 }
 
@@ -903,12 +909,22 @@ export default function ChannelDetail() {
                         return s ? ` · ${s}` : '';
                       })()}
                   </Text>
-                  <WorkInfoIcon
-                    work={g.resources[0]?.series ?? g.resources[0]?.movie ?? null}
-                    isSeries={g.type === 'series'}
-                  />
+                  {(g.type === 'series' || g.type === 'movie') && (
+                    <WorkInfoIcon
+                      work={g.resources[0]?.series ?? g.resources[0]?.movie ?? null}
+                      isSeries={g.type === 'series'}
+                    />
+                  )}
                   <Tag color={groupColor(g.type)} icon={groupIcon(g.type)}>
-                    {g.type === 'series' ? t('dashboard.series') : t('dashboard.movie')}
+                    {g.type === 'series'
+                      ? t('dashboard.series')
+                      : g.type === 'movie'
+                        ? t('dashboard.movie')
+                        : g.type === 'audio'
+                          ? t('work.audio')
+                          : g.type === 'collection'
+                            ? t('channels.groupCollection')
+                            : t('common.unknown')}
                   </Tag>
                   {g.resources.length > 0 && g.resources.every((r) => r.is_batch) && (
                     <Tag color="orange" style={{ fontSize: 11 }}>
@@ -932,10 +948,16 @@ export default function ChannelDetail() {
               >
                 {t('common.selectAll')}
               </Checkbox>
-              {g.id && (g.type === 'series' || g.type === 'movie') && (
+              {g.id && (g.type === 'series' || g.type === 'movie' || g.type === 'collection') && (
                 <Tooltip title={t('channels.openWorkDetail')}>
                   <Link
-                    to={g.type === 'series' ? `/series/${g.id}` : `/movies/${g.id}`}
+                    to={
+                      g.type === 'series'
+                        ? `/series/${g.id}`
+                        : g.type === 'movie'
+                          ? `/movies/${g.id}`
+                          : `/collections/${g.id}`
+                    }
                     onClick={(e) => e.stopPropagation()}
                   >
                     <Button type="text" size="small" icon={<ExternalLink size={14} />} aria-label={t('channels.openWorkDetail')} />

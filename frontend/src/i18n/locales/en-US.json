@@ -324,6 +324,7 @@
     "requiredFieldLock_tv_single": "Required for single episodes",
     "requiredFieldLock_tv_batch": "Required for batch packs",
     "requiredFieldLock_franchise": "Required for multi-work packs",
+    "groupCollection": "Collection",
     "tagBatch": "Batch",
     "requiredFieldGroup_title": "Title",
     "requiredFieldGroup_episode": "Episode",

@@ -2800,6 +2800,31 @@ async def apply_manual_title_mapping(db: AsyncSession, resource: Any, channel: A
     return False
 
 
+def _has_work_association(resource: Any) -> bool:
+    """Whether ``resource`` already carries a work association.
+
+    Multi-work packs and collection-only resources have no flat work FK; their
+    association lives in ``collection_id`` / ``resource_work_links``. Treating
+    those as "unmatched" causes an opened detail drawer to re-run matching and
+    overwrite the resource's failure state without changing the links.
+
+    Only already-loaded relationships are consulted (callers eager-load
+    ``work_links``); this stays synchronous so it never triggers an implicit
+    autoflush from inside the matching pipeline.
+    """
+    if (
+        getattr(resource, "series_id", None)
+        or getattr(resource, "movie_id", None)
+        or getattr(resource, "audio_work_id", None)
+        or getattr(resource, "collection_id", None)
+    ):
+        return True
+    # Read the loaded value directly from ``__dict__`` so an unloaded async
+    # relationship never triggers a lazy load (which would raise
+    # MissingGreenlet and poison the caller's session).
+    return bool(getattr(resource, "__dict__", {}).get("work_links"))
+
+
 async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any) -> None:
     """Match metadata for a newly-created FileResource and set its FKs.
 
@@ -2813,8 +2838,15 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
 
     # Layer 1: already linked.  Reconciliation still has work to do here:
     # older linked rows may gain a trusted sibling correction later.
-    if resource.series_id or resource.movie_id:
-        await reconcile_linked_series_resource(db, resource)
+    if _has_work_association(resource):
+        if resource.series_id or resource.movie_id:
+            await reconcile_linked_series_resource(db, resource)
+        # A previous unmatched attempt may have stamped a stale failure marker
+        # before the association was created. Keep the persisted state coherent.
+        if getattr(resource, "metadata_failure_type", None) is not None:
+            resource.metadata_failure_type = None
+        if getattr(resource, "metadata_matched_at", None) is None:
+            resource.metadata_matched_at = utcnow()
         return
 
     if await apply_manual_title_mapping(db, resource, channel):

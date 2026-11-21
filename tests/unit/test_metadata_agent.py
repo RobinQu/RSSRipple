@@ -875,6 +875,42 @@ async def test_process_force_refresh_bypasses_known_work_short_circuit(db_sessio
     agent._run_search_then_judge.assert_called_once()
 
 
+async def test_process_force_refresh_keeps_collection_association(db_session, sample_channel):
+    """A collection-only multi-work pack must not be re-matched into a single
+    season work on a forced refresh; the existing association is authoritative."""
+    import uuid
+
+    from app.models.file_resource import FileResource
+    from app.models.work_collection import WorkCollection
+
+    coll = WorkCollection(id=str(uuid.uuid4()), title_cn="西部世界")
+    db_session.add(coll)
+    resource = FileResource(
+        id=str(uuid.uuid4()), channel_id=sample_channel.id, guid="westworld",
+        title_raw="Westworld S01-S04 COMPLETE 2160p", search_title="Westworld",
+        torrent_url="magnet:?xt=urn:btih:westworld", is_batch=True,
+        batch_scope="multi_season", collection_id=coll.id,
+        metadata_attempts=8, metadata_failure_type="not_found",
+    )
+    db_session.add(resource)
+    await db_session.commit()
+
+    agent = UnifiedMetadataAgent()
+    agent._run_react = AsyncMock()
+    agent._run_search_then_judge = agent._run_react
+    agent._maybe_web_fallback = AsyncMock()
+
+    res = await agent.process(resource, sample_channel, db_session, force_refresh=True)
+
+    agent._run_react.assert_not_called()
+    assert res is not None and res.found is True
+    assert resource.series_id is None
+    assert resource.movie_id is None
+    assert resource.collection_id == coll.id
+    assert resource.metadata_failure_type is None
+    assert resource.metadata_attempts == 9
+
+
 async def test_process_short_circuit_matches_season_suffixed_title(db_session, sample_channel):
     """S1 strips season from both sides: a resource titled "X 第四季" matches a
     series titled "X" (base). Catches the Slime-style mismatch."""

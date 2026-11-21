@@ -750,6 +750,31 @@ class UnifiedMetadataAgent:
             enforce_franchise_resource_invariant(resource)
             return None
 
+        # Collection-only / multi-work packs are already associated through
+        # ``collection_id`` or ``resource_work_links`` even though they carry
+        # no flat work FK. Re-running work matching would guess a single
+        # season, overwrite the failure state, and still leave the links
+        # untouched. Treat the existing association as a successful result.
+        if not (
+            getattr(resource, "series_id", None)
+            or getattr(resource, "movie_id", None)
+            or getattr(resource, "audio_work_id", None)
+        ):
+            from app.services.metadata_service import _has_work_association
+
+            if _has_work_association(resource):
+                resource.metadata_matched_at = resource.metadata_matched_at or utcnow()
+                resource.metadata_attempts = int(
+                    getattr(resource, "metadata_attempts", 0) or 0
+                ) + 1
+                resource.last_metadata_attempt_at = utcnow()
+                resource.metadata_failure_type = None
+                return ResourceMetadata(
+                    clean_title=resource.search_title or raw_title,
+                    found=True,
+                    content_type="tv",
+                )
+
         if (resource.series_id or resource.movie_id) and not force_refresh:
             from app.services.metadata_service import reconcile_linked_series_resource
 

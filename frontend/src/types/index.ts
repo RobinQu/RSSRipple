@@ -173,7 +173,7 @@ export interface FileResourceDetail extends FileResource {
 }
 
 export interface GroupedResource {
-  type: 'series' | 'movie' | 'unknown';
+  type: 'series' | 'movie' | 'audio' | 'collection' | 'unknown';
   id: string | null;
   title: string;
   poster_url: string | null;

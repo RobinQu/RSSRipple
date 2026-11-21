@@ -322,7 +322,10 @@ async def _process_resource_metadata_once(
         try:
             result = await task_db.execute(
                 select(FileResource)
-                .options(selectinload(FileResource.file_assignments))
+                .options(
+                    selectinload(FileResource.file_assignments),
+                    selectinload(FileResource.work_links),
+                )
                 .where(FileResource.id == resource_id)
             )
             resource = result.scalar_one_or_none()
@@ -640,6 +643,7 @@ async def _backfill_unmatched_resources(
             selectinload(FileResource.movie),
             selectinload(FileResource.audio_work),
             selectinload(FileResource.collection),
+            selectinload(FileResource.work_links),
         )
         .order_by(
             FileResource.last_metadata_attempt_at.asc().nullsfirst(),
@@ -718,6 +722,7 @@ async def backfill_unmatched_resources_global(db: AsyncSession, limit: int = MAX
             selectinload(FileResource.movie),
             selectinload(FileResource.audio_work),
             selectinload(FileResource.collection),
+            selectinload(FileResource.work_links),
         )
         .where(or_(Channel.metadata_agent_enabled.is_(True), has_work))
         .order_by(

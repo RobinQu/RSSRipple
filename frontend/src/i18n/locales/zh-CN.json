@@ -324,6 +324,7 @@
     "requiredFieldLock_tv_single": "单集剧集必填",
     "requiredFieldLock_tv_batch": "合集剧集必填",
     "requiredFieldLock_franchise": "多作品合集必填",
+    "groupCollection": "合集",
     "tagBatch": "合集",
     "requiredFieldGroup_title": "标题信息",
     "requiredFieldGroup_episode": "集数信息",

@@ -157,13 +157,15 @@ Metadata source 的 `found=false` 不是作品标题匹配证据，不得用其 
 
 缓存命中顺序区分 verdict：成功与 `non_work` 可直接返回；普通 `not_found` 必须先让上述本地历史标题索引尝试短路，只有仍未识别时才应用缓存 miss，避免较早的搜索失败压住后来形成的人工修订/兄弟资源成功证据。franchise 资源一旦进入 collection 形态，随后普通 title-level metadata 即使命中单个作品也不得恢复 `series_id/movie_id/audio_work_id`，collection 所有权与 flat FK 互斥不变量始终优先。
 
+**已关联资源不得重新匹配**：`collection_id` 或 `resource_work_links` 已存在的多作品/合集形态资源（典型为 `multi_season` 包）即使没有 flat 作品 FK，也视为已链接。详情抽屉的 `GET /resources/{id}/metadata`（`fetch_and_link_metadata`）直接返回，后台 backfill / 手动 reparse 的 `metadata_agent.process(force_refresh=True)` 同样短路并记录一次成功尝试，绝不把多季包猜成单季作品、也不覆盖既有 `metadata_failure_type`。
+
 入口：`fetch_and_link_metadata(db, resource, channel)`。
 
 ```
 fetch_and_link_metadata(resource, channel, db)
   │
   ├─ Layer 1: 已链接 → 直接返回
-  │     if resource.series_id or resource.movie_id: return
+  │     if series_id/movie_id/audio_work_id/collection_id 或存在 resource_work_links: return
   │
   ├─ Layer 2: ChannelRawTitleMapping（search_title_key 优先，raw_title fallback）
   │     search_key = normalize_title(extract_search_title(resource))

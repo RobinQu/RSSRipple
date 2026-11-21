@@ -885,6 +885,48 @@ class TestResourceMatchedFilter:
         r = (await client.get(base)).json()
         assert r["meta"]["total"] == 3
 
+    async def test_matched_includes_collection_and_work_links(
+        self, client, sample_channel, db_session_factory
+    ):
+        """Collection-only / multi-work packs are parsed even without a flat FK."""
+        from app.models.resource_work_link import ResourceWorkLink
+        from app.models.series import TVSeries
+        from app.models.work_collection import WorkCollection
+
+        cid, sid = _uuid(), _uuid()
+        async with db_session_factory() as s:
+            s.add(WorkCollection(id=cid, title_cn="合集"))
+            s.add(TVSeries(id=sid, title_cn="剧", content_type="tv", season_number=1))
+            await s.commit()
+        await _make_resource(
+            db_session_factory, sample_channel.id,
+            title_raw="C1", collection_id=cid, is_batch=True,
+            batch_scope="multi_season",
+        )
+        links_rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            title_raw="L1", is_batch=True, batch_scope="multi_season",
+        )
+        async with db_session_factory() as s:
+            s.add(ResourceWorkLink(resource_id=links_rid, series_id=sid, source="manual"))
+            await s.commit()
+        await _make_resource(db_session_factory, sample_channel.id, title_raw="U1")
+        base = f"/api/v1/channels/{sample_channel.id}/resources"
+
+        r = (await client.get(f"{base}?matched=true")).json()
+        assert r["meta"]["total"] == 2
+        assert {d["title_raw"] for d in r["data"]} == {"C1", "L1"}
+
+        r = (await client.get(f"{base}?matched=false")).json()
+        assert r["meta"]["total"] == 1
+        assert r["data"][0]["title_raw"] == "U1"
+
+        # Grouped parsed view must keep them visible instead of dropping them.
+        r = (await client.get(f"{base}?grouped=true&matched=true")).json()
+        groups = r["data"]["groups"]
+        assert {g["type"] for g in groups} == {"collection"}
+        assert sum(len(g["resources"]) for g in groups) == 2
+
     async def test_matched_true_grouped_excludes_unknown(self, client, sample_channel, db_session_factory):
         from app.models.series import TVSeries
         await _make_resource(db_session_factory, sample_channel.id, title_raw="U1")  # unmatched

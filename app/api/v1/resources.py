@@ -9,7 +9,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import func, not_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -255,6 +255,25 @@ _LIST_DATETIME_FIELDS = (
 )
 
 
+def _has_work_association_filter():
+    """SQL predicate for "this resource is linked to a work".
+
+    Flat work FKs cover single-work resources. Multi-work packs and
+    collection-only resources carry their associations in ``collection_id``
+    and ``resource_work_links`` instead, so the parsed/unparsed tabs must
+    consider those too.
+    """
+    return or_(
+        FileResource.series_id.isnot(None),
+        FileResource.movie_id.isnot(None),
+        FileResource.audio_work_id.isnot(None),
+        FileResource.collection_id.isnot(None),
+        select(ResourceWorkLink.id)
+        .where(ResourceWorkLink.resource_id == FileResource.id)
+        .exists(),
+    )
+
+
 def _serialize_list_resource(
     resource: FileResource,
     task_status_by_id: dict[str, str],
@@ -423,22 +442,18 @@ async def list_resources(
         FileResource.channel_id == channel_id, *search_conditions
     )
     # Filter by metadata link state so the channel page can show parsed vs
-    # unparsed resources in separate tabs. In grouped mode, matched=True drops
-    # the synthetic "unknown" bucket (its count query returns 0).
+    # unparsed resources in separate tabs. A resource counts as parsed when it
+    # has any work association: a flat series/movie/audio FK, a collection
+    # pointer, or a ``resource_work_links`` row (multi-work packs carry their
+    # associations there). Group aggregation below reuses the same predicate.
+    association_filter = _has_work_association_filter()
+    state_conditions = []
     if matched is True:
-        base_q = base_q.where(
-            or_(
-                FileResource.series_id.isnot(None),
-                FileResource.movie_id.isnot(None),
-                FileResource.audio_work_id.isnot(None),
-            )
-        )
+        state_conditions.append(association_filter)
     elif matched is False:
-        base_q = base_q.where(
-            FileResource.series_id.is_(None),
-            FileResource.movie_id.is_(None),
-            FileResource.audio_work_id.is_(None),
-        )
+        state_conditions.append(not_(association_filter))
+    if state_conditions:
+        base_q = base_q.where(*state_conditions)
 
     if grouped:
         # Paginate by WORK GROUP (not by row). A group is a TVSeries, a Movie,
@@ -458,6 +473,7 @@ async def list_resources(
             .where(
                 FileResource.channel_id == channel_id,
                 *search_conditions,
+                *state_conditions,
                 FileResource.series_id.isnot(None),
             )
             .group_by(FileResource.series_id)
@@ -467,6 +483,7 @@ async def list_resources(
             .where(
                 FileResource.channel_id == channel_id,
                 *search_conditions,
+                *state_conditions,
                 FileResource.movie_id.isnot(None),
             )
             .group_by(FileResource.movie_id)
@@ -476,18 +493,54 @@ async def list_resources(
             .where(
                 FileResource.channel_id == channel_id,
                 *search_conditions,
+                *state_conditions,
                 FileResource.audio_work_id.isnot(None),
             )
             .group_by(FileResource.audio_work_id)
         )).all()
+        # Collection-only / multi-work packs have no flat work FK. Group them
+        # by their collection pointer so they stay visible in the parsed tab
+        # instead of falling into the synthetic "unknown" bucket.
+        _no_flat_work = (
+            FileResource.series_id.is_(None),
+            FileResource.movie_id.is_(None),
+            FileResource.audio_work_id.is_(None),
+        )
+        collection_groups = (await db.execute(
+            select(FileResource.collection_id, func.max(pub_col))
+            .where(
+                FileResource.channel_id == channel_id,
+                *search_conditions,
+                *state_conditions,
+                *_no_flat_work,
+                FileResource.collection_id.isnot(None),
+            )
+            .group_by(FileResource.collection_id)
+        )).all()
+        links_only_last = (await db.execute(
+            select(func.max(pub_col), func.count())
+            .where(
+                FileResource.channel_id == channel_id,
+                *search_conditions,
+                *state_conditions,
+                *_no_flat_work,
+                FileResource.collection_id.is_(None),
+                select(ResourceWorkLink.id)
+                .where(ResourceWorkLink.resource_id == FileResource.id)
+                .exists(),
+            )
+        )).one()
         unknown_last = (await db.execute(
             select(func.max(pub_col), func.count())
             .where(
                 FileResource.channel_id == channel_id,
                 *search_conditions,
-                FileResource.series_id.is_(None),
-                FileResource.movie_id.is_(None),
-                FileResource.audio_work_id.is_(None),
+                *state_conditions,
+                *_no_flat_work,
+                FileResource.collection_id.is_(None),
+                not_(select(ResourceWorkLink.id)
+                    .where(ResourceWorkLink.resource_id == FileResource.id)
+                    .exists()),
             )
         )).one()
 
@@ -498,6 +551,10 @@ async def list_resources(
             entries.append(("movie", mid, ts))
         for aid, ts in audio_groups:
             entries.append(("audio", aid, ts))
+        for cid, ts in collection_groups:
+            entries.append(("collection", cid, ts))
+        if links_only_last[1] and links_only_last[1] > 0:
+            entries.append(("collection", None, links_only_last[0]))
         # The synthetic "unknown" bucket holds unmatched resources; it is only
         # relevant when the caller wants unmatched or all resources. Skip it for
         # matched=True so the parsed tab shows only linked work-groups.
@@ -517,11 +574,19 @@ async def list_resources(
         series_ids_on_page = [tid for typ, tid, _ in page_entries if typ == "series"]
         movie_ids_on_page = [tid for typ, tid, _ in page_entries if typ == "movie"]
         audio_ids_on_page = [tid for typ, tid, _ in page_entries if typ == "audio"]
+        collection_ids_on_page = [
+            tid for typ, tid, _ in page_entries if typ == "collection" and tid
+        ]
+        has_links_only_on_page = any(
+            typ == "collection" and tid is None for typ, tid, _ in page_entries
+        )
         has_unknown_on_page = any(typ == "unknown" for typ, _, _ in page_entries)
 
         resource_by_series: dict[str, list[FileResource]] = {}
         resource_by_movie: dict[str, list[FileResource]] = {}
         resource_by_audio: dict[str, list[FileResource]] = {}
+        resource_by_collection: dict[str, list[FileResource]] = {}
+        links_only_resources: list[FileResource] = []
         unknown_resources: list[FileResource] = []
 
         _load_opts = (
@@ -555,13 +620,38 @@ async def list_resources(
             )).scalars().all()
             for r in rs:
                 resource_by_audio.setdefault(r.audio_work_id, []).append(r)
+        if collection_ids_on_page:
+            rs = (await db.execute(
+                base_q.options(*_load_opts)
+                .where(
+                    *_no_flat_work,
+                    FileResource.collection_id.in_(collection_ids_on_page),
+                )
+                .order_by(FileResource.published_at.desc())
+            )).scalars().all()
+            for r in rs:
+                resource_by_collection.setdefault(r.collection_id, []).append(r)
+        if has_links_only_on_page:
+            links_only_resources = list((await db.execute(
+                base_q.options(*_load_opts)
+                .where(
+                    *_no_flat_work,
+                    FileResource.collection_id.is_(None),
+                    select(ResourceWorkLink.id)
+                    .where(ResourceWorkLink.resource_id == FileResource.id)
+                    .exists(),
+                )
+                .order_by(FileResource.published_at.desc())
+            )).scalars().all())
         if has_unknown_on_page:
             unknown_resources = list((await db.execute(
                 base_q.options(*_load_opts)
                 .where(
-                    FileResource.series_id.is_(None),
-                    FileResource.movie_id.is_(None),
-                    FileResource.audio_work_id.is_(None),
+                    *_no_flat_work,
+                    FileResource.collection_id.is_(None),
+                    not_(select(ResourceWorkLink.id)
+                        .where(ResourceWorkLink.resource_id == FileResource.id)
+                        .exists()),
                 )
                 .order_by(FileResource.published_at.desc())
             )).scalars().all())
@@ -570,7 +660,8 @@ async def list_resources(
             resource
             for buckets in (
                 resource_by_series.values(), resource_by_movie.values(),
-                resource_by_audio.values(), [unknown_resources],
+                resource_by_audio.values(), resource_by_collection.values(),
+                [links_only_resources, unknown_resources],
             )
             for resources in buckets
             for resource in resources
@@ -616,6 +707,28 @@ async def list_resources(
                     "id": tid,
                     "title": (a.original_title or a.title_cn or a.title_en or tid) if a else tid,
                     "poster_url": a.poster_url if a else None,
+                    "last_update": _json_ts(last_ts),
+                    "resources": [_serialize_list_resource(r, task_status_by_id, pending_decision_ids) for r in items],
+                })
+            elif typ == "collection":
+                if tid:
+                    items = resource_by_collection.get(tid, [])
+                    if not items:
+                        continue
+                    c = items[0].collection
+                    title = (c.title_cn or c.title_en or tid) if c else tid
+                    poster = c.poster_url if c else None
+                else:
+                    items = links_only_resources
+                    if not items:
+                        continue
+                    title = "多作品合集"
+                    poster = None
+                out.append({
+                    "type": "collection",
+                    "id": tid,
+                    "title": title,
+                    "poster_url": poster,
                     "last_update": _json_ts(last_ts),
                     "resources": [_serialize_list_resource(r, task_status_by_id, pending_decision_ids) for r in items],
                 })
@@ -783,6 +896,8 @@ async def get_resource_metadata(resource_id: str, db: AsyncSession = Depends(get
             selectinload(FileResource.series).selectinload(_TVSeries.collection),
             selectinload(FileResource.movie).selectinload(_Movie.collection),
             selectinload(FileResource.audio_work),
+            selectinload(FileResource.collection),
+            selectinload(FileResource.work_links),
         ],
     )
     if not resource:
