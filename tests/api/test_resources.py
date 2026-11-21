@@ -39,6 +39,8 @@ class TestResourceList:
         res = await client.get(f"/api/v1/channels/{sample_channel.id}/resources")
         assert res.status_code == 200
         assert res.json()["meta"]["total"] >= 1
+        # API timestamps keep the project-wide ISO 8601 UTC contract.
+        assert res.json()["data"][0]["created_at"].endswith("Z")
 
     async def test_list_grouped(self, client, sample_channel, db_session_factory):
         await _make_resource(db_session_factory, sample_channel.id, title_raw="R-group")
@@ -47,6 +49,142 @@ class TestResourceList:
         assert "groups" in res.json()["data"]
         groups = res.json()["data"]["groups"]
         assert any(g["type"] == "unknown" for g in groups)
+
+    async def test_keyword_search_matches_resource_text_and_tokens(
+        self, client, sample_channel, db_session_factory
+    ):
+        await _make_resource(
+            db_session_factory, sample_channel.id,
+            title_raw="[LoliHouse] Fate/Zero - 01 [1080p]",
+            resolution="1080p",
+        )
+        await _make_resource(
+            db_session_factory, sample_channel.id,
+            title_raw="[Other] Unrelated Show - 02 [720p]",
+            resolution="720p",
+        )
+        base = f"/api/v1/channels/{sample_channel.id}/resources"
+        # Case-insensitive substring over the raw title.
+        r = (await client.get(f"{base}?q=FATE")).json()
+        assert r["meta"]["total"] == 1
+        assert "Fate/Zero" in r["data"][0]["title_raw"]
+        # Multi-token query is AND-ed across resource fields.
+        r = (await client.get(f"{base}?q=fate 1080P")).json()
+        assert r["meta"]["total"] == 1
+        # No match -> empty page, not the unfiltered list.
+        r = (await client.get(f"{base}?q=does-not-exist")).json()
+        assert r["meta"]["total"] == 0
+        assert r["data"] == []
+
+    async def test_keyword_search_matches_linked_work_title_via_fts(
+        self, client, sample_channel, db_session_factory
+    ):
+        sid = _uuid()
+        async with db_session_factory() as s:
+            from app.models.series import TVSeries
+
+            s.add(TVSeries(
+                id=sid, title_cn="葬送的芙莉莲", title_en="Frieren",
+                original_title="Sousou no Frieren", content_type="tv", season_number=1,
+            ))
+            await s.commit()
+        await _make_resource(
+            db_session_factory, sample_channel.id,
+            title_raw="[Group] Some Release - 03 [1080p]", series_id=sid,
+        )
+        await _make_resource(
+            db_session_factory, sample_channel.id,
+            title_raw="[Group] Another Release - 04 [1080p]",
+        )
+        base = f"/api/v1/channels/{sample_channel.id}/resources"
+        r = (await client.get(f"{base}?q=芙莉莲")).json()
+        assert r["meta"]["total"] == 1
+        assert r["data"][0]["series_id"] == sid
+        r = (await client.get(f"{base}?q=Frieren")).json()
+        assert r["meta"]["total"] == 1
+        assert r["data"][0]["series_id"] == sid
+
+    async def test_field_filters_apply_before_pagination(
+        self, client, sample_channel, db_session_factory
+    ):
+        import json as _json
+
+        for idx in range(3):
+            await _make_resource(
+                db_session_factory, sample_channel.id,
+                title_raw=f"1080-{idx}", resolution="1080p", season=1,
+                title_year=2024,
+            )
+        await _make_resource(
+            db_session_factory, sample_channel.id,
+            title_raw="720-only", resolution="720p", season=2, title_year=2020,
+        )
+        base = f"/api/v1/channels/{sample_channel.id}/resources"
+        filters = _json.dumps([
+            {"field": "resolution", "operator": "eq", "value": "1080P"},
+            {"field": "title_year", "operator": "gte", "value": 2023},
+        ])
+        r = (await client.get(f"{base}?filters={filters}&page=1&page_size=2")).json()
+        assert r["meta"]["total"] == 3
+        assert len(r["data"]) == 2
+        assert {item["resolution"] for item in r["data"]} == {"1080p"}
+
+        filters = _json.dumps([
+            {"field": "season", "operator": "in", "value": [2]},
+        ])
+        r = (await client.get(f"{base}?filters={filters}")).json()
+        assert r["meta"]["total"] == 1
+        assert r["data"][0]["title_raw"] == "720-only"
+
+        filters = _json.dumps([
+            {"field": "subtitle_group", "operator": "is_empty"},
+        ])
+        r = (await client.get(f"{base}?filters={filters}")).json()
+        assert r["meta"]["total"] == 4
+
+    async def test_grouped_search_filters_groups_and_total(
+        self, client, sample_channel, db_session_factory
+    ):
+        sid = _uuid()
+        other_sid = _uuid()
+        async with db_session_factory() as s:
+            from app.models.series import TVSeries
+
+            s.add_all([
+                TVSeries(id=sid, title_cn="目标作品", content_type="tv", season_number=1),
+                TVSeries(id=other_sid, title_cn="其他作品", content_type="tv", season_number=1),
+            ])
+            await s.commit()
+        await _make_resource(
+            db_session_factory, sample_channel.id,
+            title_raw="[G] 目标作品 - 01 [1080p]", series_id=sid,
+        )
+        await _make_resource(
+            db_session_factory, sample_channel.id,
+            title_raw="[G] 其他作品 - 01 [1080p]", series_id=other_sid,
+        )
+        r = await client.get(
+            f"/api/v1/channels/{sample_channel.id}/resources?grouped=true&matched=true&q=目标"
+        )
+        payload = r.json()
+        assert payload["meta"]["total"] == 1
+        groups = payload["data"]["groups"]
+        assert len(groups) == 1
+        assert groups[0]["id"] == sid
+        assert len(groups[0]["resources"]) == 1
+
+    async def test_invalid_filters_return_422(self, client, sample_channel):
+        base = f"/api/v1/channels/{sample_channel.id}/resources"
+        for raw in (
+            "not-json",
+            '{"field": "resolution"}',
+            '[{"field": "nope", "operator": "eq", "value": "x"}]',
+            '[{"field": "resolution", "operator": "eq", "value": ""}]',
+            '[{"field": "season", "operator": "gt"}]',
+        ):
+            r = await client.get(f"{base}?filters={raw}")
+            assert r.status_code == 422, raw
+            assert r.json()["error"]["code"] == "VALIDATION_ERROR"
 
     async def test_list_marks_resources_with_any_download_task(
         self, client, sample_channel, sample_downloader, db_session_factory

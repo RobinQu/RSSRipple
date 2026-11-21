@@ -26,7 +26,7 @@ from app.models.movie import Movie as _Movie
 from app.models.resource_file_assignment import ResourceFileAssignment
 from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries as _TVSeries
-from app.schemas.common import api_json, paginated_response, success_response
+from app.schemas.common import api_json, error_response_dict, success_response
 from app.schemas.file_resource import (
     EpisodeCorrectionRequest,
     FileResourceDetailResponse,
@@ -40,7 +40,13 @@ from app.services import task_queue as task_queue_module  # live queue singleton
 from app.services.agent_resource_requests import request_channel_resources, wake_agents
 from app.services.metadata_cache_store import cache_identity, store_cache
 from app.services.metadata_service import fetch_and_link_metadata
+from app.services.resource_search import (
+    ResourceFilterError,
+    matching_resource_ids,
+    parse_resource_filters,
+)
 from app.services.torrent_inspect import ensure_torrent_cached, maybe_inspect_torrent
+from app.utils.time import utc_isoformat
 
 router = APIRouter()
 
@@ -186,6 +192,69 @@ async def _pending_decision_resource_ids(
     return resource_ids & candidate_ids
 
 
+def _json_ts(value: object | None) -> str | None:
+    if value is None:
+        return None
+    return utc_isoformat(value)  # type: ignore[arg-type]
+
+
+def _iso_date(value: object | None) -> str | None:
+    if value is None:
+        return None
+    isoformat = getattr(value, "isoformat", None)
+    return isoformat() if callable(isoformat) else None
+
+
+def _work_ref_summary(work: object | None) -> dict | None:
+    """Trim the embedded work relation for list rows.
+
+    The list response embeds the linked work as ``series`` / ``movie`` /
+    ``audio_work``. Serializing the full ORM object drags in search text,
+    descriptions, aliases and every eager-loaded child, which dominates the
+    grouped (all-resources-per-group) payload. The frontend only reads the
+    display fields below; the detail endpoint keeps the full object.
+    """
+    if work is None:
+        return None
+    collection = getattr(work, "collection", None)
+    return {
+        "id": getattr(work, "id", None),
+        "title_cn": getattr(work, "title_cn", None),
+        "title_en": getattr(work, "title_en", None),
+        "original_title": getattr(work, "original_title", None),
+        "poster_url": getattr(work, "poster_url", None),
+        "genre": getattr(work, "genre", None),
+        "status": getattr(work, "status", None),
+        "is_anime": getattr(work, "is_anime", None),
+        "rating": getattr(work, "rating", None),
+        "number_of_seasons": getattr(work, "number_of_seasons", None),
+        "season_number": getattr(work, "season_number", None),
+        "number_of_episodes": getattr(work, "number_of_episodes", None),
+        "start_date": _iso_date(getattr(work, "start_date", None)),
+        "release_date": _iso_date(getattr(work, "release_date", None)),
+        "description": getattr(work, "description", None),
+        "collection_id": getattr(work, "collection_id", None),
+        "collection": (
+            None
+            if collection is None
+            else {
+                "title_cn": getattr(collection, "title_cn", None),
+                "title_en": getattr(collection, "title_en", None),
+            }
+        ),
+    }
+
+
+_LIST_DATETIME_FIELDS = (
+    "created_at",
+    "updated_at",
+    "published_at",
+    "parsed_at",
+    "metadata_matched_at",
+    "last_metadata_attempt_at",
+)
+
+
 def _serialize_list_resource(
     resource: FileResource,
     task_status_by_id: dict[str, str],
@@ -193,13 +262,34 @@ def _serialize_list_resource(
 ) -> dict:
     payload = FileResourceResponse.model_validate(resource)
     status = task_status_by_id.get(resource.id)
-    return payload.model_copy(
+    data = payload.model_copy(
         update={
             "has_download_task": status is not None,
             "download_status": status,
             "pending_decision": resource.id in pending_decision_ids,
         }
-    ).model_dump()
+    ).model_dump(exclude={"series", "movie", "audio_work"})
+    for field in _LIST_DATETIME_FIELDS:
+        if data.get(field) is not None:
+            data[field] = utc_isoformat(data[field])
+    data["series"] = _work_ref_summary(resource.series)
+    data["movie"] = _work_ref_summary(resource.movie)
+    data["audio_work"] = _work_ref_summary(resource.audio_work)
+    return data
+
+
+def _list_response(data: object, meta: dict) -> JSONResponse:
+    """Build a list response directly, skipping the per-value re-encoding.
+
+    ``_serialize_list_resource`` already emits JSON-native values (Pydantic
+    ``mode="json"`` + explicitly formatted dates), so running the payload
+    through ``jsonable_encoder`` again is pure overhead. Grouped pages can
+    contain thousands of resources; ``JSONResponse`` (stdlib ``json.dumps``)
+    keeps the search/list latency bounded.
+    """
+    return JSONResponse(
+        content={"success": True, "data": data, "error": None, "meta": meta}
+    )
 
 
 def _batch_analysis_fingerprint(resource: FileResource, files: list[dict]) -> str:
@@ -285,6 +375,18 @@ async def list_resources(
         None,
         description="Filter by link state: true=linked to a work, false=unmatched.",
     ),
+    q: str | None = Query(
+        None,
+        max_length=200,
+        description="Keyword fuzzy search over resource and linked work titles.",
+    ),
+    filters: str | None = Query(
+        None,
+        description=(
+            "JSON array of field conditions (implicitly AND-ed): "
+            '[{"field": "resolution", "operator": "eq", "value": "1080p"}].'
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     ch = await db.get(Channel, channel_id)
@@ -293,7 +395,33 @@ async def list_resources(
             status_code=404,
             content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Channel not found"}},
         )
-    base_q = select(FileResource).where(FileResource.channel_id == channel_id)
+    try:
+        parsed_filters = parse_resource_filters(filters)
+    except ResourceFilterError as exc:
+        return JSONResponse(
+            status_code=422,
+            content=error_response_dict("VALIDATION_ERROR", str(exc)),
+        )
+    matching_ids = await matching_resource_ids(
+        db, channel_id, query=q, conditions=parsed_filters
+    )
+    if matching_ids is not None and not matching_ids:
+        if grouped:
+            return _list_response(
+                {"groups": []},
+                meta={"total": 0, "page": page, "page_size": page_size},
+            )
+        return _list_response(
+            [], meta={"total": 0, "page": page, "page_size": page_size}
+        )
+    # ``None`` = no search/filter requested; otherwise restrict every query
+    # below (group aggregation, counts and row loads) to the matched set.
+    search_conditions = (
+        [] if matching_ids is None else [FileResource.id.in_(matching_ids)]
+    )
+    base_q = select(FileResource).where(
+        FileResource.channel_id == channel_id, *search_conditions
+    )
     # Filter by metadata link state so the channel page can show parsed vs
     # unparsed resources in separate tabs. In grouped mode, matched=True drops
     # the synthetic "unknown" bucket (its count query returns 0).
@@ -327,18 +455,27 @@ async def list_resources(
         # this stays cheap even for feeds with tens of thousands of rows.
         series_groups = (await db.execute(
             select(FileResource.series_id, func.max(pub_col))
-            .where(FileResource.channel_id == channel_id, FileResource.series_id.isnot(None))
+            .where(
+                FileResource.channel_id == channel_id,
+                *search_conditions,
+                FileResource.series_id.isnot(None),
+            )
             .group_by(FileResource.series_id)
         )).all()
         movie_groups = (await db.execute(
             select(FileResource.movie_id, func.max(pub_col))
-            .where(FileResource.channel_id == channel_id, FileResource.movie_id.isnot(None))
+            .where(
+                FileResource.channel_id == channel_id,
+                *search_conditions,
+                FileResource.movie_id.isnot(None),
+            )
             .group_by(FileResource.movie_id)
         )).all()
         audio_groups = (await db.execute(
             select(FileResource.audio_work_id, func.max(pub_col))
             .where(
                 FileResource.channel_id == channel_id,
+                *search_conditions,
                 FileResource.audio_work_id.isnot(None),
             )
             .group_by(FileResource.audio_work_id)
@@ -347,6 +484,7 @@ async def list_resources(
             select(func.max(pub_col), func.count())
             .where(
                 FileResource.channel_id == channel_id,
+                *search_conditions,
                 FileResource.series_id.is_(None),
                 FileResource.movie_id.is_(None),
                 FileResource.audio_work_id.is_(None),
@@ -452,7 +590,7 @@ async def list_resources(
                     "id": tid,
                     "title": (s.original_title or s.title_cn or s.title_en or tid) if s else tid,
                     "poster_url": s.poster_url if s else None,
-                    "last_update": last_ts,
+                    "last_update": _json_ts(last_ts),
                     "resources": [_serialize_list_resource(r, task_status_by_id, pending_decision_ids) for r in items],
                 })
             elif typ == "movie":
@@ -465,7 +603,7 @@ async def list_resources(
                     "id": tid,
                     "title": (m.original_title or m.title_cn or m.title_en or tid) if m else tid,
                     "poster_url": m.poster_url if m else None,
-                    "last_update": last_ts,
+                    "last_update": _json_ts(last_ts),
                     "resources": [_serialize_list_resource(r, task_status_by_id, pending_decision_ids) for r in items],
                 })
             elif typ == "audio":
@@ -478,7 +616,7 @@ async def list_resources(
                     "id": tid,
                     "title": (a.original_title or a.title_cn or a.title_en or tid) if a else tid,
                     "poster_url": a.poster_url if a else None,
-                    "last_update": last_ts,
+                    "last_update": _json_ts(last_ts),
                     "resources": [_serialize_list_resource(r, task_status_by_id, pending_decision_ids) for r in items],
                 })
             else:  # unknown
@@ -487,14 +625,14 @@ async def list_resources(
                     "id": None,
                     "title": "未识别",
                     "poster_url": None,
-                    "last_update": last_ts,
+                    "last_update": _json_ts(last_ts),
                     "resources": [
                         _serialize_list_resource(r, task_status_by_id, pending_decision_ids)
                         for r in unknown_resources
                     ],
                 })
 
-        return success_response(
+        return _list_response(
             {"groups": out},
             meta={"total": total_groups, "page": page, "page_size": page_size},
         )
@@ -515,9 +653,9 @@ async def list_resources(
     resources = result.scalars().all()
     task_status_by_id = await _latest_task_status_by_resource(db, resources)
     pending_decision_ids = await _pending_decision_resource_ids(db, channel_id, resources)
-    return paginated_response(
+    return _list_response(
         [_serialize_list_resource(r, task_status_by_id, pending_decision_ids) for r in resources],
-        total=total, page=page, page_size=page_size,
+        meta={"total": total, "page": page, "page_size": page_size},
     )
 
 

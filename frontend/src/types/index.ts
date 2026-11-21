@@ -636,6 +636,20 @@ export interface BoolCondition {
 
 export type FilterConfig = BoolCondition;
 
+// Channel resource-list field filters (JSON array query param, implicitly
+// AND-ed). Separate from the Agent Filter DSL: only resource-local fields are
+// supported. Backed by app/services/resource_search.py.
+export type {
+  ResourceFilterField,
+  ResourceFilterFieldType,
+} from '../constants/resourceFilters';
+
+export interface ResourceFilterCondition {
+  field: import('../constants/resourceFilters').ResourceFilterField;
+  operator: FilterOperator;
+  value?: string | number | boolean | string[];
+}
+
 // Agent
 export type AgentStatus = 'active' | 'paused' | 'error';
 

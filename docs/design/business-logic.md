@@ -965,6 +965,10 @@ PostgreSQL 按主键游标前进，分批锁定最多 500 个候选父行（FOR 
 Agent 运行的扫描阶段只加载频道配置；执行规则阶段显式加载 works。process_resources 在未加载持久化 works 时显式读取，保留已加载的本事务规则修改。订阅上限校验在既有父锁内用 COUNT，保持限定范围最多 10、全范围例外及并发语义。
 
 
+### 频道资源列表搜索与字段过滤
+
+频道资源列表的关键字搜索（`q`）不做资源级 FTS 复刻：资源侧用有界 SQL `LIKE` 匹配发布文本，作品侧直接复用既有作品 FTS（Turso ngram 边车 / PostgreSQL `search_text` + pg_trgm）取得候选作品 id，再按资源 FK 与 `resource_work_links` 命中，因此作品标题改动天然保持一致。多 token 查询按 token AND、token 内 raw/归一化形式 OR；不在请求路径写索引。字段过滤（`filters`）只暴露资源本地字段，复用 `filter_engine.evaluate_field_condition` 的算子/空值语义，按频道资源集合求值后把匹配 id 集合下推给列表/分组查询，保证分页与 group 总数一致；搜索与过滤均先于分页，非法结构返回 422。
+
 ### 搜索文本完整性
 
 四类作品/合集的 `before_flush` 搜索文本拼接保留所有归一化标题和别名；数据库列采用 TEXT，不为 4096 边界截断搜索内容。PostgreSQL 的 GIN/LIKE 与 Turso 作品 FTS 边车均能索引末尾别名，合集不进入作品边车。启动 `backfill_search_text` 处理三类作品及合集的 NULL 派生列；非 NULL 内容和原始 aliases 不因升级重写。

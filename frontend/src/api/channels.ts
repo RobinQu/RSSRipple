@@ -17,6 +17,7 @@ import type {
   RequiredMetadataDefaults,
   ResourceCorrectionBody,
   ResourceFilesResponse,
+  ResourceFilterCondition,
   TVSeries,
 } from '../types';
 
@@ -159,11 +160,20 @@ export const channelsApi = {
     pageSize = 20,
     grouped = false,
     matched?: boolean,
+    search?: { q?: string; filters?: ResourceFilterCondition[] },
   ) => {
-    const matchedParam =
-      matched === true ? '&matched=true' : matched === false ? '&matched=false' : '';
+    const params = new URLSearchParams({
+      page: String(page),
+      page_size: String(pageSize),
+    });
+    if (grouped) params.set('grouped', 'true');
+    if (matched === true) params.set('matched', 'true');
+    else if (matched === false) params.set('matched', 'false');
+    const q = search?.q?.trim();
+    if (q) params.set('q', q);
+    if (search?.filters?.length) params.set('filters', JSON.stringify(search.filters));
     const response = await api.get<ChannelResourcesPayload>(
-      `/channels/${channelId}/resources?page=${page}&page_size=${pageSize}${grouped ? '&grouped=true' : ''}${matchedParam}`,
+      `/channels/${channelId}/resources?${params}`,
     );
     if (!response.success) return response as APIResponse<FileResource[] | GroupedResource[]>;
     return {

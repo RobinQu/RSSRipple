@@ -45,6 +45,8 @@ import ResourceFilesDrawer from '../components/ResourceFilesDrawer';
 import ResourceCorrectionModal from '../components/ResourceCorrectionModal';
 import FilterSummaryModal from '../components/FilterSummaryModal';
 import ColumnSettings from '../components/ColumnSettings';
+import ResourceSearchBar from '../components/ResourceSearchBar';
+import ResourceFilterModal from '../components/ResourceFilterModal';
 import {
   RequiredFieldCell,
   WorkInfoIcon,
@@ -67,6 +69,7 @@ import type {
   ChannelDetail as ChannelDetailData,
   FileResource,
   GroupedResource,
+  ResourceFilterCondition,
 } from '../types';
 
 const { Title, Text } = Typography;
@@ -209,6 +212,28 @@ export default function ChannelDetail() {
   const [flatResources, setFlatResources] = useState<FileResource[]>([]);
   const [flatTotal, setFlatTotal] = useState(0);
   const [flatLoading, setFlatLoading] = useState(true);
+  // Shared keyword/field-filter state for both parsed and unparsed tabs.
+  // The input is debounced into ``query`` so typing doesn't fire a request per
+  // keystroke; filters apply immediately from the modal.
+  const [searchInput, setSearchInput] = useState('');
+  const [query, setQuery] = useState('');
+  const [resourceFilters, setResourceFilters] = useState<ResourceFilterCondition[]>([]);
+  const [resourceFilterOpen, setResourceFilterOpen] = useState(false);
+  // Drop stale list responses when the query/filter/page changes while an
+  // older request is still in flight.
+  const parsedReqSeq = useRef(0);
+  const flatReqSeq = useRef(0);
+  const unparsedReqSeq = useRef(0);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setQuery(searchInput.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => {
+    setParsedPage(1);
+    setUnparsedPage(1);
+  }, [query, resourceFilters]);
 
   const loadChannel = useCallback(async () => {
     if (!id) return;
@@ -219,36 +244,51 @@ export default function ChannelDetail() {
 
   const loadParsed = useCallback(async (p: number, silent = false) => {
     if (!id) return;
+    const seq = ++parsedReqSeq.current;
     if (!silent) setParsedLoading(true);
-    const r = await channelsApi.resources(id, p, PAGE_SIZE, true, true);
+    const r = await channelsApi.resources(id, p, PAGE_SIZE, true, true, {
+      q: query,
+      filters: resourceFilters,
+    });
+    if (seq !== parsedReqSeq.current) return;
     if (r.success) {
       setParsedGroups(r.data as GroupedResource[]);
       if (r.meta) setParsedTotal(r.meta.total);
     }
     if (!silent) setParsedLoading(false);
-  }, [id]);
+  }, [id, query, resourceFilters]);
 
   const loadFlat = useCallback(async (p: number, silent = false) => {
     if (!id) return;
+    const seq = ++flatReqSeq.current;
     if (!silent) setFlatLoading(true);
-    const r = await channelsApi.resources(id, p, PAGE_SIZE, false, true);
+    const r = await channelsApi.resources(id, p, PAGE_SIZE, false, true, {
+      q: query,
+      filters: resourceFilters,
+    });
+    if (seq !== flatReqSeq.current) return;
     if (r.success) {
       setFlatResources(r.data as FileResource[]);
       if (r.meta) setFlatTotal(r.meta.total);
     }
     if (!silent) setFlatLoading(false);
-  }, [id]);
+  }, [id, query, resourceFilters]);
 
   const loadUnparsed = useCallback(async (p: number, silent = false) => {
     if (!id) return;
+    const seq = ++unparsedReqSeq.current;
     if (!silent) setUnparsedLoading(true);
-    const r = await channelsApi.resources(id, p, PAGE_SIZE, false, false);
+    const r = await channelsApi.resources(id, p, PAGE_SIZE, false, false, {
+      q: query,
+      filters: resourceFilters,
+    });
+    if (seq !== unparsedReqSeq.current) return;
     if (r.success) {
       setUnparsed(r.data as FileResource[]);
       if (r.meta) setUnparsedTotal(r.meta.total);
     }
     if (!silent) setUnparsedLoading(false);
-  }, [id]);
+  }, [id, query, resourceFilters]);
 
   // Default view for channels the user has never toggled: movie-dominated
   // channels whose works almost always hold a single resource read better as
@@ -584,37 +624,45 @@ export default function ChannelDetail() {
             ),
             children: (
               <>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-                  <ColumnSettings
-                    config={columnCfg}
-                    declared={declaredRequired}
-                    onChange={handleColumnsChange}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+                  <ResourceSearchBar
+                    value={searchInput}
+                    onChange={setSearchInput}
+                    filterCount={resourceFilters.length}
+                    onOpenFilters={() => setResourceFilterOpen(true)}
                   />
-                  <Segmented
-                    size="small"
-                    value={parsedView}
-                    onChange={(v) => handleViewChange(v as ParsedView)}
-                    options={[
-                      {
-                        value: 'grouped',
-                        label: (
-                          <Space size={4}>
-                            <LayoutGrid size={13} />
-                            {t('channels.viewGrouped')}
-                          </Space>
-                        ),
-                      },
-                      {
-                        value: 'flat',
-                        label: (
-                          <Space size={4}>
-                            <List size={13} />
-                            {t('channels.viewFlat')}
-                          </Space>
-                        ),
-                      },
-                    ]}
-                  />
+                  <Space size={12} wrap>
+                    <ColumnSettings
+                      config={columnCfg}
+                      declared={declaredRequired}
+                      onChange={handleColumnsChange}
+                    />
+                    <Segmented
+                      size="small"
+                      value={parsedView}
+                      onChange={(v) => handleViewChange(v as ParsedView)}
+                      options={[
+                        {
+                          value: 'grouped',
+                          label: (
+                            <Space size={4}>
+                              <LayoutGrid size={13} />
+                              {t('channels.viewGrouped')}
+                            </Space>
+                          ),
+                        },
+                        {
+                          value: 'flat',
+                          label: (
+                            <Space size={4}>
+                              <List size={13} />
+                              {t('channels.viewFlat')}
+                            </Space>
+                          ),
+                        },
+                      ]}
+                    />
+                  </Space>
                 </div>
                 {/* Parsed resources — flat table or per-work groups, per view mode */}
                 {parsedView === 'flat' ? (
@@ -624,7 +672,11 @@ export default function ChannelDetail() {
                     <Card>
                       <Empty
                         description={
-                          isFetching ? t('channels.fetching') : t('channels.noResources')
+                          isFetching
+                            ? t('channels.fetching')
+                            : query || resourceFilters.length
+                              ? t('channels.noMatchingResources')
+                              : t('channels.noResources')
                         }
                       />
                     </Card>
@@ -826,7 +878,11 @@ export default function ChannelDetail() {
                   <Card>
                     <Empty
                       description={
-                        isFetching ? t('channels.fetching') : t('channels.noResources')
+                        isFetching
+                          ? t('channels.fetching')
+                          : query || resourceFilters.length
+                            ? t('channels.noMatchingResources')
+                            : t('channels.noResources')
                       }
                     />
                   </Card>
@@ -988,11 +1044,25 @@ export default function ChannelDetail() {
             ),
             children: (
               <>
+                <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', marginBottom: 12 }}>
+                  <ResourceSearchBar
+                    value={searchInput}
+                    onChange={setSearchInput}
+                    filterCount={resourceFilters.length}
+                    onOpenFilters={() => setResourceFilterOpen(true)}
+                  />
+                </div>
                 {unparsedLoading ? (
                   <Spin style={{ display: 'flex', justifyContent: 'center', padding: 24 }} />
                 ) : unparsed.length === 0 ? (
                   <Card>
-                    <Empty description={t('channels.noResources')} />
+                    <Empty
+                      description={
+                        query || resourceFilters.length
+                          ? t('channels.noMatchingResources')
+                          : t('channels.noResources')
+                      }
+                    />
                   </Card>
                 ) : (
                   <Card
@@ -1098,6 +1168,17 @@ export default function ChannelDetail() {
           }}
         />
       )}
+
+      <ResourceFilterModal
+        open={resourceFilterOpen}
+        value={resourceFilters}
+        channelId={id}
+        onClose={() => setResourceFilterOpen(false)}
+        onApply={(next) => {
+          setResourceFilters(next);
+          setResourceFilterOpen(false);
+        }}
+      />
     </div>
   );
 }
