@@ -20,10 +20,10 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10
         with:
           # Match the Docker image interpreter; prevents uv from resolving a
           # brand-new CPython that has no libtorrent wheels yet.
@@ -38,10 +38,10 @@ jobs:
   unit-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10
         with:
           # Match the Docker image interpreter; prevents uv from resolving a
           # brand-new CPython that has no libtorrent wheels yet.
@@ -57,7 +57,7 @@ jobs:
     needs: [lint, unit-tests]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Create minimal .env
         run: touch .env
@@ -85,7 +85,7 @@ jobs:
 
       - name: Upload integration and corpus acceptance reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: integration-single-metadata-corpus
           path: data/metadata-corpus/
@@ -94,7 +94,7 @@ jobs:
     needs: [lint, unit-tests]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Create minimal .env
         run: touch .env
@@ -137,7 +137,7 @@ jobs:
 
       - name: Upload integration and corpus acceptance reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: integration-distributed-metadata-corpus
           path: data/metadata-corpus/
