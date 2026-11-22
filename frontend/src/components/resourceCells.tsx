@@ -1,13 +1,19 @@
-import { Tag, Tooltip } from 'antd';
+import { Tag, Tooltip, Typography } from 'antd';
 import { Info, Tv, Film } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router-dom';
 import { seasonWorkInfo } from '../utils/season';
+import { posterUrl, useDefaultPoster } from '../utils/poster';
+import { resourceWorkDisplay } from '../utils/resourceTitle';
 import {
+  DOWNLOAD_STATUS_TAG_COLORS,
   fieldApplicable,
   requiredFieldValue,
   resourceShape,
 } from '../utils/requiredFields';
 import type { FileResource, ResourceWorkRef } from '../types';
+
+const { Text } = Typography;
 
 // Row-level renderers shared by the channel resource tables and the
 // downloader local-task table — keep both lists pixel-consistent.
@@ -41,9 +47,23 @@ export function RequiredFieldCell({ r, fieldKey }: { r: FileResource; fieldKey: 
 
 /** Content-type / batch / pending-decision tags carried by the work column
  * (the catalog keys content_type/is_batch never get their own column). */
-export function WorkTypeTags({ r }: { r: FileResource }) {
+export function WorkTypeTags({
+  r,
+  showDownloadStatus = false,
+}: {
+  r: FileResource;
+  showDownloadStatus?: boolean;
+}) {
   const { t } = useTranslation();
-  if (!r.series_id && !r.movie_id && !r.is_batch && !r.pending_decision) return null;
+  if (
+    !r.series_id &&
+    !r.movie_id &&
+    !r.is_batch &&
+    !r.pending_decision &&
+    !(showDownloadStatus && r.download_status)
+  ) {
+    return null;
+  }
   return (
     <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
       {r.series_id && (
@@ -69,11 +89,72 @@ export function WorkTypeTags({ r }: { r: FileResource }) {
           {t('status.pending_decisions')}
         </Tag>
       )}
+      {showDownloadStatus && r.download_status && (
+        <Tag
+          color={DOWNLOAD_STATUS_TAG_COLORS[r.download_status] ?? 'default'}
+          style={{ marginRight: 0, fontSize: 11, lineHeight: '16px' }}
+        >
+          {t(`status.${r.download_status}`)}
+        </Tag>
+      )}
       {r.is_batch && (
         <Tag style={{ marginRight: 0, fontSize: 11, lineHeight: '16px' }} color="orange">
           {t('channels.tagBatch')}
         </Tag>
       )}
+    </div>
+  );
+}
+
+/** Shared "work" column cell for resource/task tables: poster, linked title
+ * (collection-aware), optional metadata icon and type/batch tags. */
+export function ResourceWorkCell({
+  r,
+  fallbackId,
+  showDownloadStatus = false,
+}: {
+  r: FileResource;
+  fallbackId?: string;
+  showDownloadStatus?: boolean;
+}) {
+  const { t } = useTranslation();
+  const info = resourceWorkDisplay(r, t, fallbackId?.slice(0, 8));
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+      <img
+        src={posterUrl(info.work?.poster_url)}
+        alt=""
+        style={{
+          width: 28,
+          height: 40,
+          objectFit: 'cover',
+          borderRadius: 4,
+          flexShrink: 0,
+          background: 'var(--rr-border-soft)',
+        }}
+        onError={useDefaultPoster}
+      />
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {info.href ? (
+              <Link to={info.href} onClick={(e) => e.stopPropagation()}>
+                <Text strong ellipsis style={{ display: 'block', fontSize: 13 }}>
+                  {info.title}
+                </Text>
+              </Link>
+            ) : (
+              <Text strong ellipsis style={{ display: 'block', fontSize: 13 }}>
+                {info.title}
+              </Text>
+            )}
+          </div>
+          <WorkInfoIcon work={info.work} isSeries={info.isSeries} />
+        </div>
+        <div style={{ marginTop: 2 }}>
+          <WorkTypeTags r={r} showDownloadStatus={showDownloadStatus} />
+        </div>
+      </div>
     </div>
   );
 }

@@ -23,6 +23,7 @@ import { copyToClipboard } from '../utils/clipboard';
 import { batchScopeLabel } from '../utils/batch';
 import { seasonLabel } from '../utils/season';
 import ResourceCorrectionModal from './ResourceCorrectionModal';
+import { resourceDisplayTitle } from '../utils/resourceTitle';
 import CreateTaskModal from './CreateTaskModal';
 import { ResourceFilesView } from './ResourceFilesDrawer';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
@@ -456,11 +457,7 @@ export default function ResourceDetailDrawer({
           // Keep the (often very long) resource title on one line so the
           // header never wraps or pushes the close button around.
           <Text ellipsis style={{ display: 'block', maxWidth: '100%' }}>
-            {r
-              ? !r.series_id && !r.movie_id && r.collection_name
-                ? r.collection_name
-                : r.title_cn || r.title_raw
-              : t('resource.detail')}
+            {r ? resourceDisplayTitle(r) : t('resource.detail')}
           </Text>
         }
         open={open}

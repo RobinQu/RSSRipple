@@ -28,6 +28,7 @@ import StatusBadge from '../../components/StatusBadge';
 import { formatBytes, timeAgo } from '../../utils/format';
 import { withMobileLabels } from '../../utils/table';
 import { createRequestGuard } from '../../utils/requestGuard';
+import { resourceDisplayTitle } from '../../utils/resourceTitle';
 import type { AgentRun, AgentStatus } from '../../types';
 
 const { Text } = Typography;
@@ -274,6 +275,7 @@ export default function RunTab({
             ) : (
               runDrawerRun.matched_resources.map((r) => {
                 const langs = r.subtitle_langs && r.subtitle_langs.length > 0 ? r.subtitle_langs.join('/') : null;
+                const standardTitle = resourceDisplayTitle(r);
                 return (
                   <div
                     key={r.id}
@@ -289,9 +291,9 @@ export default function RunTab({
                         <Text strong style={{ fontSize: 13, color: 'var(--rr-text)', wordBreak: 'break-word' }}>
                           {r.title_raw}
                         </Text>
-                        {r.title_cn && r.title_cn !== r.title_raw && (
+                        {standardTitle !== r.title_raw && (
                           <div style={{ marginTop: 2, fontSize: 12, color: 'var(--rr-text-muted)', wordBreak: 'break-word' }}>
-                            {r.title_cn}
+                            {standardTitle}
                           </div>
                         )}
                       </div>

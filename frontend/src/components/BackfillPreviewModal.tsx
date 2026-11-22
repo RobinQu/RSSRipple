@@ -3,6 +3,7 @@ import { Modal, Table, Tag, Typography, Space, Button, Tooltip } from 'antd';
 import type { TableColumnsType } from 'antd';
 import type { RulesPreviewResource, RulesPreviewResponse } from '../types';
 import { formatBytes } from '../utils/format';
+import { resourceDisplayTitle } from '../utils/resourceTitle';
 
 const { Text } = Typography;
 
@@ -20,7 +21,7 @@ const previewColumns = (t: (k: string, opts?: Record<string, unknown>) => string
       return (
         <div>
           <Text strong style={{ fontSize: 13, color: 'var(--rr-text)', wordBreak: 'break-word' }}>
-            {r.title_cn || v}
+            {resourceDisplayTitle(r, v)}
           </Text>
           <Space size={4} wrap style={{ fontSize: 11, color: 'var(--rr-text-secondary)', marginTop: 2 }}>
             {(r.subtitle_groups?.length ? r.subtitle_groups : (r.subtitle_group ? [r.subtitle_group] : [])).map((g) => <Tag key={g} style={{ margin: 0 }}>{g}</Tag>)}

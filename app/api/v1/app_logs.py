@@ -18,6 +18,27 @@ from app.services.required_fields import ordered_work_links
 router = APIRouter()
 
 
+def _resource_list_title(resource: FileResource) -> str | None:
+    """Primary list title: collection-only packs show the collection name.
+
+    A resource may carry a collection alongside a flat work (e.g. a season
+    resource); only fall back to the collection title when the resource has no
+    flat work identity, otherwise keep the cleaned release title.
+    """
+    if (
+        resource.collection_id
+        and not resource.series_id
+        and not resource.movie_id
+        and not resource.audio_work_id
+        and resource.collection is not None
+    ):
+        return resource.collection.title_cn or resource.collection.title_en
+    return (
+        resource.search_title or resource.title_cn or resource.title_en
+        or resource.title_raw
+    )
+
+
 @router.get("/app-logs")
 async def list_app_logs(
     category: str | None = Query(None),
@@ -111,9 +132,8 @@ async def list_app_logs(
             resource_id=row.resource_id,
             channel_id=row.channel_id,
             resource_title=(
-                resource.search_title or resource.title_cn or resource.title_en
-                or resource.title_raw
-            ) if resource is not None else None,
+                _resource_list_title(resource) if resource is not None else None
+            ),
             resource=resource_detail,
             channel_name=channel.name if channel else None,
             attempts=row.attempts,

@@ -39,6 +39,7 @@ import { timeAgo, formatBytes, formatSpeed } from '../utils/format';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
 import { TORRENT_STATUS_TAG_COLORS } from '../utils/torrent';
 import { createRequestGuard } from '../utils/requestGuard';
+import { resourceDisplayTitle } from '../utils/resourceTitle';
 import type {
   DashboardDownloadsData,
   DashboardOverviewData,
@@ -360,7 +361,7 @@ export default function Dashboard() {
   const renderRawTitle = (r: FileResource | undefined) => {
     const raw = r?.title_raw;
     if (!raw) return null;
-    const formatted = r?.title_cn || r?.title_en;
+    const formatted = r ? resourceDisplayTitle(r) : null;
     if (!formatted || raw === formatted) return null;
     return (
       <div
@@ -635,7 +636,7 @@ export default function Dashboard() {
                       >
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <Text ellipsis style={{ fontSize: 13 }}>
-                            {r.title_cn || r.title_raw}
+                            {resourceDisplayTitle(r)}
                           </Text>
                           {renderRawTitle(r)}
                           <Space size={6} style={{ fontSize: 11, color: 'var(--rr-text-muted)', marginTop: 2 }} wrap>
@@ -779,7 +780,7 @@ export default function Dashboard() {
                                     ? `/movies/${ref.id}`
                                     : `/collections/${ref.id}`
                                 : null;
-                              const label = item.work_title || r.title_cn || r.title_raw;
+                              const label = item.work_title || resourceDisplayTitle(r);
                               return href ? (
                                 <Link to={href}>
                                   <Text strong>{label}</Text>

@@ -753,6 +753,8 @@ export interface RulesPreviewResource {
   id: string;
   title_raw: string;
   title_cn?: string | null;
+  title_en?: string | null;
+  search_title?: string | null;
   subtitle_group?: string | null;
   subtitle_groups?: string[] | null;
   resolution?: string | null;
@@ -769,6 +771,8 @@ export interface RulesPreviewResource {
   published_at?: string | null;
   series_id?: string | null;
   movie_id?: string | null;
+  collection_id?: string | null;
+  collection_name?: string | null;
   // Only populated on AgentRun.matched_resources entries: true while the
   // resource still has an unresolved pending decision.
   pending_decision?: boolean;

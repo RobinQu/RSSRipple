@@ -491,6 +491,51 @@ class TestDownloaderTaskSorting:
         assert got == [ids[2], ids[1], ids[3], ids[0]]
 
 
+class TestDownloaderTaskResourceTitle:
+    async def test_collection_only_resource_exposes_collection_name(
+        self, client, db_session, sample_downloader, sample_channel
+    ):
+        """Task payloads use FileResourceResponse, so collection-only packs
+        expose the derived collection_name for collection-aware titles."""
+        import uuid
+
+        from app.models.download_task import DownloadTask
+        from app.models.file_resource import FileResource
+        from app.models.work_collection import WorkCollection
+
+        rid = str(uuid.uuid4())
+        collection = WorkCollection(
+            id=str(uuid.uuid4()), title_cn="西部世界", title_en="Westworld",
+        )
+        db_session.add(collection)
+        await db_session.flush()
+        db_session.add(FileResource(
+            id=rid,
+            channel_id=sample_channel.id,
+            guid=str(uuid.uuid4()),
+            title_raw="[G] 西部世界 S01-S04 1080p",
+            title_cn="西部世界 第一季",
+            torrent_url=f"magnet:?xt=urn:btih:{rid}",
+            is_batch=True,
+            batch_scope="multi_season",
+            collection_id=collection.id,
+        ))
+        db_session.add(DownloadTask(
+            id=str(uuid.uuid4()),
+            file_resource_id=rid,
+            downloader_id=sample_downloader.id,
+            download_dir="/downloads/rssripple",
+            status="downloading",
+        ))
+        await db_session.commit()
+
+        res = await client.get(f"/api/v1/downloaders/{sample_downloader.id}/tasks")
+        assert res.status_code == 200
+        item = res.json()["data"][0]
+        assert item["file_resource"]["collection_id"] == collection.id
+        assert item["file_resource"]["collection_name"] == "西部世界"
+
+
 class TestDownloaderTaskEffectiveStatus:
     """GET /downloaders/{id}/tasks display status: the raw row lies about
     completion — organize cleanup flips a *completed* task to ``cancelled``

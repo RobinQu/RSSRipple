@@ -51,14 +51,13 @@ import ResourceSearchBar from '../components/ResourceSearchBar';
 import ResourceFilterModal from '../components/ResourceFilterModal';
 import {
   RequiredFieldCell,
+  ResourceWorkCell,
   WorkInfoIcon,
 } from '../components/resourceCells';
 import { timeAgo } from '../utils/format';
 import { copyToClipboard } from '../utils/clipboard';
 import { seasonLabel } from '../utils/season';
-import { posterUrl, useDefaultPoster } from '../utils/poster';
 import {
-  DOWNLOAD_STATUS_TAG_COLORS,
   channelColumnStorageKey,
   loadColumnConfig,
   orderedRequiredKeys,
@@ -736,36 +735,6 @@ export default function ChannelDetail() {
                       </thead>
                       <tbody>
                         {flatResources.map((r) => {
-                          const work = r.series ?? r.movie ?? null;
-                          // Multi-work / collection-only packs carry no flat
-                          // work FK. Their title is the collection, not the
-                          // per-season title parsed from the release name
-                          // (e.g. "西部世界 第一季" for a S01-S04 pack).
-                          const collectionPack =
-                            !r.series_id && !r.movie_id && !!r.collection_id && !!r.collection_name;
-                          const workUrl = collectionPack
-                            ? `/collections/${r.collection_id}`
-                            : r.series_id
-                              ? `/series/${r.series_id}`
-                              : r.movie_id
-                                ? `/movies/${r.movie_id}`
-                                : null;
-                          const workTitle = (() => {
-                            if (collectionPack) return r.collection_name!;
-                            const base =
-                              (work && (work.original_title || work.title_cn || work.title_en)) ||
-                              r.title_cn ||
-                              r.search_title ||
-                              r.title_raw;
-                            // Per-season works: the base title equals the
-                            // collection name — the season label is what makes
-                            // the linked work identifiable.
-                            if (r.series_id && work) {
-                              const s = seasonLabel(t, work.season_number ?? null);
-                              return s ? `${base} · ${s}` : base;
-                            }
-                            return base;
-                          })();
                           return (
                             <tr
                               key={r.id}
@@ -788,80 +757,7 @@ export default function ChannelDetail() {
                                 style={{ padding: '6px 8px' }}
                                 data-label={t('channels.work')}
                               >
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                                  <img
-                                    src={posterUrl(work?.poster_url)}
-                                    alt=""
-                                    style={{
-                                      width: 28,
-                                      height: 40,
-                                      objectFit: 'cover',
-                                      borderRadius: 4,
-                                      flexShrink: 0,
-                                      background: 'var(--rr-border-soft)',
-                                    }}
-                                    onError={useDefaultPoster}
-                                  />
-                                  <div style={{ minWidth: 0 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
-                                      <div style={{ flex: 1, minWidth: 0 }}>
-                                        {workUrl ? (
-                                          <Link to={workUrl} onClick={(e) => e.stopPropagation()}>
-                                            <Text strong ellipsis style={{ display: 'block', fontSize: 13 }}>
-                                              {workTitle}
-                                            </Text>
-                                          </Link>
-                                        ) : (
-                                          <Text strong ellipsis style={{ display: 'block', fontSize: 13 }}>
-                                            {workTitle}
-                                          </Text>
-                                        )}
-                                      </div>
-                                      <WorkInfoIcon work={work} isSeries={!!r.series_id} />
-                                    </div>
-                                    {(r.series_id || r.movie_id || r.is_batch || r.download_status || r.pending_decision) && (
-                                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
-                                        {r.series_id && (
-                                          <Tag
-                                            color="blue"
-                                            icon={<Tv size={10} />}
-                                            style={{ marginRight: 0, fontSize: 11, lineHeight: '16px' }}
-                                          >
-                                            {t('dashboard.series')}
-                                          </Tag>
-                                        )}
-                                        {r.movie_id && (
-                                          <Tag
-                                            color="green"
-                                            icon={<Film size={10} />}
-                                            style={{ marginRight: 0, fontSize: 11, lineHeight: '16px' }}
-                                          >
-                                            {t('dashboard.movie')}
-                                          </Tag>
-                                        )}
-                                        {r.download_status && (
-                                          <Tag
-                                            color={DOWNLOAD_STATUS_TAG_COLORS[r.download_status] ?? 'default'}
-                                            style={{ marginRight: 0, fontSize: 11, lineHeight: '16px' }}
-                                          >
-                                            {t(`status.${r.download_status}`)}
-                                          </Tag>
-                                        )}
-                                        {r.pending_decision && (
-                                          <Tag color="orange" style={{ marginRight: 0, fontSize: 11, lineHeight: '16px' }}>
-                                            {t('status.pending_decisions')}
-                                          </Tag>
-                                        )}
-                                        {/* Batch flag lives here instead of its own column */}
-                                        {r.is_batch && (
-                                          <Tag style={{ marginRight: 0, fontSize: 11, lineHeight: '16px' }} color="orange">
-                                            {t('channels.tagBatch')}
-                                          </Tag>
-                                        )}
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
+                                <ResourceWorkCell r={r} showDownloadStatus />
                               </td>
                               {requiredColumns.map((k) => (
                                 <td

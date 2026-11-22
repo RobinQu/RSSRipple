@@ -4,7 +4,7 @@ import json as _json
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from app.schemas.channel import ChannelResponse
 from app.schemas.common import NaiveUTCDateTime, ORMModel
@@ -188,6 +188,8 @@ class RulesPreviewResource(ORMModel):
     id: str
     title_raw: str
     title_cn: str | None = None
+    title_en: str | None = None
+    search_title: str | None = None
     subtitle_group: str | None = None
     subtitle_groups: list[str] | None = None
     resolution: str | None = None
@@ -204,6 +206,17 @@ class RulesPreviewResource(ORMModel):
     published_at: datetime | None = None
     series_id: str | None = None
     movie_id: str | None = None
+    collection_id: str | None = None
+    # Like FileResourceResponse: derived from the eager-loaded ``collection``
+    # relation so collection-only packs can show the collection title.
+    collection: Any | None = Field(default=None, exclude=True)
+    collection_name: str | None = None
+
+    @model_validator(mode="after")
+    def _fill_collection_name(self) -> "RulesPreviewResource":
+        if self.collection is not None:
+            self.collection_name = self.collection.title_cn or self.collection.title_en
+        return self
 
 
 class RulesPreviewResponse(BaseModel):

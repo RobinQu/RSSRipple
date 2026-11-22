@@ -18,6 +18,7 @@ import { useTranslation } from 'react-i18next';
 import { decisionsApi } from '../../api/tasks';
 import { resourcesApi } from '../../api/channels';
 import SeasonInput from '../../components/SeasonInput';
+import { resourceDisplayTitle } from '../../utils/resourceTitle';
 import { formatBytes, timeAgo } from '../../utils/format';
 import type { AgentStatus, FileResource, PendingDecision } from '../../types';
 
@@ -144,7 +145,7 @@ export default function DecisionsTab({
   const renderRawTitle = (r: FileResource | undefined) => {
     const raw = r?.title_raw;
     if (!raw) return null;
-    const formatted = r?.title_cn || r?.title_en;
+    const formatted = r ? resourceDisplayTitle(r) : null;
     if (!formatted || raw === formatted) return null;
     return (
       <div
@@ -311,7 +312,7 @@ export default function DecisionsTab({
                           >
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <Text ellipsis style={{ fontSize: 13 }}>
-                                {r?.title_cn || r?.title_raw || cid.slice(0, 8)}
+                                {r ? resourceDisplayTitle(r, cid.slice(0, 8)) : cid.slice(0, 8)}
                               </Text>
                               {renderRawTitle(r)}
                               <Space size={4} wrap style={{ fontSize: 11, color: 'var(--rr-text-muted)', marginTop: 2 }}>
@@ -393,7 +394,7 @@ export default function DecisionsTab({
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <Space size={6} align="center" style={{ marginBottom: 2 }}>
                                 <Text ellipsis style={{ fontSize: 13 }}>
-                                  {r.title_cn || r.title_raw}
+                                  {resourceDisplayTitle(r)}
                                 </Text>
                                 {isAiPick && (
                                   <Tag color="blue" style={{ margin: 0 }}>{t('agents.aiPickTag')}</Tag>

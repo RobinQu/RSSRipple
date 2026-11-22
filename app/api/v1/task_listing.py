@@ -85,18 +85,29 @@ def apply_task_sort(query, entries: list[tuple[str, bool]]):
     return query.order_by(*order_clauses)
 
 
+def file_resource_load_options():
+    """Eager-load every relation ``FileResourceResponse`` reads.
+
+    ``collection_name`` is derived from the loaded ``collection`` relation, and
+    the nested ``series``/``movie`` collections feed the work-column metadata,
+    so task payloads must never lazy-load these under the async session.
+    """
+    return [
+        selectinload(FileResource.series).selectinload(TVSeries.collection),
+        selectinload(FileResource.movie).selectinload(Movie.collection),
+        selectinload(FileResource.audio_work),
+        selectinload(FileResource.collection),
+    ]
+
+
 def task_list_load_options():
     """Eager-load the resource's linked works (and their collections) so the
     task table can render poster/work metadata like the channel list does."""
     return [
-        selectinload(DownloadTask.file_resource).selectinload(
-            FileResource.series
-        ).selectinload(TVSeries.collection),
-        selectinload(DownloadTask.file_resource).selectinload(
-            FileResource.movie
-        ).selectinload(Movie.collection),
-        selectinload(DownloadTask.file_resource).selectinload(FileResource.audio_work),
-        selectinload(DownloadTask.file_resource).selectinload(FileResource.collection),
+        *[
+            selectinload(DownloadTask.file_resource).options(option)
+            for option in file_resource_load_options()
+        ],
         selectinload(DownloadTask.agent),
     ]
 

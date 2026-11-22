@@ -672,7 +672,9 @@ async def list_agent_runs(
     res_by_id: dict[str, FileResource] = {}
     if res_ids:
         res_rows = (await db.execute(
-            select(FileResource).where(FileResource.id.in_(res_ids))
+            select(FileResource)
+            .where(FileResource.id.in_(res_ids))
+            .options(selectinload(FileResource.collection))
         )).scalars().all()
         res_by_id = {r.id: r for r in res_rows}
 

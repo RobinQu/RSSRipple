@@ -4,12 +4,12 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.api.v1.task_listing import (
     apply_effective_task_statuses,
     apply_task_sort,
     apply_task_status_filter,
+    file_resource_load_options,
     parse_task_sort,
     task_list_load_options,
 )
@@ -143,7 +143,7 @@ async def list_tasks(
     total_q = await db.execute(select(func.count()).select_from(base_q.subquery()))
     total = total_q.scalar_one()
     result = await db.execute(
-        base_q.options(selectinload(DownloadTask.file_resource), selectinload(DownloadTask.agent))
+        base_q.options(*task_list_load_options())
         .order_by(DownloadTask.created_at.desc())
         .offset(offset).limit(page_size)
     )
@@ -158,7 +158,7 @@ async def list_tasks(
 async def get_task(task_id: str, db: AsyncSession = Depends(get_db)):
     task = await db.get(
         DownloadTask, task_id,
-        options=[selectinload(DownloadTask.file_resource), selectinload(DownloadTask.agent)],
+        options=task_list_load_options(),
     )
     if not task:
         return JSONResponse(
@@ -180,7 +180,9 @@ async def create_task(body: ManualTaskCreate, db: AsyncSession = Depends(get_db)
     from app.models.file_resource import FileResource
     from app.services.agent_service import create_and_submit_task
 
-    resource = await db.get(FileResource, body.resource_id)
+    resource = await db.get(
+        FileResource, body.resource_id, options=file_resource_load_options()
+    )
     if not resource:
         return JSONResponse(
             status_code=404,
@@ -211,6 +213,10 @@ async def create_task(body: ManualTaskCreate, db: AsyncSession = Depends(get_db)
         keep_seeding=body.keep_seeding,
     )
     await db.commit()
+    # The task only carries ``file_resource_id`` on creation; bind the eagerly
+    # loaded resource so the response can derive ``collection_name`` without a
+    # lazy load under the async session.
+    task.file_resource = resource
     return success_response(DownloadTaskResponse.model_validate(task).model_dump())
 
 

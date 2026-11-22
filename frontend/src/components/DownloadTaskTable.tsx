@@ -1,19 +1,13 @@
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
 import { Progress, Select, Space, Table, Tag, Typography } from 'antd';
 import type { TableColumnsType, TableProps } from 'antd';
 import type { ReactNode } from 'react';
 import { withMobileLabels } from '../utils/table';
 import type { DownloadTask, TorrentInfo } from '../types';
 import { formatDate, formatEta, formatSpeed } from '../utils/format';
-import { posterUrl, useDefaultPoster } from '../utils/poster';
-import { seasonLabel } from '../utils/season';
 import ColumnSettings from './ColumnSettings';
-import SortSettings, { type SortEntry, type SortField } from './SortSettings';import {
-  RequiredFieldCell,
-  WorkInfoIcon,
-  WorkTypeTags,
-} from './resourceCells';
+import SortSettings, { type SortEntry, type SortField } from './SortSettings';
+import { RequiredFieldCell, ResourceWorkCell } from './resourceCells';
 import {
   DOWNLOAD_STATUS_TAG_COLORS,
   TASK_COLUMN_POOL,
@@ -130,75 +124,14 @@ export default function DownloadTaskTable({
       fixed: 'left',
       render: (_, task) => {
         const fr = task.file_resource;
-        const work = fr?.series ?? fr?.movie ?? null;
-        // Multi-work / collection-only packs carry no flat work FK. Use the
-        // collection as the work title, not the parsed per-season title.
-        const collectionPack =
-          !!fr && !fr.series_id && !fr.movie_id && !!fr.collection_id && !!fr.collection_name;
-        const workUrl = collectionPack
-          ? `/collections/${fr.collection_id}`
-          : fr?.series_id
-            ? `/series/${fr.series_id}`
-            : fr?.movie_id
-              ? `/movies/${fr.movie_id}`
-              : null;
-        const base = collectionPack
-          ? fr.collection_name!
-          : (work && (work.original_title || work.title_cn || work.title_en)) ||
-            fr?.title_cn ||
-            fr?.search_title ||
-            fr?.title_raw ||
-            task.file_resource_id.slice(0, 8);
-        // Per-season works: the base title equals the collection name — the
-        // season label is what makes the linked work identifiable.
-        const s =
-          !collectionPack && fr?.series_id && work
-            ? seasonLabel(t, work.season_number ?? null)
-            : '';
-        const workTitle = s ? `${base} · ${s}` : base;
-        return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-            <img
-              src={posterUrl(work?.poster_url)}
-              alt=""
-              style={{
-                width: 28,
-                height: 40,
-                objectFit: 'cover',
-                borderRadius: 4,
-                flexShrink: 0,
-                background: 'var(--rr-border-soft)',
-              }}
-              onError={useDefaultPoster}
-            />
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  {workUrl ? (
-                    <Link to={workUrl} onClick={(e) => e.stopPropagation()}>
-                      <Text strong ellipsis style={{ display: 'block', fontSize: 13 }}>
-                        {workTitle}
-                      </Text>
-                    </Link>
-                  ) : (
-                    <Text strong ellipsis style={{ display: 'block', fontSize: 13 }}>
-                      {workTitle}
-                    </Text>
-                  )}
-                </div>
-                <WorkInfoIcon work={work} isSeries={!!fr?.series_id} />
-              </div>
-              {/* Type/batch tags fold into the work column's second line (same
-                  layout as the channel resource list) to keep the fixed
-                  columns compact. */}
-              {fr && (
-                <div style={{ marginTop: 2 }}>
-                  <WorkTypeTags r={fr} />
-                </div>
-              )}
-            </div>
-          </div>
-        );
+        if (!fr) {
+          return (
+            <Text strong ellipsis style={{ display: 'block', fontSize: 13 }}>
+              {task.file_resource_id.slice(0, 8)}
+            </Text>
+          );
+        }
+        return <ResourceWorkCell r={fr} fallbackId={task.file_resource_id} />;
       },
     },
     // Configurable metadata columns — same catalog/cells as the channel

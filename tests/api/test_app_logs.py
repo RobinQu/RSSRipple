@@ -92,3 +92,42 @@ async def test_list_logs_and_reject_duplicate_retry(client, db_session_factory):
         await db.commit()
     duplicate = await client.post(f"/api/v1/app-logs/{log.id}/retry")
     assert duplicate.status_code == 409
+
+
+async def test_list_logs_prefers_collection_name_for_collection_only_pack(
+    client, db_session_factory,
+):
+    from app.models.channel import Channel
+    from app.models.work_collection import WorkCollection
+
+    async with db_session_factory() as db:
+        channel = Channel(
+            id=_uuid(), name="logs-collection", url="https://example.com/rss3",
+            field_mapping=TEST_FIELD_MAPPING,
+        )
+        collection = WorkCollection(
+            id=_uuid(), title_cn="西部世界", title_en="Westworld",
+        )
+        resource = FileResource(
+            id=_uuid(), channel_id=channel.id, guid=_uuid(),
+            title_raw="[G] 西部世界 S01-S04",
+            title_cn="西部世界 第一季",
+            torrent_url="https://example.com/c.torrent",
+            is_batch=True, batch_scope="multi_season",
+            collection_id=collection.id,
+        )
+        db.add_all([channel, collection, resource])
+        await db.flush()
+        db.add(AppLog(
+            id=_uuid(), category="metadata", message="timeout",
+            resource_id=resource.id, channel_id=channel.id, attempts=1,
+        ))
+        await db.commit()
+
+    response = await client.get("/api/v1/app-logs?category=metadata")
+    assert response.status_code == 200
+    item = next(
+        row for row in response.json()["data"]
+        if row["resource_id"] == resource.id
+    )
+    assert item["resource_title"] == "西部世界"

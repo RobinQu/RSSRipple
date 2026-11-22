@@ -541,6 +541,59 @@ class TestAgentsCRUD:
         dispatched_by_id = {m["id"]: m["dispatched"] for m in data[0]["matched_resources"]}
         assert dispatched_by_id == {r.id: True, r2.id: False}
 
+    async def test_rules_preview_and_runs_expose_collection_name(
+        self, client, channel_and_dl, db_session
+    ):
+        """Collection-only resources carry collection_name in preview/run
+        payloads so the UI can avoid showing the parsed per-season title."""
+        from app.models.agent_run import AgentRun
+        from app.models.file_resource import FileResource
+        from app.models.work_collection import WorkCollection
+
+        ch_id, dl_id = channel_and_dl
+        collection = WorkCollection(
+            id=_uuid(), title_cn="西部世界", title_en="Westworld",
+        )
+        resource = FileResource(
+            id=_uuid(), channel_id=ch_id, guid=_uuid(),
+            title_raw="[G] 西部世界 S01-S04",
+            title_cn="西部世界 第一季",
+            torrent_url="magnet:?xt=urn:btih:collection",
+            is_batch=True, batch_scope="multi_season",
+            collection_id=collection.id,
+        )
+        db_session.add_all([collection, resource])
+        await db_session.commit()
+
+        preview = await client.post("/api/v1/agents/rules-preview", json={
+            "channel_id": ch_id,
+            "scope_channel_wide": True,
+            "works": [],
+        })
+        assert preview.status_code == 200
+        preview_items = {
+            item["id"]: item for item in preview.json()["data"]["newly_matching"]
+        }
+        assert preview_items[resource.id]["collection_id"] == collection.id
+        assert preview_items[resource.id]["collection_name"] == "西部世界"
+
+        create = await client.post("/api/v1/agents", json={
+            "name": "A", "channel_id": ch_id, "downloader_id": dl_id,
+            "scope_channel_wide": True,
+        })
+        aid = create.json()["data"]["id"]
+        async with db_session.begin():
+            db_session.add(AgentRun(
+                agent_id=aid, status="success", started_at=datetime.now(UTC),
+                finished_at=datetime.now(UTC), total_resources=1, matched=1,
+                matched_resource_ids=[resource.id],
+            ))
+        runs = await client.get(f"/api/v1/agents/{aid}/runs")
+        assert runs.status_code == 200
+        matched = runs.json()["data"][0]["matched_resources"]
+        assert matched[0]["collection_id"] == collection.id
+        assert matched[0]["collection_name"] == "西部世界"
+
     async def test_list_agent_runs_non_empty_filter(self, client, channel_and_dl, db_session):
         """GET /agents/{id}/runs?non_empty=true hides routine no-op runs."""
         from app.models.agent_run import AgentRun
