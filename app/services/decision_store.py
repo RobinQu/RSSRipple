@@ -23,6 +23,39 @@ def choice_identity(kind, target_id, season, episode, coverage=None):
     return "v1:" + hashlib.sha256(encoded.encode()).hexdigest(), json.loads(encoded)
 
 
+def decision_reason_code(scope):
+    """Map a stored decision scope to a UI-localizable reason code.
+
+    The human-readable ``reason`` text is generated in one language at
+    creation time; the structured scope lets clients re-render it in the
+    interface language (``decisions.reasons.*``). Rows predating versioned
+    scopes return None and keep displaying the stored text.
+    """
+    if not isinstance(scope, dict):
+        return None
+    kind = scope.get("kind")
+    if kind == "batch":
+        coverage = scope.get("coverage")
+        if not isinstance(coverage, list) or not coverage:
+            return None
+        if any(not isinstance(entry, list) or len(entry) < 2 for entry in coverage):
+            return None
+        work_kinds = {entry[0] for entry in coverage}
+        if work_kinds == {"movie"}:
+            return "batch_movie"
+        series_ids = {entry[1] for entry in coverage if entry[0] == "series"}
+        return "batch_season" if len(series_ids) == 1 else "batch_multi_season"
+    if kind == "movie":
+        return "movie"
+    if kind == "series":
+        if scope.get("season") is not None and scope.get("episode") is not None:
+            return "series_season_episode"
+        if scope.get("episode") is not None:
+            return "series_episode"
+        return "series"
+    return None
+
+
 def stored_choice_matches(key, scope):
     """Check versioned scope shape and digest without guessing current coverage."""
     if not isinstance(scope, dict):
@@ -138,3 +171,31 @@ async def persist_choice(
         if existing is None:
             raise
         return await merge(existing)
+
+
+def decision_reason_payload(decision):
+    """``reason_code`` + interpolation params for UI-localized reason text.
+
+    ``series``/``movie`` must be eager-loaded by the caller; an unloaded
+    relation degrades to an empty title rather than triggering lazy IO.
+    """
+    code = decision_reason_code(decision.decision_scope)
+    if code is None:
+        return {"reason_code": None, "reason_params": None}
+    from app.services.filter_engine import loaded_relation
+
+    title = ""
+    series = loaded_relation(decision, "series")
+    movie = loaded_relation(decision, "movie")
+    if series is not None:
+        title = series.title_cn or series.title_en or ""
+    elif movie is not None:
+        title = movie.title_cn or movie.title_en or ""
+    return {
+        "reason_code": code,
+        "reason_params": {
+            "title": title,
+            "season": decision.season,
+            "episode": decision.episode,
+        },
+    }

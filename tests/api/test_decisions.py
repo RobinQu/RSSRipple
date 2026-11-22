@@ -94,6 +94,10 @@ class TestDecisions:
         res = await client.get(f"/api/v1/agents/{aid}/decisions")
         assert res.status_code == 200
         assert res.json()["meta"]["total"] >= 1
+        # Versioned-scope rows expose the UI-localizable reason fields.
+        item = res.json()["data"][0]
+        assert item["reason_code"] == "movie"
+        assert item["reason_params"]["title"] == "Synthetic decision movie"
 
     async def test_list_filter_status(self, client, setup, db_session_factory):
         ch, dl, aid = setup

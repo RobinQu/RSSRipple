@@ -878,6 +878,14 @@ export interface PendingDecision {
   season: number | null;
   candidates: string[];
   reason: string;
+  // UI-localizable reason (from the versioned decision_scope); absent on
+  // rows predating versioned scopes — render ``reason`` then.
+  reason_code?: string | null;
+  reason_params?: {
+    title?: string | null;
+    season?: number | null;
+    episode?: number | null;
+  } | null;
   llm_suggestion: string | null;
   llm_picked_resource_id: string | null;
   decided_resource_id: string | null;
@@ -1131,6 +1139,12 @@ export interface DashboardPendingItem {
   agent_name: string;
   agent_status: AgentStatus;
   reason: string;
+  reason_code?: string | null;
+  reason_params?: {
+    title?: string | null;
+    season?: number | null;
+    episode?: number | null;
+  } | null;
   candidates: string[];
   candidate_resources?: FileResource[];
   season?: number | null;

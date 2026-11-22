@@ -113,6 +113,17 @@
       "batch_coverage_unknown": "合集范围不确定"
     }
   },
+  "decisions": {
+    "reasons": {
+      "series_season_episode": "多个资源匹配 {title} 第{season}季第{episode}集",
+      "series_episode": "多个资源匹配 {title} 第{episode}集",
+      "series": "多个资源匹配 {title}",
+      "movie": "多个资源匹配电影 {title}",
+      "batch_movie": "多个合集资源匹配电影 {title}，内容相同，请选择一个版本",
+      "batch_season": "多个合集资源匹配 {title}（同季包），内容相同，请选择一个版本",
+      "batch_multi_season": "多个合集资源匹配 {title}（跨季包），内容相同，请选择一个版本"
+    }
+  },
   "channels": {
     "title": "频道",
     "newChannel": "新建频道",

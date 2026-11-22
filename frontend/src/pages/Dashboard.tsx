@@ -39,6 +39,7 @@ import { timeAgo, formatBytes, formatSpeed } from '../utils/format';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
 import { TORRENT_STATUS_TAG_COLORS } from '../utils/torrent';
 import { createRequestGuard } from '../utils/requestGuard';
+import { decisionReasonText } from '../utils/decisionReason';
 import { resourceDisplayTitle } from '../utils/resourceTitle';
 import type {
   DashboardDownloadsData,
@@ -557,7 +558,7 @@ export default function Dashboard() {
                       aria-label={t('dashboard.selectTodo')}
                     />
                     <div style={{ minWidth: 0 }}>
-                    <Text strong>{d.reason}</Text>
+                    <Text strong>{decisionReasonText(d, t)}</Text>
                     <div style={{ fontSize: 12, color: 'var(--rr-text-muted)', marginTop: 4 }}>
                       <Link to={`/agents/${d.agent_id}`}>
                         <Text style={{ fontSize: 12 }}>{d.agent_name}</Text>
@@ -815,12 +816,16 @@ export default function Dashboard() {
                               <Space size={6} className="pending-resource-tags" wrap>
                               {item.kinds.map((kind) => (
                                 <Tag color="orange" key={kind} style={{ margin: 0 }}>
-                                  {t(`dashboard.confirmationKinds.${kind}`)}
+                                  {t(`dashboard.confirmationKinds.${kind}`, { defaultValue: kind })}
                                 </Tag>
                               ))}
                               {item.missing_fields.length > 0 && (
                                 <Text type="secondary" style={{ fontSize: 12 }}>
-                                  {t('dashboard.missingFields', { fields: item.missing_fields.join(', ') })}
+                                  {t('dashboard.missingFields', {
+                                    fields: item.missing_fields
+                                      .map((f) => t(`channels.requiredField_${f}`, { defaultValue: f }))
+                                      .join(', '),
+                                  })}
                                 </Text>
                               )}
                               {r.subtitle_group && <Tag style={{ margin: 0 }}>{r.subtitle_group}</Tag>}

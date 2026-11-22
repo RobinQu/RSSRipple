@@ -58,6 +58,18 @@ def _is_choice_decision(decision: PendingDecision) -> bool:
     )
 
 
+def _serialize_decision(decision: PendingDecision) -> dict:
+    """PendingDecisionResponse dump plus UI-localizable reason fields.
+
+    ``series``/``movie`` must be eager-loaded (all callers selectinload them).
+    """
+    from app.services.decision_store import decision_reason_payload
+
+    data = PendingDecisionResponse.model_validate(decision).model_dump()
+    data.update(decision_reason_payload(decision))
+    return data
+
+
 async def _lock_current_decision(decision, db):
     """Use the same parent-before-decision order as pending-choice writers."""
     from app.models.agent import Agent
@@ -185,7 +197,7 @@ async def list_decisions(
     decisions = [d for d in result.scalars().all() if _is_choice_decision(d)]
     out = []
     for d in decisions:
-        data = PendingDecisionResponse.model_validate(d).model_dump()
+        data = _serialize_decision(d)
         # Load candidate resources
         cands = (await db.execute(
             select(FileResource)
@@ -277,7 +289,7 @@ async def confirm_decision(
             selectinload(PendingDecision.movie),
         )
     )).scalar_one()
-    return success_response(PendingDecisionResponse.model_validate(decision).model_dump())
+    return success_response(_serialize_decision(decision))
 
 
 @router.post("/decisions/{decision_id}/skip")
@@ -325,7 +337,7 @@ async def skip_decision(decision_id: str, db: AsyncSession = Depends(get_db)):
             selectinload(PendingDecision.movie),
         )
     )).scalar_one()
-    return success_response(PendingDecisionResponse.model_validate(decision).model_dump())
+    return success_response(_serialize_decision(decision))
 
 
 @router.post("/decisions/{decision_id}/ai-pick")
