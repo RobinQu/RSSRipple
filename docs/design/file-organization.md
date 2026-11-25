@@ -26,7 +26,7 @@ vault-organizer 的独立部署形态在功能对等后归档（见"分期路线
 ### TODO：跨目标多作品分组子计划（长期方案）
 
 当前 `OrganizePlan` 的 `rule_id/library_id/category` 是计划级字段，因此短期方案刻意不支持同一下载包跨媒体库或使用不同 file_op。长期改造必须新增 `OrganizePlanGroup`（父计划 1:N，分组持有 `work_type/work_id/rule_id/library_id/category/file_op/status`，现有 ops 改挂 group），并完成：父状态聚合；分组级分类/执行/重试；按卷独立磁盘空间门禁；多个 MediaServer Section 刷新；所有分组终态成功后才清理下载任务/源目录；取消、审计和 regenerate 的分组幂等重建；旧单组计划迁移。该 TODO 未完成前，跨目标多作品计划必须保持 failed，不得自动降级。
-- **只扫种子独立目录**：文件定位只扫 `download_dir/torrent_name`（或文件清单逐项存在性精确匹配）；**绝不扫描共享下载根**——那里混放所有任务的文件。清单来源顺序：payload `files` 快照 → torrent 清单回退（`resource.torrent_file` 缓存 → `torrent_url` 拉取 → 下载器 RPC，见 `_resolve_manifest`；回退清单也须整份校验）；拉取成功的缓存路径**不在规划主事务回写资源行**（规划只落计划行），由调用方在计划提交后经独立事务 best-effort 回写；torrent_name 为空时**不做任何目录遍历**，只按清单精确匹配，匹配不到即规划失败。
+- **只扫种子独立目录**：文件定位只扫 `download_dir/torrent_name`（或文件清单逐项存在性精确匹配）；**绝不扫描共享下载根**——那里混放所有任务的文件。清单来源顺序：payload `files` 快照 → torrent 清单回退（`resource.torrent_file` 缓存 → `torrent_url` 拉取 → 下载器 RPC，见 `_resolve_manifest`；回退清单也须整份校验；从 `.torrent` 解析的清单必须同时保留 `info/name` 根目录名并写入通知快照的 `task.torrent_name`，否则多文件种子只能按相对路径匹配而定位不到 `download_dir/<根目录>/<文件>`）；拉取成功的缓存路径**不在规划主事务回写资源行**（规划只落计划行），由调用方在计划提交后经独立事务 best-effort 回写；torrent_name 为空时**不做任何目录遍历**，只按清单精确匹配，匹配不到即规划失败。
 - **输入路径边界**：所有来源先校验完整 files 与 torrent_name，禁绝对/驱动器路径、空名、非字符串、控制字符、首尾空白及 `.`/`..` 分量。任一非法项拒绝整个计划，不过滤后执行其余文件；原始 torrent 条目先校验再补根名。候选及枚举结果经解析后必须仍在下载根内（含目录/文件符号链接）；种子目录不得指回共享根。校验集中于 organize_source/path_safety；新规划拒绝落 failed/零 ops，清单回退错误也纳入持久化错误边界。
 - **冲突绝不覆盖**：规划预检与执行前置门禁两道防线，同计划目标重叠或影响其他源一律拒绝；已有文件目标按内容/inode 验证，文件发布原子不覆盖。
 - **清空目录只走 `os.rmdir` 自底向上**（只删空目录），**绝不 `rm -rf`**。

@@ -75,8 +75,20 @@ def _association_for(payload: NotificationPayload, rel: str) -> Any | None:
     if associations is None:
         return None
     wanted = _normalized_rel(rel)
+
+    def richer_episode(candidate: Any) -> bool:
+        return (
+            candidate.source != "manual"
+            and _file_role(candidate) == "episode"
+            and candidate.episode_start is None
+        )
+
     exact = [a for a in associations.items if _normalized_rel(a.file_path) == wanted]
-    if len(exact) == 1:
+    # Older auto rows may carry the right path but no episode number (e.g. a
+    # filename convention the parser missed). A human/LLM row with the same
+    # basename and real episode data is strictly better; do not let the stale
+    # exact path shadow it.
+    if len(exact) == 1 and not richer_episode(exact[0]):
         return exact[0]
     # Downloader manifests differ on whether the torrent root directory is
     # included. A unique suffix match preserves identity without guessing.
@@ -85,6 +97,14 @@ def _association_for(payload: NotificationPayload, rel: str) -> Any | None:
         if wanted.endswith("/" + _normalized_rel(a.file_path))
         or _normalized_rel(a.file_path).endswith("/" + wanted)
     ]
+    richer = [
+        a for a in suffix
+        if _file_role(a) == "episode" and a.episode_start is not None
+    ]
+    if len(richer) == 1:
+        return richer[0]
+    if len(exact) == 1:
+        return exact[0]
     return suffix[0] if len(suffix) == 1 else None
 
 

@@ -73,6 +73,29 @@ async def test_downloader_tries_every_related_task(
     assert result.files == [{"name": "old.mkv", "size": 10}]
 
 
+async def test_cached_torrent_listing_preserves_root_name(
+    db_session, sample_channel, monkeypatch, tmp_path
+):
+    cached = tmp_path / "cached.torrent"
+    cached.write_bytes(b"placeholder")
+    resource = await _resource(
+        db_session, sample_channel.id, torrent_file=str(cached)
+    )
+    monkeypatch.setattr(
+        listing_service, "parse_torrent_files",
+        lambda _path: [{"name": "Show S01E01.mkv", "size": 10}],
+    )
+    monkeypatch.setattr(
+        listing_service, "read_torrent_root_name", lambda _path: "Show Root"
+    )
+
+    result = await listing_service.resolve_resource_listing(db_session, resource)
+
+    assert result.source == "torrent_cache" and result.provider == "torrent_cache"
+    assert result.name == "Show Root"
+    assert result.files == [{"name": "Show S01E01.mkv", "size": 10}]
+
+
 async def test_http_retry_backoff_permanent_failure_and_attempt_cas(
     db_session, sample_channel
 ):

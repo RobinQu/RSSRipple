@@ -820,6 +820,12 @@ def extract_episode_fallback(title_raw: str) -> tuple[int | None, int | None]:
 #   "Show 第03話.mkv"          -> 3   (kanji form)
 _PATH_SPLIT_RE = re.compile(r"[/\\]+")
 _PREFIX_EPISODE_RE = re.compile(r"(?<![A-Za-z])EP(\d{1,4})(?![A-Za-z])", re.IGNORECASE)
+# Bare ``E01`` convention (common in CJK releases, e.g. "作品.E01.mp4").
+# Require a non-alphanumeric boundary before ``E`` and reject alphanumeric
+# continuation so tokens like "HEVC"/"AAC" or "S01E01" never become episodes.
+_BARE_E_EPISODE_RE = re.compile(
+    r"(?<![A-Za-z0-9])E(\d{1,4})(?![A-Za-z0-9])", re.IGNORECASE
+)
 _DASH_EPISODE_RE = re.compile(r"\s-\s(\d{1,3})(?:v\d+)?(?=[\s.\[\(（【]|$)")
 _KANJI_EPISODE_RE = re.compile(r"第\s*(\d{1,3})\s*[话話集]")
 _BARE_EPISODE_RE = re.compile(r"(?<![A-Za-z])(\d{1,3})(?:\s*v\d+)?(?=\s*\()")
@@ -862,9 +868,9 @@ def extract_season_episode_from_path(path: str) -> tuple[int | None, int | None]
     ``SxxEyy`` is recognized anywhere and yields both values — an explicit
     ``SxxEyy`` in the filename overrides a season inherited from a directory
     component. The filename
-    episode forms cover ``[NN]``, ``- NN``, ``第N话`` and the BD-folder bare
-    leading number (``S01/01 Title.mkv``). Either side of the returned pair
-    may be None; both are None when nothing matches.
+    episode forms cover ``[NN]``, ``- NN``, ``第N话``, ``EP03``/``E03`` and the
+    BD-folder bare leading number (``S01/01 Title.mkv``). Either side of the
+    returned pair may be None; both are None when nothing matches.
     """
     if not path:
         return None, None
@@ -899,6 +905,10 @@ def extract_season_episode_from_path(path: str) -> tuple[int | None, int | None]
         return 0, int(special.group(1))
     if episode is None:
         m = _PREFIX_EPISODE_RE.search(filename)
+        if m:
+            episode = int(m.group(1))
+    if episode is None:
+        m = _BARE_E_EPISODE_RE.search(filename)
         if m:
             episode = int(m.group(1))
     if episode is None:

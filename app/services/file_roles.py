@@ -25,8 +25,8 @@ _EXTRA_DIRS = frozenset({
     "trailers", "preview", "previews",
 })
 _EXTRA_MARKER_RE = re.compile(
-    r"(?:^|[^a-z0-9])(?:nc(?:op|ed)|op|ed|pv|cm|menu)"
-    r"(?:[_-]?\d+)?(?:v\d+)?(?=$|[^a-z0-9])",
+    r"(?:^|[^a-z0-9])(?:nc(?:op|ed)|op|ed|sample|preview|trailer|teaser|"
+    r"pv|cm|menu)(?:[_-]?\d+)?(?:v\d+)?(?=$|[^a-z0-9])",
     re.IGNORECASE,
 )
 _SUBTITLE_TAG_RE = re.compile(

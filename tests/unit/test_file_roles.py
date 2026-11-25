@@ -26,6 +26,9 @@ def _f(name: str, size: int = 500 * MB) -> dict:
     "Show/CM/CM_01.webm",
     "Show/MENU/Menu_01.mkv",
     "Show/特典/Interview 01.mkv",
+    "Show S01/Show.S01E01.preview.mkv",
+    "Show S01/Show.S01E01.sample.mkv",
+    "Show S01/Show.S01E01.trailer.mkv",
 ])
 def test_real_extra_video_names_and_directories(path):
     assert classify_file(path) == "extra"

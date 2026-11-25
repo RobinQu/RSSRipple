@@ -17,7 +17,11 @@ from app.models.download_notification import DownloadNotification
 from app.models.download_task import DownloadTask
 from app.models.downloader import DownloaderInstance
 from app.models.file_resource import FileResource
-from app.services.torrent_inspect import fetch_torrent_file_detailed, parse_torrent_files
+from app.services.torrent_inspect import (
+    fetch_torrent_file_detailed,
+    parse_torrent_files,
+    read_torrent_root_name,
+)
 from app.utils.time import utcnow
 
 logger = logging.getLogger(__name__)
@@ -213,6 +217,26 @@ async def record_torrent_fetch_failure(
     return recorded
 
 
+async def _cached_torrent_listing(path: str) -> ResourceListing | None:
+    """Parse a cached .torrent into a listing, preserving its root name.
+
+    ``parse_torrent_files`` keeps paths relative to the torrent root, while the
+    downloader materializes multi-file torrents under ``download_dir/<name>``.
+    Notification snapshots and organize planning need that same root name to
+    locate files without scanning the shared download root.
+    """
+    files = await asyncio.to_thread(parse_torrent_files, path)
+    if files is None:
+        return None
+    root_name = await asyncio.to_thread(read_torrent_root_name, path)
+    return ResourceListing(
+        files=files,
+        source="torrent_cache",
+        provider="torrent_cache",
+        name=root_name,
+    )
+
+
 async def fetch_resource_torrent(
     db: AsyncSession, resource: FileResource, *, force: bool = False
 ) -> ResourceListing:
@@ -220,11 +244,9 @@ async def fetch_resource_torrent(
     result = ResourceListing()
     cached = resource.torrent_file
     if cached and await asyncio.to_thread(Path(cached).exists):
-        files = await asyncio.to_thread(parse_torrent_files, cached)
-        if files is not None:
-            return ResourceListing(
-                files=files, source="torrent_cache", provider="torrent_cache"
-            )
+        listing = await _cached_torrent_listing(cached)
+        if listing is not None:
+            return listing
     url = resource.torrent_url or ""
     if not url.startswith(("http://", "https://")):
         return result
@@ -264,7 +286,10 @@ async def fetch_resource_torrent(
         return result
     await db.commit()
     resource.torrent_file = path
-    return ResourceListing(files=files, source="torrent_fetch", provider="http")
+    root_name = await asyncio.to_thread(read_torrent_root_name, path)
+    return ResourceListing(
+        files=files, source="torrent_fetch", provider="http", name=root_name
+    )
 
 
 async def _from_downloader(
@@ -343,11 +368,9 @@ async def resolve_resource_listing(
     result = ResourceListing()
     cached = resource.torrent_file
     if cached and await asyncio.to_thread(Path(cached).exists):
-        files = await asyncio.to_thread(parse_torrent_files, cached)
-        if files is not None:
-            return ResourceListing(
-                files=files, source="torrent_cache", provider="torrent_cache"
-            )
+        listing = await _cached_torrent_listing(cached)
+        if listing is not None:
+            return listing
         _with_error(result, "torrent_cache", "cached torrent could not be parsed")
 
     if fetch_http:

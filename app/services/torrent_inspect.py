@@ -32,7 +32,11 @@ import httpx
 
 from app.clients import outbound_http
 from app.config import settings
-from app.services.file_roles import assignment_file_role, classify_file
+from app.services.file_roles import (
+    assignment_file_role,
+    classify_file,
+    is_extra_video_path,
+)
 from app.services.resource_parser import (
     extract_release_title,
     extract_season_episode_from_path,
@@ -358,8 +362,23 @@ def read_torrent_root_name(path: str) -> str | None:
 
 
 def _is_main_video(entry: dict) -> bool:
-    """True when the entry looks like a main feature video file."""
-    return classify_file(entry.get("name"), entry.get("size") or 0) == "video"
+    """True when the entry looks like a main feature video file.
+
+    Size alone is not authoritative: short anime/TV episodes commonly fall
+    below the sample threshold. A below-threshold video with an explicit
+    episode marker is still a main video; path-based extras (sample/preview/
+    OP/ED/PV/...) remain extras regardless of explicit numbers.
+    """
+    name = entry.get("name")
+    size = entry.get("size") or 0
+    if not name:
+        return False
+    if classify_file(name, size) == "video":
+        return True
+    if classify_file(name, size) != "extra" or is_extra_video_path(name):
+        return False
+    _season, episode = extract_season_episode_from_path(name)
+    return episode is not None
 
 
 # Cluster-title normalization: strip bracketed release tags, season suffixes
@@ -481,7 +500,9 @@ def analyze_torrent_files(files: list[dict]) -> TorrentReport:
     entries_by_path = {entry["path"]: entry for entry in file_entries}
     for fp in file_parses:
         entries_by_path[fp["path"]].update(
-            season=fp["season"], episode=fp["episode"]
+            file_role="episode",
+            season=fp["season"],
+            episode=fp["episode"],
         )
     season_ranges = _season_ranges_from_parsed(parsed)
     clusters = _clusters_from_parsed(parsed)

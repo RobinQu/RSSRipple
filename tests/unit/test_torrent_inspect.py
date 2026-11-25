@@ -140,6 +140,9 @@ def test_parse_no_info_dict_returns_none(tmp_path):
     ("Movie.2024.1080p.WEB-DL.mkv", (None, None)),
     ("Show S01E12v2.mkv", (1, 12)),
     ("Show S01/Show [01a].mkv", (1, 1)),
+    ("Show S01/Show.E02.mkv", (1, 2)),
+    ("作品X.E01.mp4", (None, 1)),
+    ("Show.E10.1080p.mkv", (None, 10)),
     ("Show SP03.mkv", (0, 3)),
     ("Show OVA 02.mkv", (0, 2)),
     ("Hyouka. TV (2012) 22; BD_1080P.mkv", (None, 22)),
@@ -333,6 +336,21 @@ def test_analyze_empty_listing_unknown():
     assert report.scope == "unknown"
     assert report.is_batch is False
     assert report.video_file_count == 0
+
+
+def test_analyze_short_episodes_below_sample_threshold_stay_episodes():
+    # Short anime episodes can be < 50 MiB. Explicit SxxExx markers must win
+    # over the sample-size heuristic.
+    files = [
+        _f(f"Show S01/Show.S01E{ep:02d}.mkv", 44 * MB) for ep in range(1, 4)
+    ]
+    report = analyze_torrent_files(files)
+    assert report.scope == "season"
+    assert report.is_batch is True
+    assert report.episode_start == 1 and report.episode_end == 3
+    assert report.video_file_count == 3
+    assert {entry["file_role"] for entry in report.file_entries} == {"episode"}
+    assert [p["episode"] for p in report.file_parses] == [1, 2, 3]
 
 
 def test_analyze_sample_mixed_in_still_season():

@@ -1371,6 +1371,24 @@ class TestAssociationSuffixMatch:
         parsed = NotificationPayload.model_validate(payload)
         assert _association_for(parsed, "z/a/ep04.mkv") is None
 
+    def test_episode_bearing_suffix_beats_stale_exact_auto_row(self):
+        from app.schemas.notification import NotificationPayload
+        from app.services.organize_planner import _association_for
+
+        payload = self._payload("Show/作品.E04.mkv")
+        payload["file_associations"]["items"][0].update(
+            episode_start=None, episode_end=None, source="auto",
+        )
+        payload["file_associations"]["items"].append({
+            "file_path": "作品.E04.mkv", "file_size": 1,
+            "work_type": "series", "work_id": "s-1",
+            "season": 1, "episode_start": 4, "episode_end": 4, "source": "manual",
+        })
+        parsed = NotificationPayload.model_validate(payload)
+        chosen = _association_for(parsed, "Show/作品.E04.mkv")
+        assert chosen is not None
+        assert chosen.episode_start == 4 and chosen.source == "manual"
+
 
 class TestMultiWorkEdgeCases:
     """多作品同目标拆分规划的补缺分支。"""
