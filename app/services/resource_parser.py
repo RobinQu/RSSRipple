@@ -125,12 +125,9 @@ def parse_entry(entry: dict, field_mapping: dict | None, description: str | None
     if not field_mapping:
         return {}
 
-    # New format: extract field_mappings from the wrapper
-    if "field_mappings" in field_mapping:
-        mappings = field_mapping["field_mappings"]
-    else:
-        # Backward compat: treat the whole dict as field_mappings
-        mappings = field_mapping
+    # New format extracts field_mappings from the wrapper; the backward-compat
+    # path treats the whole dict as field_mappings.
+    mappings = field_mapping.get("field_mappings", field_mapping)
 
     return _parse_with_mappings(entry, mappings)
 
@@ -224,19 +221,13 @@ def _resolve_source(entry: dict, source_path: str) -> Any:
         if bracket_match:
             key = bracket_match.group(1)
             index = int(bracket_match.group(2))
-            if isinstance(current, dict):
-                arr = current.get(key)
-            else:
-                arr = getattr(current, key, None)
+            arr = current.get(key) if isinstance(current, dict) else getattr(current, key, None)
             if arr and index < len(arr):
                 current = arr[index]
             else:
                 return None
         else:
-            if isinstance(current, dict):
-                current = current.get(part)
-            else:
-                current = getattr(current, part, None)
+            current = current.get(part) if isinstance(current, dict) else getattr(current, part, None)
 
     return current
 
@@ -815,11 +806,7 @@ def extract_episode_fallback(title_raw: str) -> tuple[int | None, int | None]:
     episode = int(m.group(1)) if m else None
     season = None
     m = _FB_SEASON_SUFFIX_RE.search(title_raw)
-    if m:
-        season = int(m.group(1))
-    elif (m := _FB_SEASON_ORDINAL_RE.search(title_raw)):
-        season = int(m.group(1))
-    elif (m := _FB_SEASON_S_RE.search(title_raw)):
+    if m or (m := _FB_SEASON_ORDINAL_RE.search(title_raw)) or (m := _FB_SEASON_S_RE.search(title_raw)):
         season = int(m.group(1))
     elif (m := _FB_SEASON_KANJI_RE.search(title_raw)):
         season = _kanji_to_int(m.group(1))
@@ -1020,9 +1007,7 @@ def normalize_parsed_fields(title_raw: str | None, parsed: dict) -> dict:
     ):
         if cn_leaked:
             out["title_cn"] = cjk_seg
-        if en_leaked:
-            out["title_en"] = lat_seg
-        elif bilingual_title and not out.get("title_en"):
+        if en_leaked or bilingual_title and not out.get("title_en"):
             out["title_en"] = lat_seg
         # Prefer the latin variant for search_title: series.title_en is the
         # romanized name local matching keys on, and bilingual titles bury the

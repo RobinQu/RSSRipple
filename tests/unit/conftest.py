@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 _real_sleep = asyncio.sleep
 async def _fast_sleep(delay: float, *a, **kw):
     if delay and delay >= 1:
-        return
+        return None
     return await _real_sleep(delay, *a, **kw)
 asyncio.sleep = _fast_sleep  # type: ignore[assignment]
 

@@ -626,9 +626,7 @@ def _ctx_factory(db_session):
             await db_session.commit()
             return False
 
-    factory = MagicMock(return_value=_Ctx())
-
-    return factory
+    return MagicMock(return_value=_Ctx())
 
 
 @pytest.mark.asyncio

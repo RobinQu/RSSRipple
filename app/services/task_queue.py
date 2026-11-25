@@ -15,6 +15,7 @@ key can be active at a time; a second enqueue() for the same key returns None.
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import socket
@@ -408,10 +409,8 @@ class MemoryQueue(BaseQueue):
     async def stop(self) -> None:
         if self._dispatcher:
             self._dispatcher.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._dispatcher
-            except asyncio.CancelledError:
-                pass
             self._dispatcher = None
         # Jobs still queued will never run: fail them instead of silently
         # dropping them (a stopped MemoryQueue has no durable backlog to
@@ -677,16 +676,12 @@ class RedisQueue(BaseQueue):
     async def stop(self) -> None:
         if self._heartbeat:
             self._heartbeat.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._heartbeat
-            except asyncio.CancelledError:
-                pass
         if self._worker:
             self._worker.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._worker
-            except asyncio.CancelledError:
-                pass
         for task in self._run_tasks:
             task.cancel()
         if self._run_tasks:
@@ -1276,7 +1271,7 @@ def create_queue(backend: str = "memory", **kwargs) -> BaseQueue:
         redis_kwargs = {k: v for k, v in kwargs.items()
                         if k in ("redis_client", "redis_url", "max_concurrent", "ttl")}
         return RedisQueue(**redis_kwargs)
-    memory_kwargs = {k: v for k, v in kwargs.items() if k in ("max_concurrent",)}
+    memory_kwargs = {k: v for k, v in kwargs.items() if k == "max_concurrent"}
     return MemoryQueue(**memory_kwargs)
 
 

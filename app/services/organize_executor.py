@@ -338,13 +338,12 @@ def _converge_movedir(src: Path, dst: Path) -> str | None:
         src_dirs: list[Path] = []
         src_files: list[tuple[Path, Path, int]] = []
         for dirpath, dirnames, filenames in os.walk(src):
-            for dirname in dirnames:
-                src_dirs.append(Path(dirpath) / dirname)
+            src_dirs.extend(Path(dirpath) / dirname for dirname in dirnames)
             for name in filenames:
                 src_file = Path(dirpath) / name
                 dst_file = dst / src_file.relative_to(src)
                 size = file_stamp(src_file)[2]  # 非常规文件（符号链接等）在此拒绝
-                src_files.append((src_file, dst_file, size))
+                src_files.append((src_file, dst_file, size))  # noqa: PERF401 — file_stamp has probe side effects
         for src_file, dst_file, size in src_files:
             dst_file.parent.mkdir(parents=True, exist_ok=True)
             if os.path.lexists(dst_file):

@@ -35,6 +35,10 @@ async def verify_recovery(db, channel, patcher, cache_dir):
 
     resource = await _make_magnet_resource(db, channel.id)
     resource_id = resource.id
+    from app.services.resource_publication import publish_resource
+
+    await publish_resource(db, resource_id, kind="created")
+    await db.commit()
     process = await asyncio.create_subprocess_exec(
         sys.executable, "-m", "tests.integration.queue_recovery.magnet_crash", resource_id,
         stdout=asyncio.subprocess.PIPE, env=dict(os.environ),

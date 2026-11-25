@@ -110,19 +110,25 @@ def blocked_reasons(snapshot):
             for item in declared
         ):
             reasons.append("legacy season evidence conflicts; use reviewed season splitting")
-    for row in snapshot["episodes"]:
-        if row["season"] != season:
-            reasons.append(f"cross-season episode: {row['id']}")
-    for row in snapshot["resources"]:
+    reasons.extend(
+        f"cross-season episode: {row['id']}"
+        for row in snapshot["episodes"]
+        if row["season"] != season
+    )
+    reasons.extend(
+        f"conflicting single-season resource: {row['id']}"
+        for row in snapshot["resources"]
         if (
             (not row["is_batch"] or row["batch_scope"] == "season")
             and row["season"] is not None
             and row["season"] != season
-        ):
-            reasons.append(f"conflicting single-season resource: {row['id']}")
-    for row in snapshot["assignments"]:
-        if row["season"] is not None and row["season"] != season:
-            reasons.append(f"cross-season file assignment: {row['id']}")
+        )
+    )
+    reasons.extend(
+        f"cross-season file assignment: {row['id']}"
+        for row in snapshot["assignments"]
+        if row["season"] is not None and row["season"] != season
+    )
     identities = [work["external_id"], *(row["external_id"] for row in snapshot["identities"])]
     for identity in identities:
         parsed = split_season_identity(identity)
@@ -220,9 +226,8 @@ def main():
             else:
                 with open(args.apply_review, encoding="utf-8") as source:
                     review = json.load(source)
-                async with database.async_session_factory() as db:
-                    async with db.begin():
-                        result = await apply_review(db, review)
+                async with database.async_session_factory() as db, db.begin():
+                    result = await apply_review(db, review)
                 print(canonical(result))
         finally:
             await database.engine.dispose()

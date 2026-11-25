@@ -1445,13 +1445,9 @@ class UnifiedMetadataAgent:
             if isinstance(msg, AIMessage) and hasattr(msg, "tool_calls") and msg.tool_calls:
                 for tc in msg.tool_calls:
                     name = tc.get("name", "")
-                    if name == "search_tmdb":
+                    if name == "search_tmdb" or name == "get_tmdb_details":
                         methods_used.add("tmdb")
-                    elif name == "get_tmdb_details":
-                        methods_used.add("tmdb")
-                    elif name == "search_wikipedia":
-                        methods_used.add("wikipedia")
-                    elif name == "get_wikipedia_page":
+                    elif name == "search_wikipedia" or name == "get_wikipedia_page":
                         methods_used.add("wikipedia")
             elif isinstance(msg, ToolMessage):
                 if msg.name == "search_tmdb":

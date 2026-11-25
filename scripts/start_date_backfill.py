@@ -106,18 +106,20 @@ _BARE_YEAR_RE = re.compile(r"((?:19|20)\d{2})")
 
 def _dates_in_text(text: str) -> list[date]:
     """All parseable dates in a wikitext snippet, most specific first."""
-    out: list[date] = []
-    for m in _ZH_DATE_RE.finditer(text):
-        out.append(date(int(m.group(1)), int(m.group(2)), int(m.group(3))))
-    for m in _START_TPL_RE.finditer(text):
-        out.append(date(int(m.group(1)), int(m.group(2)), int(m.group(3))))
-    for m in _EN_DATE_RE.finditer(text):
-        out.append(
-            date(int(m.group(3)), _EN_MONTHS.index(m.group(1)) + 1, int(m.group(2)))
-        )
+    out: list[date] = [
+        date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        for m in _ZH_DATE_RE.finditer(text)
+    ]
+    out.extend(
+        date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        for m in _START_TPL_RE.finditer(text)
+    )
+    out.extend(
+        date(int(m.group(3)), _EN_MONTHS.index(m.group(1)) + 1, int(m.group(2)))
+        for m in _EN_DATE_RE.finditer(text)
+    )
     if not out:
-        for m in _BARE_YEAR_RE.finditer(text):
-            out.append(date(int(m.group(1)), 1, 1))
+        out.extend(date(int(m.group(1)), 1, 1) for m in _BARE_YEAR_RE.finditer(text))
     return out
 
 
@@ -172,8 +174,7 @@ async def _episode_start_via_subpages(title: str, lang: str, wikitext: str) -> d
             subpages.append(target)
     if lang == "en" and not title.lower().startswith("list of"):
         subpages.append(f"List of {title} episodes")
-    for suffix in _SUBPAGE_SUFFIXES.get(lang, ()):
-        subpages.append(f"{title}{suffix}")
+    subpages.extend(f"{title}{suffix}" for suffix in _SUBPAGE_SUFFIXES.get(lang, ()))
     for sub in subpages:
         sub_wt = await fetch_wikipedia_wikitext(sub, lang)
         if not sub_wt:

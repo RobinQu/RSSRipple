@@ -1,6 +1,7 @@
 """Transmission RPC client wrapper."""
 
 import asyncio
+import contextlib
 from functools import partial
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -81,20 +82,15 @@ def _torrent_to_dict(t) -> dict[str, Any]:
     try:
         if t.eta is not None:
             total = getattr(t.eta, "total_seconds", None)
-            if callable(total):
-                val = total()
-            else:
-                val = t.eta
+            val = total() if callable(total) else t.eta
             if val is not None and val > 0:
                 eta_seconds = int(val)
     except (AttributeError, TypeError):
         pass
 
     added_date: str | None = None
-    try:
+    with contextlib.suppress(AttributeError, TypeError):
         added_date = t.added_date.isoformat()
-    except (AttributeError, TypeError):
-        pass
 
     left_until_done = 0
     try:

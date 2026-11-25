@@ -338,8 +338,7 @@ async def list_works(
                 )
             )
         result = await db.execute(series_q.order_by(TVSeries.created_at.desc()))
-        for s in result.scalars().all():
-            works.append(_normalize_series(s))
+        works.extend(_normalize_series(s) for s in result.scalars().all())
 
     if content_type in ("all", "movie"):
         movie_q = select(Movie).options(selectinload(Movie.collection))
@@ -357,8 +356,7 @@ async def list_works(
                 )
             )
         result = await db.execute(movie_q.order_by(Movie.created_at.desc()))
-        for m in result.scalars().all():
-            works.append(_normalize_movie(m))
+        works.extend(_normalize_movie(m) for m in result.scalars().all())
 
     if include_audio:
         audio_q = select(AudioWork)
@@ -374,8 +372,7 @@ async def list_works(
                 )
             )
         result = await db.execute(audio_q.order_by(AudioWork.created_at.desc()))
-        for a in result.scalars().all():
-            works.append(_normalize_audio_work(a))
+        works.extend(_normalize_audio_work(a) for a in result.scalars().all())
 
     # Sort merged results by created_at descending
     works.sort(key=lambda w: w["created_at"] or "", reverse=True)

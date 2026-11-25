@@ -178,9 +178,8 @@ def translate_path(path: str, path_map: Mapping[str, str] | None) -> str:
     best: tuple[str, str] | None = None
     for src_prefix, dst_prefix in path_map.items():
         prefix = src_prefix.rstrip("/")
-        if path == prefix or path.startswith(prefix + "/"):
-            if best is None or len(prefix) > len(best[0]):
-                best = (prefix, dst_prefix)
+        if (path == prefix or path.startswith(prefix + "/")) and (best is None or len(prefix) > len(best[0])):
+            best = (prefix, dst_prefix)
     if best is None:
         return path
     prefix, dst_prefix = best
@@ -543,10 +542,10 @@ def _plan_same_target_multi_work(
                     continue
                 target = _attached_episode(payload, item)
                 key = _work_key(target) if target is not None else _work_key(item)
-                if target is not None and item.attached_to_path is not None:
-                    groups[key].append(item)
-                    group_files[key].append(disk_file)
-                elif item.attached_to_path is None and key in group_files:
+                if (
+                    target is not None and item.attached_to_path is not None
+                    or item.attached_to_path is None and key in group_files
+                ):
                     groups[key].append(item)
                     group_files[key].append(disk_file)
                 else:

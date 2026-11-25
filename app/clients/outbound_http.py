@@ -116,6 +116,7 @@ class _CheckedBackend(httpcore.SyncBackend):
             except (httpcore.ConnectError, httpcore.ConnectTimeout):
                 if index == len(addresses) - 1:
                     raise
+        return None
 
 
 class _CheckedTransport(httpx.HTTPTransport):
@@ -171,6 +172,7 @@ class _CheckedAsyncBackend(httpcore.AnyIOBackend):
             except (httpcore.ConnectError, httpcore.ConnectTimeout):
                 if index == len(addresses) - 1:
                     raise
+        return None
 
 
 class _CheckedAsyncTransport(httpx.AsyncHTTPTransport):

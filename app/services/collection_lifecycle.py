@@ -49,17 +49,17 @@ async def reconcile_resources(
     lose that pointer when it is deleted; no work/season is invented.
     """
     terms = [FileResource.series_id.in_(series_ids), FileResource.movie_id.in_(movie_ids)]
-    for model in (ResourceWorkLink, ResourceFileAssignment):
-        terms.append(
-            FileResource.id.in_(
-                select(model.resource_id).where(
-                    or_(
-                        model.series_id.in_(series_ids),
-                        model.movie_id.in_(movie_ids),
-                    )
+    terms.extend(
+        FileResource.id.in_(
+            select(model.resource_id).where(
+                or_(
+                    model.series_id.in_(series_ids),
+                    model.movie_id.in_(movie_ids),
                 )
             )
         )
+        for model in (ResourceWorkLink, ResourceFileAssignment)
+    )
     if deleting:
         terms.append(FileResource.collection_id == collection_id)
     cursor = ""

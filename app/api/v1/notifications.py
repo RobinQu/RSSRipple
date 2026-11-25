@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.v1.responses import error_response as _error
 from app.database import get_db
 from app.models.agent import Agent
 from app.models.agent_webhook import AgentWebhook
@@ -35,18 +36,6 @@ from app.services.notify_service import (
 )
 
 router = APIRouter()
-
-
-def _error(status_code: int, code: str, message: str) -> JSONResponse:
-    return JSONResponse(
-        status_code=status_code,
-        content={
-            "success": False,
-            "data": None,
-            "error": {"code": code, "message": message, "details": None},
-            "meta": {},
-        },
-    )
 
 
 async def _get_agent_or_404(db: AsyncSession, agent_id: str) -> Agent | JSONResponse:

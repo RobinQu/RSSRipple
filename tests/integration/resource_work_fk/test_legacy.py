@@ -50,10 +50,16 @@ async def _negative(engine, monkeypatch, failure):
             installed.append(statement)
 
     def inject(conn, cursor, statement, parameters, context, executemany):
-        if failure == 'interrupt' and RESOURCE_WORK_FK_CONSTRAINT in statement:
-            if 'VALIDATE CONSTRAINT' in statement or ('CREATE TRIGGER' in statement and 'BEFORE UPDATE' in statement):
-                assert installed, 'First guard DDL must actually complete before the injected failure'
-                raise RuntimeError('Injected second guard installation failure')
+        if (
+            failure == 'interrupt'
+            and RESOURCE_WORK_FK_CONSTRAINT in statement
+            and (
+                'VALIDATE CONSTRAINT' in statement
+                or ('CREATE TRIGGER' in statement and 'BEFORE UPDATE' in statement)
+            )
+        ):
+            assert installed, 'First guard DDL must actually complete before the injected failure'
+            raise RuntimeError('Injected second guard installation failure')
 
     event.listen(engine.sync_engine, 'after_cursor_execute', completed)
     event.listen(engine.sync_engine, 'before_cursor_execute', inject)

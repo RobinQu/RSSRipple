@@ -420,10 +420,7 @@ def parse_seasons_from_infobox(wikitext: str | None) -> list[dict] | None:
             items: list[str] = []
             m_ubl = re.match(r"^\s*\{\{\s*(?:ubl|unbulleted list|vlist)\s*\|(.*)\}\}\s*$",
                              value, flags=re.DOTALL | re.IGNORECASE)
-            if m_ubl:
-                items = [p for p in _split_segments(m_ubl.group(1))]
-            else:
-                items = re.split(r"<br\s*/?>", value)
+            items = list(_split_segments(m_ubl.group(1))) if m_ubl else re.split(r"<br\s*/?>", value)
             for item in items:
                 text = _normalize_digits(clean_text(item) or "")
                 m = re.search(
@@ -560,7 +557,7 @@ def _parse_air_field_items(
         value = _strip_refs(value)
         m_ubl = re.match(r"^\s*\{\{\s*(?:ubl|unbulleted list|vlist)\s*\|(.*)\}\}\s*$",
                          value, flags=re.DOTALL | re.IGNORECASE)
-        items = [p for p in _split_segments(m_ubl.group(1))] if m_ubl else re.split(r"<br\s*/?>", value)
+        items = list(_split_segments(m_ubl.group(1))) if m_ubl else re.split(r"<br\s*/?>", value)
         for item in items:
             text = _normalize_digits(clean_text(item) or "")
             if not text:

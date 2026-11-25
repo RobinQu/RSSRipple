@@ -39,7 +39,7 @@ async def test_postgres_actual_startup(dedup_postgres, monkeypatch, legacy):
     await engine.dispose()
     await database.create_tables()
     async with engine.connect() as conn:
-        assert await column_types(conn) == {table: 'text' for table in TABLES}
+        assert await column_types(conn) == dict.fromkeys(TABLES, 'text')
     async with factory() as db:
         for model, identity in identities.items():
             row = await db.get(model, identity)
@@ -181,7 +181,7 @@ async def test_postgres_two_startups_wait_for_shared_ddl_lock(dedup_postgres, mo
         alters = [s for s in statements if s.startswith('ALTER TABLE') and 'ALTER COLUMN search_text TYPE TEXT' in s]
         assert len(alters) == 4
         async with engine.connect() as conn:
-            assert await column_types(conn) == {table: 'text' for table in TABLES}
+            assert await column_types(conn) == dict.fromkeys(TABLES, 'text')
     finally:
         for task in tasks:
             if not task.done():

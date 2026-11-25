@@ -134,7 +134,7 @@ class ResourceMetadata:
             ),
             subtitle_langs=data.get("subtitle_langs"),
             container=data.get("container"),
-            matched_entity=entity if entity else None,
+            matched_entity=entity or None,
             confidence=float(data.get("confidence", 0.0)),
             reason=data.get("reason"),
             ambiguous=data.get("ambiguous", False),

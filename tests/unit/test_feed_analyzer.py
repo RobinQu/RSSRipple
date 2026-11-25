@@ -420,9 +420,9 @@ def _make_chunk(content="", reasoning="", reasoning_content=""):
     chunk = MagicMock()
     chunk.choices = [MagicMock()]
     delta = MagicMock()
-    delta.content = content if content else None
-    delta.reasoning = reasoning if reasoning else None
-    delta.reasoning_content = reasoning_content if reasoning_content else None
+    delta.content = content or None
+    delta.reasoning = reasoning or None
+    delta.reasoning_content = reasoning_content or None
     chunk.choices[0].delta = delta
     return chunk
 
@@ -553,10 +553,7 @@ async def test_analyze_feed_openrouter_empty_response(mock_settings, mock_openro
 # =============================================================================
 
 async def _collect_events(gen):
-    events = []
-    async for event in gen:
-        events.append(event)
-    return events
+    return [event async for event in gen]
 
 
 @pytest.mark.asyncio

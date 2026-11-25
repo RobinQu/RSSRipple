@@ -35,7 +35,7 @@ async def reconcile_channel_jobs(
         Channel.id, Channel.status, Channel.fetch_interval,
         Channel.metadata_refresh_enabled, Channel.metadata_refresh_interval_minutes,
     ))).all()
-    stats = dict(added=0, updated=0, removed=0, errors=0)
+    stats = {"added": 0, "updated": 0, "removed": 0, "errors": 0}
     retained: set[str] = set()
     for row in rows:
         fetch_id, refresh_id = f"channel:{row.id}", f"channel-refresh:{row.id}"

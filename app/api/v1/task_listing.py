@@ -6,7 +6,7 @@ eager-loaded resource/work metadata for the task table.
 
 import logging
 
-from sqlalchemy import and_, case, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -23,6 +23,35 @@ logger = logging.getLogger(__name__)
 TASK_SORT_KEYS = ("status", "created_at", "progress", "title")
 
 DEFAULT_TASK_SORT: list[tuple[str, bool]] = [("status", True), ("created_at", False)]
+
+
+async def paginated_task_list(
+    db: AsyncSession,
+    base_q,
+    *,
+    status: str | None,
+    sort: str | None,
+    page: int,
+    page_size: int,
+) -> dict:
+    """Apply effective-status filtering, sorting and pagination to a
+    ``DownloadTask`` query, returning the standard paginated response."""
+    from app.schemas.common import paginated_response
+    from app.schemas.download_task import DownloadTaskResponse
+
+    offset = (page - 1) * page_size
+    filtered = apply_task_status_filter(base_q, status)
+    total = (await db.execute(
+        select(func.count()).select_from(filtered.subquery())
+    )).scalar_one()
+    query = apply_task_sort(filtered, parse_task_sort(sort))
+    result = await db.execute(
+        query.options(*task_list_load_options()).offset(offset).limit(page_size)
+    )
+    tasks = result.scalars().all()
+    payload = [DownloadTaskResponse.model_validate(t).model_dump() for t in tasks]
+    await apply_effective_task_statuses(db, tasks, payload)
+    return paginated_response(payload, total=total, page=page, page_size=page_size)
 
 
 def parse_task_sort(sort: str | None) -> list[tuple[str, bool]]:
@@ -140,7 +169,7 @@ async def apply_effective_task_statuses(
         )
         .where(DownloadNotification.download_task_id.in_([t.id for t in affected]))
     )).all()
-    plan_status_by_task = {task_id: plan_status for task_id, plan_status in plan_rows}
+    plan_status_by_task = dict(plan_rows)
     effective = {
         t.id: "organized" if plan_status_by_task.get(t.id) == "done" else "completed"
         for t in affected

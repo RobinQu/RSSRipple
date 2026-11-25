@@ -428,11 +428,11 @@ def missing_required_fields(
     missing: list[str] = []
     for key in applicable_required_fields(required_metadata_fields, shape):
         value = _semantic_field_value(resource, key)
-        if value is None:
-            missing.append(key)
-        elif isinstance(value, str) and not value.strip():
-            missing.append(key)
-        elif isinstance(value, (list, tuple, set)) and not value:
+        if (
+            value is None
+            or isinstance(value, str) and not value.strip()
+            or isinstance(value, (list, tuple, set)) and not value
+        ):
             missing.append(key)
     return missing
 
@@ -446,11 +446,11 @@ _RESOURCE_LEVEL_FIELDS: frozenset[str] = frozenset(
 
 def validate_required_fields(keys: list[str] | None) -> list[str]:
     """Validate catalog keys; returns a list of error strings (empty = ok)."""
-    errors: list[str] = []
-    for key in keys or []:
-        if key not in REQUIRED_FIELD_CATALOG:
-            errors.append(f"unknown required metadata field: {key!r}")
-    return errors
+    return [
+        f"unknown required metadata field: {key!r}"
+        for key in keys or []
+        if key not in REQUIRED_FIELD_CATALOG
+    ]
 
 
 def normalize_required_fields(keys: list[str] | None) -> list[str]:

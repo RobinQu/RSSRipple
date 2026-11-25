@@ -126,9 +126,11 @@ async def main():
     lost_wakeup = AsyncMock(side_effect=RuntimeError("Synthetic queue outage") if queue_recovery else None)
 
     def reject_event(conn, cursor, statement, parameters, context, executemany):
-        if statement.lower().startswith("insert into resource_publications"):
-            if any(row.get("kind") == failure for row in context.compiled_parameters):
-                raise RuntimeError("Synthetic publication INSERT failure: " + failure)
+        if (
+            statement.lower().startswith("insert into resource_publications")
+            and any(row.get("kind") == failure for row in context.compiled_parameters)
+        ):
+            raise RuntimeError("Synthetic publication INSERT failure: " + failure)
 
     if failure:
         event.listen(database.engine.sync_engine, "before_cursor_execute", reject_event)

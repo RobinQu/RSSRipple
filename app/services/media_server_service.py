@@ -57,14 +57,12 @@ def resolve_server_path(
         prefix = (binding.server_path_prefix or "").rstrip("/")
         if not prefix:
             continue
-        if server_path == prefix or server_path.startswith(prefix + "/"):
-            if len(prefix) > best_len:
-                best, best_len = binding, len(prefix)
+        if (server_path == prefix or server_path.startswith(prefix + "/")) and len(prefix) > best_len:
+            best, best_len = binding, len(prefix)
     if best is None:
         return None
     suffix = server_path[best_len:]
-    if suffix.startswith("/"):
-        suffix = suffix[1:]  # exactly one separator; do not hide an absolute suffix
+    suffix = suffix.removeprefix("/")  # exactly one separator; do not hide an absolute suffix
     try:
         parts = [relative_path(part) for part in (best.subpath, suffix) if part not in (None, "")]
     except PathSafetyError as exc:
@@ -147,7 +145,7 @@ async def scan_server(db, server: Any) -> dict:
 
     stats = {"created": 0, "updated": 0, "unbound": 0}
     for section, norm_path, resolved in locations:
-        volume_id, root_subpath = resolved if resolved else (None, None)
+        volume_id, root_subpath = resolved or (None, None)
         existing = index.get((section["key"], norm_path))
         try:
             if existing is None:

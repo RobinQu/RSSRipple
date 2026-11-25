@@ -52,6 +52,10 @@ async def main():
                     db, channel.id, title_raw="Synthetic Cowboy Bebop pack", magnet_resolve_attempt_id=attempt
                 )
                 resource_id = resource.id
+                from app.services.resource_publication import publish_resource
+
+                await publish_resource(db, resource_id, kind="created")
+                await db.commit()
             calls = []
 
             async def metadata(title, source):
@@ -74,7 +78,9 @@ async def main():
             async def resolve(uri, dest, timeout, **kwargs):
                 Path(dest).write_bytes(TORRENT.read_bytes())
 
-            actual_inspect = ti.maybe_inspect_torrent
+            from app.services import resource_listing as rl
+
+            actual_reconcile = rl.reconcile_resource
             report = ti.analyze_torrent_files(ti.parse_torrent_files(str(TORRENT)))
             listing_reply = (
                 {
@@ -91,19 +97,22 @@ async def main():
                 else None
             )
 
-            async def inspect(db, resource, channel):
+            async def reconcile(resource_id, **kwargs):
                 if replace:
                     async with database.async_session_factory() as newer:
                         saved = await newer.get(FileResource, resource_id)
                         saved.magnet_resolve_attempt_id = replacement
                         saved.magnet_resolve_status = "pending"
                         await newer.commit()
-                return await actual_inspect(db, resource, channel)
+                    return rl.ResourceListing(
+                        provider="magnet", error="resolution attempt was replaced"
+                    )
+                return await actual_reconcile(resource_id, **kwargs)
 
             with tempfile.TemporaryDirectory() as directory, pytest.MonkeyPatch.context() as patch:
                 patch.setattr(mr.settings, "torrent_cache_dir", directory)
                 patch.setattr(mr, "resolve_magnet_to_cache", resolve)
-                patch.setattr(ti, "maybe_inspect_torrent", inspect)
+                patch.setattr(rl, "reconcile_resource", reconcile)
                 patch.setattr(
                     "app.services.batch_content_analysis.runtime_config",
                     SimpleNamespace(llm_api_key="synthetic-probe-key"),
@@ -123,14 +132,17 @@ async def main():
                     for name in TABLES
                 }
                 saved = await observer.get(FileResource, resource_id)
-                assert calls, "actual multi-work metadata path was not reached"
                 if replace:
                     assert saved.magnet_resolve_attempt_id == replacement
                     assert saved.magnet_resolve_status == "pending"
                     assert all(value == 0 for value in counts.values()), counts
                 else:
+                    assert calls, "actual multi-work metadata path was not reached"
                     assert saved.magnet_resolve_status == "done"
-                    assert counts["resource_file_assignments"] == 27, counts
+                    # Every listing entry is assigned to the single work: the
+                    # 27 main videos plus the pack's extras/archives.
+                    expected_assignments = len(ti.parse_torrent_files(str(TORRENT)))
+                    assert counts["resource_file_assignments"] == expected_assignments, counts
                     assert counts["movies"] >= 1 and counts["tv_series"] >= 1, counts
                     assert counts["resource_work_links"] >= 2 and counts["work_collections"] >= 1, counts
                     if llm_success:

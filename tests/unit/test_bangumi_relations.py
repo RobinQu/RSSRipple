@@ -27,6 +27,7 @@ from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
 from app.models.work_collection import WorkCollection
 from app.models.work_external_id import WorkExternalId
+from app.services.resource_work_links import ensure_auto_link
 
 
 def _uuid() -> str:
@@ -372,7 +373,7 @@ async def test_seed_subjects_non_franchise_ignores_collection_members(db_session
 
 
 # ---------------------------------------------------------------------------
-# DB helpers — _ensure_link / _collection_member_by_season / _season_zero_holder
+# DB helpers — ensure_auto_link / _collection_member_by_season / _season_zero_holder
 # ---------------------------------------------------------------------------
 
 
@@ -384,10 +385,10 @@ async def test_ensure_link_additive(db_session):
     db_session.add_all([s1, m1])
     await db_session.flush()
 
-    assert await br._ensure_link(db_session, resource, "series", s1.id) is True
+    assert await ensure_auto_link(db_session, resource.id, "series", s1.id) is True
     # Idempotent: second call sees the existing row.
-    assert await br._ensure_link(db_session, resource, "series", s1.id) is False
-    assert await br._ensure_link(db_session, resource, "movie", m1.id) is True
+    assert await ensure_auto_link(db_session, resource.id, "series", s1.id) is False
+    assert await ensure_auto_link(db_session, resource.id, "movie", m1.id) is True
     links = await _links(db_session, resource.id)
     assert all(link.source == "auto" for link in links)
     assert {link.series_id or link.movie_id for link in links} == {s1.id, m1.id}

@@ -41,10 +41,10 @@ def test_catalog_covers_every_dsl_field():
 
 def test_base_tier_is_five_always_required_fields():
     """基础必选：检索 + 作品类型/是否合集 + 年份/动漫判定。"""
-    assert BASE_REQUIRED_FIELDS == frozenset({
+    assert frozenset({
         "search_title",
         "content_type", "is_batch", "year", "is_anime",
-    })
+    }) == BASE_REQUIRED_FIELDS
     assert REQUIRED_FIELD_CATALOG["title_cn"]["lock"] is None
     assert REQUIRED_FIELD_CATALOG["title_en"]["lock"] is None
     for key in BASE_REQUIRED_FIELDS:
@@ -72,13 +72,13 @@ def test_locked_storage_baseline_unions_base_and_shape_tiers():
         for keys in SHAPE_REQUIRED_FIELDS.values()
         for k in keys
     }
-    assert LOCKED_REQUIRED_FIELDS == expected
+    assert expected == LOCKED_REQUIRED_FIELDS
 
 
 def test_required_keys_per_shape_respects_applies_to():
     """year/is_anime need a linked work — franchise packs don't require them."""
     tv_single = required_keys_for_shape("tv_single")
-    assert BASE_REQUIRED_FIELDS <= tv_single | set()
+    assert tv_single | set() >= BASE_REQUIRED_FIELDS
     assert {"episode"} <= tv_single
     # year/is_anime are work-scoped base fields; unlinked rows can't have them.
     franchise = required_keys_for_shape("franchise")
@@ -87,7 +87,7 @@ def test_required_keys_per_shape_respects_applies_to():
     assert "content_type" not in franchise
     assert "title_cn" not in franchise and "is_batch" in franchise
     movie = required_keys_for_shape("movie")
-    assert BASE_REQUIRED_FIELDS <= movie
+    assert movie >= BASE_REQUIRED_FIELDS
     assert not ({"season", "episode"} & movie)
 
 

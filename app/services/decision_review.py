@@ -3,6 +3,7 @@
 Decisions are mappings so old schemas need not already contain the new columns.
 No pending row is silently discarded or classified using its old nullable slot.
 """
+import contextlib
 import hashlib
 import json
 
@@ -49,21 +50,21 @@ def review_decisions(decisions, resources):
             continue
         ids = row.get('candidates')
         if not isinstance(ids, list) or any(not isinstance(rid, str) for rid in ids):
-            blocked.append(dict(decision_id=row['id'], reason='invalid_candidates'))
+            blocked.append({'decision_id': row['id'], 'reason': 'invalid_candidates'})
             continue
         if not ids:
-            blocked.append(dict(decision_id=row['id'], reason='empty_candidates'))
+            blocked.append({'decision_id': row['id'], 'reason': 'empty_candidates'})
         for rid in sorted(set(ids)):
             resource = resources.get(rid)
             identity = resource_choice(resource) if resource is not None else None
             if identity is None:
-                blocked.append(dict(decision_id=row['id'], resource_id=rid,
-                                    reason='missing_resource' if resource is None else 'unknown_coverage'))
+                blocked.append({'decision_id': row['id'], 'resource_id': rid,
+                                    'reason': 'missing_resource' if resource is None else 'unknown_coverage'})
                 continue
             key, scope = identity
-            group = groups.setdefault((row['agent_id'], key), dict(
-                agent_id=row['agent_id'], decision_key=key, decision_scope=scope,
-                candidates=set(), source_decision_ids=set()))
+            group = groups.setdefault((row['agent_id'], key), {
+                'agent_id': row['agent_id'], 'decision_key': key, 'decision_scope': scope,
+                'candidates': set(), 'source_decision_ids': set()})
             if group['decision_scope'] != scope:
                 raise ValueError('Decision digest collision or inconsistent canonical scope')
             group['candidates'].add(rid)
@@ -74,7 +75,7 @@ def review_decisions(decisions, resources):
         group['source_decision_ids'] = sorted(group['source_decision_ids'])
         group['requires_review'] = len(group['candidates']) < 2
         proposals.append(group)
-    report = dict(version=1, original_decisions=originals, proposed_groups=proposals, blocked=blocked)
+    report = {'version': 1, 'original_decisions': originals, 'proposed_groups': proposals, 'blocked': blocked}
     # Fingerprint includes original decision state and derived resource identity.
     # The apply path must re-export under locks and compare before modifying.
     encoded = json.dumps(report, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
@@ -103,10 +104,9 @@ async def export_decision_review(db):
                 if isinstance(value, datetime):
                     row[key] = value.isoformat()
             if isinstance(row.get('candidates'), str):
-                try:
+                # Preserve malformed input in the blocked report.
+                with contextlib.suppress(ValueError):
                     row['candidates'] = json.loads(row['candidates'])
-                except ValueError:
-                    pass  # Preserve malformed input in the blocked report.
         ids = sorted({rid for row in rows if row['status'] == 'pending'
                       and isinstance(row.get('candidates'), list)
                       for rid in row['candidates'] if isinstance(rid, str)})

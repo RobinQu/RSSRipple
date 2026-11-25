@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from datetime import timedelta
 from typing import Any
@@ -257,10 +258,8 @@ def unschedule_channel(channel_id: str) -> None:  # pragma: no cover - wiring on
         return
     sched = get_scheduler()
     for job_id in (f"channel:{channel_id}", f"channel-refresh:{channel_id}"):
-        try:
+        with contextlib.suppress(Exception):
             sched.remove_job(job_id)
-        except Exception:
-            pass
 
 
 def reschedule_channel(channel: Any) -> None:  # pragma: no cover - wiring only

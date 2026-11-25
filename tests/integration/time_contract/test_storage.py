@@ -16,7 +16,11 @@ def channel_values():
     raw = (Path(__file__).parents[2] / 'fixtures/prod_works_v1.json').read_bytes()
     assert hashlib.sha256(raw).hexdigest() == 'd11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32'
     recorded = json.loads(raw)['tables']['channels'][0]
-    return {'id': str(uuid.uuid4()), 'name': recorded['name'], 'url': recorded['url'],
+    # The recorded URL is fixed; calls within one scratch database (or across
+    # scenarios that insert twice) must not collide on ``uq_channels_url``.
+    url = recorded['url']
+    url += ('&' if '?' in url else '?') + 'synthetic=' + uuid.uuid4().hex
+    return {'id': str(uuid.uuid4()), 'name': recorded['name'], 'url': url,
             'field_mapping': recorded['field_mapping'], 'last_fetched_at': utcnow()}
 
 

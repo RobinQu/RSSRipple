@@ -1,6 +1,7 @@
 """Fetch service: RSS fetch → parse → store → metadata pipeline."""
 
 import asyncio
+import contextlib
 import logging
 from collections import OrderedDict
 from datetime import timedelta
@@ -614,10 +615,8 @@ async def _process_resource_metadata_once(
             await task_db.commit()
         except Exception as e:
             logger.warning("[metadata-task] failed for %s: %s", resource_id, e)
-            try:
+            with contextlib.suppress(Exception):
                 await task_db.rollback()
-            except Exception:
-                pass
             if isinstance(e, ExecutionOwnershipLostError):
                 raise
             if not metadata_committed and _is_retryable_lock_error(e):
@@ -890,9 +889,8 @@ async def reconcile_stale_raw_episodes(
     for row in manual_history:
         raw_episode = arithmetic_evidence.get(row.id)
         fallback_key = fallback_keys.get(row.id)
-        if raw_episode is None and fallback_key is not None:
-            if len(fallback_evidence[fallback_key]) >= 2:
-                _, raw_episode = extract_season_episode_from_path(row.title_raw)
+        if raw_episode is None and fallback_key is not None and len(fallback_evidence[fallback_key]) >= 2:
+            _, raw_episode = extract_season_episode_from_path(row.title_raw)
         if raw_episode is not None:
             row.absolute_episode = raw_episode
             audit_repaired = True

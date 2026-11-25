@@ -22,6 +22,7 @@ local concurrency to ``settings.magnet_resolve_concurrency``.
 
 import asyncio
 import base64
+import contextlib
 import hashlib
 import logging
 import re
@@ -392,10 +393,9 @@ async def resolve_magnet_to_cache(
         raise MagnetMetadataError(f"metadata resolution failed: {e}") from e
     finally:
         if handle is not None:
-            try:
+            # Cleanup must never raise.
+            with contextlib.suppress(Exception):
                 await asyncio.to_thread(session.remove_torrent, handle)
-            except Exception:  # noqa: BLE001 — cleanup must never raise
-                pass
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 

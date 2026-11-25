@@ -20,8 +20,8 @@ from app.models.channel import Channel  # noqa: E402
 from tests.integration.queue_recovery.magnet_crash import verify_recovery  # noqa: E402
 from tests.unit.test_job_handlers import test_magnet_sweep_propagates_ownership_loss  # noqa: E402
 from tests.unit.test_magnet_resolve import (  # noqa: E402
-    test_inspection_discards_changes_after_attempt_replaced,
     test_reclaimed_resource_can_launch_while_old_task_waits,
+    test_reconciliation_preserves_replacement_attempt,
     test_stale_manual_retry_preserves_new_claim,
 )
 
@@ -70,7 +70,7 @@ async def main():
                     if case == "manual_retry":
                         await test_stale_manual_retry_preserves_new_claim(db, channel, patcher)
                     elif case == "inspection":
-                        await test_inspection_discards_changes_after_attempt_replaced(db, channel, patcher, Path(directory))
+                        await test_reconciliation_preserves_replacement_attempt(db, channel, patcher, Path(directory))
                     elif case == "reclaimed":
                         await test_reclaimed_resource_can_launch_while_old_task_waits(db, channel, patcher)
                     elif case == "crash":

@@ -99,6 +99,7 @@ from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
 from app.models.work_collection import WorkCollection
 from app.services.resource_parser import season_from_title, strip_season_from_title
+from app.services.resource_work_links import ensure_auto_link
 from app.services.text_normalizer import normalize_title, similarity_score
 
 if TYPE_CHECKING:
@@ -636,30 +637,6 @@ async def _match_external(
     return None
 
 
-async def _ensure_auto_link(
-    db: AsyncSession, resource_id: str, work_type: str, work_id: str
-) -> bool:
-    """Add a ``source="auto"`` work link unless one already exists."""
-    column = ResourceWorkLink.series_id if work_type == "series" else ResourceWorkLink.movie_id
-    existing = (
-        await db.execute(
-            select(ResourceWorkLink.id).where(
-                ResourceWorkLink.resource_id == resource_id,
-                column == work_id,
-            )
-        )
-    ).first()
-    if existing:
-        return False
-    db.add(ResourceWorkLink(
-        resource_id=resource_id,
-        series_id=work_id if work_type == "series" else None,
-        movie_id=work_id if work_type == "movie" else None,
-        source="auto",
-    ))
-    return True
-
-
 async def bind_hint_clusters(
     db: AsyncSession, resource: FileResource, channel: Channel | None = None
 ) -> BindOutcome:
@@ -814,7 +791,7 @@ async def bind_hint_clusters(
             bound_work = True
         if bound_work:
             bound_works.add((work_type, work.id))
-            await _ensure_auto_link(db, resource.id, work_type, work.id)
+            await ensure_auto_link(db, resource.id, work_type, work.id)
 
     total_remapped = remapped + reconciled
     if not bound and not reconciled:

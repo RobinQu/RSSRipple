@@ -233,9 +233,8 @@ def apply_plan(work: TVSeries, rows: list[Episode], rep: dict, db) -> list[str]:
         if r.air_date is None and d_air is not None:
             r.air_date = d_air
             changed.append(f"air_date:{r.episode}")
-    for r in rows:
-        if r.episode in rep["delete"]:
-            changed.append(f"delete:{r.episode}")  # deleted by the caller (await db.delete)
+    # deleted by the caller (await db.delete)
+    changed.extend(f"delete:{r.episode}" for r in rows if r.episode in rep["delete"])
     for n in rep["insert"]:
         d = wanted[n]
         db.add(Episode(

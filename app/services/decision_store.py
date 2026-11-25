@@ -16,9 +16,9 @@ def choice_identity(kind, target_id, season, episode, coverage=None):
     if coverage is None:
         if kind not in {"series", "movie"} or not target_id or episode == -1:
             raise ValueError("A choice requires a work identity or exact batch coverage")
-        scope = dict(version=1, kind=kind, work_id=target_id, season=season, episode=episode)
+        scope = {"version": 1, "kind": kind, "work_id": target_id, "season": season, "episode": episode}
     else:
-        scope = dict(version=1, kind="batch", coverage=coverage)
+        scope = {"version": 1, "kind": "batch", "coverage": coverage}
     encoded = json.dumps(scope, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return "v1:" + hashlib.sha256(encoded.encode()).hexdigest(), json.loads(encoded)
 

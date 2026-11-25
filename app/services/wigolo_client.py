@@ -80,15 +80,14 @@ async def web_search(
     if error:
         raise WigoloSearchError(f"wigolo tool error: {str(error)[:200]}")
 
-    hits: list[dict[str, Any]] = []
-    for r in data.get("results", []):
-        hits.append(
-            {
-                "title": r.get("title", "") or "",
-                "url": r.get("url", "") or "",
-                "text": r.get("snippet", "") or "",
-            }
-        )
+    hits: list[dict[str, Any]] = [
+        {
+            "title": r.get("title", "") or "",
+            "url": r.get("url", "") or "",
+            "text": r.get("snippet", "") or "",
+        }
+        for r in data.get("results", [])
+    ]
     logger.info(
         "[wigolo] search done query=%r hits=%d engines=%s total_ms=%s",
         query[:120],

@@ -276,8 +276,6 @@ class AgentRunResponse(ORMModel):
 class RunStatusResponse(BaseModel):
     job_id: str | None = None
     status: str | None = None
-    result: dict | None = None
-    error: str | None = None
     queued_at: str | None = None
     started_at: str | None = None
     finished_at: str | None = None

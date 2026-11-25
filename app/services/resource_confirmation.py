@@ -69,11 +69,11 @@ def inspect_resource_confirmation(
     if getattr(resource, "is_batch", False):
         scope = getattr(resource, "batch_scope", None)
         if getattr(resource, "series_id", None):
-            if scope is None:
-                kinds.append("batch_coverage_unknown")
-            elif scope == "season" and getattr(resource, "season", None) is None:
-                kinds.append("batch_coverage_unknown")
-            elif scope == "multi_season" and not getattr(resource, "batch_seasons", None):
+            if (
+                scope is None
+                or scope == "season" and getattr(resource, "season", None) is None
+                or scope == "multi_season" and not getattr(resource, "batch_seasons", None)
+            ):
                 kinds.append("batch_coverage_unknown")
         elif scope == "multi_season" and links is not None:
             # Links-carried multi-season pack (per-season works): the linked

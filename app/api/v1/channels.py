@@ -1,14 +1,14 @@
 """Channel API routes."""
 
-import json
 import logging
 from collections import Counter
 
 from fastapi import APIRouter, Depends, Header, Query, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.sse import sse_data, sse_error, sse_response
 from app.clients.rss_parser import get_raw_entries, validate_rss_url
 from app.database import get_db
 from app.models.channel import Channel
@@ -20,7 +20,7 @@ from app.schemas.channel import (
     SummarizeFiltersRequest,
     ValidateURLRequest,
 )
-from app.schemas.common import api_json, paginated_response, success_response
+from app.schemas.common import paginated_response, success_response
 from app.services.feed_analyzer import analyze_feed, analyze_feed_stream
 
 logger = logging.getLogger(__name__)
@@ -524,8 +524,7 @@ async def preview_feed(body: PreviewFeedRequest):
     parsed = []
     if body.field_mapping and entries:
         from app.services.resource_parser import parse_entry
-        for entry in entries:
-            parsed.append(parse_entry(entry, body.field_mapping))
+        parsed = [parse_entry(entry, body.field_mapping) for entry in entries]
     return success_response({"entries": entries, "parsed": parsed})
 
 
@@ -542,13 +541,12 @@ async def _stream_events(gen):
     try:
         async for event in gen:
             if event.get("type") == "error":
-                yield f"event: error\ndata: {json.dumps(api_json(event))}\n\n"
+                yield sse_error(event)
             else:
-                yield f"data: {json.dumps(api_json(event))}\n\n"
+                yield sse_data(event)
     except Exception:
         logger.exception("[channels] analyze stream failed unexpectedly")
-        payload = api_json({"type": "error", "message": "Analysis stream failed unexpectedly"})
-        yield f"event: error\ndata: {json.dumps(payload)}\n\n"
+        yield sse_error({"type": "error", "message": "Analysis stream failed unexpectedly"})
 
 
 @router.post("/channels/analyze-url-stream")
@@ -568,11 +566,7 @@ async def analyze_url_stream(body: ValidateURLRequest):
         async for event in analyze_feed_stream(entries):
             yield event
 
-    return StreamingResponse(
-        _stream_events(_gen()),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
-    )
+    return sse_response(_stream_events(_gen()))
 
 
 @router.post("/channels/{channel_id}/analyze-stream")
@@ -597,11 +591,7 @@ async def analyze_channel_stream(channel_id: str, db: AsyncSession = Depends(get
         async for event in analyze_feed_stream(entries):
             yield event
 
-    return StreamingResponse(
-        _stream_events(_gen()),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
-    )
+    return sse_response(_stream_events(_gen()))
 
 
 @router.post("/channels/{channel_id}/summarize-filters")

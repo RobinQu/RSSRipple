@@ -30,6 +30,7 @@ invariants downstream pipelines rely on are enforced here:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -423,13 +424,16 @@ def _apply_media_fields(resource: FileResource, fields: dict | None) -> None:
     explicit_keys = (
         fields.model_fields_set if hasattr(fields, "model_fields_set") else set(fields)
     )
-    if "subtitle_group" in fields and "subtitle_groups" in fields:
-        if normalize_subtitle_groups(fields["subtitle_group"]) != normalize_subtitle_groups(
+    if (
+        "subtitle_group" in fields
+        and "subtitle_groups" in fields
+        and normalize_subtitle_groups(fields["subtitle_group"]) != normalize_subtitle_groups(
             fields["subtitle_groups"], split=False
-        ):
-            raise AssociationValidationError(
-                "subtitle_group and subtitle_groups disagree", step="media"
-            )
+        )
+    ):
+        raise AssociationValidationError(
+            "subtitle_group and subtitle_groups disagree", step="media"
+        )
     for key in MEDIA_FIELDS:
         if key in fields and key not in ("subtitle_group", "subtitle_groups"):
             setattr(resource, key, fields[key])
@@ -628,19 +632,20 @@ async def apply_association_update(
     """Apply the wizard's full desired state atomically (no commit here)."""
     # Load the enrichment relationships we mutate; on a transient instance
     # refresh fails but collection access stays safe (empty collections).
-    try:
+    with contextlib.suppress(Exception):
         await db.refresh(resource, ["work_links", "file_assignments"])
-    except Exception:  # noqa: BLE001
-        pass
 
     # 1) Validate everything BEFORE mutating.
     works_map = await _resolve_works(db, body)
     work_keys = set(works_map)
     if not body.is_batch and len(work_keys) > 1:
         raise AssociationValidationError("非合集资源至多关联一个作品")
-    if body.is_batch and body.collection_id is not None:
-        if await db.get(WorkCollection, body.collection_id) is None:
-            raise AssociationValidationError("作品集不存在")
+    if (
+        body.is_batch
+        and body.collection_id is not None
+        and await db.get(WorkCollection, body.collection_id) is None
+    ):
+        raise AssociationValidationError("作品集不存在")
     _validate_collection_consistency(body, works_map)
     media_files: set[str] | None = None
     if body.is_batch and len(work_keys) > 1:

@@ -349,7 +349,7 @@ async def collection_work_summaries(
     """
     from app.models.series import TVSeries
 
-    ex_type, ex_id = exclude if exclude else (None, None)
+    ex_type, ex_id = exclude or (None, None)
     out: list[dict] = []
     series_rows = (await db.execute(
         select(TVSeries).where(TVSeries.collection_id == collection_id)

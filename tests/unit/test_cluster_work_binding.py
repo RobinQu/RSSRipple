@@ -26,6 +26,7 @@ from app.models.resource_file_assignment import ResourceFileAssignment
 from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
 from app.models.work_collection import WorkCollection
+from app.services.resource_work_links import ensure_auto_link
 from app.services.text_normalizer import normalize_title
 
 # ---------------------------------------------------------------------------
@@ -302,7 +303,7 @@ def test_qualifier_compatible():
 
 
 # ===========================================================================
-# _associated_collection_ids / _ensure_auto_link
+# _associated_collection_ids / ensure_auto_link
 # ===========================================================================
 
 
@@ -355,10 +356,10 @@ async def test_ensure_auto_link(db_session):
     await db_session.flush()
     r = await _resource(db_session, ch.id)
 
-    assert await cwb._ensure_auto_link(db_session, r.id, "series", series.id) is True
+    assert await ensure_auto_link(db_session, r.id, "series", series.id) is True
     await db_session.flush()
-    assert await cwb._ensure_auto_link(db_session, r.id, "series", series.id) is False
-    assert await cwb._ensure_auto_link(db_session, r.id, "movie", movie.id) is True
+    assert await ensure_auto_link(db_session, r.id, "series", series.id) is False
+    assert await ensure_auto_link(db_session, r.id, "movie", movie.id) is True
     await db_session.flush()
     links = (await db_session.execute(
         select(ResourceWorkLink).where(ResourceWorkLink.resource_id == r.id)
@@ -802,7 +803,7 @@ async def test_match_external_tv_upsert_none(db_session, monkeypatch):
 
     async def _upsert(db, entity, season_hint=None):
         captured["season_hint"] = season_hint
-        return None
+        return
 
     _patch_meta(monkeypatch, _handler)
     monkeypatch.setattr(ms, "find_local_work_for_entity", _find)

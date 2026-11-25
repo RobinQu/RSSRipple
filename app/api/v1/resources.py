@@ -8,11 +8,12 @@ from collections import Counter
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 from sqlalchemy import func, not_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.v1.sse import sse_data, sse_error, sse_response
 from app.database import async_session_factory, get_db
 from app.models.channel import Channel
 from app.models.download_task import DownloadTask
@@ -26,7 +27,7 @@ from app.models.movie import Movie as _Movie
 from app.models.resource_file_assignment import ResourceFileAssignment
 from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries as _TVSeries
-from app.schemas.common import api_json, error_response_dict, success_response
+from app.schemas.common import error_response_dict, success_response
 from app.schemas.file_resource import (
     EpisodeCorrectionRequest,
     FileResourceDetailResponse,
@@ -152,7 +153,7 @@ async def _latest_task_status_by_resource(
             )
             .where(DownloadNotification.download_task_id.in_(completed_task_ids))
         )).all()
-        plan_status_by_task = {task_id: plan_status for task_id, plan_status in plan_rows}
+        plan_status_by_task = dict(plan_rows)
 
     outcome: dict[str, str] = {}
     for resource_id, (_created, task_id, status, completed_at) in latest.items():
@@ -1474,19 +1475,18 @@ async def analyze_resource_batch_stream(
         ))).scalar_one_or_none()
 
     def emit(kind: str, **payload):
-        return f"data: {json.dumps(api_json({'type': kind, **payload}), ensure_ascii=False)}\n\n"
+        return sse_data({"type": kind, **payload}, ensure_ascii=False)
 
     def emit_error(**payload):
         # SSE error contract: failures go out as ``event: error`` frames (see
         # docs/design/error-handling.md), not plain data frames.
-        body = json.dumps(api_json({"type": "error", **payload}), ensure_ascii=False)
-        return f"event: error\ndata: {body}\n\n"
+        return sse_error({"type": "error", **payload}, ensure_ascii=False)
 
     if cached is not None:
         async def cached_events():
             yield emit("status", message="已复用文件解析缓存")
             yield emit("result", **cached.metadata_json)
-        return StreamingResponse(cached_events(), media_type="text/event-stream")
+        return sse_response(cached_events())
 
     from app.services import task_queue as task_queue_module
     from app.services.task_queue import JobStatus
@@ -1547,7 +1547,7 @@ async def analyze_resource_batch_stream(
                 return
             await asyncio.sleep(0.25)
 
-    return StreamingResponse(events(), media_type="text/event-stream")
+    return sse_response(events())
 
 
 @router.patch("/resources/{resource_id}")
@@ -1579,11 +1579,14 @@ async def correct_parse_fields(
         join_legacy_subtitle_group,
         normalize_subtitle_groups,
     )
-    if "subtitle_group" in sent and "subtitle_groups" in sent:
-        if normalize_subtitle_groups(body.subtitle_group) != normalize_subtitle_groups(
+    if (
+        "subtitle_group" in sent
+        and "subtitle_groups" in sent
+        and normalize_subtitle_groups(body.subtitle_group) != normalize_subtitle_groups(
             body.subtitle_groups, split=False
-        ):
-            return JSONResponse(
+        )
+    ):
+        return JSONResponse(
                 status_code=422,
                 content={"success": False, "data": None, "error": {
                     "code": "VALIDATION_ERROR",

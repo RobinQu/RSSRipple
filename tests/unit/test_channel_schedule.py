@@ -27,8 +27,7 @@ def channel(id="one", **values):
 
 
 def database(rows):
-    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(all=lambda: rows)))
-    return db
+    return SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(all=lambda: rows)))
 
 
 async def reconcile(db, scheduler):
@@ -142,7 +141,7 @@ async def test_database_outage_preserves_schedules_then_recovers(schedulers, mon
     assert "retrying next tick" in caplog.text
     assert {job.id: job.next_run_time for job in scheduler.get_jobs()} == before
     db.execute.side_effect = None
-    db.execute.return_value = SimpleNamespace(all=lambda: [])
+    db.execute.return_value = SimpleNamespace(all=list)
     await sch._reconcile_channel_schedules()
     assert not scheduler.get_jobs()
 

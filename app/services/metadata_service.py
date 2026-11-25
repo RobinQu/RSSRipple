@@ -329,7 +329,7 @@ async def download_and_cache_poster(remote_url: str | None) -> str | None:
         return None
     if remote_url.startswith("/posters/"):
         return remote_url
-    if not (remote_url.startswith("http://") or remote_url.startswith("https://")):
+    if not (remote_url.startswith(("http://", "https://"))):
         return None
     if not settings.poster_cache_dir:
         return None
@@ -363,14 +363,14 @@ async def download_and_cache_poster(remote_url: str | None) -> str | None:
 # Local DB matching
 # ---------------------------------------------------------------------------
 
-async def match_series_by_title(db: AsyncSession, title: str) -> tuple[TVSeries | None, int]:
-    """Find best matching TVSeries in local DB. Returns (entity, score 0-100).
+async def _match_work_by_title(
+    db: AsyncSession, title: str, model: Any, search_fts: Any
+) -> tuple[Any | None, int]:
+    """Shared local-title matcher for series / movies / audio works.
 
-    Exact title lookup first, then FTS candidate retrieval + bigram Dice
-    similarity ranking. ``search_series_fts`` itself falls back to a bounded,
-    ranked ``search_text`` LIKE pre-filter when FTS recall is empty — no
-    unbounded full-table scan here (a LIKE-empty result means no local
-    candidate and the caller proceeds to the metadata-source layer).
+    Exact ``title_cn``/``title_en`` lookup first, then FTS candidate retrieval
+    plus bigram Dice similarity ranking. Each ``search_*_fts`` helper owns its
+    bounded LIKE recall fallback, so this never performs a full-table scan.
     """
     if not title:
         return None, 0
@@ -380,36 +380,48 @@ async def match_series_by_title(db: AsyncSession, title: str) -> tuple[TVSeries 
 
     # 1. Exact match on original title_cn/title_en (fast SQL index lookup)
     result = await db.execute(
-        select(TVSeries).where(
+        select(model).where(
             or_(
-                TVSeries.title_cn == title,
-                TVSeries.title_en == title,
+                model.title_cn == title,
+                model.title_en == title,
             )
         )
     )
-    series = result.scalars().first()
-    if series:
-        return series, 100
+    work = result.scalars().first()
+    if work:
+        return work, 100
 
     # 2. FTS/LIKE candidate retrieval + similarity scoring
-    candidate_ids = await fts_service.search_series_fts(db, title, limit=30)
+    candidate_ids = await search_fts(db, title, limit=30)
     if not candidate_ids:
         return None, 0
-    result = await db.execute(select(TVSeries).where(TVSeries.id.in_(candidate_ids)))
+    result = await db.execute(select(model).where(model.id.in_(candidate_ids)))
     candidates = result.scalars().all()
 
-    best: TVSeries | None = None
+    best = None
     best_score = 0
-    for s in candidates:
-        titles = [s.title_cn, s.title_en, *(s.aliases or [])]
+    for candidate in candidates:
+        titles = [candidate.title_cn, candidate.title_en, *(candidate.aliases or [])]
         score = max((similarity_score(norm, t) for t in titles if t), default=0)
         if score > best_score:
             best_score = score
-            best = s
+            best = candidate
 
     if best_score >= FUZZY_THRESHOLD:
         return best, best_score
     return None, 0
+
+
+async def match_series_by_title(db: AsyncSession, title: str) -> tuple[TVSeries | None, int]:
+    """Find best matching TVSeries in local DB. Returns (entity, score 0-100).
+
+    Exact title lookup first, then FTS candidate retrieval + bigram Dice
+    similarity ranking. ``search_series_fts`` itself falls back to a bounded,
+    ranked ``search_text`` LIKE pre-filter when FTS recall is empty — no
+    unbounded full-table scan here (a LIKE-empty result means no local
+    candidate and the caller proceeds to the metadata-source layer).
+    """
+    return await _match_work_by_title(db, title, TVSeries, fts_service.search_series_fts)
 
 
 async def match_movie_by_title(db: AsyncSession, title: str) -> tuple[Movie | None, int]:
@@ -419,44 +431,7 @@ async def match_movie_by_title(db: AsyncSession, title: str) -> tuple[Movie | No
     then FTS candidates with a bounded LIKE recall fallback inside
     ``search_movie_fts`` — no full-table scan).
     """
-    if not title:
-        return None, 0
-    norm = normalize_title(title)
-    if not norm:
-        return None, 0
-
-    # 1. Exact match
-    result = await db.execute(
-        select(Movie).where(
-            or_(
-                Movie.title_cn == title,
-                Movie.title_en == title,
-            )
-        )
-    )
-    movie = result.scalars().first()
-    if movie:
-        return movie, 100
-
-    # 2. FTS/LIKE candidate retrieval + similarity scoring
-    candidate_ids = await fts_service.search_movie_fts(db, title, limit=30)
-    if not candidate_ids:
-        return None, 0
-    result = await db.execute(select(Movie).where(Movie.id.in_(candidate_ids)))
-    candidates = result.scalars().all()
-
-    best: Movie | None = None
-    best_score = 0
-    for m in candidates:
-        titles = [m.title_cn, m.title_en, *(m.aliases or [])]
-        score = max((similarity_score(norm, t) for t in titles if t), default=0)
-        if score > best_score:
-            best_score = score
-            best = m
-
-    if best_score >= FUZZY_THRESHOLD:
-        return best, best_score
-    return None, 0
+    return await _match_work_by_title(db, title, Movie, fts_service.search_movie_fts)
 
 
 async def find_local_work_for_entity(
@@ -625,42 +600,9 @@ async def match_audio_work_by_title(db: AsyncSession, title: str) -> tuple[Audio
     Uses FTS5 trigram search for candidate retrieval, then bigram Dice
     similarity for precise ranking. Mirrors :func:`match_movie_by_title`.
     """
-    if not title:
-        return None, 0
-    norm = normalize_title(title)
-    if not norm:
-        return None, 0
-
-    result = await db.execute(
-        select(AudioWork).where(
-            or_(
-                AudioWork.title_cn == title,
-                AudioWork.title_en == title,
-            )
-        )
+    return await _match_work_by_title(
+        db, title, AudioWork, fts_service.search_audio_work_fts
     )
-    audio = result.scalars().first()
-    if audio:
-        return audio, 100
-
-    candidate_ids = await fts_service.search_audio_work_fts(db, title, limit=30)
-    if not candidate_ids:
-        return None, 0
-    result = await db.execute(select(AudioWork).where(AudioWork.id.in_(candidate_ids)))
-    candidates = result.scalars().all()
-
-    best: AudioWork | None = None
-    best_score = 0
-    for a in candidates:
-        titles = [a.title_cn, a.title_en, *(a.aliases or [])]
-        score = max((similarity_score(norm, t) for t in titles if t), default=0)
-        if score > best_score:
-            best_score = score
-            best = a
-
-    if best_score >= FUZZY_THRESHOLD:
-        return best, best_score
-    return None, 0
 
 
 # ---------------------------------------------------------------------------
@@ -749,10 +691,7 @@ def _parse_date(val: Any) -> date | None:
                 candidate = s
                 # If the string is longer than needed, take only a prefix of the
                 # appropriate length for the format.
-                if fmt == "%Y-%m-%d":
-                    candidate = s[:10]
-                else:
-                    candidate = s[:19]
+                candidate = s[:10] if fmt == "%Y-%m-%d" else s[:19]
                 return datetime.strptime(candidate, fmt).date()
         except (ValueError, TypeError):
             continue
@@ -868,7 +807,7 @@ async def resolve_wikipedia_slug_id(
     langs = list(dict.fromkeys([wikipedia_url_lang(wikipedia_url) or "zh", "zh", "en", "ja"]))
     from app.services.metadata_wikipedia_client import _fetch_langlink_pageids
 
-    resolved = await _fetch_langlink_pageids({lang: slug for lang in langs})
+    resolved = await _fetch_langlink_pageids(dict.fromkeys(langs, slug))
     for lang in langs:
         pid = resolved.get(lang)
         if pid:
@@ -1417,9 +1356,11 @@ async def _bag_entity_ids_by_granularity(
     collection-level ids.
     """
     pairs = [(data.get("external_source"), data.get("external_id"))]
-    for alt in data.get("alt_external_ids") or []:
-        if isinstance(alt, dict):
-            pairs.append((alt.get("source"), alt.get("id")))
+    pairs.extend(
+        (alt.get("source"), alt.get("id"))
+        for alt in data.get("alt_external_ids") or []
+        if isinstance(alt, dict)
+    )
     # Slug-form wikipedia ids never converge with pageid forms offline —
     # resolve the pageid via the MediaWiki API (best-effort) and bag it too.
     if (data.get("external_source") or "").strip().lower() == "wikipedia":
@@ -1513,19 +1454,16 @@ async def _update_series_from_entity(
             )
             if fallback:
                 series.start_date = fallback
-    if not field_manually_edited(series, "end_date"):
-        if end:
-            series.end_date = end
+    if not field_manually_edited(series, "end_date") and end:
+        series.end_date = end
     if not field_manually_edited(series, "genre"):
         genres = normalize_genres(data.get("genre"))
         if genres:
             series.genre = genres
-    if not field_manually_edited(series, "title_cn"):
-        if data.get("title_cn"):
-            series.title_cn = series.title_cn or strip_season_from_title(data.get("title_cn"))
-    if not field_manually_edited(series, "title_en"):
-        if data.get("title_en"):
-            series.title_en = series.title_en or strip_season_from_title(data.get("title_en"))
+    if not field_manually_edited(series, "title_cn") and data.get("title_cn"):
+        series.title_cn = series.title_cn or strip_season_from_title(data.get("title_cn"))
+    if not field_manually_edited(series, "title_en") and data.get("title_en"):
+        series.title_en = series.title_en or strip_season_from_title(data.get("title_en"))
 
     if not field_manually_edited(series, "aliases"):
         existing_titles = {t for t in [series.title_cn, series.title_en, *(series.aliases or [])] if t}
@@ -1791,13 +1729,16 @@ async def create_or_update_series_from_external(
         season = synth_season
     else:
         season = _title_season_from_entity(data)
-    if season is None and verified_season_count(data) == 1:
-        # Single-season-entry evidence proves the subject is ONE season, not
-        # WHICH one: a qualified-but-unmarked title ("頭文字D Final Stage")
-        # must not default onto season 1 and seize the real first season's
-        # slot — it stays unpinned (parked on the collection / fresh shell).
-        if not _has_unresolved_title_qualifier(data):
-            season = 1
+    # Single-season-entry evidence proves the subject is ONE season, not WHICH
+    # one: a qualified-but-unmarked title ("頭文字D Final Stage") must not
+    # default onto season 1 and seize the real first season's slot — it stays
+    # unpinned (parked on the collection / fresh shell).
+    if (
+        season is None
+        and verified_season_count(data) == 1
+        and not _has_unresolved_title_qualifier(data)
+    ):
+        season = 1
 
     # An explicitly rejected model season must not be resurrected by legacy
     # single-member/title/fresh-work defaults further below. A real parsed or
@@ -2406,12 +2347,10 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
             genres = normalize_genres(data.get("genre"))
             if genres:
                 movie.genre = genres
-        if not field_manually_edited(movie, "title_cn"):
-            if data.get("title_cn"):
-                movie.title_cn = movie.title_cn or data.get("title_cn")
-        if not field_manually_edited(movie, "title_en"):
-            if data.get("title_en"):
-                movie.title_en = movie.title_en or data.get("title_en")
+        if not field_manually_edited(movie, "title_cn") and data.get("title_cn"):
+            movie.title_cn = movie.title_cn or data.get("title_cn")
+        if not field_manually_edited(movie, "title_en") and data.get("title_en"):
+            movie.title_en = movie.title_en or data.get("title_en")
 
         if not field_manually_edited(movie, "aliases"):
             existing_titles = {t for t in [movie.title_cn, movie.title_en, *(movie.aliases or [])] if t}
@@ -2900,21 +2839,27 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
             collision = await _find_same_title_works(db, search_title)
         return bool(collision)
 
-    if series and s_ratio >= AUTO_LINK_THRESHOLD and (movie is None or s_ratio >= m_ratio):
-        if not await _auto_link_blocked(getattr(series, "start_date", None)):
-            resource.series_id = series.id
-            resource.metadata_matched_at = utcnow()
-            if not series.poster_url or not (series.poster_url or "").startswith("/posters/"):
-                pass  # poster already handled if set
-            await reconcile_linked_series_resource(db, resource)
-            await classify_is_anime_post_link(db, channel, resource)
-            return
-    if movie and m_ratio >= AUTO_LINK_THRESHOLD and (series is None or m_ratio > s_ratio):
-        if not await _auto_link_blocked(getattr(movie, "release_date", None)):
-            resource.movie_id = movie.id
-            resource.metadata_matched_at = utcnow()
-            await classify_is_anime_post_link(db, channel, resource)
-            return
+    if (
+        series
+        and s_ratio >= AUTO_LINK_THRESHOLD
+        and (movie is None or s_ratio >= m_ratio)
+        and not await _auto_link_blocked(getattr(series, "start_date", None))
+    ):
+        resource.series_id = series.id
+        resource.metadata_matched_at = utcnow()
+        await reconcile_linked_series_resource(db, resource)
+        await classify_is_anime_post_link(db, channel, resource)
+        return
+    if (
+        movie
+        and m_ratio >= AUTO_LINK_THRESHOLD
+        and (series is None or m_ratio > s_ratio)
+        and not await _auto_link_blocked(getattr(movie, "release_date", None))
+    ):
+        resource.movie_id = movie.id
+        resource.metadata_matched_at = utcnow()
+        await classify_is_anime_post_link(db, channel, resource)
+        return
 
     # NOTE: 70-84 matches (and ≥85 matches blocked by the guards above) are
     # skipped and fall through to the LLM layer.

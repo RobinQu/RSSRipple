@@ -927,48 +927,46 @@ async def merge_cross_type_duplicates(
                     f"({movie.title_cn or movie.title_en!r}; episode evidence)"
                 )
                 break  # movie gone - next movie
-            else:
-                n = (await db.execute(
-                    update(FileResource)
-                    .where(FileResource.series_id == series.id)
-                    .values(movie_id=movie.id, series_id=None)
-                )).rowcount or 0
-                report.file_resources_updated += n
-                n = (await db.execute(
-                    update(AgentWork)
-                    .where(AgentWork.series_id == series.id)
-                    .values(movie_id=movie.id, series_id=None, content_type="movie")
-                )).rowcount or 0
-                report.agent_works_updated += n
-                n = (await db.execute(
-                    update(ChannelRawTitleMapping)
-                    .where(ChannelRawTitleMapping.series_id == series.id)
-                    .values(movie_id=movie.id, series_id=None, content_type="movie")
-                )).rowcount or 0
-                report.mappings_updated += n
-                n = (await db.execute(
-                    update(PendingDecision)
-                    .where(PendingDecision.series_id == series.id)
-                    .values(movie_id=movie.id, series_id=None)
-                )).rowcount or 0
-                report.pending_decisions_updated += n
-                links_n, assignments_n = await _repoint_enrichment_rows(
-                    db, src_series_ids=[series.id], dst_movie_id=movie.id
-                )
-                report.work_links_updated += links_n
-                report.file_assignments_updated += assignments_n
+            n = (await db.execute(
+                update(FileResource)
+                .where(FileResource.series_id == series.id)
+                .values(movie_id=movie.id, series_id=None)
+            )).rowcount or 0
+            report.file_resources_updated += n
+            n = (await db.execute(
+                update(AgentWork)
+                .where(AgentWork.series_id == series.id)
+                .values(movie_id=movie.id, series_id=None, content_type="movie")
+            )).rowcount or 0
+            report.agent_works_updated += n
+            n = (await db.execute(
+                update(ChannelRawTitleMapping)
+                .where(ChannelRawTitleMapping.series_id == series.id)
+                .values(movie_id=movie.id, series_id=None, content_type="movie")
+            )).rowcount or 0
+            report.mappings_updated += n
+            n = (await db.execute(
+                update(PendingDecision)
+                .where(PendingDecision.series_id == series.id)
+                .values(movie_id=movie.id, series_id=None)
+            )).rowcount or 0
+            report.pending_decisions_updated += n
+            links_n, assignments_n = await _repoint_enrichment_rows(
+                db, src_series_ids=[series.id], dst_movie_id=movie.id
+            )
+            report.work_links_updated += links_n
+            report.file_assignments_updated += assignments_n
 
 
-                # P3: union identity bags (symmetric to the branch above).
-                await rekey_agent_choices(db, choice_agents)
-                await _merge_work_metadata(db, movie, [series], protected)
+            # P3: union identity bags (symmetric to the branch above).
+            await rekey_agent_choices(db, choice_agents)
+            await _merge_work_metadata(db, movie, [series], protected)
 
-                await db.delete(series)
-                removed_series.add(series.id)
-                report.cross_type_merges += 1
-                report.notes.append(
-                    f"[cross-type] series {series.id} merged into movie {movie.id} "
-                    f"({series.title_cn or series.title_en!r}; no episode evidence)"
-                )
-                # series gone - keep scanning remaining series for this movie
+            await db.delete(series)
+            removed_series.add(series.id)
+            report.cross_type_merges += 1
+            report.notes.append(
+                f"[cross-type] series {series.id} merged into movie {movie.id} "
+                f"({series.title_cn or series.title_en!r}; no episode evidence)"
+            )
     return report

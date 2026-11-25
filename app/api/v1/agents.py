@@ -357,7 +357,7 @@ async def _annotate_latest_completed(db: AsyncSession, works: list[dict]) -> Non
     coll_rows = (await db.execute(
         select(TVSeries.id, TVSeries.collection_id).where(TVSeries.id.in_(series_ids))
     )).all()
-    coll_by_series = {sid: cid for sid, cid in coll_rows}
+    coll_by_series = dict(coll_rows)
     coll_ids = {cid for _, cid in coll_rows if cid}
     rows = []
     if coll_ids:
@@ -591,14 +591,13 @@ async def run_agent(
         from app.utils.time import utcnow
 
         scan_since = body.scan_since
-        if scan_since is not None:
-            if scan_since > utcnow():
-                return JSONResponse(status_code=422, content={
-                    "success": False, "data": None,
-                    "error": {"code": "VALIDATION_ERROR",
-                              "message": "scan_since must be a past datetime"},
-                    "meta": {},
-                })
+        if scan_since is not None and scan_since > utcnow():
+            return JSONResponse(status_code=422, content={
+                "success": False, "data": None,
+                "error": {"code": "VALIDATION_ERROR",
+                          "message": "scan_since must be a past datetime"},
+                "meta": {},
+            })
         payload["scan_since"] = scan_since.isoformat() if scan_since else None
     from app.services.task_queue import task_queue
     job = await task_queue.enqueue("run_agent", f"agent:{agent_id}", payload)

@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.responses import error_response as _error
 from app.database import get_db
 from app.models.downloader import DownloaderInstance
 from app.models.library import Library
@@ -28,18 +29,6 @@ from app.schemas.storage_volume import (
 from app.services.volume_service import check_mount
 
 router = APIRouter()
-
-
-def _error(status_code: int, code: str, message: str, details=None) -> JSONResponse:
-    return JSONResponse(
-        status_code=status_code,
-        content={
-            "success": False,
-            "data": None,
-            "error": {"code": code, "message": message, "details": details},
-            "meta": {},
-        },
-    )
 
 
 def _mount_path_must_exist(mount_path: str) -> JSONResponse | None:
@@ -169,14 +158,12 @@ async def update_volume(
         return _error(404, "NOT_FOUND", "Storage volume not found")
     update_data = body.model_dump(exclude_unset=True)
     # 改 mount_path 全局生效：所有卷引用在使用处动态解析。
-    if "mount_path" in update_data:
-        if err := _mount_path_must_exist(update_data["mount_path"]):
-            return err
-    if "name" in update_data:
-        if err := await _name_must_be_unique(
-            db, update_data["name"], exclude_id=volume_id
-        ):
-            return err
+    if "mount_path" in update_data and (err := _mount_path_must_exist(update_data["mount_path"])):
+        return err
+    if "name" in update_data and (err := await _name_must_be_unique(
+        db, update_data["name"], exclude_id=volume_id
+    )):
+        return err
     for key, value in update_data.items():
         setattr(volume, key, value)
     await db.flush()

@@ -694,12 +694,11 @@ class TestAgentFilterDSL:
         data = r.json().get("data", {})
 
         # Check response structure
-        if "total" in data:
-            # All resources tested
-            if "passing" in data:
-                assert data["passing"] == data["total"], (
-                    f"Expected all {data['total']} to pass, got {data['passing']}"
-                )
+        # All resources tested
+        if "total" in data and "passing" in data:
+            assert data["passing"] == data["total"], (
+                f"Expected all {data['total']} to pass, got {data['passing']}"
+            )
 
     def test_test_filters_with_nothing_passes(self, _filter_agent):
         """Set filter that matches nothing (impossible resolution), test-filters should pass 0."""

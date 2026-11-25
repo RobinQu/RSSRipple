@@ -16,6 +16,7 @@ an existing batch verdict is never downgraded.
 """
 
 import asyncio
+import contextlib
 import hashlib
 import logging
 import os
@@ -249,13 +250,11 @@ async def ensure_torrent_cached(resource: "FileResource") -> str | None:
             return path
         # A previous implementation persisted HTTP error pages as .torrent
         # files. Remove those poison entries before attempting a fresh fetch.
-        try:
+        with contextlib.suppress(OSError):
             await asyncio.to_thread(Path(path).unlink)
-        except OSError:
-            pass
         resource.torrent_file = None
     url = resource.torrent_url or ""
-    if not (url.startswith("http://") or url.startswith("https://")):
+    if not (url.startswith(("http://", "https://"))):
         return None
     try:
         new_path = await fetch_torrent_file(url, resource.id)
@@ -526,10 +525,7 @@ def analyze_torrent_files(files: list[dict]) -> TorrentReport:
     # number, or None for a flat unlabeled run) with >= 2 distinct episodes.
     # SP files are excluded from the episode range when a real season exists;
     # an SP-only pack keeps the season-0 files as its episode source.
-    if real_seasons:
-        scoped = [(f, s, e) for f, s, e in parsed if s != 0]
-    else:
-        scoped = parsed
+    scoped = [(f, s, e) for f, s, e in parsed if s != 0] if real_seasons else parsed
     episodes = [e for _, _, e in scoped if e is not None]
     season_groups = {s for _, s, e in scoped if e is not None}
     if len(season_groups) == 1 and len(set(episodes)) >= 2:
@@ -585,7 +581,6 @@ async def apply_torrent_report(
             except Exception:  # noqa: BLE001 — best-effort unless reconciling durably
                 if strict:
                     raise
-                pass
     elif report.scope == "multi_season":
         resource.is_batch = True
         resource.batch_scope = "multi_season"
@@ -749,10 +744,8 @@ async def maybe_inspect_torrent(
         # Be defensive for callers that invoke inspection without the normal
         # ensure_torrent_cached pre-pass: a stale HTML/error page must never
         # block a later valid fetch forever.
-        try:
+        with contextlib.suppress(OSError):
             await asyncio.to_thread(Path(cached_path).unlink)
-        except OSError:
-            pass
         resource.torrent_file = None
         cached_path = None
     if not (cached_path and await asyncio.to_thread(Path(cached_path).exists)) and not url.startswith(("http://", "https://")):
@@ -827,8 +820,7 @@ async def _sweep_referenced_paths(
             select(FileResource.id, FileResource.torrent_file)
             .where(FileResource.id.in_(chunk))
         )).all()
-        for rid, torrent_file in rows:
-            referenced[rid] = torrent_file
+        referenced.update(dict(rows))
     return referenced
 
 

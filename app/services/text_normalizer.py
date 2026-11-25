@@ -79,8 +79,7 @@ def normalize_title(s: str | None) -> str:
     # Lowercase
     s = s.lower()
     # Collapse whitespace
-    s = " ".join(s.split())
-    return s
+    return " ".join(s.split())
 
 
 def normalize_title_denoised(s: str | None) -> str:

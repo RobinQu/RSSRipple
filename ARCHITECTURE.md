@@ -55,6 +55,7 @@ RSSRipple 是一个 RSS 订阅源聚合 + 智能筛选 + 自动推送到下载�
 - **Scheduler 层**：APScheduler 管理定时任务（频道抓取、进度同步、过期清理）
 - **Task Queue 层**：异步后台任务队列（手动触发的 fetch/run），支持内存和 Redis 两种后端
 - **数据层**：SQLAlchemy ORM，PostgreSQL 默认（MVCC 并发写；FTS 走边车库）
+- **共享装配与协议助手**：`app/startup.py` 统一 web/worker 的启动装配；`app/api/v1/responses.py` 与 `app/api/v1/sse.py` 统一错误响应和 SSE 帧；`app/services/resource_work_links.py` 统一 `source="auto"` 资源↔作品链接；`app/api/v1/title_listing.py` / `task_listing.py` 统一列表分页与序列化。
 
 ## 4. 核心数据实体
 

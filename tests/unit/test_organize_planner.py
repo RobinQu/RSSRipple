@@ -122,7 +122,7 @@ HAMNET_PAYLOAD = {
 
 
 def _batch_payload():
-    payload = {
+    return {
         **GITS_PAYLOAD,
         "notification_id": "n-3",
         "resource": {
@@ -142,7 +142,6 @@ def _batch_payload():
             ],
         },
     }
-    return payload
 
 
 def _batch_files(base="/downloads/complete/gits"):

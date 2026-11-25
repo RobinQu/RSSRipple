@@ -6,11 +6,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.task_listing import (
-    apply_effective_task_statuses,
-    apply_task_sort,
-    apply_task_status_filter,
     file_resource_load_options,
-    parse_task_sort,
+    paginated_task_list,
     task_list_load_options,
 )
 from app.database import get_db
@@ -45,11 +42,11 @@ async def _apply_torrent_action(db, task: DownloadTask, action: str, delete_data
     try:
         if action == "pause":
             return await wrapper.pause_torrent(task.transmission_torrent_id)
-        elif action == "resume":
+        if action == "resume":
             return await wrapper.resume_torrent(task.transmission_torrent_id)
-        elif action == "remove":
+        if action == "remove":
             return await wrapper.remove_torrent(task.transmission_torrent_id, delete_data=delete_data)
-        elif action == "retry":
+        if action == "retry":
             # Re-add the torrent
             from app.models.file_resource import FileResource
             from app.services.agent_service import resolve_torrent_payload
@@ -93,22 +90,13 @@ async def list_agent_tasks(
     ),
     db: AsyncSession = Depends(get_db),
 ):
-    offset = (page - 1) * page_size
-    base_q = select(DownloadTask).where(DownloadTask.agent_id == agent_id)
-    base_q = apply_task_status_filter(base_q, status)
-    total_q = await db.execute(select(func.count()).select_from(base_q.subquery()))
-    total = total_q.scalar_one()
-    query = apply_task_sort(base_q, parse_task_sort(sort))
-    result = await db.execute(
-        query.options(*task_list_load_options())
-        .offset(offset).limit(page_size)
-    )
-    tasks = result.scalars().all()
-    payload = [DownloadTaskResponse.model_validate(t).model_dump() for t in tasks]
-    await apply_effective_task_statuses(db, tasks, payload)
-    return paginated_response(
-        payload,
-        total=total, page=page, page_size=page_size,
+    return await paginated_task_list(
+        db,
+        select(DownloadTask).where(DownloadTask.agent_id == agent_id),
+        status=status,
+        sort=sort,
+        page=page,
+        page_size=page_size,
     )
 
 

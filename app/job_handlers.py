@@ -201,8 +201,7 @@ async def _handle_fetch_channel(payload: dict) -> dict:  # pragma: no cover
             return {"status": "skipped", "reason": "channel inactive or deleted"}
         if not ch:
             raise RuntimeError(f"Channel {channel_id} not found")
-        result = await fetch_channel_resources(ch, session, force=force)
-        return result
+        return await fetch_channel_resources(ch, session, force=force)
 
 
 async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
@@ -325,28 +324,27 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
         advance_to=advance_to, scan_since=scan_since,
     )
     try:
-        async with maintain_run_lease(owner):
-            async with committed_session() as session:
-                agent = await session.get(
-                    Agent, agent_id, options=[selectinload(Agent.channel), selectinload(Agent.works)]
-                )
-                if not agent:
-                    raise RuntimeError(f"Agent {agent_id} not found")
+        async with maintain_run_lease(owner), committed_session() as session:
+            agent = await session.get(
+                Agent, agent_id, options=[selectinload(Agent.channel), selectinload(Agent.works)]
+            )
+            if not agent:
+                raise RuntimeError(f"Agent {agent_id} not found")
 
-                run_result = await _process_selected_resources(
-                    session,
-                    agent,
-                    selected_ids,
-                    consumption_snapshot=publication_snapshot or window_snapshot,
-                    required_metadata_fields=(
-                        agent.channel.required_metadata_fields if agent.channel else None
-                    ),
-                    required_metadata_defaults=(
-                        agent.channel.required_metadata_defaults if agent.channel else None
-                    ),
-                )
+            run_result = await _process_selected_resources(
+                session,
+                agent,
+                selected_ids,
+                consumption_snapshot=publication_snapshot or window_snapshot,
+                required_metadata_fields=(
+                    agent.channel.required_metadata_fields if agent.channel else None
+                ),
+                required_metadata_defaults=(
+                    agent.channel.required_metadata_defaults if agent.channel else None
+                ),
+            )
 
-                await require_agent_execution_ownership()
+            await require_agent_execution_ownership()
         return await finish_run(completion, run_result)
     except BaseException as error:
         try:
@@ -446,14 +444,13 @@ async def _refresh_works_batch(
                 "skipping the remaining %d",
                 index, len(items), len(items) - index,
             )
-            for remaining in items[index:]:
-                results.append({
-                    "id": remaining.get("id"),
-                    "content_type": remaining.get("content_type"),
-                    "found": False,
-                    "skipped": True,
-                    "error": "job_time_budget_exceeded",
-                })
+            results.extend({
+                "id": remaining.get("id"),
+                "content_type": remaining.get("content_type"),
+                "found": False,
+                "skipped": True,
+                "error": "job_time_budget_exceeded",
+            } for remaining in items[index:])
             break
         await require_execution_ownership()
         work_id = item.get("id")

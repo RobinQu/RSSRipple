@@ -511,11 +511,10 @@ async def apply_work_metadata(
             apply_is_anime(work, values)
         if work.is_anime != previous_is_anime:
             applied.append("is_anime")
-    if content_type == "tv":
-        # ``seasons`` is an inert orphan column (per-season work model) — not
-        # written. Episode rows still upsert, season-scoped by upsert_episodes.
-        if values.get("episode_list"):
-            await upsert_episodes(db, work, values["episode_list"])
+    # ``seasons`` is an inert orphan column (per-season work model) — not
+    # written. Episode rows still upsert, season-scoped by upsert_episodes.
+    if content_type == "tv" and values.get("episode_list"):
+        await upsert_episodes(db, work, values["episode_list"])
     await require_execution_ownership()
     await db.commit()
     return {"applied": applied, "skipped": [c["field"] for c in preview["changes"] if c["action"] == "skip"]}

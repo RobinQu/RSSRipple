@@ -58,8 +58,7 @@ def _fix_invalid_escapes(text: str) -> str:
                 result.append(next_ch)
                 i += 2
                 continue
-            else:
-                result.append('\\\\')
+            result.append('\\\\')
         else:
             result.append(ch)
         i += 1
@@ -119,8 +118,7 @@ def _parse_llm_json(text: str) -> dict:
     if text.startswith("```"):
         first_nl = text.index("\n") if "\n" in text else 3
         text = text[first_nl + 1:]
-    if text.endswith("```"):
-        text = text[:-3]
+    text = text.removesuffix("```")
     text = text.strip()
 
     # Try parsing directly first
@@ -214,25 +212,25 @@ def _extract_content(message) -> str:
 def _validate_mapping(raw_mapping: dict) -> dict:
     """Validate and normalize a raw field mapping from the LLM."""
     if "field_mappings" in raw_mapping and isinstance(raw_mapping["field_mappings"], dict):
-        inner_mappings = raw_mapping["field_mappings"]
-        validated_inner = {}
-        for field_name, rule in inner_mappings.items():
-            if isinstance(rule, dict) and "source" in rule:
-                validated_inner[field_name] = rule
+        validated_inner = {
+            field_name: rule
+            for field_name, rule in raw_mapping["field_mappings"].items()
+            if isinstance(rule, dict) and "source" in rule
+        }
         return {
             "list_locator": raw_mapping.get("list_locator", {"source": "entries"}),
             "field_mappings": validated_inner,
         }
-    else:
-        # Old flat format: wrap it
-        validated_inner = {}
-        for field_name, rule in raw_mapping.items():
-            if isinstance(rule, dict) and "source" in rule:
-                validated_inner[field_name] = rule
-        return {
-            "list_locator": {"source": "entries"},
-            "field_mappings": validated_inner,
-        }
+    # Old flat format: wrap it
+    validated_inner = {
+        field_name: rule
+        for field_name, rule in raw_mapping.items()
+        if isinstance(rule, dict) and "source" in rule
+    }
+    return {
+        "list_locator": {"source": "entries"},
+        "field_mappings": validated_inner,
+    }
 
 
 def _calc_confidence(validated_mapping: dict) -> str:
@@ -255,7 +253,7 @@ def _calc_confidence(validated_mapping: dict) -> str:
     ratio = len(covered) / len(expected_fields) if expected_fields else 0
     if ratio >= 0.8:
         return "high"
-    elif ratio >= 0.5:
+    if ratio >= 0.5:
         return "medium"
     return "low"
 
@@ -398,14 +396,13 @@ async def analyze_feed(entries: list[dict], sample_count: int = 5) -> dict:
                 # Daily limit exhausted — no point retrying.
                 logger.warning("LLM daily rate limit hit, skipping retries: %s", e)
                 return empty_result
-            if "rate limit" in err or "per-min" in err or "per_min" in err:
-                if attempt < max_attempts:
-                    logger.warning(
-                        "LLM per-minute rate limit hit (attempt %d/%d), waiting 65s…",
-                        attempt, max_attempts,
-                    )
-                    await asyncio.sleep(65)
-                    continue
+            if ("rate limit" in err or "per-min" in err or "per_min" in err) and attempt < max_attempts:
+                logger.warning(
+                    "LLM per-minute rate limit hit (attempt %d/%d), waiting 65s…",
+                    attempt, max_attempts,
+                )
+                await asyncio.sleep(65)
+                continue
             logger.warning("LLM call failed (attempt %d/%d): %s", attempt, max_attempts, e)
 
     logger.error("LLM feed analysis: all %d attempts failed", max_attempts)
@@ -420,13 +417,12 @@ async def _openrouter_client():
     async with outbound_http.async_client(
         timeout=httpx.Timeout(120.0, connect=10.0),
         allowed_origins=[runtime_config.llm_base_url],
-    ) as http_client:
-        async with OpenRouter(
-            api_key=runtime_config.llm_api_key,
-            server_url=runtime_config.llm_base_url,
-            async_client=http_client,
-        ) as client:
-            yield client
+    ) as http_client, OpenRouter(
+        api_key=runtime_config.llm_api_key,
+        server_url=runtime_config.llm_base_url,
+        async_client=http_client,
+    ) as client:
+        yield client
 
 
 async def _call_openrouter(messages: list[dict]) -> str:
@@ -512,8 +508,7 @@ async def call_llm(messages: list[dict]) -> str:
     """
     if _is_openrouter():
         return await _call_openrouter(messages)
-    else:
-        return await _call_openai(messages)
+    return await _call_openai(messages)
 
 
 # ---------------------------------------------------------------------------

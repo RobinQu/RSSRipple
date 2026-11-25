@@ -91,9 +91,18 @@ do_not_mutate_patterns = [
 [tool.ruff]
 target-version = "py312"
 line-length = 120
+# Mutation-testing copies, local scratch output and archived one-off probe
+# scripts under docs/plans are not product source. They duplicate `app/`
+# verbatim, are already gitignored, or are frozen historical evidence.
+extend-exclude = ["mutants", "tmp", "docs/plans"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W", "UP"]
+# Redundancy-focused profile: C4 (comprehensions), PIE/RET (dead control
+# flow), SIM (collapsible logic), PERF (manual loops), FURB (idiom upgrades).
+# RUF, B and PLR are intentionally omitted: they are dominated by CJK
+# docstring noise, FastAPI dependency-call false positives and complexity
+# thresholds rather than redundant code.
+select = ["C4", "E", "F", "FURB", "I", "N", "PERF", "PIE", "RET", "SIM", "UP", "W"]
 
 [tool.ruff.lint.per-file-ignores]
 # Tests are intentionally looser than app/: allow compact fixtures,
@@ -104,6 +113,9 @@ select = ["E", "F", "I", "N", "W", "UP"]
     "E702",  # compact fixture setup: `ch_id = _uuid(); rid = _uuid()`
     "N805",  # `self_inner` in nested `class _Ctx` async ctx-managers
     "N806",  # PascalCase mock-patch aliases (`MockCls`)
+    "C408",  # `dict(a=1, ...)` is a readable compact fixture literal
+    "SIM105",  # bare `try/except/pass` is idiomatic in inline fixtures
+    "SIM117",  # nested `async with` reads better in async test setup
 ]
 # LLM prompt templates hold few-shot example strings verbatim; line-length
 # rewraps would corrupt the samples passed to the model.

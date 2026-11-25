@@ -178,7 +178,10 @@ def _entry_to_dict(entry) -> dict:
     analysis) and fetch_channel_resources (field-mapping application).
     """
     result = {}
-    for key in entry.keys():
+    # feedparser entries expose keys() but are not guaranteed to implement
+    # mapping iteration; iterating the entry can fall back to the integer
+    # sequence protocol.
+    for key in entry.keys():  # noqa: SIM118
         value = entry[key]
         if isinstance(value, (str, int, float, bool)) or value is None:
             result[key] = value

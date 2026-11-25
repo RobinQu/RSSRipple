@@ -52,7 +52,8 @@ async def test_two_real_processes_publish_one_complete_cache(recorded_poster):
     processes = []
     try:
         for _ in range(2):
-            processes.append(await asyncio.create_subprocess_exec(
+            # Keep already-spawned processes visible to cleanup.
+            processes.append(await asyncio.create_subprocess_exec(  # noqa: PERF401
                 sys.executable, "-m", "tests.integration.posters.poster_crash_driver",
                 "success", state.url, str(state.cache), cwd=Path(__file__).parents[3],
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,

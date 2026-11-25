@@ -317,7 +317,7 @@ class TorrentService:
 
     def cleanup(self):
         """Clean up all sessions and files."""
-        for key, ses in self._sessions.items():
+        for ses in self._sessions.values():
             try:
                 ses.pause()
             except Exception:

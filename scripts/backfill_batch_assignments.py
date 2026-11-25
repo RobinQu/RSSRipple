@@ -40,7 +40,7 @@ async def _assignment_counts(db) -> dict[str, int]:
             func.count(ResourceFileAssignment.id),
         ).group_by(ResourceFileAssignment.resource_id)
     )
-    return {rid: cnt for rid, cnt in rows.all()}
+    return dict(rows.all())
 
 
 async def backfill(apply: bool, limit: int | None) -> None:

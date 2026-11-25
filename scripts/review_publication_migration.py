@@ -62,14 +62,14 @@ async def export_review(db):
     marker = await db.get(AppSetting, MARKER)
     report = json.loads(
         json.dumps(
-            dict(
-                version=1,
-                channels=channels,
-                resources=resources,
-                agents=agents,
-                occupied=occupied,
-                marker=marker.value if marker else None,
-            ),
+            {
+                "version": 1,
+                "channels": channels,
+                "resources": resources,
+                "agents": agents,
+                "occupied": occupied,
+                "marker": marker.value if marker else None,
+            },
             default=str,
         )
     )

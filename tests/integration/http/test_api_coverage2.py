@@ -1172,9 +1172,7 @@ class TestAnalyzeBatch:
                 "POST", f"{RSSRIPPLE}/api/v1/resources/{res['id']}/analyze-batch-stream"
             ) as resp:
                 assert resp.status_code == 200
-                for line in resp.iter_lines():
-                    if line.startswith("data:"):
-                        events2.append(line)
+                events2.extend(line for line in resp.iter_lines() if line.startswith("data:"))
         assert any("已复用文件解析缓存" in e for e in events2), (
             f"expected the cache-reuse event, got: {events2}"
         )

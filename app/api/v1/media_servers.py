@@ -16,6 +16,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.v1.responses import error_response as _error
 from app.database import get_db
 from app.models.library import Library
 from app.models.media_server import MediaServerBinding, MediaServerInstance
@@ -35,18 +36,6 @@ from app.services import media_server_service
 from app.services.media_server_client import MediaServerError
 
 router = APIRouter()
-
-
-def _error(status_code: int, code: str, message: str, details=None) -> JSONResponse:
-    return JSONResponse(
-        status_code=status_code,
-        content={
-            "success": False,
-            "data": None,
-            "error": {"code": code, "message": message, "details": details},
-            "meta": {},
-        },
-    )
 
 
 def _server_out(server: MediaServerInstance) -> dict:

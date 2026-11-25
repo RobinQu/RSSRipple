@@ -602,11 +602,11 @@ async def deliver_due_deliveries(db) -> dict:
             async with commit_lock:
                 await require_execution_ownership()
                 if error is None:
-                    values = dict(status="done", delivered_at=utcnow(), error_message=None)
+                    values = {"status": "done", "delivered_at": utcnow(), "error_message": None}
                     outcome = "delivered"
                 else:
                     attempts = d.attempt_count + 1
-                    values = dict(attempt_count=attempts)
+                    values = {"attempt_count": attempts}
                     if attempts >= settings.notify_max_attempts:
                         values.update(
                             status="failed",
@@ -651,11 +651,9 @@ async def _commit_delivery_update(db, statement) -> bool:
     bind = db.bind.engine if isinstance(db.bind, AsyncConnection) else db.bind
 
     async def attempt():
-        async with AsyncSession(bind=bind) as writer:
-            async with writer.begin():
-                result = await writer.execute(statement)
-                accepted = result.scalar_one_or_none() is not None
-            return accepted
+        async with AsyncSession(bind=bind) as writer, writer.begin():
+            result = await writer.execute(statement)
+            return result.scalar_one_or_none() is not None
 
     return await retry_on_lock(attempt)
 

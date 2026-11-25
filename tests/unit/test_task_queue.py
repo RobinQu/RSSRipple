@@ -900,7 +900,7 @@ class TestRedisQueueEdgeCases:
         async def blocking_lmove(*args, **kwargs):
             entered.set()
             await blocking.wait()
-            return None
+            return
 
         redis_client.lmove = blocking_lmove
         q = RedisQueue(redis_client=redis_client, max_concurrent=1)

@@ -96,10 +96,7 @@ def plan_fix(
     model (for WorkCollection: same external_source). Returns
     ``(outcome, normalized_id_or_None)``.
     """
-    if keep_prefix:
-        normalized = normalize_double_prefix(external_id, source)
-    else:
-        normalized = normalize_collection_id(external_id)
+    normalized = normalize_double_prefix(external_id, source) if keep_prefix else normalize_collection_id(external_id)
     if normalized is None or normalized == external_id:
         return OUTCOME_UNCHANGED, None
     if normalized in taken_ids:

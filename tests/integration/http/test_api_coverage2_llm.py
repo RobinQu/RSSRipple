@@ -410,7 +410,7 @@ def org_env():
             return None
         rows = r.json().get("data", [])
         mine = [p for p in rows if p.get("notification_id") in notification_ids]
-        return mine if mine else None
+        return mine or None
 
     plans = _poll(_plans, timeout=240, interval=10, desc="organize plans")
 

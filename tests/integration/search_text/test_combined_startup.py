@@ -47,7 +47,7 @@ async def test_actual_startup_combines_legacy_utc_and_search(dedup_postgres, mon
 
     async def after_both(conn):
         await actual_indexes(conn)
-        assert await column_types(conn) == {table: 'text' for table in TABLES}
+        assert await column_types(conn) == dict.fromkeys(TABLES, 'text')
         channel_defaults = [row.column_default for row in await defaults(conn)
                             if (row.table_name, row.column_name) == ('channels', 'created_at')]
         assert len(channel_defaults) == 1 and "'UTC'" in channel_defaults[0]
@@ -78,7 +78,7 @@ async def test_actual_startup_combines_legacy_utc_and_search(dedup_postgres, mon
     await database.create_tables()
     async with engine.begin() as conn:
         assert await conn.scalar(text('SHOW timezone')) == 'Asia/Shanghai'
-        assert await column_types(conn) == {table: 'text' for table in TABLES}
+        assert await column_types(conn) == dict.fromkeys(TABLES, 'text')
         row = dict((await conn.execute(
             select(Channel.__table__).where(Channel.id == channel['id'])
         )).mappings().one())

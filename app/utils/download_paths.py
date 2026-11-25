@@ -48,7 +48,7 @@ def validate_download_subdir(download_subdir: str | None) -> str | None:
         return None
     if _CONTROL_CHARS.search(value):
         raise DownloadPathError("download_subdir contains control characters")
-    if value.startswith(("/", "\\", "~")) or _WINDOWS_DRIVE_ABS.match(value) or value.startswith("\\\\"):
+    if value.startswith(("/", "\\", "~", "\\\\")) or _WINDOWS_DRIVE_ABS.match(value):
         raise DownloadPathError("download_subdir must be a relative path")
     if "//" in value or "\\\\" in value:
         raise DownloadPathError("download_subdir must not contain empty path segments")

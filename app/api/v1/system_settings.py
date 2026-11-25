@@ -122,7 +122,8 @@ async def put_system_settings(
     for key, value in payload.items():
         if key not in RUNTIME_SETTING_KEYS:
             continue  # ignore unknown keys (forward-compatible)
-        if kind_of(key) == "bool":
+        # A nested ternary is harder to read than the explicit branches.
+        if kind_of(key) == "bool":  # noqa: SIM108
             stored = "true" if bool(value) else "false"
         else:
             # str field (incl. secrets): None / empty -> clear (revert to env)

@@ -349,6 +349,28 @@ async def ignore_dashboard_todos(
     })
 
 
+def _agent_work_summary(work: AgentWork) -> dict:
+    return {
+        "id": work.id,
+        "filter_overrides": work.filter_overrides,
+        "display_name_override": work.display_name_override,
+        "series": ({
+            "id": work.series.id,
+            "title_cn": work.series.title_cn,
+            "title_en": work.series.title_en,
+            "original_title": work.series.original_title,
+            "poster_url": work.series.poster_url,
+        } if work.series else None),
+        "movie": ({
+            "id": work.movie.id,
+            "title_cn": work.movie.title_cn,
+            "title_en": work.movie.title_en,
+            "original_title": work.movie.original_title,
+            "poster_url": work.movie.poster_url,
+        } if work.movie else None),
+    }
+
+
 async def _top_agent_summaries(db: AsyncSession) -> list[dict]:
     active_statuses = ("pending", "queued", "downloading")
     task_counts = (
@@ -379,27 +401,7 @@ async def _top_agent_summaries(db: AsyncSession) -> list[dict]:
     )).all()
     summaries: list[dict] = []
     for agent, active_task_count in rows:
-        works = []
-        for work in agent.works:
-            works.append({
-                "id": work.id,
-                "filter_overrides": work.filter_overrides,
-                "display_name_override": work.display_name_override,
-                "series": ({
-                    "id": work.series.id,
-                    "title_cn": work.series.title_cn,
-                    "title_en": work.series.title_en,
-                    "original_title": work.series.original_title,
-                    "poster_url": work.series.poster_url,
-                } if work.series else None),
-                "movie": ({
-                    "id": work.movie.id,
-                    "title_cn": work.movie.title_cn,
-                    "title_en": work.movie.title_en,
-                    "original_title": work.movie.original_title,
-                    "poster_url": work.movie.poster_url,
-                } if work.movie else None),
-            })
+        works = [_agent_work_summary(work) for work in agent.works]
         summaries.append({
             "id": agent.id,
             "name": agent.name,

@@ -674,7 +674,7 @@ async def create_pending_decision(
         db, agent_id=agent.id, decision_key=decision_key, decision_scope=scope,
         candidate_ids=candidate_ids, proposed_ids=proposed_ids,
         picked_id=picked_id, suggestion=reason_txt,
-        fields=dict(series_id=series_id, movie_id=movie_id, season=season, episode=episode, reason=reason),
+        fields={"series_id": series_id, "movie_id": movie_id, "season": season, "episode": episode, "reason": reason},
     )
 
 
@@ -919,32 +919,30 @@ async def _process_candidate_group(agent, key, cands, db, *, consumption_snapsho
     if len(cands) == 1:
         await dispatch_download(agent, cands[0], db, **dispatch_options)
         return False
-    else:
-        if agent.conflict_resolution == "ask":
-            if key[0] == "batch":
-                pd_key, reason = _batch_decision_key(key)
-                await create_pending_decision(
-                    agent, pd_key, cands, db, reason_override=reason, coverage=key[2]
-                )
-            else:
-                await create_pending_decision(agent, key, cands, db)
-            return True
+    if agent.conflict_resolution == "ask":
+        if key[0] == "batch":
+            pd_key, reason = _batch_decision_key(key)
+            await create_pending_decision(
+                agent, pd_key, cands, db, reason_override=reason, coverage=key[2]
+            )
         else:
-            # "auto": deterministic preference rules first — they only
-            # rank, never filter. A unique winner dispatches without
-            # any LLM call; a tied shortlist goes to the LLM pick
-            # (self-gated on llm_enabled + API key); the heuristic
-            # scorer stays the final fallback.
-            tier, _deciding = pick_by_preferences(cands, agent.pick_preferences)
-            if len(tier) == 1:
-                chosen = tier[0]
-            else:
-                picked_id, _pick_reason = await _generate_llm_pick(agent, tier, key)
-                chosen = next((c for c in tier if c.id == picked_id), None)
-                if chosen is None:
-                    chosen = score_and_pick(tier, None, agent)
-            await dispatch_download(agent, chosen, db, **dispatch_options)
-            return False
+            await create_pending_decision(agent, key, cands, db)
+        return True
+    # "auto": deterministic preference rules first — they only
+    # rank, never filter. A unique winner dispatches without
+    # any LLM call; a tied shortlist goes to the LLM pick
+    # (self-gated on llm_enabled + API key); the heuristic
+    # scorer stays the final fallback.
+    tier, _deciding = pick_by_preferences(cands, agent.pick_preferences)
+    if len(tier) == 1:
+        chosen = tier[0]
+    else:
+        picked_id, _pick_reason = await _generate_llm_pick(agent, tier, key)
+        chosen = next((c for c in tier if c.id == picked_id), None)
+        if chosen is None:
+            chosen = score_and_pick(tier, None, agent)
+    await dispatch_download(agent, chosen, db, **dispatch_options)
+    return False
 
 
 async def process_resources(
@@ -992,14 +990,13 @@ async def process_resources(
         # not create AgentSuggestion/PendingDecision rows. Links-carried
         # multi-season packs (per-season works: flat FK cleared, works on
         # resource_work_links) are recognized through their link table.
-        if not resource.series_id and not resource.movie_id:
-            if not (
-                getattr(resource, "is_batch", False)
-                and getattr(resource, "batch_scope", None) == "multi_season"
-                and _linked_series_ids(resource)
-            ):
-                result.unrecognized += 1
-                continue
+        if not resource.series_id and not resource.movie_id and not (
+            getattr(resource, "is_batch", False)
+            and getattr(resource, "batch_scope", None) == "multi_season"
+            and _linked_series_ids(resource)
+        ):
+            result.unrecognized += 1
+            continue
 
         reconcile_channel_metadata_defaults(resource, required_metadata_defaults)
         confirmation = inspect_resource_confirmation(
@@ -1130,18 +1127,20 @@ async def process_resources(
                 from app.database import retry_on_lock
 
                 async def write_candidate():
-                    async with AsyncSession(bind=db.bind, expire_on_commit=False) as unit_db:
-                        async with unit_db.begin():
-                            if unit_db.get_bind().dialect.name == "sqlite":
-                                # A logical Session transaction alone does not
-                                # make Turso start BEGIN before a SAVEPOINT.
-                                # Releasing that first savepoint must not commit
-                                # the choice before our outer ownership check.
-                                await unit_db.execute(text("BEGIN"))
-                            await require_agent_execution_ownership()
-                            pending = await _process_candidate_group(agent, key, cands, unit_db, **guard_options)
-                            await require_agent_execution_ownership()
-                            return pending
+                    async with (
+                        AsyncSession(bind=db.bind, expire_on_commit=False) as unit_db,
+                        unit_db.begin(),
+                    ):
+                        if unit_db.get_bind().dialect.name == "sqlite":
+                            # A logical Session transaction alone does not
+                            # make Turso start BEGIN before a SAVEPOINT.
+                            # Releasing that first savepoint must not commit
+                            # the choice before our outer ownership check.
+                            await unit_db.execute(text("BEGIN"))
+                        await require_agent_execution_ownership()
+                        pending = await _process_candidate_group(agent, key, cands, unit_db, **guard_options)
+                        await require_agent_execution_ownership()
+                        return pending
 
                 if agent.conflict_resolution == "ask" and len(cands) >= 2:
                     # This branch only persists a choice; it cannot send a

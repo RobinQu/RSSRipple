@@ -2,19 +2,22 @@
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.v1.responses import error_response
+from app.api.v1.title_listing import paginated_title_search
 from app.database import get_db
 from app.models.download_task import DownloadTask
 from app.models.file_resource import FileResource
 from app.models.movie import Movie
-from app.schemas.common import paginated_response, success_response
+from app.schemas.common import success_response
 from app.schemas.movie import MovieCreate, MovieResponse, MovieUpdate
 from app.services import fts as fts_service
 from app.services.external_ids import add_external_id
 from app.services.metadata_service import mark_manually_edited
+from app.services.work_deletion import delete_work_with_guards
 
 router = APIRouter()
 
@@ -26,42 +29,14 @@ async def list_movies(
     search: str | None = Query(None, description="Title fuzzy search"),
     db: AsyncSession = Depends(get_db),
 ):
-    offset = (page - 1) * page_size
-    if search:
-        # Use FTS5 for CJK-aware full-text search
-        candidate_ids = await fts_service.search_movie_fts(db, search, limit=200)
-        if candidate_ids:
-            base_q = select(Movie).where(Movie.id.in_(candidate_ids))
-            total = len(candidate_ids)
-            result = await db.execute(
-                base_q.order_by(Movie.created_at.desc()).offset(offset).limit(page_size)
-            )
-        else:
-            # Fallback to ILIKE if FTS5 returns nothing
-            pattern = f"%{search}%"
-            base_q = select(Movie).where(
-                or_(
-                    Movie.title_cn.ilike(pattern),
-                    Movie.title_en.ilike(pattern),
-                    Movie.original_title.ilike(pattern),
-                )
-            )
-            total_q = await db.execute(select(func.count()).select_from(base_q.subquery()))
-            total = total_q.scalar_one()
-            result = await db.execute(
-                base_q.order_by(Movie.created_at.desc()).offset(offset).limit(page_size)
-            )
-    else:
-        base_q = select(Movie)
-        total_q = await db.execute(select(func.count()).select_from(base_q.subquery()))
-        total = total_q.scalar_one()
-        result = await db.execute(
-            base_q.order_by(Movie.created_at.desc()).offset(offset).limit(page_size)
-        )
-    items = result.scalars().all()
-    return paginated_response(
-        [MovieResponse.model_validate(m).model_dump() for m in items],
-        total=total, page=page, page_size=page_size,
+    return await paginated_title_search(
+        db,
+        Movie,
+        fts_service.search_movie_fts,
+        search,
+        page=page,
+        page_size=page_size,
+        response_model=MovieResponse,
     )
 
 
@@ -196,96 +171,25 @@ async def update_movie(
 
 @router.delete("/movies/{movie_id}")
 async def delete_movie(movie_id: str, db: AsyncSession = Depends(get_db)):
-    from sqlalchemy import update as sql_update
-
-    from app.models.agent_work import AgentWork
-    from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
-    from app.models.file_resource import FileResource
-    from app.models.pending_decision import PendingDecision
-    from app.services.work_deletion import WorkDeletionBusyError, lock_deletion_target
-
-    try:
-        movie, choice_agent_ids = await lock_deletion_target(db, Movie, movie_id)
-    except WorkDeletionBusyError:
-        await db.rollback()
-        return JSONResponse(status_code=409, content={
-            "success": False, "data": None, "meta": {},
-            "error": {
-                "code": "INVALID_STATE",
-                "message": "Work is being modified; retry deletion after the current operation finishes.",
-            },
-        })
-    if not movie:
-        return JSONResponse(
-            status_code=404,
-            content={
-                "success": False,
-                "data": None,
-                "error": {"code": "NOT_FOUND", "message": "Movie not found"},
-            },
+    outcome = await delete_work_with_guards(db, Movie, movie_id, kind="movie")
+    if outcome.status == "busy":
+        return error_response(
+            409, "INVALID_STATE",
+            "Work is being modified; retry deletion after the current operation finishes.",
         )
-
-    from app.services.external_ids import delete_external_ids_for_work
-    from app.services.work_deletion import manual_deletion_references
-
-    references = await manual_deletion_references(db, "movie", movie_id)
-    if references:
-        return JSONResponse(status_code=409, content={
-            "success": False, "data": None, "meta": {},
-            "error": {
-                "code": "DELETE_BLOCKED",
-                "message": "Reassign or remove manual resource mappings before deleting this work.",
-                "details": references,
-            },
-        })
-
-    # Constraint check: block if any AgentWork references this movie
-    aw_cnt = (await db.execute(
-        select(func.count()).select_from(AgentWork).where(AgentWork.movie_id == movie_id)
-    )).scalar_one()
-    if aw_cnt > 0:
-        return JSONResponse(
-            status_code=409,
-            content={
-                "success": False,
-                "data": None,
-                "error": {
-                    "code": "DELETE_BLOCKED",
-                    "message": (
-                        f"Cannot delete: {aw_cnt} agent(s) reference this movie. "
-                        "Remove the agent work subscriptions first."
-                    ),
-                    "details": {"agent_work_count": aw_cnt},
-                },
-            },
+    if outcome.status == "not_found":
+        return error_response(404, "NOT_FOUND", "Movie not found")
+    if outcome.status == "references":
+        return error_response(
+            409, "DELETE_BLOCKED",
+            "Reassign or remove manual resource mappings before deleting this work.",
+            outcome.references,
         )
-
-    await db.execute(sql_update(FileResource).where(FileResource.movie_id == movie_id).values(movie_id=None))
-    await db.execute(
-        sql_update(ChannelRawTitleMapping)
-        .where(ChannelRawTitleMapping.movie_id == movie_id)
-        .values(movie_id=None)
-    )
-    # Keep the file listing evidence: losing a target makes batch coverage
-    # unknown, rather than silently shrinking the package to surviving works.
-    from app.models.resource_file_assignment import ResourceFileAssignment
-
-    await db.execute(
-        sql_update(ResourceFileAssignment)
-        .where(ResourceFileAssignment.movie_id == movie_id)
-        .values(movie_id=None)
-    )
-    from sqlalchemy import delete as sql_delete
-
-    from app.models.resource_work_link import ResourceWorkLink
-    from app.services.decision_rekey import rekey_agent_choices
-
-    await db.execute(sql_delete(ResourceWorkLink).where(ResourceWorkLink.movie_id == movie_id))
-    # Review against current resource associations while original decision FKs
-    # still exist, so the audit captures the complete before-image.
-    await rekey_agent_choices(db, choice_agent_ids)
-    await db.execute(sql_update(PendingDecision).where(PendingDecision.movie_id == movie_id).values(movie_id=None))
-    await delete_external_ids_for_work(db, "movie", movie_id)
-    await db.delete(movie)
-    await db.commit()
+    if outcome.status == "agent_work":
+        return error_response(
+            409, "DELETE_BLOCKED",
+            f"Cannot delete: {outcome.agent_work_count} agent(s) reference this movie. "
+            "Remove the agent work subscriptions first.",
+            {"agent_work_count": outcome.agent_work_count},
+        )
     return success_response({"deleted": True})

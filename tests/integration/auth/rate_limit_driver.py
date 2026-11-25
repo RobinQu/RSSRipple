@@ -51,7 +51,8 @@ async def concurrent_round(mode: str, directory: Path):
     processes = []
     try:
         for index in range(4):
-            processes.append(await asyncio.create_subprocess_exec(
+            # Keep already-spawned processes visible to cleanup.
+            processes.append(await asyncio.create_subprocess_exec(  # noqa: PERF401
                 sys.executable, "-m", "tests.integration.auth.rate_limit_driver",
                 mode, str(index), str(directory),
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,

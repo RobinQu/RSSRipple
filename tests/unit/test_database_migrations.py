@@ -234,7 +234,7 @@ async def test_light_migrations_torrent_listing_columns_turso():
         async with engine.begin() as conn:
             rows = (await conn.execute(text("PRAGMA table_info(file_resources)"))).fetchall()
             columns = {row[1]: row for row in rows}
-            assert _TORRENT_FETCH_COLUMNS <= columns.keys()
+            assert columns.keys() >= _TORRENT_FETCH_COLUMNS
             assert columns["torrent_fetch_attempts"][4] == "0"
 
 
@@ -1498,7 +1498,7 @@ async def test_light_migrations_torrent_listing_columns_postgres(pg_env):
             "WHERE table_name = 'file_resources'"
         ))
         columns = {row.column_name: row for row in rows}
-        assert _TORRENT_FETCH_COLUMNS <= columns.keys()
+        assert columns.keys() >= _TORRENT_FETCH_COLUMNS
         assert columns["torrent_fetch_updated_at"].data_type == "timestamp without time zone"
         assert columns["torrent_fetch_next_attempt_at"].data_type == "timestamp without time zone"
         assert columns["torrent_fetch_attempts"].column_default == "0"

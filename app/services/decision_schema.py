@@ -50,13 +50,13 @@ async def _validate_existing_guards(conn):
     else:
         constraints = await conn.run_sync(lambda sync: inspect(sync).get_check_constraints("pending_decisions"))
         for constraint in constraints:
+            # PostgreSQL prints != as <>.
             if (
                 constraint["name"] == "ck_pending_decision_key"
                 and _normalized_sql(constraint["sqltext"]) != "status!='pending'ordecision_keyisnotnull"
+                and _normalized_sql(constraint["sqltext"]) != "status<>'pending'ordecision_keyisnotnull"
             ):
-                # PostgreSQL prints != as <>.
-                if _normalized_sql(constraint["sqltext"]) != "status<>'pending'ordecision_keyisnotnull":
-                    raise ValueError("Unexpected pending decision CHECK definition")
+                raise ValueError("Unexpected pending decision CHECK definition")
 
 
 async def install_decision_constraints(conn):

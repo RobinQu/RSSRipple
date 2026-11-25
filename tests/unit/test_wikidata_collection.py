@@ -598,6 +598,7 @@ class TestLinkErrorBranches:
                         "entities": {"Q100": {"id": "Q100", "claims": {"P179": [_claim("Q200")]}}}
                     }
                 return {"entities": {"Q200": {"missing": True}}}
+            return None
 
         with patch("httpx.AsyncClient", _client_mock(handler)):
             status = await wc.link_series_wikidata_collection(db_session, series)

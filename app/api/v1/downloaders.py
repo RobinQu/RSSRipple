@@ -8,20 +8,14 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.task_listing import (
-    apply_effective_task_statuses,
-    apply_task_sort,
-    apply_task_status_filter,
-    parse_task_sort,
-    task_list_load_options,
-)
+from app.api.v1.responses import error_response as _error
+from app.api.v1.task_listing import paginated_task_list
 from app.clients.downloader import get_downloader_client
 from app.database import get_db
 from app.models.download_task import DownloadTask
 from app.models.downloader import DownloaderInstance
 from app.models.storage_volume import StorageVolume
 from app.schemas.common import paginated_response, success_response
-from app.schemas.download_task import DownloadTaskResponse
 from app.schemas.downloader import (
     DownloaderCreate,
     DownloaderResponse,
@@ -42,18 +36,6 @@ def _join(base: str, extra: str) -> str:
     return f"{base}; {extra}" if base else extra
 
 
-def _error(status_code: int, code: str, message: str) -> JSONResponse:
-    return JSONResponse(
-        status_code=status_code,
-        content={
-            "success": False,
-            "data": None,
-            "error": {"code": code, "message": message},
-            "meta": {},
-        },
-    )
-
-
 async def _validate_volume_binding(
     db: AsyncSession, volume_id: str | None, volume_subpath: str | None
 ) -> JSONResponse | None:
@@ -64,9 +46,8 @@ async def _validate_volume_binding(
             422, "VALIDATION_ERROR",
             "volume_subpath 必须依附 volume_id（绑定不完整）",
         )
-    if volume_id is not None:
-        if await db.get(StorageVolume, volume_id) is None:
-            return _error(404, "NOT_FOUND", "Storage volume not found")
+    if volume_id is not None and await db.get(StorageVolume, volume_id) is None:
+        return _error(404, "NOT_FOUND", "Storage volume not found")
     return None
 
 
@@ -255,25 +236,13 @@ async def list_downloader_tasks(
             },
         )
 
-    offset = (page - 1) * page_size
-    base_q = select(DownloadTask).where(DownloadTask.downloader_id == downloader_id)
-    base_q = apply_task_status_filter(base_q, status)
-    total_q = await db.execute(select(func.count()).select_from(base_q.subquery()))
-    total = total_q.scalar_one()
-
-    query = apply_task_sort(base_q, parse_task_sort(sort))
-    result = await db.execute(
-        query
-        .options(*task_list_load_options())
-        .offset(offset).limit(page_size)
-    )
-    tasks = result.scalars().all()
-    payload = [DownloadTaskResponse.model_validate(t).model_dump() for t in tasks]
-    await apply_effective_task_statuses(db, tasks, payload)
-
-    return paginated_response(
-        payload,
-        total=total, page=page, page_size=page_size,
+    return await paginated_task_list(
+        db,
+        select(DownloadTask).where(DownloadTask.downloader_id == downloader_id),
+        status=status,
+        sort=sort,
+        page=page,
+        page_size=page_size,
     )
 
 

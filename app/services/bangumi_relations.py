@@ -76,6 +76,7 @@ from app.services.bangumi_client import (
     get_subject_relations,
 )
 from app.services.resource_parser import season_from_title, strip_season_from_title
+from app.services.resource_work_links import ensure_auto_link
 from app.services.text_normalizer import normalize_title
 
 if TYPE_CHECKING:
@@ -414,33 +415,6 @@ def _assign_seasons(
     return assignments
 
 
-async def _ensure_link(
-    db: AsyncSession, resource: FileResource, work_type: str, work_id: str
-) -> bool:
-    """Add a ``source="auto"`` work link unless one already exists.
-
-    Additive only: existing rows (manual/llm/auto) are never modified.
-    """
-    column = ResourceWorkLink.series_id if work_type == "series" else ResourceWorkLink.movie_id
-    existing = (
-        await db.execute(
-            select(ResourceWorkLink.id).where(
-                ResourceWorkLink.resource_id == resource.id,
-                column == work_id,
-            )
-        )
-    ).first()
-    if existing:
-        return False
-    db.add(ResourceWorkLink(
-        resource_id=resource.id,
-        series_id=work_id if work_type == "series" else None,
-        movie_id=work_id if work_type == "movie" else None,
-        source="auto",
-    ))
-    return True
-
-
 async def _collection_member_by_season(
     db: AsyncSession, collection_id: str, season: int | None
 ) -> TVSeries | None:
@@ -501,7 +475,7 @@ async def _attach_and_link(
             )
             if occupant is not None and occupant.id != work.id:
                 if link_foreign:
-                    return await _ensure_link(db, resource, work_type, work.id)
+                    return await ensure_auto_link(db, resource.id, work_type, work.id)
                 logger.info(
                     "[bangumi-graph] work %s (season %s) slot already occupied in "
                     "collection %s; not linked to %s",
@@ -520,13 +494,13 @@ async def _attach_and_link(
                 )
         if not attached:
             if link_foreign:
-                return await _ensure_link(db, resource, work_type, work.id)
+                return await ensure_auto_link(db, resource.id, work_type, work.id)
             logger.info(
                 "[bangumi-graph] work %s stays in collection %s; not linked to %s",
                 work.id, work.collection_id, resource.id,
             )
             return False
-    return await _ensure_link(db, resource, work_type, work.id)
+    return await ensure_auto_link(db, resource.id, work_type, work.id)
 
 
 async def _sync_work_episode_seasons(
@@ -615,17 +589,6 @@ async def _season_zero_holder(db: AsyncSession, collection_id: str) -> TVSeries 
             )
         )
     ).scalars().first()
-
-
-def _episode_matches(row: Episode | None, entity: dict[str, Any]) -> bool:
-    if row is None:
-        return False
-    title = entity.get("title")
-    air_date = entity.get("air_date")
-    return bool(
-        (title and row.title and title == row.title)
-        or (air_date and row.air_date and air_date == row.air_date.isoformat())
-    )
 
 
 async def _merge_split_cour(
@@ -942,13 +905,16 @@ async def expand_bangumi_series_graph(db: AsyncSession, resource: FileResource) 
                 )
             if work is None:
                 continue
-            if work.season_number is not None and work.season_number != season:
-                # Phase A already corrected bag-hit works; a slot may only
-                # have freed since (an absorption moved the occupant), so
-                # retry the correction here — never a user edit, never onto
-                # an occupied (collection, season) slot.
-                if not await _correct_work_season(db, work, season, node):
-                    continue
+            # Phase A already corrected bag-hit works; a slot may only have
+            # freed since (an absorption moved the occupant), so retry the
+            # correction here — never a user edit, never onto an occupied
+            # (collection, season) slot.
+            if (
+                work.season_number is not None
+                and work.season_number != season
+                and not await _correct_work_season(db, work, season, node)
+            ):
+                continue
             if await _attach_and_link(db, resource, "series", work, target_collection):
                 linked_ids.add(("series", work.id))
                 created_links += 1
@@ -967,7 +933,7 @@ async def expand_bangumi_series_graph(db: AsyncSession, resource: FileResource) 
                 continue
             if not await _merge_split_cour(db, client, work, node):
                 continue
-            if await _ensure_link(db, resource, "series", work.id):
+            if await ensure_auto_link(db, resource.id, "series", work.id):
                 created_links += 1
             linked_ids.add(("series", work.id))
 
@@ -1041,7 +1007,7 @@ async def expand_bangumi_series_graph(db: AsyncSession, resource: FileResource) 
         work = seed["work"]
         if work.collection_id != target_collection.id:
             continue
-        if await _ensure_link(db, resource, seed["work_type"], work.id):
+        if await ensure_auto_link(db, resource.id, seed["work_type"], work.id):
             linked_ids.add((seed["work_type"], work.id))
             created_links += 1
 

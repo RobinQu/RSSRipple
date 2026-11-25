@@ -2,8 +2,8 @@
 
 The module-level lines (imports, logger, heartbeat constants) are covered by
 importing ``app.worker``. Here we exercise the two runnable helpers:
-``_ensure_data_dirs`` (poster + sqlite db dir creation, including the
-OSError fallbacks) and ``_heartbeat_loop`` (heartbeat file touching,
+``app.startup.ensure_data_dirs`` (poster + sqlite db dir creation, including
+the OSError fallbacks) and ``_heartbeat_loop`` (heartbeat file touching,
 timeout-continue, and clean stop).
 """
 
@@ -13,6 +13,7 @@ import asyncio
 
 import pytest
 
+import app.startup as startup
 import app.worker as worker
 
 
@@ -30,7 +31,7 @@ def test_ensure_data_dirs_sqlite_file_url(monkeypatch, tmp_path):
     monkeypatch.setattr(worker.settings, "poster_cache_dir", str(poster))
     monkeypatch.setattr(worker.settings, "database_url", f"sqlite:///{db}")
 
-    worker._ensure_data_dirs()
+    startup.ensure_data_dirs()
 
     assert poster.exists()
     assert db.parent.exists()
@@ -42,7 +43,7 @@ def test_ensure_data_dirs_sqlite_relative_url(monkeypatch, tmp_path):
     monkeypatch.setattr(worker.settings, "poster_cache_dir", str(tmp_path / "p"))
     monkeypatch.setattr(worker.settings, "database_url", "sqlite:rel/db/test.db")
 
-    worker._ensure_data_dirs()
+    startup.ensure_data_dirs()
 
     assert (tmp_path / "rel" / "db").exists()
 
@@ -64,11 +65,11 @@ def test_ensure_data_dirs_poster_fallback_on_oserror(monkeypatch, tmp_path):
                 raise OSError("permission denied")
             return real_mkdir(self, *a, **kw)
 
-    monkeypatch.setattr(worker_mod, "Path", _FlakyPath)
+    monkeypatch.setattr(startup, "Path", _FlakyPath)
     monkeypatch.setattr(worker_mod.settings, "poster_cache_dir", str(tmp_path / "bad"))
     monkeypatch.setattr(worker_mod.settings, "database_url", "postgresql+asyncpg://x")
 
-    worker_mod._ensure_data_dirs()
+    startup.ensure_data_dirs()
 
     assert worker_mod.settings.poster_cache_dir.endswith("data/posters")
 
@@ -90,7 +91,7 @@ def test_ensure_data_dirs_db_oserror_swallowed(monkeypatch, tmp_path):
     monkeypatch.setattr(worker_mod.settings, "database_url", "sqlite:///nope/db/test.db")
     monkeypatch.setattr(Path, "mkdir", _flaky_mkdir)
 
-    worker_mod._ensure_data_dirs()
+    startup.ensure_data_dirs()
 
     assert (tmp_path / "ok").exists()
 

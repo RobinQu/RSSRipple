@@ -25,6 +25,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.v1.responses import error_response as _error
 from app.database import get_db
 from app.models.download_notification import DownloadNotification
 from app.models.download_task import DownloadTask
@@ -78,18 +79,6 @@ def _replan_after_config_change(db: AsyncSession, reason: str) -> None:
     请求延迟来源。
     """
     organize_service.schedule_replan(db.bind, reason=reason)
-
-
-def _error(status_code: int, code: str, message: str) -> JSONResponse:
-    return JSONResponse(
-        status_code=status_code,
-        content={
-            "success": False,
-            "data": None,
-            "error": {"code": code, "message": message, "details": None},
-            "meta": {},
-        },
-    )
 
 
 def _validate_filter(filter_config) -> JSONResponse | None:
@@ -209,9 +198,12 @@ async def update_library(
     if isinstance(lib, JSONResponse):
         return lib
     update_data = body.model_dump(exclude_unset=True)
-    if "volume_id" in update_data and update_data["volume_id"] is not None:
-        if await db.get(StorageVolume, update_data["volume_id"]) is None:
-            return _error(404, "NOT_FOUND", "Storage volume not found")
+    if (
+        "volume_id" in update_data
+        and update_data["volume_id"] is not None
+        and await db.get(StorageVolume, update_data["volume_id"]) is None
+    ):
+        return _error(404, "NOT_FOUND", "Storage volume not found")
     if "root_subpath" in update_data:
         try:
             update_data["root_subpath"] = validate_download_subdir(

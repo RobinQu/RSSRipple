@@ -81,7 +81,7 @@ async def lock_work_choice_agents(db, work_groups):
 
 
 def scope_fields(scope):
-    fields = dict(series_id=None, movie_id=None, season=None, episode=None)
+    fields = {"series_id": None, "movie_id": None, "season": None, "episode": None}
     if scope["kind"] == "batch":
         fields["episode"] = -1
         descriptors = scope["coverage"][1]
@@ -169,16 +169,19 @@ async def rekey_agent_choices(db, agent_ids):
             )
             db.add(row)
             await db.flush()
-            created.append(dict(id=row.id, source_decision_ids=group["source_decision_ids"]))
+            created.append({"id": row.id, "source_decision_ids": group["source_decision_ids"]})
         review["operation"] = "work_rekey"
         fingerprint = hashlib.sha256(json.dumps(review, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         db.add(
             DecisionMigration(
                 review_fingerprint=fingerprint,
                 original_review=review,
-                result=dict(
-                    operation="work_rekey", superseded_ids=sorted(changed), created=created, blocked=review["blocked"]
-                ),
+                result={
+                    "operation": "work_rekey",
+                    "superseded_ids": sorted(changed),
+                    "created": created,
+                    "blocked": review["blocked"],
+                },
             )
         )
         await db.flush()

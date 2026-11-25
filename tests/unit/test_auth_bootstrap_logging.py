@@ -2,7 +2,7 @@
 
 import logging
 
-from app import database, main
+from app import database, main, startup
 from app.models.app_setting import AppSetting
 from app.services import task_queue
 from app.services.auth_service import SETTING_COOKIE_SECRET, SETTING_TOTP_SECRET
@@ -13,7 +13,7 @@ async def test_startup_does_not_publish_authenticator_secret(
 ):
     db_session_factory = database.async_session_factory
     monkeypatch.setattr(task_queue, "task_queue", task_queue.task_queue)
-    monkeypatch.setattr(main, "async_session_factory", db_session_factory)
+    monkeypatch.setattr(startup, "async_session_factory", db_session_factory)
     monkeypatch.setattr(main.settings, "db_migrate_on_startup", False)
     monkeypatch.setattr(main.settings, "poster_cache_dir", str(tmp_path / "posters"))
     monkeypatch.setattr(main.settings, "app_role", "web")

@@ -105,9 +105,8 @@ class AuthMiddleware:
                 break
 
         # Static env bootstrap key — checked without touching the DB.
-        if presented_key and settings.api_key:
-            if hmac.compare_digest(settings.api_key, presented_key):
-                return True
+        if presented_key and settings.api_key and hmac.compare_digest(settings.api_key, presented_key):
+            return True
 
         if not presented_key and not cookie_value:
             return False

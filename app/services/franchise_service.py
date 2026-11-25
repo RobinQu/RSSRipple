@@ -68,6 +68,7 @@ from app.services.resource_parser import (
     season_from_title,
     strip_season_from_title,
 )
+from app.services.resource_work_links import ensure_auto_link
 from app.services.text_normalizer import normalize_title
 
 if TYPE_CHECKING:
@@ -197,37 +198,6 @@ def _pack_title(resource: FileResource) -> str:
     t = _BRACKET_BLOCK_RE.sub(" ", base)
     t = re.sub(r"\s+", " ", t).strip(" -_.·　")
     return (t or base or "franchise pack")[:512]
-
-
-async def _ensure_auto_link(
-    db: AsyncSession, resource_id: str, work_type: str, work_id: str
-) -> bool:
-    """Add a ``source="auto"`` resource↔work link unless one already exists.
-
-    Used for members kept in their own shell collection (the season slot in
-    the pack's collection is occupied): the link is what makes the shell
-    work's collection reachable to the later cluster-binding pass.
-    """
-    from app.models.resource_work_link import ResourceWorkLink
-
-    column = ResourceWorkLink.series_id if work_type == "series" else ResourceWorkLink.movie_id
-    existing = (
-        await db.execute(
-            select(ResourceWorkLink.id).where(
-                ResourceWorkLink.resource_id == resource_id,
-                column == work_id,
-            )
-        )
-    ).first()
-    if existing:
-        return False
-    db.add(ResourceWorkLink(
-        resource_id=resource_id,
-        series_id=work_id if work_type == "series" else None,
-        movie_id=work_id if work_type == "movie" else None,
-        source="auto",
-    ))
-    return True
 
 
 async def _associated_collection(
@@ -524,7 +494,7 @@ async def link_franchise_pack(
             # Qualified-but-unmarked member ("Final Stage", "Battle Stage 2"):
             # its season is indeterminate — it keeps its own shell collection
             # and is only linked; the series graph may place it later.
-            await _ensure_auto_link(db, resource.id, "series", work.id)
+            await ensure_auto_link(db, resource.id, "series", work.id)
             continue
         if isinstance(work, TVSeries):
             # (collection, season) is application-unique (F4): when the slot
@@ -545,7 +515,7 @@ async def link_franchise_pack(
                     "kept in its shell collection and linked",
                     work.id, work.season_number, collection.title_cn,
                 )
-                await _ensure_auto_link(db, resource.id, "series", work.id)
+                await ensure_auto_link(db, resource.id, "series", work.id)
                 continue
         if work.collection_id:
             # Per-season model (P3): a TV member upsert auto-creates a

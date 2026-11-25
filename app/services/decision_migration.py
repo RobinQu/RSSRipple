@@ -62,7 +62,7 @@ async def apply_decision_review(db, reviewed):
     created = []
     for group in current["proposed_groups"]:
         scope = group["decision_scope"]
-        fields = dict(series_id=None, movie_id=None, season=None, episode=None)
+        fields = {"series_id": None, "movie_id": None, "season": None, "episode": None}
         if scope["kind"] == "batch":
             fields["episode"] = -1
             descriptors = scope["coverage"][1]
@@ -85,9 +85,9 @@ async def apply_decision_review(db, reviewed):
         )
         db.add(row)
         await db.flush()
-        created.append(dict(id=row.id, source_decision_ids=group["source_decision_ids"]))
+        created.append({"id": row.id, "source_decision_ids": group["source_decision_ids"]})
     await install_decision_constraints(conn)
-    result = dict(superseded_ids=old_ids, created=created, already_applied=False)
+    result = {"superseded_ids": old_ids, "created": created, "already_applied": False}
     db.add(DecisionMigration(review_fingerprint=fingerprint, original_review=current, result=result))
     await db.flush()
     return result

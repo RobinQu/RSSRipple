@@ -197,18 +197,16 @@ async_session_factory = async_sessionmaker(
 
 class Base(DeclarativeBase):
     """Declarative base for all ORM models."""
-    pass
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """FastAPI dependency — yields an async session, commits on success."""
-    async with async_session_factory() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
+    """FastAPI dependency — yields an async session, commits on success.
+
+    Delegates the commit/rollback lifecycle to :func:`committed_session` so
+    request scopes and service scopes share one transaction contract.
+    """
+    async with committed_session() as session:
+        yield session
 
 
 # Startup DDL must never wait indefinitely: PostgreSQL queues lock requests
@@ -869,8 +867,7 @@ async def _apply_light_migrations(conn) -> None:
             table == "file_resources" and (
                 column == "magnet_resolve_attempt_id"
                 or column == "magnet_url"
-                or column.startswith("torrent_fetch_")
-                or column.startswith("listing_reconcile_")
+                or column.startswith(("torrent_fetch_", "listing_reconcile_"))
             )
         ) or (table == "agents" and column == "current_run_token"):
             # Ownership/version columns are safety-critical: a partial schema

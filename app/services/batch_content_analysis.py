@@ -376,8 +376,7 @@ def _parse_llm_json(text: str) -> dict[str, Any]:
     if text.startswith("```"):
         first_nl = text.index("\n") if "\n" in text else 3
         text = text[first_nl + 1:]
-    if text.endswith("```"):
-        text = text[:-3]
+    text = text.removesuffix("```")
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if match:
         text = match.group(0)

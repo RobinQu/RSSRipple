@@ -53,7 +53,7 @@ def domains_for_sources(sources: list[str] | None = None) -> list[str]:
     ``None``/empty means the default whitelist order. Unknown site names are
     skipped (they have no domain mapping); duplicates are dropped.
     """
-    names = sources if sources else DEFAULT_FALLBACK_SOURCES
+    names = sources or DEFAULT_FALLBACK_SOURCES
     out: list[str] = []
     for name in names:
         for dom in SITE_DOMAINS.get(name, []):

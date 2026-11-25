@@ -1,9 +1,9 @@
-"""Worker 进程入口（app/worker.py）进程内集成测试。
+"""Worker 进程入口（app/worker.py + app/startup.py）进程内集成测试。
 
 worker 是 ``python -m app.worker`` 的进程装配代码，无法在测试里真实拉起；
 本文件拆掉进程级副作用（信号、无限等待、真实队列/调度器）后逐函数覆盖：
-数据目录自举（poster 失败回退 / sqlite 父目录）、心跳循环触碰/异常/退出、
-``_run`` 装配主链路与 ``main()`` 入口。
+共享启动装配的数据目录自举（poster 失败回退 / sqlite 父目录）、心跳循环
+触碰/异常/退出、``_run`` 装配主链路与 ``main()`` 入口。
 """
 
 from __future__ import annotations
@@ -14,11 +14,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+import app.startup as startup
 import app.worker as worker
 from app.config import settings
 
 # ---------------------------------------------------------------------------
-# _ensure_data_dirs
+# startup.ensure_data_dirs
 # ---------------------------------------------------------------------------
 
 
@@ -27,7 +28,7 @@ def test_ensure_data_dirs_creates_poster_and_sqlite_parents(tmp_path, monkeypatc
     db_file = tmp_path / "nested" / "db" / "rss.db"
     monkeypatch.setattr(settings, "poster_cache_dir", str(poster))
     monkeypatch.setattr(settings, "database_url", f"sqlite:///{db_file}")
-    worker._ensure_data_dirs()
+    startup.ensure_data_dirs()
     assert poster.is_dir()
     assert db_file.parent.is_dir()
 
@@ -41,7 +42,7 @@ def test_ensure_data_dirs_poster_fallback_on_oserror(tmp_path, monkeypatch):
     cwd.mkdir()
     monkeypatch.chdir(cwd)
     monkeypatch.setattr(settings, "database_url", "postgresql+asyncpg://x")
-    worker._ensure_data_dirs()
+    startup.ensure_data_dirs()
     assert (cwd / "data" / "posters").is_dir()
     # 回退写入的是字面相对路径（与产品实现一致）
     assert settings.poster_cache_dir == "data/posters"
@@ -55,7 +56,7 @@ def test_ensure_data_dirs_sqlite_absolute_urls(tmp_path, monkeypatch, url):
     monkeypatch.setattr(settings, "poster_cache_dir", str(tmp_path / "p"))
     # 绝对路径形态：不抛错即可（父目录已存在）
     monkeypatch.setattr(settings, "database_url", url)
-    worker._ensure_data_dirs()
+    startup.ensure_data_dirs()
 
 
 def test_ensure_data_dirs_sqlite_relative_form(tmp_path, monkeypatch):
@@ -65,7 +66,7 @@ def test_ensure_data_dirs_sqlite_relative_form(tmp_path, monkeypatch):
     cwd = tmp_path / "cwd"
     cwd.mkdir()
     monkeypatch.chdir(cwd)
-    worker._ensure_data_dirs()
+    startup.ensure_data_dirs()
     assert (cwd / "relative").is_dir()
 
 
@@ -180,9 +181,9 @@ def wired_worker(tmp_path, monkeypatch):
         calls.append(("create_queue", backend))
         return stub.queue
 
-    monkeypatch.setattr(worker, "create_tables", fake_create_tables)
+    monkeypatch.setattr(startup, "create_tables", fake_create_tables)
     monkeypatch.setattr("app.services.publication_startup.ensure_publication_ready", fake_publication_ready)
-    monkeypatch.setattr(worker, "async_session_factory", _FakeSessionCtx)
+    monkeypatch.setattr(startup, "async_session_factory", _FakeSessionCtx)
     monkeypatch.setattr(
         "app.services.runtime_config.load_runtime_config", fake_load
     )

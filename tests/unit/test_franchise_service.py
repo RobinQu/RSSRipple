@@ -22,7 +22,6 @@ from app.models.work_collection import WorkCollection
 from app.models.work_external_id import WorkExternalId
 from app.services.franchise_service import (
     FRANCHISE_PACK_SOURCE,
-    _ensure_auto_link,
     _get_or_create_franchise_collection,
     _is_pack_base_name,
     _movie_base_names,
@@ -34,6 +33,7 @@ from app.services.franchise_service import (
     link_franchise_pack,
 )
 from app.services.metadata_resource_meta import ResourceMetadata
+from app.services.resource_work_links import ensure_auto_link
 from app.services.torrent_inspect import TorrentReport
 
 
@@ -807,8 +807,8 @@ async def test_ensure_auto_link_is_idempotent(db_session):
     db_session.add_all([resource, series])
     await db_session.flush()
 
-    assert await _ensure_auto_link(db_session, resource.id, "series", series.id) is True
-    assert await _ensure_auto_link(db_session, resource.id, "series", series.id) is False
+    assert await ensure_auto_link(db_session, resource.id, "series", series.id) is True
+    assert await ensure_auto_link(db_session, resource.id, "series", series.id) is False
 
 
 async def test_get_or_create_collection_matches_existing_title_en(db_session):

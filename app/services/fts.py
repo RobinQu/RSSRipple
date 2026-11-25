@@ -88,10 +88,7 @@ def _fts_available(db: Any) -> bool:
     engine = getattr(db, "engine", None)  # AsyncSession
     if engine is None:
         sync_session = getattr(db, "sync_session", None)
-        if sync_session is not None:
-            engine = sync_session.get_bind()
-        else:
-            engine = db
+        engine = sync_session.get_bind() if sync_session is not None else db
     url = str(engine.url) if engine is not None else settings.database_url
     return "turso" in url
 

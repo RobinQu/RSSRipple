@@ -243,9 +243,12 @@ async def _move_series_level_identities(
         report.identities_moved.append(canon)
     # Primary column (creator-wins, untouched): bag a collection-side copy.
     res = _canon_granularity(series.external_source, series.external_id)
-    if res and res[1] == "series":
-        if await add_external_id(db, "collection", collection.id, series.external_source, res[0]):
-            report.identities_moved.append(res[0])
+    if (
+        res
+        and res[1] == "series"
+        and await add_external_id(db, "collection", collection.id, series.external_source, res[0])
+    ):
+        report.identities_moved.append(res[0])
 
 
 # ---------------------------------------------------------------------------

@@ -36,13 +36,13 @@ async def reset_progress(db, agent_id, channel_id):
     This is also the explicit first-run baseline; legacy migration is separate.
     """
     prefix = await published_prefix(db, channel_id)
-    values = dict(
-        channel_id=channel_id,
-        generation=str(uuid.uuid4()),
-        baseline=prefix,
-        cursor=prefix,
-        historical_created_after=None,
-    )
+    values = {
+        "channel_id": channel_id,
+        "generation": str(uuid.uuid4()),
+        "baseline": prefix,
+        "cursor": prefix,
+        "historical_created_after": None,
+    }
     insert = pg_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
     await db.execute(
         insert(AgentPublicationProgress)
@@ -143,13 +143,13 @@ async def switch_channel_progress(db, agent):
         await db.execute(delete(AgentPublicationProgress).where(AgentPublicationProgress.agent_id == agent.id))
         return
     prefix = await published_prefix(db, agent.channel_id)
-    values = dict(
-        channel_id=agent.channel_id,
-        generation=str(uuid.uuid4()),
-        baseline=prefix,
-        cursor=0,
-        historical_created_after=agent.last_consumed_at,
-    )
+    values = {
+        "channel_id": agent.channel_id,
+        "generation": str(uuid.uuid4()),
+        "baseline": prefix,
+        "cursor": 0,
+        "historical_created_after": agent.last_consumed_at,
+    }
     insert = pg_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
     await db.execute(
         insert(AgentPublicationProgress)

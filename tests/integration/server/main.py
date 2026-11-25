@@ -295,7 +295,7 @@ async def tracker_scrape(request: Request):
             ih = unquote_to_bytes(value).hex()
             info_hashes.append(ih)
 
-    response = tracker.scrape(info_hashes if info_hashes else None)
+    response = tracker.scrape(info_hashes or None)
     return Response(content=response, media_type="text/plain")
 
 

@@ -517,7 +517,7 @@ async def test_year_gate_divergence_is_fully_characterized(world):
     且迁移前并未被拦（纯迁移产物，非存量问题）。G 动态计算——离线推导与
     创建期兄弟日期兜底之后仍无日期证据的作品才进入。"""
     assert world.gated, "预期存在 year 门禁分歧（start_date 待刷新的季作品）"
-    for rid, evidence in world.gated.items():
+    for evidence in world.gated.values():
         assert evidence["work_id"] is not None
         assert evidence["work_start_date"] is None
         assert evidence["work_season"] is not None

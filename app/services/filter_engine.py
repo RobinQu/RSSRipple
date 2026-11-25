@@ -303,12 +303,15 @@ def _validate_node(node: Any, errors: list[str], path: str) -> None:
                     safety_error = check_regex_safety(value)
                     if safety_error is not None:
                         errors.append(f"{path}.value: {safety_error}")
-        elif field in NUMBER_FIELDS and op in ("eq", "ne", "gt", "gte", "lt", "lte"):
-            if not isinstance(value, (int, float)):
-                try:
-                    float(value)
-                except (TypeError, ValueError):
-                    errors.append(f"{path}.value: numeric field requires a numeric value")
+        elif (
+            field in NUMBER_FIELDS
+            and op in ("eq", "ne", "gt", "gte", "lt", "lte")
+            and not isinstance(value, (int, float))
+        ):
+            try:
+                float(value)
+            except (TypeError, ValueError):
+                errors.append(f"{path}.value: numeric field requires a numeric value")
     else:
         errors.append(f"{path}: node must be a BoolCondition or FieldCondition")
 
@@ -451,9 +454,7 @@ def evaluate_field_condition(cond: dict, resource: Any) -> bool:
 
     if is_empty:
         # positive ops fail; ne passes
-        if op == "ne":
-            return True
-        return False
+        return op == "ne"
 
     if op == "eq":
         if isinstance(expected, str):
