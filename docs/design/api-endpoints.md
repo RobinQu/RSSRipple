@@ -47,7 +47,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 
 | Method | Path | 说明 |
 |--------|------|------|
-| GET | `/dashboard/overview` | 非实时概览：活跃 Agent/频道数、按活动任务数排序的 Top4 Agent 精简摘要、三类待办的独立服务端分页。Query：`decision_page`/`confirmation_page`/`plan_page`（默认 1）及共享 `page_size`（默认 10，最大 100） |
+| GET | `/dashboard/overview` | 非实时概览：活跃 Agent/频道数、按活动任务数排序的 Top4 Agent 精简摘要、三类待办的独立服务端分页。Query：`decision_page`/`confirmation_page`/`plan_page`（默认 1）及共享 `page_size`（默认 10，最大 100）。`pending_plans` 统计并返回 pending + failed 的 organize 计划（failed 为确定性拒绝，供人工重试/取消） |
 | GET | `/dashboard/downloads` | 实时下载快照：`active_download_count` + `active_download_groups`。下载器 RPC 并发且单实例最多等待 2 秒；失败时已跟踪任务保留数据库速度，无法读取的未跟踪种子跳过 |
 | GET | `/dashboard` | 向后兼容聚合响应，合并 overview 与 downloads；SPA 不轮询此端点 |
 | POST | `/dashboard/todos/ignore` | 单个或批量忽略同类待办。Body：`{kind: "decision"|"confirmation"|"plan", ids: string[1..100]}`。decision→`skipped`；confirmation→资源写 `confirmation_ignored_at`，永久退出待确认列表但不删除资源；plan→`cancelled` 并追加 organize audit。响应 `{requested, ignored, unchanged}` |

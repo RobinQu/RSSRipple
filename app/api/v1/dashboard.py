@@ -268,16 +268,22 @@ async def _page_pending_confirmations(
 async def _page_pending_plans(
     db: AsyncSession, page: int, page_size: int,
 ) -> tuple[list[dict], int]:
+    """Organize plans that need a human decision: pending AND failed.
+
+    Failed plans are deterministic rejections (target conflict, incomplete
+    coverage, missing category, ...) that can be retried or cancelled. They
+    share the dashboard's "文件操作变更确认" tab with pending plans so the
+    user can act on them without opening the media-library page.
+    """
     from app.api.v1.organize import _PLAN_LOAD_OPTIONS, _plan_list_item
 
+    actionable = OrganizePlan.status.in_(("pending", "failed"))
     total = int((await db.execute(
-        select(func.count()).select_from(OrganizePlan).where(
-            OrganizePlan.status == "pending"
-        )
+        select(func.count()).select_from(OrganizePlan).where(actionable)
     )).scalar_one() or 0)
     plans = (await db.execute(
         select(OrganizePlan)
-        .where(OrganizePlan.status == "pending")
+        .where(actionable)
         .order_by(OrganizePlan.created_at.desc(), OrganizePlan.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)

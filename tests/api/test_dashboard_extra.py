@@ -214,6 +214,66 @@ class TestDashboardPopulated:
         assert after.json()["data"]["pending_plans_total"] == 0
 
 
+    async def test_dashboard_includes_failed_plans_for_manual_action(
+        self, client, db_session_factory, sample_channel, sample_downloader,
+        sample_series, mock_transmission,
+    ):
+        """Failed organize plans surface next to pending ones so their
+        deterministic rejection can be retried or cancelled from the
+        dashboard's manual-confirmation tab."""
+        from app.models.download_notification import DownloadNotification
+        from app.models.download_task import DownloadTask
+        from app.models.file_resource import FileResource
+        from app.models.organize_plan import OrganizePlan
+
+        async with db_session_factory() as s:
+            resource = FileResource(
+                id=_uuid(), channel_id=sample_channel.id, guid="g-failed",
+                title_raw="[G] S - 03", torrent_url="magnet:?xt=urn:btih:ghi",
+                series_id=sample_series.id,
+            )
+            s.add(resource)
+            await s.flush()
+            task = DownloadTask(
+                id=_uuid(), file_resource_id=resource.id,
+                downloader_id=sample_downloader.id, download_dir="/downloads/y",
+                status="completed",
+            )
+            s.add(task)
+            await s.flush()
+            notification = DownloadNotification(
+                id=_uuid(), download_task_id=task.id,
+                payload={"notification_id": "n-failed"},
+            )
+            s.add(notification)
+            await s.flush()
+            plan = OrganizePlan(
+                id=_uuid(), notification_id=notification.id, status="failed",
+                payload=notification.payload,
+                error_message="目标已存在且大小不符，拒绝覆盖：/media/a.mkv",
+            )
+            s.add(plan)
+            await s.commit()
+            plan_id = plan.id
+
+        res = await client.get("/api/v1/dashboard")
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["pending_plans_total"] == 1
+        plans = [p for p in data["pending_plans"] if p["id"] == plan_id]
+        assert len(plans) == 1
+        assert plans[0]["status"] == "failed"
+        assert "拒绝覆盖" in plans[0]["error_message"]
+
+        ignored = await client.post(
+            "/api/v1/dashboard/todos/ignore",
+            json={"kind": "plan", "ids": [plan_id]},
+        )
+        assert ignored.status_code == 200
+        assert ignored.json()["data"]["ignored"] == 1
+        after = await client.get("/api/v1/dashboard")
+        assert after.json()["data"]["pending_plans_total"] == 0
+
     async def test_dashboard_groups_collection_and_links_only_tasks(
         self, client, db_session_factory, sample_channel, sample_downloader,
         sample_series, mock_transmission,

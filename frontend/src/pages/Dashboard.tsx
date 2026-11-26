@@ -980,6 +980,11 @@ export default function Dashboard() {
                         {' · '}
                         {timeAgo(p.created_at)}
                       </div>
+                      {p.status === 'failed' && p.error_message && (
+                        <div style={{ fontSize: 12, color: 'var(--rr-error)', marginTop: 4 }}>
+                          {p.error_message}
+                        </div>
+                      )}
                     </div>
                     <Space size={4} style={{ flexShrink: 0 }}>
                       <Button aria-label={t('organize.detail')}
