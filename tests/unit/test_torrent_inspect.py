@@ -353,6 +353,30 @@ def test_analyze_short_episodes_below_sample_threshold_stay_episodes():
     assert [p["episode"] for p in report.file_parses] == [1, 2, 3]
 
 
+def test_analyze_non_video_files_never_count_as_main_videos():
+    # Scans/audio also match bare episode-like numbers (e.g. "Book/01.webp");
+    # only actual video extensions may enter scope, ranges or work clusters.
+    files = [_f(f"Show S01/Show S01E{ep:02d}.mkv") for ep in range(1, 4)]
+    files += [
+        _f("BK/Vol1/Book/01.webp", 12 * MB),
+        _f("BK/Vol2/Case/01.webp", 20 * MB),
+        _f("Extra/Scan S3/Vol 1/01.png", 9 * MB),
+        _f("Extra/CD/CD1/01 - Theme.flac", 30 * MB),
+    ]
+    report = analyze_torrent_files(files)
+    assert report.video_file_count == 3
+    assert report.scope == "season"
+    assert report.is_batch is True
+    assert report.episode_start == 1 and report.episode_end == 3
+    assert [cluster.title for cluster in report.clusters] == ["Show"]
+    roles = {entry["path"]: entry["file_role"] for entry in report.file_entries}
+    assert roles["BK/Vol1/Book/01.webp"] == "extra"
+    assert roles["Extra/Scan S3/Vol 1/01.png"] == "extra"
+    assert {p["path"] for p in report.file_parses} == {
+        f"Show S01/Show S01E{ep:02d}.mkv" for ep in range(1, 4)
+    }
+
+
 def test_analyze_sample_mixed_in_still_season():
     files = [_f(f"Show S01/Show S01E{ep:02d}.mkv") for ep in range(1, 13)]
     files.append(_f("Show S01/Sample/Show S01 sample.mkv", 80 * MB))  # sample dir

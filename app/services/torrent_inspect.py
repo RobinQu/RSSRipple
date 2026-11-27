@@ -375,7 +375,10 @@ def _is_main_video(entry: dict) -> bool:
         return False
     if classify_file(name, size) == "video":
         return True
-    if classify_file(name, size) != "extra" or is_extra_video_path(name):
+    # Below-threshold videos classify as "extra" only because of their size.
+    # Re-check without the size so images/audio (which also parse episode-like
+    # bare numbers such as "Scan/01.png") can never become main videos.
+    if classify_file(name, None) != "video" or is_extra_video_path(name):
         return False
     _season, episode = extract_season_episode_from_path(name)
     return episode is not None
